@@ -53,4 +53,39 @@ public static class IngestErrors
     /// </summary>
     public static Error UnstorableMember(string member) =>
         new(UnstorableMemberType, "The log cannot store this member's value", $"member={member}");
+
+    /// <summary>The slug of <see cref="AlreadyRevised"/>, which the submit route maps to 409 (R8.77).</summary>
+    public const string AlreadyRevisedType = "curia/ingest/already-revised";
+
+    /// <summary>The slug of <see cref="RevisionInFlight"/>, which the submit route maps to 409 (R8.77).</summary>
+    public const string RevisionInFlightType = "curia/ingest/revision-in-flight";
+
+    /// <summary>The slug of <see cref="RevisionGateUnavailable"/>, which the submit route maps to 503 (R8.77).</summary>
+    public const string RevisionGateUnavailableType = "curia/ingest/revision-gate-unavailable";
+
+    /// <summary>The slug of <see cref="AlreadyRecorded"/>, which the submit route maps to 409 (R8.78).</summary>
+    public const string AlreadyRecordedType = "curia/ingest/already-recorded";
+
+    /// <summary>R8.77: the Forum already serves a revision of this post. The detail is <c>successor=&lt;post id&gt;</c> and nothing an author wrote.</summary>
+    public static Error AlreadyRevised(string successorPostId) =>
+        new(AlreadyRevisedType, "This post already has a revision", $"successor={successorPostId}");
+
+    /// <summary>R8.77: another revision of this post is being recorded. Retryable; names no post and no digest.</summary>
+    public static Error RevisionInFlight() =>
+        new(RevisionInFlightType, "Another revision of this post is being recorded", "retry once the other revision is recorded (R8.77)");
+
+    /// <summary>R8.77: the revision gate's store could not be reached. Nothing was stored; the detail is not served.</summary>
+    public static Error RevisionGateUnavailable() =>
+        new(RevisionGateUnavailableType, "The revision gate could not be reached; nothing was stored");
+
+    /// <summary>The slug of <see cref="RevisionCheckUnavailable"/>, which the submit route maps to 503 (R8.77).</summary>
+    public const string RevisionCheckUnavailableType = "curia/ingest/revision-check-unavailable";
+
+    /// <summary>R8.77: the post a revision names is not in the log read under the gate, so the successor check cannot be made. Nothing was stored; the detail is not served.</summary>
+    public static Error RevisionCheckUnavailable() =>
+        new(RevisionCheckUnavailableType, "The post this revision names could not be read; nothing was stored");
+
+    /// <summary>R8.78: the Forum already stores a post of this digest. The detail is <c>post=&lt;post id&gt;</c> and nothing an author wrote.</summary>
+    public static Error AlreadyRecorded(string postId) =>
+        new(AlreadyRecordedType, "This post is already recorded", $"post={postId}");
 }

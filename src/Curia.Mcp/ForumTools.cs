@@ -78,6 +78,9 @@ internal sealed partial class ForumTools(
 
     private readonly Queue<string> _servedOrder = new();
 
+    /// <summary>Guards <see cref="_served"/> and <see cref="_servedOrder"/>: a host may issue parallel tool calls on one session (R11.61's case), and a dictionary is not safe under two writers.</summary>
+    private readonly object _servedLock = new();
+
     /// <summary>
     /// One JWKS fetch per author per call, not per post. A thread is usually a handful of authors
     /// and a great many posts, and the alternative dials the Forum once per post.
@@ -281,7 +284,9 @@ internal sealed partial class ForumTools(
         if (ArgumentGuards.DigestForm(expectedDigest, nameof(expectedDigest)) is { } refusedForm) return refusedForm;
 
         // R11.29: the document this session's read put in the model's context, when there is one.
-        var read = _served.TryGetValue(postId, out var remembered);
+        ProvenancePost? remembered;
+        bool read;
+        lock (_servedLock) read = _served.TryGetValue(postId, out remembered);
 
         var verification = read
             ? await _verifier.VerifyAsync(remembered!, cancellationToken).ConfigureAwait(false)
@@ -399,12 +404,15 @@ internal sealed partial class ForumTools(
     /// <summary>Keeps the served post, evicting the oldest once the session's cap is reached.</summary>
     private void Remember(ProvenancePost post)
     {
-        if (_served.ContainsKey(post.PostId)) return;
+        lock (_servedLock)
+        {
+            if (_served.ContainsKey(post.PostId)) return;
 
-        _served[post.PostId] = post;
-        _servedOrder.Enqueue(post.PostId);
+            _served[post.PostId] = post;
+            _servedOrder.Enqueue(post.PostId);
 
-        while (_servedOrder.Count > RememberedPosts) _served.Remove(_servedOrder.Dequeue());
+            while (_servedOrder.Count > RememberedPosts) _served.Remove(_servedOrder.Dequeue());
+        }
     }
 
     /// <summary>

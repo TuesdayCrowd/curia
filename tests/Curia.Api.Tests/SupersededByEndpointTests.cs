@@ -219,7 +219,9 @@ public sealed class SupersededByEndpointTests(ForumFixture forum) : IClassFixtur
         // (v) two revisions of one original: a fork, both in log order.
         var v = await OriginalAsync("Draft five");
         var vFirst = await PostAsync(http, v.Author, v.Author.Agent.SignRevision(board, "Corrected five, one way.", v.Original.PostId, v.Original.Digest, forum.Now), ct);
-        var vSecond = await PostAsync(http, v.Author, v.Author.Agent.SignRevision(board, "Corrected five, another way.", v.Original.PostId, v.Original.Digest, forum.Now), ct);
+        // Stored, not posted: the Forum refuses a second revision of a served prev (R8.77), and a log can still hold the fork.
+        var (vSecondId, vSecondDigest) = await forum.AppendStoredPostAsync(v.Author.Agent.SignRevision(board, "Corrected five, another way.", v.Original.PostId, v.Original.Digest, forum.Now), ct);
+        var vSecond = new Posted(vSecondId, vSecondDigest);
 
         // Written from R9.28 by hand: what the test posted, by the rule.
         var expected = new (Posted Original, string[] Digests)[]

@@ -132,10 +132,8 @@ public sealed partial class RecheckForkEndToEndTests(KestrelForumFixture forum) 
         // The second revision of the same post, signed in process: curia_revise refuses a post already superseded (G34).
         var draft = new PostDraft { Kind = PostKind.Revision, Board = board, Body = "Second correction: which wren, then?", Parent = questionId, Prev = question };
         Assert.True(SubmissionBuilder.Build(asker, draft, DateTimeOffset.UtcNow).TryGetValue(out var submission, out var buildError), buildError?.Detail);
-        var forkSession = new ForumSession(new ForumClient(forum.Client, forum.Client.BaseAddress!), asker, new ProfileStore(_home), forum.Clock);
-        var posted = await forkSession.SubmitAsync(submission!.Wire, Ct);
-        Assert.True(posted.TryGetValue(out var receipt, out var refusal), refusal?.Summary);
-        var second = receipt!.Digest;
+        // Appended as a stored post: the Forum now refuses a second revision of a served prev (R8.77), and this fixture needs the fork a log can still hold.
+        var (_, second) = await forum.AppendStoredPostAsync(submission!.Wire.ToArray(), Ct);
 
         // An answer whose acceptance was switched away: two answers to the question, the first accepted and then the second.
         var firstAnswer = Flatten(await answererTools.AnswerAsync(questionId, "It is a house wren.", null, Ct));

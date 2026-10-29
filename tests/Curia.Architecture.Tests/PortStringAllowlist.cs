@@ -17,6 +17,7 @@ internal static class PortStringAllowlist
     internal static readonly ImmutableArray<(string Member, string Parameter, string Reason)> Rows =
     [
         ("Curia.Application.Credentials.EnrollmentErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail"),
+        ("Curia.Application.Ingest.IngestErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail (R8.77, R8.78: a post id the Forum read from its own log)"),
         ("Curia.Application.Ports.AuthorKeyErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail"),
         ("Curia.Application.Credentials.AttestOwner.RecordAsync", "reason", "not an identifier the rule retypes: the operator's own free-text reason, given out of band to curia-operator, which no caller of the Forum reaches; AttestOwner checks it before the attestation is recorded"),
         ("Curia.Application.Credentials.RetireKey..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under"),
@@ -32,6 +33,7 @@ internal static class PortStringAllowlist
         ("Curia.Application.Ports.FlagDetail..ctor", "Rationale", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): stored rationales predate R10.68"),
         ("Curia.Application.Ports.FlagDetail..ctor", "Salt", "a Forum-minted value: the commitment's salt"),
         ("Curia.Application.Ports.IFlagRaiserGate.TryEnterAsync", "raisedBy", "a Forum-minted value: the access token's sub, read after the issuer's signature verifies (B2's AccessTokenClaims.Jti precedent); the issuer signs only for an enrolled identifier"),
+        ("Curia.Application.Ports.IRevisionGate.TryEnterAsync", "prevDigest", "a Forum-minted value: a digest the route has already found in the log (RevisesOwnPost compared it ordinally with projected posts' digests, which the Forum computed), used only as part of an advisory-lock key and never stored or looked up (IFlagRaiserGate.TryEnterAsync's raisedBy and IVectorIndex.UpsertAsync's digest precedents)"),
         ("Curia.Application.Ports.ITextEmbedder.Embed", "text", "free text that is embedded or screened and never stored or looked up"),
         ("Curia.Application.Ports.IVectorIndex.UpsertAsync", "digest", "a Forum-minted value: the digest computed by the Forum"),
         ("Curia.Application.Ports.IVectorIndex.UpsertAsync", "postId", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): EmbeddingIndexer passes a projected post's id (spec 4.8, precedence)"),

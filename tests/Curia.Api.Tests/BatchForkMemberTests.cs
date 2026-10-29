@@ -117,7 +117,7 @@ public sealed class BatchForkMemberTests(ForumFixture forum) : IClassFixture<For
         var author = await EnrolAsync("fork");
         var question = await QuestionAsync(author, board, "A forked question");
         var r1 = await ReviseAsync(author, board, question, "Corrected one way.");
-        var r2 = await ReviseAsync(author, board, question, "Corrected another way.");
+        var r2 = await ReviseStoredAsync(author, board, question, "Corrected another way.");
 
         var items = await BatchAsync(r1.Digest, r2.Digest);
 
@@ -136,7 +136,7 @@ public sealed class BatchForkMemberTests(ForumFixture forum) : IClassFixture<For
         var author = await EnrolAsync("fork3");
         var question = await QuestionAsync(author, board, "A question forked three ways");
         var r1 = await ReviseAsync(author, board, question, "Branch one.");
-        var r2 = await ReviseAsync(author, board, question, "Branch two.");
+        var r2 = await ReviseStoredAsync(author, board, question, "Branch two.");
         var r3 = await ReviseStoredAsync(author, board, question, "Branch three.");
 
         var items = await BatchAsync(r1.Digest, r2.Digest, r3.Digest);
@@ -216,7 +216,7 @@ public sealed class BatchForkMemberTests(ForumFixture forum) : IClassFixture<For
         var author = await EnrolAsync("hidden");
         var question = await QuestionAsync(author, board, "A question with a hidden branch");
         var r1 = await ReviseAsync(author, board, question, "The branch that stays.");
-        var r2 = await ReviseAsync(author, board, question, "The branch that goes.");
+        var r2 = await ReviseStoredAsync(author, board, question, "The branch that goes.");
         if (how == "withheld") await forum.WithholdAsync(r2.PostId, Ct);
         else await forum.QuarantineAsync(r2.PostId, Ct);
 
@@ -254,7 +254,7 @@ public sealed class BatchForkMemberTests(ForumFixture forum) : IClassFixture<For
         var author = await EnrolAsync("branch");
         var question = await QuestionAsync(author, board, "A question with a revised branch");
         var r1 = await ReviseAsync(author, board, question, "Branch one.");
-        var r2 = await ReviseAsync(author, board, question, "Branch two.");
+        var r2 = await ReviseStoredAsync(author, board, question, "Branch two.");
         var r1b = await ReviseStoredAsync(author, board, r1, "Branch one, corrected again.");
 
         var items = await BatchAsync(r1.Digest, r2.Digest, r1b.Digest);
@@ -294,7 +294,7 @@ public sealed class BatchForkMemberTests(ForumFixture forum) : IClassFixture<For
         var author = await EnrolAsync("orig");
         var question = await QuestionAsync(author, board, "A question forked two ways");
         var r1 = await ReviseAsync(author, board, question, "Branch one.");
-        var r2 = await ReviseAsync(author, board, question, "Branch two.");
+        var r2 = await ReviseStoredAsync(author, board, question, "Branch two.");
 
         var item = Assert.Single(await BatchAsync(question.Digest));
 
@@ -310,7 +310,7 @@ public sealed class BatchForkMemberTests(ForumFixture forum) : IClassFixture<For
         var author = await EnrolAsync("single");
         var question = await QuestionAsync(author, board, "A question forked two ways, read singly");
         var r1 = await ReviseAsync(author, board, question, "Branch one.");
-        await ReviseAsync(author, board, question, "Branch two.");
+        await ReviseStoredAsync(author, board, question, "Branch two.");
 
         // Control: the batch item for the same post carries the member (the call fails by name if it does not), so the name is real
         // and the absence below is the single read's own.
@@ -332,7 +332,7 @@ public sealed class BatchForkMemberTests(ForumFixture forum) : IClassFixture<For
 
         Assert.Empty(ForkOf(Assert.Single(await BatchAsync(r1.Digest))));
 
-        var r2 = await ReviseAsync(author, board, question, "Branch two, arriving later.");
+        var r2 = await ReviseStoredAsync(author, board, question, "Branch two, arriving later.");
 
         var listed = ForkOf(Assert.Single(await BatchAsync(r1.Digest)));
         Assert.Equal((r2.Digest, (string?)r2.PostId), Assert.Single(listed));
@@ -345,7 +345,7 @@ public sealed class BatchForkMemberTests(ForumFixture forum) : IClassFixture<For
         var author = await EnrolAsync("ident");
         var question = await QuestionAsync(author, board, "A question forked two ways, identified");
         var r1 = await ReviseAsync(author, board, question, "Branch one.");
-        var r2 = await ReviseAsync(author, board, question, "Branch two.");
+        var r2 = await ReviseStoredAsync(author, board, question, "Branch two.");
 
         var listed = ForkOf(Assert.Single(await BatchAsync(r1.Digest)));
         Assert.Single(listed);

@@ -70,9 +70,14 @@ public sealed class DuplicateCheck
                 : Result<DuplicateAssessment>.Fail(embedError);
         }
 
-        var candidates = SearchProjector.Fold(log)
-            .Where(p => p.Kind == envelope.Kind && string.Equals(p.Board, envelope.Board, StringComparison.Ordinal))
-            .ToDictionary(p => p.Digest, StringComparer.Ordinal);
+        // R9.47: two stored posts of one digest resolve to the first in log order; a repeat never throws.
+        var candidates = new Dictionary<string, SearchablePost>(StringComparer.Ordinal);
+        foreach (var post in SearchProjector.Fold(log)
+            .Where(p => p.Kind == envelope.Kind && string.Equals(p.Board, envelope.Board, StringComparison.Ordinal)))
+        {
+            candidates.TryAdd(post.Digest, post);
+        }
+
         if (candidates.Count == 0)
             return Result<DuplicateAssessment>.Ok(none);
 

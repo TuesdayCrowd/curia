@@ -1031,6 +1031,15 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal (string ParentId, string Kind)? RefusesAsParentNotAQuestion { get; set; }
 
+    /// <summary>
+    /// R8.77 and R8.78 (errata G45): refuse every <c>POST /v1/posts</c> as the Forum refuses with one of its three <c>409</c>s on a submission, or with the
+    /// <c>503</c> of a revision gate it cannot reach, and record nothing (RVO33, RVO36 and RVO51 read what it does).
+    /// </summary>
+    internal StubIngestRefusal? RefusesSubmissionsAs { get; set; }
+
+    /// <summary>R8.77 and R8.78: the post id a <see cref="RefusesSubmissionsAs"/> refusal names (the successor, or the earlier copy).</summary>
+    internal string RefusalNamedPostId { get; set; } = SubmittedPostId;
+
     /// <summary>PR 2: signs <paramref name="draft"/> with the stub's agent, as a client would, without serving it.</summary>
     internal SignedSubmission SignDraft(PostDraft draft) =>
         SubmissionBuilder.Build(_agent, draft, DateTimeOffset.UnixEpoch).TryGetValue(out var signed, out var error)
@@ -1719,6 +1728,25 @@ internal sealed class StubLog : IDisposable
                         null);
                 }
 
+                // R8.77 and R8.78 (errata G45): the refusals of a second revision and of an identical resubmission, worded as IngestErrors words them
+                // (the wire text is held to the factory by StubIngestRefusalFidelityTests, RVO36 and RVO51).
+                if (log.RefusesSubmissionsAs is { } ingestRefusal)
+                {
+                    var named = log.RefusalNamedPostId;
+                    return ingestRefusal switch
+                    {
+                        StubIngestRefusal.AlreadyRevised => (HttpStatusCode.Conflict,
+                            $$"""{"type":"curia/ingest/already-revised","title":"This post already has a revision","detail":{{JsonString("successor=" + named)}}}""", null),
+                        StubIngestRefusal.RevisionInFlight => (HttpStatusCode.Conflict,
+                            """{"type":"curia/ingest/revision-in-flight","title":"Another revision of this post is being recorded","detail":"retry once the other revision is recorded (R8.77)"}""", null),
+                        StubIngestRefusal.RevisionGateUnavailable => (HttpStatusCode.ServiceUnavailable,
+                            """{"type":"curia/ingest/revision-gate-unavailable","title":"The revision gate could not be reached; nothing was stored"}""", null),
+                        StubIngestRefusal.AlreadyRecorded => (HttpStatusCode.Conflict,
+                            $$"""{"type":"curia/ingest/already-recorded","title":"This post is already recorded","detail":{{JsonString("post=" + named)}}}""", null),
+                        _ => throw new InvalidOperationException("an unknown StubIngestRefusal"),
+                    };
+                }
+
                 // The Forum verifies against the token's subject, not the envelope's claim about
                 // itself (ForumEndpoints.SubmitAsync, VERIFY). Modelled so a client that signed as one
                 // agent while holding another's token is refused here as it would be there.
@@ -1993,4 +2021,20 @@ internal enum StubAcceptedAnswer
 
     /// <summary>The member names the stub's answer by digest alone (a Forum that does not serve that answer).</summary>
     StandingUnserved,
+}
+
+/// <summary>R8.77 and R8.78 (errata G45): which refusal <see cref="StubLog.RefusesSubmissionsAs"/> asks the stub to answer a submission with.</summary>
+internal enum StubIngestRefusal
+{
+    /// <summary><c>409 curia/ingest/already-revised</c>, detail <c>successor=&lt;post id&gt;</c>.</summary>
+    AlreadyRevised,
+
+    /// <summary><c>409 curia/ingest/revision-in-flight</c>.</summary>
+    RevisionInFlight,
+
+    /// <summary><c>503 curia/ingest/revision-gate-unavailable</c>.</summary>
+    RevisionGateUnavailable,
+
+    /// <summary><c>409 curia/ingest/already-recorded</c>, detail <c>post=&lt;post id&gt;</c>.</summary>
+    AlreadyRecorded,
 }

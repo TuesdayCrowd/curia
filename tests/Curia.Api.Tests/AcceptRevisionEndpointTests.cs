@@ -424,7 +424,9 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
     {
         var scene = await SceneAsync();
         var r = await ReviseAsync(scene, scene.Answer1, $"A first correction about {scene.Term}.");
-        var c = await ReviseAsync(scene, scene.Answer1, $"A second correction about {scene.Term}.");
+        // Stored, not posted: the Forum refuses a second revision of a served prev (R8.77), and a log can still hold the fork.
+        var (cId, cDigest) = await forum.AppendStoredPostAsync(scene.Answerer.Agent.SignRevision(scene.Board, $"A second correction about {scene.Term}.", scene.Answer1.PostId, scene.Answer1.Digest, forum.Now), Ct);
+        var c = new ScenePost(cId, cDigest);
 
         await AcceptedAsync(scene.Asker, r.PostId);
         var toC = await AcceptedAsync(scene.Asker, c.PostId);

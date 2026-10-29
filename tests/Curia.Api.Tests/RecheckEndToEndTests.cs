@@ -201,9 +201,8 @@ public sealed partial class RecheckEndToEndTests(KestrelForumFixture forum) : IC
         // process through the client library: the fork the Forum cannot prevent and the reference client will not make.
         var draft = new PostDraft { Kind = PostKind.Revision, Board = board, Body = "Second correction: which wren, then?", Parent = postId, Prev = question };
         Assert.True(SubmissionBuilder.Build(agent, draft, DateTimeOffset.UtcNow).TryGetValue(out var submission, out var buildError), buildError?.Detail);
-        var forkSession = new ForumSession(new ForumClient(forum.Client, forum.Client.BaseAddress!), agent, new ProfileStore(_home), forum.Clock);
-        var posted = await forkSession.SubmitAsync(submission!.Wire, Ct);
-        Assert.True(posted.TryGetValue(out _, out var refusal), refusal?.Summary);
+        // Appended as a stored post: the Forum now refuses a second revision of a served prev (R8.77), and this fixture needs the fork a log can still hold.
+        _ = await forum.AppendStoredPostAsync(submission!.Wire.ToArray(), Ct);
 
         var revisionIds = await RevisionIdsOfAsync(question);
         Assert.Equal(2, revisionIds.Length);

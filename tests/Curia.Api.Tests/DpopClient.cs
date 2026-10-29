@@ -272,6 +272,10 @@ internal sealed class DpopClient
                 Content = new StringContent(await sent.Content.ReadAsStringAsync(ct)),
             };
 
+            // The buffered copy keeps the content type the Forum sent: a StringContent defaults to text/plain, and a fact about a
+            // problem document's media type (PR 1's RVO14, RVO49) reads it from here.
+            buffered.Content.Headers.ContentType = sent.Content.Headers.ContentType;
+
             foreach (var header in sent.Headers)
                 buffered.Headers.TryAddWithoutValidation(header.Key, header.Value);
 

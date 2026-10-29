@@ -728,6 +728,7 @@ public static class ForumEndpoints
         IIngestPipeline pipeline,
         IPolicyDecisionPoint pdp,
         IEventReader events,
+        IRevisionGate revisionGate,
         EmbeddingIndexer indexer,
         DuplicateCheck dedupe,
         AccessTokenValidationContext authn,
@@ -783,7 +784,7 @@ public static class ForumEndpoints
             async token =>
             {
                 var response = await SubmitAttemptAsync(
-                    a!, author!, pipeline, pdp, events, indexer, dedupe, http, clock, token).ConfigureAwait(false);
+                    a!, author!, pipeline, pdp, events, revisionGate, indexer, dedupe, http, clock, token).ConfigureAwait(false);
                 return response is null
                     ? Result<IResult>.Fail(new Error(DomainErrors.ConditionConflictType, "The author's stream moved"))
                     : Result<IResult>.Ok(response);
@@ -806,6 +807,7 @@ public static class ForumEndpoints
         IIngestPipeline pipeline,
         IPolicyDecisionPoint pdp,
         IEventReader events,
+        IRevisionGate revisionGate,
         EmbeddingIndexer indexer,
         DuplicateCheck dedupe,
         HttpRequest http,
@@ -858,6 +860,83 @@ public static class ForumEndpoints
                 StatusCodes.Status403Forbidden,
                 Denial(d, $"{d.Reason} tier={tier.Tier}"));
 
+        // R8.78 (errata G45): the same bytes are not recorded twice. The envelope carries its author and a signed nonce, so an
+        // equal digest is the same author and the very bytes; a fresh nonce is a new post. After AUTHORIZE (a caller denied by
+        // tier is told the tier and never whether a post exists), before the parent checks, the near-duplicate check, SCREEN and
+        // PERSIST (nothing is screened, stored or spent). It counts stored posts, not served ones: withheld bytes sent again are
+        // not a correction. The first post of the digest in log order is named, by its id and nothing an author wrote.
+        if (AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } recordedPostId)
+            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(recordedPostId));
+
+        // R8.77 (errata G45): a revision is entered under a gate on its prev. After AUTHORIZE (a stranger is told 403 and never holds the gate or
+        // learns a successor) and before the parent checks, the near-duplicate check, SCREEN and PERSIST. The log AUTHORIZE read is older than any
+        // hold, so the checks are made again on a log read under the hold, and the hold is released when the attempt ends on any path (the
+        // `await using`), after PERSIST has committed or refused. Try, never wait: a held gate is 409 revision-in-flight.
+        if (v.Envelope.Kind is not PostKind.Revision || v.Envelope.Prev is not { Length: > 0 } prevDigest)
+            return await PersistSubmissionAsync(v, log, pipeline, events, indexer, dedupe, http, cancellationToken).ConfigureAwait(false);
+
+        var entered = await revisionGate.TryEnterAsync(prevDigest, cancellationToken).ConfigureAwait(false);
+        if (!entered.TryGetValue(out var held, out var gateError))
+        {
+            return Problem(
+                string.Equals(gateError!.Type, IngestErrors.RevisionInFlightType, StringComparison.Ordinal)
+                    ? StatusCodes.Status409Conflict
+                    : StatusCodes.Status503ServiceUnavailable,
+                gateError);
+        }
+
+        await using (held!.ConfigureAwait(false))
+        {
+            // ReadEventsAsync answers an empty log when the store cannot be read, which for this check would mean "no successor" and allow.
+            var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!read.TryGetValue(out var fresh, out var readError))
+                return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
+
+            if (RevisionRefusal(fresh!, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
+                return refusal;
+
+            return await PersistSubmissionAsync(v, fresh!, pipeline, events, indexer, dedupe, http, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// R8.77, R8.78: what a revision is refused with on the log as it stands under the hold, or <see langword="null"/> to go on. The same bytes are
+    /// <c>already-recorded</c> (stored, served or not); a revision of a post the Forum already serves a revision of is <c>already-revised</c>, naming the
+    /// first served successor in log order. "Served" is <see cref="CorrectionIndex.For"/>'s alone (through <see cref="Servable"/>), so this check, a
+    /// post's <c>superseded_by</c> and the batch's <c>successors</c> cannot answer differently (R9.32); a successor the Forum does not serve does not count.
+    /// </summary>
+    private static IResult? RevisionRefusal(IReadOnlyList<AppendedEvent> fresh, string prevDigest, string digest)
+    {
+        if (AlreadyRecordedPost(fresh, digest) is { } recordedPostId)
+            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(recordedPostId));
+
+        var posts = PostProjector.Fold(fresh);
+        var original = posts.FirstOrDefault(p => string.Equals(p.Digest, prevDigest, StringComparison.Ordinal));
+
+        // AUTHORIZE found this post in a log that has only grown, so its absence is a log this Forum cannot read now, never a pass.
+        if (original is null)
+            return Problem(StatusCodes.Status503ServiceUnavailable, IngestErrors.RevisionCheckUnavailable());
+
+        var served = CorrectionIndex.Fold(posts, Servable(fresh)).For(original).FirstOrDefault(successor => successor.PostId is not null);
+        return served is { PostId: { } successorPostId }
+            ? Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRevised(successorPostId))
+            : null;
+    }
+
+    /// <summary>
+    /// The rest of <see cref="SubmitAttemptAsync"/>, decided on <paramref name="log"/>: the parent checks, the signal refusal, the near-duplicate
+    /// check, SCREEN and PERSIST, then the vector index. <see langword="null"/> when PERSIST's append found the author's stream moved (R6.56).
+    /// </summary>
+    private static async Task<IResult?> PersistSubmissionAsync(
+        VerifiedSubmission v,
+        IReadOnlyList<AppendedEvent> log,
+        IIngestPipeline pipeline,
+        IEventReader events,
+        EmbeddingIndexer indexer,
+        DuplicateCheck dedupe,
+        HttpRequest http,
+        CancellationToken cancellationToken)
+    {
         // R8.70 (errata G38): an answer's parent is a question that exists and a comment's is a post that exists. After the
         // authorization above, so a caller denied by tier is never told whether a post exists; before the signal refusal, the
         // duplicate check, SCREEN and PERSIST, so nothing is screened or stored for a post that is refused. An unreadable log is
@@ -1837,6 +1916,10 @@ public static class ForumEndpoints
                 "R8.20: re-sign the question with not_duplicate: true and a duplicate_rationale; the override is logged and counts against you if later judged wrong"),
             statusCode: StatusCodes.Status409Conflict);
     }
+
+    /// <summary>R8.78: the id of the first stored post (served or not) whose digest is <paramref name="digest"/>, in log order; <see langword="null"/> when none.</summary>
+    private static string? AlreadyRecordedPost(IReadOnlyList<AppendedEvent> log, string digest) =>
+        PostProjector.Fold(log).FirstOrDefault(p => string.Equals(p.Digest, digest, StringComparison.Ordinal))?.PostId;
 
     private static bool RevisesOwnPost(IReadOnlyList<AppendedEvent> log, string? prev, string author)
     {
