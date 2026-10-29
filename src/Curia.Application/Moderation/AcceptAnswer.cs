@@ -32,8 +32,7 @@ public sealed record Acceptance(string ThreadRoot, string AnswerId, DateTimeOffs
 public sealed class AcceptAnswer
 {
     /// <summary>
-    /// R8.79 (errata G46): how many passes <see cref="RecordAsync"/> decides in before it refuses the acceptance as contended. Declared ahead of
-    /// the loop: until Task 11 the use case still looks twice and no more.
+    /// R8.79 (errata G46): how many passes <see cref="RecordAsync"/> decides in before it refuses the acceptance as contended. Each pass is a fresh read.
     /// </summary>
     public const int Attempts = 8;
 
@@ -75,15 +74,19 @@ public sealed class AcceptAnswer
         if (!ActorId.Create(acceptedBy.Value).TryGetValue(out var actor, out var actorError))
             return Result<Acceptance>.Fail(actorError!);
 
-        // R8.68: one decision, and on a lost race one re-read and a second decision, never a loop. Two callers
-        // accepting one answer end as one event (the loser's second pass finds it standing); two callers
-        // accepting different answers end latest-wins, as before.
-        var first = await DecideAsync(aggregate, threadRoot, answerId, acceptedBy, actor, cancellationToken).ConfigureAwait(false);
-        if (first.TryGetValue(out _, out var firstError)
-            || !string.Equals(firstError!.Type, DomainErrors.ConcurrencyConflictType, StringComparison.Ordinal))
-            return first;
+        // R8.79: a pass is lost only to an append by another caller, and a caller appends at most once, so a burst of up to Attempts
+        // callers all finish with a real answer: a pass that reads its answer standing answers the replay (R8.68), a pass that appends
+        // answers 201 naming what stood at its own read (R8.71), and only a lost append starts another pass. Any other failure ends the
+        // call unretried. Past the bound nothing is recorded and the caller is told so (AcceptErrors.Contended), never given the store's words.
+        for (var pass = 0; pass < Attempts; pass++)
+        {
+            var decided = await DecideAsync(aggregate, threadRoot, answerId, acceptedBy, actor, cancellationToken).ConfigureAwait(false);
+            if (decided.TryGetValue(out _, out var error)
+                || !string.Equals(error!.Type, DomainErrors.ConcurrencyConflictType, StringComparison.Ordinal))
+                return decided;
+        }
 
-        return await DecideAsync(aggregate, threadRoot, answerId, acceptedBy, actor, cancellationToken).ConfigureAwait(false);
+        return Result<Acceptance>.Fail(AcceptErrors.Contended(threadRoot));
     }
 
     private async Task<Result<Acceptance>> DecideAsync(

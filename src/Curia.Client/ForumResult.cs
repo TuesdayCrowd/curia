@@ -141,12 +141,20 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         RefusalKind.Conflict => Said($"{Error.Title}{Detailed}"),
         RefusalKind.Transport => Said($"{Error.Title}{Detailed}"),
         RefusalKind.Malformed => Said($"{Error.Title}{Detailed}"),
+        // R8.79 (errata G46): the Forum declined to keep trying an acceptance whose thread kept moving. Told apart by the type it issues. Nothing was
+        // recorded and the same acceptance may be sent again; this is neither a tier denial nor a spent budget. Shared by `curia` and `curia-mcp`.
+        RefusalKind.ServerFault when Error.Type == AcceptContendedType => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Type}){Detailed}. Nothing was recorded: the acceptance may be sent again. ")
+            .Append($"This is neither a tier denial nor a spent budget.")
+            .ToString(),
         RefusalKind.ServerFault => Said($"{Error.Title} ({Error.Type}){Detailed}"),
         RefusalKind.Local => Said($"{Error.Title}{Detailed}"),
         _ => Said($"{Error.Title} ({Error.Type})"),
     };
 
     /// <summary>The post id a <c>post=</c> or <c>successor=</c> detail names, or the whole detail where it is not in that form; the caller quotes it.</summary>
+    private const string AcceptContendedType = "curia/accept/contended";
+
     private string? NamedPostId(string prefix) =>
         Error.Detail is { } d && d.StartsWith(prefix, StringComparison.Ordinal) ? d[prefix.Length..] : Error.Detail;
 

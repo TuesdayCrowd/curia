@@ -5,8 +5,7 @@ using Curia.Domain.Primitives.Boundary;
 namespace Curia.Application.Moderation;
 
 /// <summary>
-/// The refusals of an acceptance that are the use case's own (R8.79, errata G46). Declared ahead of the loop that returns it;
-/// nothing returns it yet.
+/// The refusals of an acceptance that are the use case's own (R8.79, errata G46). Returned by the loop in <see cref="AcceptAnswer"/> past its bound.
 /// </summary>
 public static class AcceptErrors
 {

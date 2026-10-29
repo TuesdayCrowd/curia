@@ -1818,8 +1818,13 @@ public static class ForumEndpoints
             .RecordAsync(threadRoot!, answerId!, acceptor!, cancellationToken)
             .ConfigureAwait(false);
 
+        // R8.79 (errata G46): the loop's bound is a retryable 503 naming the thread and nothing the store said; every other failure stays a 500.
         if (!recorded.TryGetValue(out var acceptance, out var recordError))
-            return Problem(StatusCodes.Status500InternalServerError, recordError!);
+            return Problem(
+                string.Equals(recordError!.Type, AcceptErrors.ContendedType, StringComparison.Ordinal)
+                    ? StatusCodes.Status503ServiceUnavailable
+                    : StatusCodes.Status500InternalServerError,
+                recordError!);
 
         // R8.68 (errata G33): 201 for an acceptance this call recorded, 200 for the one that already stood, with its
         // first time; `already_accepted` is always present, so a reader never has to infer a replay from the status.
