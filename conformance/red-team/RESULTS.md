@@ -32,7 +32,7 @@ credential hit a hard rejection, so a false positive costs an author their submi
 
 ## Known evasions
 
-**18 payloads in `known-evasions.jsonl` defeat these detectors today**, each
+**19 payloads in `known-evasions.jsonl` defeat these detectors today**, each
 with the reason recorded. The detection rate above is computed over `payloads.jsonl`
 only, so it does *not* include them -- which is precisely why they are listed here
 rather than folded into the denominator, where they would depress a number nobody
@@ -58,6 +58,7 @@ Each one, with the reason recorded in the corpus:
 - **`evade-pwd-after-nel`** -- would be ConnectionStringPassword. U+0085 survives SCREEN into the scanned views (it is deleted only in the line-joined view) and is not a line start for the `pwd` form, which knows LF and a lone CR (R10.86, amended 2026-10-29).
 - **`evade-pwd-after-line-separator`** -- would be ConnectionStringPassword. U+2028 survives SCREEN into the scanned views and is not a line start for the `pwd` form (R10.86, amended 2026-10-29).
 - **`evade-pwd-after-paragraph-separator`** -- would be ConnectionStringPassword. U+2029 survives SCREEN into the scanned views and is not a line start for the `pwd` form (R10.86, amended 2026-10-29).
+- **`evade-pwd-in-a-url-query`** -- would be ConnectionStringPassword. A URL query joins its pairs with `&`, which is not a position R10.86 accepts for `pwd` (a `;`, an opening quotation mark or a line start), so a password carried in a query string is let through; the same position rule is what lets a path or a reference after `pwd=` pass.
 
 A recorded evasion that starts being detected fails the build, so this list cannot
 silently go stale.

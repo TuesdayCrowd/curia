@@ -1775,7 +1775,7 @@ public static class ForumEndpoints
                 facts!.CredentialState,
                 ResourceKind.Answer,
                 ActionKind.Accept,
-                AcceptsToday: AcceptsInBudgetWindow(log, subject, now),
+                AcceptsToday: AcceptsInBudgetWindow(log, acceptor!, now),
                 AcceptRecordsNothing: acceptRecordsNothing),
             cancellationToken).ConfigureAwait(false);
 
@@ -2705,7 +2705,7 @@ public static class ForumEndpoints
     /// <c>answer.accepted</c> events' <c>accepted_by</c>. The one helper an eventual gate (register D88) would call.
     /// </summary>
     private static int AcceptsInBudgetWindow(
-        IReadOnlyList<AppendedEvent> log, string agentId, DateTimeOffset now) =>
+        IReadOnlyList<AppendedEvent> log, AgentId agentId, DateTimeOffset now) =>
         AcceptanceProjector.CountBy(log, agentId, now - BudgetWindow);
 
     /// <summary>

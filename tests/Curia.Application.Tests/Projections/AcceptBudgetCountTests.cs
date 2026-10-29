@@ -4,6 +4,7 @@ using Curia.Application.Tests.InMemory;
 using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Tests.Shared;
 using Xunit;
 
@@ -28,6 +29,8 @@ public sealed class AcceptBudgetCountTests
 
     private static T Require<T>(Result<T> result) =>
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+
+    private static AgentId Id(string value) => Require(AgentId.Parse(value));
 
     private static async Task AppendAsync(
         InMemoryEventStore store, ManualTimeProvider clock, DateTimeOffset at, string aggregate, string type, string actor, JsonValue payload, CancellationToken ct)
@@ -78,6 +81,6 @@ public sealed class AcceptBudgetCountTests
 
         Assert.Equal(
             (2, 1, 0),
-            (AcceptanceProjector.CountBy(log, AgentA, Since), AcceptanceProjector.CountBy(log, AgentB, Since), AcceptanceProjector.CountBy(log, AgentC, Since)));
+            (AcceptanceProjector.CountBy(log, Id(AgentA), Since), AcceptanceProjector.CountBy(log, Id(AgentB), Since), AcceptanceProjector.CountBy(log, Id(AgentC), Since)));
     }
 }

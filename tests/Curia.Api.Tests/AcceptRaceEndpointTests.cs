@@ -188,6 +188,15 @@ public sealed class AcceptRaceEndpointTests(AcceptRaceForumFixture forum) : ICla
              stored.Length,
              forum.Conflicting.AppendsTried));
 
+        // G17: a 5xx is served through ServerFault, which carries type and title and a null detail (no value), so the thread's id is not on the wire.
+        using var body = JsonDocument.Parse(lost.Raw);
+        Assert.Equal(
+            (true, true, false, false),
+            (body.RootElement.TryGetProperty("type", out _),
+             body.RootElement.TryGetProperty("title", out _),
+             body.RootElement.TryGetProperty("detail", out var detail) && detail.ValueKind != JsonValueKind.Null,
+             lost.Raw.Contains(scene.Question.PostId, StringComparison.Ordinal)));
+
         var honest = await AcceptRawAsync(scene.Asker, scene.Answer1.PostId);
         Assert.Equal(HttpStatusCode.Created, honest.Status);
     }
