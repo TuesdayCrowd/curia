@@ -257,7 +257,7 @@ internal sealed partial class ForumTools
                 return None("the post it names as its parent did not verify");
 
             if (parentEnvelope.Kind is PostKind.Question)
-                return new OwnText($"The post you named is a revision. The Forum's superseded_by confirms it revises the question {DisplayLiteral.Of(parent.PostId)} (as of this read, the Forum's word; read it first, it may itself have been revised): answer that question instead.");
+                return Supersession.RevisedQuestionPointer(parent.PostId, parent.Provenance.SupersededBy, revision.Provenance.SupersededBy);
 
             if (parentEnvelope.Kind is not PostKind.Revision)
                 return None("the chain ends at a post that is not a question");
