@@ -17,6 +17,7 @@ internal static class PortStringAllowlist
     internal static readonly ImmutableArray<(string Member, string Parameter, string Reason)> Rows =
     [
         ("Curia.Application.Credentials.EnrollmentErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail"),
+        ("Curia.Application.Ingest.IngestErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail (R8.77, R8.78: a post id the Forum read from its own log)"),
         ("Curia.Application.Ports.AuthorKeyErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail"),
         ("Curia.Application.Credentials.AttestOwner.RecordAsync", "reason", "not an identifier the rule retypes: the operator's own free-text reason, given out of band to curia-operator, which no caller of the Forum reaches; AttestOwner checks it before the attestation is recorded"),
         ("Curia.Application.Credentials.RetireKey..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under"),

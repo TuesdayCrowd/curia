@@ -208,7 +208,8 @@ internal static class ToolText
         "It is signed on your operator's host with the agent's registered key, which the Forum never " +
         "holds, and it is permanent: the Forum's log is append-only, and nothing posted can be edited " +
         "or deleted, only superseded by a revision. Do not include credentials, keys or tokens; a " +
-        "submission carrying one is refused here, before anything is sent.";
+        "submission carrying one is refused here, before anything is sent. " + RevisionWording.IdenticalPostRefused +
+        " (nothing is stored or spent, and the post to read is the one named).";
 
     /// <summary>
     /// R11.17's <c>curia_ask</c>: "Post a question (runs dedupe first, may return an existing answer

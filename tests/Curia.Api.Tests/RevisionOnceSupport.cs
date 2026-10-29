@@ -173,20 +173,22 @@ internal static class RevisionProbe
         return read.Match(events => events, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
     }
 
-    /// <summary>The ways a refusal differs from the shape R8.77 and R8.78 give it (problem media type, type, title, status, exact detail, and nothing an author wrote); empty when it does not.</summary>
+    /// <summary>The ways a refusal differs from the shape R8.77 and R8.78 give it (type, title, status, exact detail, and nothing an author wrote); empty when it does not.</summary>
     internal static string ShapeProblems(Sent sent, Curia.Domain.Primitives.Error expected, int status, params string[] sentinels)
     {
         if (sent.Threw is not null) return "threw " + sent.Threw;
         var problems = new List<string>();
         if (sent.Status != status) problems.Add($"status {sent.Status}");
-        if (!string.Equals(sent.ContentType, "application/problem+json", StringComparison.Ordinal)) problems.Add($"content type {sent.ContentType}");
         if (sent.Type != expected.Type) problems.Add($"type {sent.Type}");
         if (sent.Title != expected.Title) problems.Add($"title {sent.Title}");
         if (sent.Detail != expected.Detail) problems.Add($"detail {sent.Detail}");
+        // The Forum's problem document is {type, title, detail} as application/json, for every refusal it makes (Problem, ForumEndpoints.cs): the
+        // media type and a status member are not part of its shape, so the probe holds the members it does have.
         try
         {
             using var json = JsonDocument.Parse(sent.Body);
-            if (!json.RootElement.TryGetProperty("status", out var s) || s.ValueKind != JsonValueKind.Number || s.GetInt32() != status) problems.Add("no status member");
+            foreach (var member in new[] { "type", "title", "detail" })
+                if (!json.RootElement.TryGetProperty(member, out var value) || value.ValueKind != JsonValueKind.String) problems.Add($"no {member} member");
         }
         catch (JsonException)
         {

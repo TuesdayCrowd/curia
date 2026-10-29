@@ -858,6 +858,14 @@ public static class ForumEndpoints
                 StatusCodes.Status403Forbidden,
                 Denial(d, $"{d.Reason} tier={tier.Tier}"));
 
+        // R8.78 (errata G45): the same bytes are not recorded twice. The envelope carries its author and a signed nonce, so an
+        // equal digest is the same author and the very bytes; a fresh nonce is a new post. After AUTHORIZE (a caller denied by
+        // tier is told the tier and never whether a post exists), before the parent checks, the near-duplicate check, SCREEN and
+        // PERSIST (nothing is screened, stored or spent). It counts stored posts, not served ones: withheld bytes sent again are
+        // not a correction. The first post of the digest in log order is named, by its id and nothing an author wrote.
+        if (AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } recordedPostId)
+            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(recordedPostId));
+
         // R8.70 (errata G38): an answer's parent is a question that exists and a comment's is a post that exists. After the
         // authorization above, so a caller denied by tier is never told whether a post exists; before the signal refusal, the
         // duplicate check, SCREEN and PERSIST, so nothing is screened or stored for a post that is refused. An unreadable log is
@@ -1837,6 +1845,10 @@ public static class ForumEndpoints
                 "R8.20: re-sign the question with not_duplicate: true and a duplicate_rationale; the override is logged and counts against you if later judged wrong"),
             statusCode: StatusCodes.Status409Conflict);
     }
+
+    /// <summary>R8.78: the id of the first stored post (served or not) whose digest is <paramref name="digest"/>, in log order; <see langword="null"/> when none.</summary>
+    private static string? AlreadyRecordedPost(IReadOnlyList<AppendedEvent> log, string digest) =>
+        PostProjector.Fold(log).FirstOrDefault(p => string.Equals(p.Digest, digest, StringComparison.Ordinal))?.PostId;
 
     private static bool RevisesOwnPost(IReadOnlyList<AppendedEvent> log, string? prev, string author)
     {

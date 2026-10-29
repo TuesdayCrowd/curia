@@ -110,7 +110,10 @@ public sealed class HybridSearch
         if (query.Cursor is { } presented && !string.Equals(presented.Binding, binding, StringComparison.Ordinal))
             return Result<SearchPage>.Fail(RetrievalCursor.QueryMismatch());
 
-        var corpus = SearchProjector.Fold(log).Where(p => p.Sequence <= bound).ToImmutableArray();
+        // R9.47: a digest is one result. A log that holds two posts of one digest (the same bytes stored twice, before R8.78 refused it)
+        // is read, not repaired: the digest resolves to the first post in log order, and the second copy is served by its id alone.
+        var seenDigests = new HashSet<string>(StringComparer.Ordinal);
+        var corpus = SearchProjector.Fold(log).Where(p => p.Sequence <= bound && seenDigests.Add(p.Digest)).ToImmutableArray();
         var lexicalQuery = new LexicalQuery(query.Text, query.Board?.Value, query.Kinds, query.Tags, query.Author?.Value, Cursor: null, Limit: LexicalSearch.MaximumLimit);
         var lexical = LexicalSearch.Rank(corpus, lexicalQuery);
 
@@ -184,7 +187,11 @@ public sealed class HybridSearch
         if (!nearest.TryGetValue(out var matches, out var nearestError))
             return Result<ImmutableArray<VectorHit>>.Fail(nearestError!);
 
-        var byDigest = corpus.Where(p => LexicalSearch.Matches(p, filters)).ToDictionary(p => p.Digest, StringComparer.Ordinal);
+        // R9.47: two stored posts of one digest resolve to the first in log order; a repeat never throws.
+        var byDigest = new Dictionary<string, SearchablePost>(StringComparer.Ordinal);
+        foreach (var post in corpus.Where(p => LexicalSearch.Matches(p, filters)))
+            byDigest.TryAdd(post.Digest, post);
+
         var hits = ImmutableArray.CreateBuilder<VectorHit>();
         foreach (var match in matches)
         {

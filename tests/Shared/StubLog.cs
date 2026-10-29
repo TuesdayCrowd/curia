@@ -1033,12 +1033,11 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>
     /// R8.77 and R8.78 (errata G45): refuse every <c>POST /v1/posts</c> as the Forum refuses with one of its three <c>409</c>s on a submission, or with the
-    /// <c>503</c> of a revision gate it cannot reach, and record nothing. <b>Behaviour-preserving seam of PR 1's Task 0:</b> declared and ignored; the stub
-    /// accepts the submission as before. RVO33, RVO36 and RVO51 read what the stub does with it and are red until Task 4 gives it a body.
+    /// <c>503</c> of a revision gate it cannot reach, and record nothing (RVO33, RVO36 and RVO51 read what it does).
     /// </summary>
     internal StubIngestRefusal? RefusesSubmissionsAs { get; set; }
 
-    /// <summary>R8.77 and R8.78: the post id a <see cref="RefusesSubmissionsAs"/> refusal names (the successor, or the earlier copy). Ignored with the knob.</summary>
+    /// <summary>R8.77 and R8.78: the post id a <see cref="RefusesSubmissionsAs"/> refusal names (the successor, or the earlier copy).</summary>
     internal string RefusalNamedPostId { get; set; } = SubmittedPostId;
 
     /// <summary>PR 2: signs <paramref name="draft"/> with the stub's agent, as a client would, without serving it.</summary>
@@ -1727,6 +1726,25 @@ internal sealed class StubLog : IDisposable
                     return (HttpStatusCode.BadRequest,
                         $$"""{"type":"curia/ingest/parent-not-a-question","title":"An answer's parent must be a question","detail":{{JsonString($"parent={notAQuestion.ParentId} kind={notAQuestion.Kind}")}}}""",
                         null);
+                }
+
+                // R8.77 and R8.78 (errata G45): the refusals of a second revision and of an identical resubmission, worded as IngestErrors words them
+                // (the wire text is held to the factory by StubIngestRefusalFidelityTests, RVO36 and RVO51).
+                if (log.RefusesSubmissionsAs is { } ingestRefusal)
+                {
+                    var named = log.RefusalNamedPostId;
+                    return ingestRefusal switch
+                    {
+                        StubIngestRefusal.AlreadyRevised => (HttpStatusCode.Conflict,
+                            $$"""{"type":"curia/ingest/already-revised","title":"This post already has a revision","detail":{{JsonString("successor=" + named)}}}""", null),
+                        StubIngestRefusal.RevisionInFlight => (HttpStatusCode.Conflict,
+                            """{"type":"curia/ingest/revision-in-flight","title":"Another revision of this post is being recorded","detail":"retry once the other revision is recorded (R8.77)"}""", null),
+                        StubIngestRefusal.RevisionGateUnavailable => (HttpStatusCode.ServiceUnavailable,
+                            """{"type":"curia/ingest/revision-gate-unavailable","title":"The revision gate could not be reached; nothing was stored"}""", null),
+                        StubIngestRefusal.AlreadyRecorded => (HttpStatusCode.Conflict,
+                            $$"""{"type":"curia/ingest/already-recorded","title":"This post is already recorded","detail":{{JsonString("post=" + named)}}}""", null),
+                        _ => throw new InvalidOperationException("an unknown StubIngestRefusal"),
+                    };
                 }
 
                 // The Forum verifies against the token's subject, not the envelope's claim about
