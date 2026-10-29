@@ -192,9 +192,8 @@ public sealed record DuplicateRefusalDocument(
 public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt, PostServed Served = PostServed.NotStated);
 
 /// <summary>
-/// PR 3's seam (errata G47, R9.49, R10.88), inert until Task 5: the Forum's word, in a flag's receipt, on whether the flagged post is served. Three states,
+/// Errata G47 (R9.49, R10.88): the Forum's word, in a flag's receipt, on whether the flagged post is served. Three states,
 /// told apart: the member absent (<see cref="NotStated"/>, an older Forum), a JSON boolean (its value), and anything else, which is a malformed receipt.
-/// Until Task 5 reads the member, every receipt reads <see cref="NotStated"/>.
 /// </summary>
 public enum PostServed
 {
@@ -654,12 +653,27 @@ internal static class ForumDocuments
     private static int? BasisPoints(JsonValue.Object parent, string name) =>
         ClientJson.WholeNumber(parent, name) is { } value and >= 0 and <= 10_000 ? (int)value : null;
 
-    internal static Result<FlagReceipt> ReadFlagReceipt(JsonValue.Object o) =>
-        ClientJson.String(o, "post_id") is { } id
-        && ClientJson.String(o, "kind") is { } kind
-        && ClientJson.String(o, "raised_at") is { } at
-            ? Result<FlagReceipt>.Ok(new FlagReceipt(id, kind, at))
-            : Result<FlagReceipt>.Fail(ClientErrors.ResponseMalformed("flag receipt"));
+    internal static Result<FlagReceipt> ReadFlagReceipt(JsonValue.Object o)
+    {
+        ArgumentNullException.ThrowIfNull(o);
+
+        // R10.88 (errata G47): post_served is read in three states. Absent is NotStated (an older Forum), a JSON boolean is its value, and anything
+        // else (a string, a number, null, an object, an array) is a malformed receipt: ClientJson.Bool-style reading would turn a receipt that said
+        // something unreadable into "the post is not served". A member this reader does not know is tolerated.
+        PostServed? served = ClientJson.Member(o, "post_served") switch
+        {
+            null => PostServed.NotStated,
+            JsonValue.Bool b => b.Value ? PostServed.Served : PostServed.NotServed,
+            _ => null,
+        };
+
+        return ClientJson.String(o, "post_id") is { } id
+            && ClientJson.String(o, "kind") is { } kind
+            && ClientJson.String(o, "raised_at") is { } at
+            && served is { } state
+                ? Result<FlagReceipt>.Ok(new FlagReceipt(id, kind, at, state))
+                : Result<FlagReceipt>.Fail(ClientErrors.ResponseMalformed("flag receipt"));
+    }
 
     /// <summary>
     /// R10.44's listing. A served flag carries a post, a kind and an instant and nothing else, so

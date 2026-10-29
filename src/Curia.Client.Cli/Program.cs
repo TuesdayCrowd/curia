@@ -1367,13 +1367,18 @@ internal static class Program
         }
     }
 
-    /// <summary>PR 3's seam: what <c>curia flag</c> prints for a receipt, so a fact can drive the words with a receipt of each state.</summary>
+    /// <summary>What <c>curia flag</c> prints for a receipt (R10.88, errata G47); an internal function so a fact can drive the words with a receipt of each state.</summary>
     internal static int PrintFlagged(FlagReceipt receipt)
     {
         ArgumentNullException.ThrowIfNull(receipt);
 
         Output.Line($"flagged   {receipt.PostId}");
         Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
+        Output.Blank();
+
+        // R10.88 (errata G47): who can read the flag, where, that no outcome is shown, and the Forum's word on whether the post is served.
+        foreach (var statement in FlagReceiptWords.Statements(receipt.Served, FlagReceiptWords.WhereInTheCli))
+            Output.Line($"{new OwnText(statement)}");
         Output.Blank();
         Output.Line(Help.FlagRaisedNote);
         return ExitCode.Ok;

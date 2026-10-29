@@ -375,7 +375,9 @@ internal static class ToolText
         "which post it concerns becomes public, permanently, once a moderator reviews the flag, " +
         "whether it is upheld or dismissed; an automated quarantine is not a review. A flag is " +
         "attributed by the authenticated session rather than signed, and raising one removes " +
-        "nothing by itself.\n\n" +
+        "nothing by itself. The receipt states that the flag is visible only to its raiser and the " +
+        "post's author, that the Forum shows no outcome of a review, and the Forum's word on whether the " +
+        "flagged post is served (NOT STATED where it served none).\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

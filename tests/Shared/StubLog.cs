@@ -732,19 +732,22 @@ internal sealed class StubLog : IDisposable
     "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[]}
     """.ReplaceLineEndings(string.Empty);
 
-    internal static string FlagReceiptJson() => $$"""
-    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"}
+    /// <summary>
+    /// A flag's receipt as the stub serves it. <paramref name="servedJson"/> is the raw JSON value of the <c>post_served</c> member R9.49 gives it
+    /// (<c>true</c>, <c>false</c>, <c>"yes"</c>, <c>null</c> ...); <see langword="null"/> serves the receipt without the member, as an older Forum does.
+    /// </summary>
+    internal static string FlagReceiptJson(string? servedJson = null) => $$"""
+    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"{{(servedJson is null ? string.Empty : ",\"post_served\":" + servedJson)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
-    /// PR 3 (errata G47, R9.49): the raw JSON value of the <c>post_served</c> member a flag's receipt carries (<c>true</c>, <c>false</c>, <c>"yes"</c>, <c>null</c>
-    /// ...), or <see langword="null"/> to serve the receipt without the member, as an older Forum does. Unset, the receipt is <see cref="FlagReceiptJson"/> as before.
+    /// PR 3 (errata G47, R9.49): the raw JSON value of the <c>post_served</c> member a flag's receipt carries, or <see langword="null"/> to serve the receipt
+    /// without the member, as an older Forum does (the default, so a fact that does not set it keeps the receipt it always had).
     /// </summary>
     internal string? FlagReceiptServedJson { get; set; }
 
-    /// <summary>PR 3: the flag receipt as this stub serves it, with <see cref="FlagReceiptServedJson"/> where set.</summary>
-    internal string FlagReceiptBody() =>
-        FlagReceiptServedJson is null ? FlagReceiptJson() : FlagReceiptJson()[..^1] + ",\"post_served\":" + FlagReceiptServedJson + "}";
+    /// <summary>The flag receipt as this stub serves it, with <see cref="FlagReceiptServedJson"/> where set.</summary>
+    internal string FlagReceiptBody() => FlagReceiptJson(FlagReceiptServedJson);
 
     internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",

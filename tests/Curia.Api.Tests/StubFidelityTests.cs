@@ -300,7 +300,7 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         AssertSameMembers(
             "the flag receipt",
             Paths(JsonNode.Parse(await flagged.Content.ReadAsStringAsync(ct))!),
-            Paths(JsonNode.Parse(StubLog.FlagReceiptJson())!));
+            Paths(JsonNode.Parse(StubLog.FlagReceiptJson(servedJson: "true"))!));
     }
 
     /// <summary>
