@@ -200,6 +200,7 @@ public static class Supersession
         parts.Add(heads.Count switch
         {
             0 => "the text that stands is not named: no post this thread holds is a head of the chain",
+            1 when outside.Count > 0 => $"the text that stands is not settled here: this thread holds one head, post {DisplayLiteral.Of(heads[0])}, and another successor leads outside it",
             1 => $"the text that stands among the posts this thread holds is post {DisplayLiteral.Of(heads[0])}",
             _ => $"the text that stands is not one text, the chain is FORKED: the heads this thread holds are {string.Join(", ", heads.Select(h => "post " + DisplayLiteral.Of(h)))}, and the Forum picks none",
         });

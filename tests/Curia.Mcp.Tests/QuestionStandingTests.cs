@@ -407,6 +407,10 @@ public sealed class QuestionStandingTests : IDisposable
         if (!line!.Contains("FORKED", StringComparison.Ordinal)) problems.Add("does not say FORKED");
         if (!line.Contains(Literal(f2.Id), StringComparison.Ordinal)) problems.Add("does not name F2 as a head");
         if (!line.Contains(Literal(f1.Digest), StringComparison.Ordinal) || !line.Contains("outside", StringComparison.Ordinal)) problems.Add("does not say F1's digest leads outside what the thread holds");
+        // Not published span: R11.62 covers "leads outside ... claims no head" and "a fork names every head", not one held head beside a digest outside.
+        // The sentence must not read as though the fork were resolved: one head is held here and another successor leads outside.
+        if (line.Contains("stands among", StringComparison.Ordinal) || !line.Contains("one head", StringComparison.Ordinal) || !line.Contains("not settled", StringComparison.Ordinal))
+            problems.Add("reads as though the fork were resolved (expected: not settled, one head held here, another leading outside)");
         Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Actual: {line}");
     }
 

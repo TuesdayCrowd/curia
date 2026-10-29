@@ -185,7 +185,8 @@ public sealed partial class McpSupersessionEndToEndTests(KestrelForumFixture for
             {
                 var firstBlock = named.Where(l => l.Contains("the text that stands", StringComparison.Ordinal)).ToArray();
                 if (firstBlock.Length != 1) failures.Add($"{reader}: {firstBlock.Length} first-block line(s) state the root's revision and the text that stands (expected one)");
-                named = [.. named.Except(firstBlock)];
+                // A counted filter, not a set difference: a passage line printed twice stays two lines and fails the count below.
+                named = [.. named.Where(l => !l.Contains("the text that stands", StringComparison.Ordinal))];
             }
 
             if (named.Length != 1)

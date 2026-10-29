@@ -12,7 +12,7 @@ namespace Curia.Architecture.Tests;
 /// by build failure and not the next exercise's finding.
 ///
 /// <para>The scan is a source scan of every <c>*.cs</c> under <c>src/</c> (outside <c>bin</c> and <c>obj</c>), for the member access <c>.Parent</c>
-/// as a whole word. It is a control, green on the unmodified tree, and goes red under FCHN68 (a new placement read).</para>
+/// as a whole word and the property pattern <c>Parent:</c>. It is a control, green on the unmodified tree, and goes red under FCHN68 (a new placement read).</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -32,11 +32,12 @@ public sealed partial class ParentReadFenceTests
         ("src/Curia.Client/Passage.cs", 1, "prints the author's parent as a line, escaped, as the author's word"),
         ("src/Curia.Client/SubmissionBuilder.cs", 1, "writes the draft's parent into the envelope being signed"),
         ("src/Curia.Mcp/ForumTools.cs", 2, "curia_read's walk to a root and its cut line (plan ruling 5)"),
-        ("src/Curia.Mcp/WriteTools.cs", 1, "prints the draft's parent in a receipt"),
+        ("src/Curia.Mcp/WriteTools.cs", 2, "two reads: the receipt prints the draft's parent (.Parent), and RevisedQuestionPointerAsync matches a verified revision's signed envelope by the property pattern `Parent: { Length: > 0 }` to name the question a revision revises in a refusal; it decides no placement because each step is accepted only when the parent's Forum-served superseded_by lists the digest recomputed from the revision (the author's word is never trusted alone), and it places no post, only a pointer"),
         ("src/Curia.Client.Cli/Screen/PassageHeader.cs", 1, "the screen's header prints the author's parent"),
     ];
 
-    [GeneratedRegex(@"\.Parent\b", RegexOptions.CultureInvariant)]
+    // The member access `.Parent`, and the property pattern `Parent:` (`is { Parent: { Length: > 0 } p }`), which reads the same member without the dot.
+    [GeneratedRegex(@"\.Parent\b|\bParent\s*:", RegexOptions.CultureInvariant)]
     private static partial Regex ParentRead();
 
     private static string RepositoryRoot()

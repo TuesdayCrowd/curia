@@ -139,7 +139,7 @@ public static class ReaderContractMarking
     /// even length (all the author's); a reader removes one token at each word start and then collapses each remaining pair to one.
     /// </summary>
     public const string Rule =
-        "A marked response names its control token in the member marking_token. The Forum's own mark is a single occurrence of that token at the start of a word, "
+        $"A marked response names its control token in the member {TokenMember}. The Forum's own mark is a single occurrence of that token at the start of a word, "
         + "and every occurrence of the token in an author's text is written twice. A run of the token at the start of a word is therefore odd in length, one of them "
         + "the Forum's, and a run anywhere else is even in length and all the author's. A reader removes one token at each word start and then collapses each remaining pair to one.";
 }
