@@ -130,6 +130,17 @@ public static class PostProjector
     }
 
     /// <summary>
+    /// PR 3's seam (errata G47, R9.48), inert until Task 1: the thread of <paramref name="rootPostId"/> given the correction index the route folds.
+    /// It places exactly as <see cref="Thread(ImmutableArray{PostView}, PostId)"/> does, by <c>parent</c>, and ignores <paramref name="corrections"/>, so
+    /// the probes can name the final signature and fail by assertion. Task 1 makes it the one <c>Thread</c>.
+    /// </summary>
+    public static ImmutableArray<PostView> Thread(ImmutableArray<PostView> posts, PostId rootPostId, CorrectionIndex corrections)
+    {
+        ArgumentNullException.ThrowIfNull(corrections);
+        return Thread(posts, rootPostId);
+    }
+
+    /// <summary>
     /// R8.18's <c>possible_duplicate</c>, an R6.14 derived artifact beside <c>risk_flags</c>:
     /// <c>{ "of": digest, "cosine": n, "model": id }</c>. What ingest saw, as of ingest; the
     /// serving path's own near-duplicate set is a separate, current computation.

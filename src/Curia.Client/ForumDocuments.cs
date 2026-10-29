@@ -189,7 +189,24 @@ public sealed record DuplicateRefusalDocument(
 /// <para>No rationale comes back, and none is expected: the Forum's projection deliberately does
 /// not carry one, so that nothing which serves can echo attacker-supplied text.</para>
 /// </summary>
-public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt);
+public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt, PostServed Served = PostServed.NotStated);
+
+/// <summary>
+/// PR 3's seam (errata G47, R9.49, R10.88), inert until Task 5: the Forum's word, in a flag's receipt, on whether the flagged post is served. Three states,
+/// told apart: the member absent (<see cref="NotStated"/>, an older Forum), a JSON boolean (its value), and anything else, which is a malformed receipt.
+/// Until Task 5 reads the member, every receipt reads <see cref="NotStated"/>.
+/// </summary>
+public enum PostServed
+{
+    /// <summary>The Forum served no <c>post_served</c> member.</summary>
+    NotStated,
+
+    /// <summary>The member was <c>false</c>: an anonymous read of the id would not answer <c>200</c>.</summary>
+    NotServed,
+
+    /// <summary>The member was <c>true</c>.</summary>
+    Served,
+}
 
 /// <summary>
 /// §10.6's provenance envelope as it arrives: the envelope is the outer object and the content
@@ -342,7 +359,14 @@ public sealed record KeySetDocument(
 /// <summary>§10.7's contract as served, clause by clause.</summary>
 public sealed record ReaderContractClause(int Number, string Force, string Text, bool ClientMustImplement);
 
-public sealed record ReaderContractDocument(string Version, ImmutableArray<ReaderContractClause> Clauses);
+public sealed record ReaderContractDocument(string Version, ImmutableArray<ReaderContractClause> Clauses, ContractMarking? Marking = null);
+
+/// <summary>
+/// PR 3's seam (errata G47, R10.90), inert until Task 7: the Reader Contract's <c>marking</c> member beside the clauses. <see langword="null"/> on a
+/// <see cref="ReaderContractDocument"/> is a Forum that served none (<c>NOT STATED</c>); a member present and unreadable is a malformed contract.
+/// Until Task 7 reads the member, every contract reads <see langword="null"/>.
+/// </summary>
+public sealed record ContractMarking(string TokenMember, string Escape, string Rule);
 
 /// <summary>Parsers from the wire shapes above. One place, so a field rename fails in one place.</summary>
 internal static class ForumDocuments

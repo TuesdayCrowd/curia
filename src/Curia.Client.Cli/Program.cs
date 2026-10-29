@@ -1198,6 +1198,12 @@ internal static class Program
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
 
+        return await PrintContractAsync(client, forum, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>PR 3's seam: what <c>curia contract</c> prints, over a client, so a fact can serve the contract from a stub.</summary>
+    internal static async Task<int> PrintContractAsync(ForumClient client, Uri forum, CancellationToken ct)
+    {
         var contract = await client.GetReaderContractAsync(ct).ConfigureAwait(false);
         if (!contract.TryGetValue(out var document, out var refusal)) return Output.Fail(refusal);
 
@@ -1357,12 +1363,20 @@ internal static class Program
             if (!raised.TryGetValue(out var receipt, out var refusal))
                 return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
-            Output.Line($"flagged   {receipt!.PostId}");
-            Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
-            Output.Blank();
-            Output.Line(Help.FlagRaisedNote);
-            return ExitCode.Ok;
+            return PrintFlagged(receipt!);
         }
+    }
+
+    /// <summary>PR 3's seam: what <c>curia flag</c> prints for a receipt, so a fact can drive the words with a receipt of each state.</summary>
+    internal static int PrintFlagged(FlagReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+
+        Output.Line($"flagged   {receipt.PostId}");
+        Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
+        Output.Blank();
+        Output.Line(Help.FlagRaisedNote);
+        return ExitCode.Ok;
     }
 
     /// <summary>
