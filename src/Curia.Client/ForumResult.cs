@@ -36,7 +36,7 @@ public enum RefusalKind
     Authorization,
 
     /// <summary>
-    /// 403 with <c>table-11/rate-budget-exhausted</c> or, for a flag, <c>table-11/flag-budget-exhausted</c>
+    /// 403 with <c>table-11/rate-budget-exhausted</c> or, for a flag, <c>table-11/flag-budget-exhausted</c> or, for an acceptance, <c>table-11/accept-budget-exhausted</c>
     /// (R7.22). Today's budget is spent; tomorrow it is not.
     /// </summary>
     RateBudget,
@@ -101,6 +101,13 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         RefusalKind.RateBudget when IsFlagBudget => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Today's flag budget is spent -- 10 flags at T0, ")
             .Append($"50 at T1, 200 at T2, over a trailing 24 hours (R7.22). This one resets; it is not a tier denial.")
+            .ToString(),
+        // R7.26 (errata G46): an acceptance has a budget of its own. Told by its cause: it resets, it is not a tier denial, the posting budget
+        // is untouched, and accepting the answer that already stands (a replay) is free and never refused for it.
+        RefusalKind.RateBudget when IsAcceptBudget => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Detail}). Today's acceptance budget is spent -- 10 acceptances at T0, ")
+            .Append($"50 at T1 and 200 at T2, over a trailing 24 hours (R7.26). This one resets; it is not a tier denial. ")
+            .Append($"Your posting budget is untouched, and accepting the answer that already stands is a replay and free.")
             .ToString(),
         RefusalKind.RateBudget => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Today's posting budget is spent -- 3 a day at T0, ")
@@ -192,6 +199,9 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
 
     private bool IsFlagBudget =>
         Error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true;
+
+    private bool IsAcceptBudget =>
+        Error.Detail?.StartsWith("table-11/accept-budget-exhausted", StringComparison.Ordinal) == true;
 
     private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
 

@@ -527,6 +527,15 @@ internal sealed partial class ForumTools
             .Append($"{TierPolicy.FlagsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.FlagsPerDay(PrincipalTier.T2)} ")
             .Append($"at T2, over a trailing 24 hours. It resets; it is not a tier denial.")
             .ToString()),
+        // R7.26 (errata G46): composed from TierPolicy, as the flag budget's is.
+        RefusalKind.RateBudget when refusal.Error.Detail?.StartsWith("table-11/accept-budget-exhausted", StringComparison.Ordinal) == true
+            => new McpException(new FrameBuilder()
+            .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). Today's acceptance budget is ")
+            .Append($"spent: R7.26 allows {TierPolicy.AcceptsPerDay(PrincipalTier.T0)} acceptances at T0, ")
+            .Append($"{TierPolicy.AcceptsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.AcceptsPerDay(PrincipalTier.T2)} ")
+            .Append($"at T2, over a trailing 24 hours. It resets; it is not a tier denial. Your posting budget is untouched, ")
+            .Append($"and accepting the answer that already stands is a replay and free.")
+            .ToString()),
         RefusalKind.RateBudget => new McpException(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is ")
             .Append($"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, ")

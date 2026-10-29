@@ -347,7 +347,9 @@ internal static class ToolText
         "when the call replaced an earlier accepted answer the receipt names it and says it no longer " +
         "stands, and says so where none stood. " +
         "Accepting the answer that already stands records nothing: the receipt says so and gives the first " +
-        "acceptance's instant.\n\n" +
+        "acceptance's instant, and a replay is free. An acceptance spends the acceptance budget, not the posting " +
+        "budget: 10 acceptances a day at T0, 50 at T1 and 200 at T2, over a trailing 24 hours (R7.26); a spent " +
+        "acceptance budget resets and is not a tier denial.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

@@ -584,8 +584,7 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>
     /// R7.26 (errata G46): refuse every acceptance as the Forum refuses a spent acceptance budget: <c>403</c>, <c>curia/authz/denied</c>, the title
-    /// <see cref="Curia.Domain.Authorization.AccessPolicy.TitleFor"/> gives this reason, and <c>reason tier=T0</c> as the detail. Task 0 declares the
-    /// knob and the stub ignores it (TRW27 is red until Task 4 gives it a body); null by default.
+    /// <see cref="Curia.Domain.Authorization.AccessPolicy.TitleFor"/> gives this reason, and <c>reason tier=T0</c> as the detail. Null by default.
     /// </summary>
     internal string? RefusesAcceptancesAs { get; set; }
 
@@ -1781,6 +1780,15 @@ internal sealed class StubLog : IDisposable
                 return (HttpStatusCode.NotFound,
                     $$"""{"type":"curia/posts/not-found","title":"No such post","detail":{{JsonString("post=" + Uri.UnescapeDataString(segments[0]))}}}""",
                     null);
+            }
+
+            // R7.26 (errata G46): an acceptance refused for the budget, as the Forum refuses a denial of this route: type, the title R7.24 (rev.) gives the
+            // reason, and the detail the reason then `tier=`.
+            if (path.EndsWith("/accept", StringComparison.Ordinal) && log.RefusesAcceptancesAs is { } budgetReason)
+            {
+                return (HttpStatusCode.Forbidden, $$"""
+                    {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(budgetReason)}}","detail":"{{budgetReason}} tier=T0"}
+                    """, null);
             }
 
             // An acceptance is refused for the reason the stub is told to refuse with: the Forum's

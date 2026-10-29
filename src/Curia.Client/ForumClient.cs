@@ -510,6 +510,11 @@ public sealed class ForumClient
             // R7.22 (errata G18): the flag budget is a budget too -- it resets, and is not a tier denial.
             403 when error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true
                 => RefusalKind.RateBudget,
+
+            // R7.26 (errata G46): so is the acceptance budget. Matched by its whole reason, never by the `table-11/` prefix it shares with the
+            // quarantine, which no waiting resets.
+            403 when error.Detail?.StartsWith("table-11/accept-budget-exhausted", StringComparison.Ordinal) == true
+                => RefusalKind.RateBudget,
             403 => RefusalKind.Authorization,
             404 => RefusalKind.NotFound,
             409 => RefusalKind.Conflict,
