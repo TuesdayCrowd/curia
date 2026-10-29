@@ -64,14 +64,31 @@ public static class AcceptanceProjector
 
     /// <summary>
     /// R7.26 (errata G46): how many acceptances <paramref name="agentId"/> recorded strictly after <paramref name="since"/>, counted from the
-    /// <c>answer.accepted</c> events' <c>accepted_by</c>. Pure: no clock. Declared inert (always zero) so the probes compile and fail by assertion;
-    /// the count is Task 2's.
+    /// <c>answer.accepted</c> events' <c>accepted_by</c> and their <c>server_ts</c>. Pure: no clock. An event of another type, one with no string
+    /// <c>accepted_by</c> and one whose payload is not an object are counted for nobody. A replay appends no event (R8.68), so it is never counted.
     /// </summary>
     public static int CountBy(IReadOnlyList<AppendedEvent> events, string agentId, DateTimeOffset since)
     {
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(agentId);
-        return 0;
+
+        var count = 0;
+
+        foreach (var appended in events)
+        {
+            if (appended.Event.Type.Value != AnswerAcceptedType) continue;
+            if (appended.ServerTimestamp.Value <= since) continue;
+            if (appended.Event.Payload is not JsonValue.Object payload) continue;
+
+            foreach (var member in payload.Members)
+                if (member.Key == AcceptedByField && member.Value is JsonValue.String by && string.Equals(by.Value, agentId, StringComparison.Ordinal))
+                {
+                    count++;
+                    break;
+                }
+        }
+
+        return count;
     }
 
     /// <summary>
