@@ -337,6 +337,48 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         AssertSameMembers("the tier denial", Paths(real), Paths(stub));
     }
 
+    /// <summary>
+    /// TRW27 (R7.26, errata G46). The stub is held to the Forum for the acceptance budget's refusal: with <see cref="StubLog.RefusesAcceptancesAs"/> set to the
+    /// published reason, an acceptance through the client is refused as the Forum refuses a denial of the same route (a stranger's, <c>table-10/own-thread-only</c>,
+    /// which this Forum serves today): the same members, the Forum's <c>type</c>, the reason first in the detail followed by <c>tier=</c>, and the title that names
+    /// the cause (R7.24 (rev.)). A stub that did not refuse, or refused in another shape, is named.
+    /// </summary>
+    [Fact]
+    public async Task R7_26_TRW27_TheStubsAcceptanceBudgetRefusalIsTheForumsDenial()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
+
+        using var denied = await scene.Answerer.Dpop.PostAsync(
+            forum.Client,
+            $"http://localhost/v1/posts/{scene.Answer1.PostId}/accept",
+            await scene.Answerer.Dpop.GetTokenAsync(forum.Client, TokenEndpoint, forum.Now, ct),
+            Encoding.UTF8.GetBytes("{}"),
+            forum.Now,
+            ct,
+            contentType: "application/json");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var real = JsonNode.Parse(await denied.Content.ReadAsStringAsync(ct))!;
+
+        _stub.RefusesAcceptancesAs = PublishedAcceptBudget.Reason();
+        var loaded = _stub.Store.Load("alice");
+        Assert.True(loaded.TryGetValue(out var agent, out var loadError), loadError?.Type);
+        using (agent)
+        {
+            var session = new ForumSession(_stub.Client(), agent!, _stub.Store, TimeProvider.System);
+            var accepted = await session.AcceptAsync(StubLog.AnswerPostId, ct);
+
+            Assert.False(accepted.TryGetValue(out _, out var refusal), "Expected: the stub refuses the acceptance as the Forum refuses a spent budget. Actual: the stub recorded it");
+            var stub = JsonNode.Parse(
+                $$"""{"type":"{{refusal!.Error.Type}}","title":"{{refusal.Error.Title}}","detail":"{{refusal.Error.Detail}}"}""")!;
+
+            AssertSameMembers("the acceptance budget denial", Paths(real), Paths(stub));
+            Assert.Equal(real["type"]!.GetValue<string>(), stub["type"]!.GetValue<string>());
+            Assert.StartsWith(PublishedAcceptBudget.Reason() + " tier=", stub["detail"]!.GetValue<string>(), StringComparison.Ordinal);
+            Assert.Contains("acceptance budget", stub["title"]!.GetValue<string>(), StringComparison.Ordinal);
+        }
+    }
+
     private async Task<JsonNode> StubDenialAsync(CancellationToken ct)
     {
         var loaded = _stub.Store.Load("alice");

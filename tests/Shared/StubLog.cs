@@ -583,6 +583,13 @@ internal sealed class StubLog : IDisposable
     internal string? DeniesSubmissionsForReason { get; set; }
 
     /// <summary>
+    /// R7.26 (errata G46): refuse every acceptance as the Forum refuses a spent acceptance budget: <c>403</c>, <c>curia/authz/denied</c>, the title
+    /// <see cref="Curia.Domain.Authorization.AccessPolicy.TitleFor"/> gives this reason, and <c>reason tier=T0</c> as the detail. Task 0 declares the
+    /// knob and the stub ignores it (TRW27 is red until Task 4 gives it a body); null by default.
+    /// </summary>
+    internal string? RefusesAcceptancesAs { get; set; }
+
+    /// <summary>
     /// G28 (amendment, lead L3): refuse every acceptance as the Forum refuses a post that is no answer
     /// (<c>ForumEndpoints</c>' accept route): <c>400</c>, <c>curia/accept/not-an-answer</c>, its title, and this string as the
     /// detail, which the Forum words <c>post=&lt;id&gt; kind=&lt;kind&gt;</c>. Null by default.

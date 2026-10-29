@@ -129,6 +129,16 @@ public static class TierPolicy
     };
 
     /// <summary>
+    /// R7.26 (errata G46): acceptances per trailing 24 hours, beside the posting and flag budgets. Declared inert (zero for every tier) so the
+    /// probes compile and fail by assertion; the numbers are Task 1's.
+    /// </summary>
+    public static int AcceptsPerDay(PrincipalTier tier) => tier switch
+    {
+        PrincipalTier.T0 or PrincipalTier.T1 or PrincipalTier.T2 or PrincipalTier.T3 or PrincipalTier.Anonymous => 0,
+        _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, "Not a Table 11 tier"),
+    };
+
+    /// <summary>
     /// R7.23 (provisional): the most keys an identity may hold live at once. A rotation that would make a
     /// fifth is refused by name before anything is written. R4.17 needs two live keys, not more.
     /// </summary>

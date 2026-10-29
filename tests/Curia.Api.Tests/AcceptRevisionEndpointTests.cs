@@ -26,13 +26,13 @@ namespace Curia.Api.Tests;
 /// <para><b>Oracles.</b> The ids and digests are the receipts of the posts the test made; every count of acceptances and every <c>thread_root</c> is read
 /// from the <c>events</c> table by SQL; the member names and values are parsed from the errata (<see cref="PublishedReadersWords"/>); the response text
 /// is read raw, since a deserializer collapses an absent member and a null one. The fold used by the replay drill (PK20) is applied to the events table's rows,
-/// not to anything the route returned. A negative case has a control: PK13, PK16, PK17, PK38 to PK40 are green on the unmodified tree by design.</para>
+/// not to anything the route returned. A negative case has a control: PK13, PK16, PK17, PK38 and PK39 are green on the unmodified tree by design.</para>
 ///
 /// <para><b>Reach (plan ruling 13, Task 0 item 4).</b> A revision with a lying <c>parent</c> is stored by the route; a stranger's revision, a dangling
 /// <c>prev</c> and an answer under a non-question are refused at ingest, so PK4, PK7 and PK10 are seeded with <c>AppendStoredPostAsync</c> (a post the log
 /// holds although the route would not take it, the shape of a log this code did not write), and PK2, PK3, PK19, PK20 and PK34 seed the <b>acceptance</b> with
 /// <c>AppendStoredAcceptanceAsync</c> (the host's own use case, none of the route's checks) so each reads the state apart from the route that records it.
-/// The asker's daily posting budget is counted (ruling 14): the scene's asker has two posts in the window, and no fact here adds a third except PK40.</para>
+/// The asker's daily posting budget is counted (ruling 14): the scene's asker has two posts in the window, and no fact here adds a third except TRW12 (which replaced PK40).</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -727,7 +727,7 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
         Assert.False((await PostJsonAsync(lying.Rl.PostId)).GetProperty("accepted").GetBoolean(), "RL reads accepted by its own parent");
     }
 
-    // ----- PK39, PK40: controls and a characterization -----
+    // ----- PK39 (a control) and TRW12 (replaces PK40, a characterization) -----
 
     /// <summary>PK39 (R8.70, a control): a revision with no <c>parent</c> is refused <c>400</c> <c>curia/content/parent-required</c> and nothing is stored (replaces PK3b's second half).</summary>
     [Fact]
@@ -747,24 +747,24 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
     }
 
     /// <summary>
-    /// PK40 (ruling 14), a characterization and not a requirement: an asker with three posts in the trailing day is refused <c>403</c>
-    /// <c>table-11/rate-budget-exhausted</c> on a <c>resolve</c>, because the accept route runs the PDP with <c>PostsToday</c> although an acceptance creates no
-    /// post. Pre-existing, not this stage's, and unfiled (a Table 11 question for the owner's architect, proposed as a register entry in the reply that carried
-    /// the amendment). Written so that a change to it is noticed; it asserts the behaviour as it is, and is not a vote for it.
+    /// TRW12 (R7.26, errata G46; replaces PK40, which asserted the refusal this stage's defect made and said it was not a vote for it). An asker with three
+    /// posts in the trailing day resolves: an acceptance creates no post and spends no posting budget, so Table 11's three is not the acceptance's. The scene's
+    /// asker has the comment and the revision in the window; one more makes three. The oracle is the events table: one <c>answer.accepted</c> event naming the
+    /// answer, with the asker as <c>accepted_by</c>.
     /// </summary>
     [Fact]
-    public async Task R7_22_PK40_AnAskerWhoseDailyBudgetIsSpentCannotResolve()
+    public async Task R7_26_TRW12_AnAskerWhoseDailyPostBudgetIsSpentCanStillResolve()
     {
         var scene = await SceneAsync();
 
-        // The scene's asker has the comment and the revision in the window; one more makes Table 11's three.
         await Scene.PostAsync(forum, scene.Asker, scene.Asker.Agent.Sign(PostKind.Comment, scene.Board, $"A third post that day about {scene.Term}.", null, scene.Question.PostId, forum.Now), Ct);
 
         var reply = await AcceptRawAsync(scene.Asker, scene.Answer1.PostId);
 
-        Assert.Equal(HttpStatusCode.Forbidden, reply.Status);
-        Assert.Contains("rate-budget-exhausted", reply.Raw, StringComparison.Ordinal);
-        Assert.Equal(0, await AcceptanceEventsNamingAsync(scene.Answer1.PostId));
+        Assert.True(
+            reply.Status == HttpStatusCode.Created,
+            $"Expected: {(int)HttpStatusCode.Created} {HttpStatusCode.Created} Actual: {(int)reply.Status} {reply.Status} {reply.Raw}");
+        Assert.Equal(1, await AcceptanceEventsNamingAsync(scene.Answer1.PostId));
     }
 
     // ----- PK31: the stub is held to the Forum -----

@@ -42,4 +42,12 @@ public static class AuthorizationErrors
         "curia/authz/flag-count-missing",
         "The flag budget was not counted",
         "flag/raise was evaluated without FlagsToday (R7.22)");
+
+    /// <summary>
+    /// R7.26 (errata G46): <c>answer</c>/<c>accept</c> was evaluated without an acceptance count. Declared ahead of the budget; nothing returns it yet.
+    /// </summary>
+    public static Error AcceptCountMissing() => new(
+        "curia/authz/accept-count-missing",
+        "The acceptance budget was not counted",
+        "answer/accept was evaluated without AcceptsToday (R7.26)");
 }

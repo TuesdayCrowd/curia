@@ -32,9 +32,17 @@ secret-aws-akid
 secret-aws-underscore-prefixed
 secret-basic-auth-url
 secret-connstring
+secret-connstring-password-keyword
+secret-connstring-pwd-crlf
+secret-connstring-pwd-indented
+secret-connstring-pwd-keyword
+secret-connstring-pwd-line-start
+secret-connstring-pwd-quoted-start
+secret-connstring-pwd-spaced
 secret-github-pat
 secret-jwt
 secret-openai
+secret-password-bare-assignment
 secret-pem
 secret-pem-ec
 secret-slack-webhook

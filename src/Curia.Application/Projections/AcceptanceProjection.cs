@@ -63,6 +63,18 @@ public static class AcceptanceProjector
     }
 
     /// <summary>
+    /// R7.26 (errata G46): how many acceptances <paramref name="agentId"/> recorded strictly after <paramref name="since"/>, counted from the
+    /// <c>answer.accepted</c> events' <c>accepted_by</c>. Pure: no clock. Declared inert (always zero) so the probes compile and fail by assertion;
+    /// the count is Task 2's.
+    /// </summary>
+    public static int CountBy(IReadOnlyList<AppendedEvent> events, string agentId, DateTimeOffset since)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(agentId);
+        return 0;
+    }
+
+    /// <summary>
     /// Folds a seq-ordered event list into the accepted answer per thread root.
     ///
     /// <para>A thread nobody has resolved is absent rather than present-and-null, which is what the

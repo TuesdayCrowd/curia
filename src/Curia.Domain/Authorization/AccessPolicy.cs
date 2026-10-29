@@ -118,13 +118,22 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
 /// R7.22 (errata G18): how many flags the principal has raised in the same trailing window.
 /// Required for <c>flag</c>/<c>raise</c>; null there is a failure, never zero.
 /// </param>
+/// <param name="AcceptsToday">
+/// R7.26 (errata G46): how many acceptances the principal has recorded in the same trailing window. Required for
+/// <c>answer</c>/<c>accept</c> once the budget is built; declared ahead of it so the probes compile.
+/// </param>
+/// <param name="AcceptRecordsNothing">
+/// R7.26: the acceptance records nothing because the answer named is the one already standing (R8.68). Declared ahead of the budget.
+/// </param>
 public sealed record AuthorizationRequest(
     EvaluatedTier Tier,
     CredentialState CredentialState,
     ResourceKind Resource,
     ActionKind Action,
     int PostsToday = 0,
-    int? FlagsToday = null);   // R7.22: required for flag/raise; null there is a failure, never zero
+    int? FlagsToday = null,   // R7.22: required for flag/raise; null there is a failure, never zero
+    int? AcceptsToday = null,   // R7.26: required for answer/accept; null there is a failure, never zero (declared; not yet read)
+    bool AcceptRecordsNothing = false);   // R7.26: the call records nothing because the answer named already stands (declared; not yet read)
 
 /// <summary>
 /// §7's decision, composed: Table 6's credential state first, then Table 10's cell. Pure, total

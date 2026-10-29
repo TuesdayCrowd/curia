@@ -2,9 +2,9 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (61/61) | **0.0 %** (0/39) |
-| enveloped | **100.0 %** (61/61) | **0.0 %** (0/39) |
-| enveloped after a line | **100.0 %** (61/61) | **0.0 %** (0/39) |
+| bare | **100.0 %** (69/69) | **17.0 %** (8/47) |
+| enveloped | **100.0 %** (69/69) | **17.0 %** (8/47) |
+| enveloped after a line | **100.0 %** (69/69) | **17.0 %** (8/47) |
 
 - Detector versions: secrets/2026-10-18, injection/2026-10-18
 - Excluded from the detection rate: **18** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
@@ -32,7 +32,7 @@ credential hit a hard rejection, so a false positive costs an author their submi
 
 ## Known evasions
 
-**12 payloads in `known-evasions.jsonl` defeat these detectors today**, each
+**18 payloads in `known-evasions.jsonl` defeat these detectors today**, each
 with the reason recorded. The detection rate above is computed over `payloads.jsonl`
 only, so it does *not* include them -- which is precisely why they are listed here
 rather than folded into the denominator, where they would depress a number nobody
@@ -52,6 +52,12 @@ Each one, with the reason recorded in the corpus:
 - **`evade-variation-selector-run`** -- would be HiddenText. R10.78 declines U+E0100 to U+E01EF: ordinary use is open (ideographic variation sequences in names). A run of selectors after one character carries one value each while ordinary text carries at most one; a run rule is a different kind of rule, so this evades and is recorded.
 - **`evade-combining-grapheme-joiner`** -- would be HiddenText, InstructionOverride. R10.78 declines U+034F: the combining grapheme joiner orders marks in Hebrew and Arabic, so its use is open. It splits the phrase for the pattern, and it evades.
 - **`evade-hangul-filler-padding`** -- would be HiddenText, InstructionOverride. R10.78 declines U+3164 and the other Hangul fillers: conjoining jamo for archaic syllables, and U+3164 pads blank names, so the use is open. It stands in for a space and evades.
+- **`evade-pwd-after-a-command-word`** -- would be ConnectionStringPassword. The narrowed `pwd` form is a password only after a `;`, an opening quotation mark or a line start (R10.86). A command word and a space is none of them, so a real password assigned after one is let through; the same position rule is what lets `echo PWD=/build/output` pass.
+- **`evade-pwd-space-separated-pairs`** -- would be ConnectionStringPassword. Space-separated key=value pairs (the libpq and ODBC DSN form) put `pwd` after a space, which is not a position R10.86 accepts; the legacy rule refused it and the narrowed one does not.
+- **`evade-pwd-value-starts-with-a-dollar`** -- would be ConnectionStringPassword. A password may begin with `$`, `%`, `~` or `/`, and R10.86 reads a value that begins with one as a reference or a path; the legacy rule refused it and the narrowed one does not.
+- **`evade-pwd-after-nel`** -- would be ConnectionStringPassword. U+0085 survives SCREEN into the scanned views (it is deleted only in the line-joined view) and is not a line start for the `pwd` form, which knows LF and a lone CR (R10.86, amended 2026-10-29).
+- **`evade-pwd-after-line-separator`** -- would be ConnectionStringPassword. U+2028 survives SCREEN into the scanned views and is not a line start for the `pwd` form (R10.86, amended 2026-10-29).
+- **`evade-pwd-after-paragraph-separator`** -- would be ConnectionStringPassword. U+2029 survives SCREEN into the scanned views and is not a line start for the `pwd` form (R10.86, amended 2026-10-29).
 
 A recorded evasion that starts being detected fails the build, so this list cannot
 silently go stale.

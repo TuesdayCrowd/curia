@@ -31,6 +31,12 @@ public sealed record Acceptance(string ThreadRoot, string AnswerId, DateTimeOffs
 /// </summary>
 public sealed class AcceptAnswer
 {
+    /// <summary>
+    /// R8.79 (errata G46): how many passes <see cref="RecordAsync"/> decides in before it refuses the acceptance as contended. Declared ahead of
+    /// the loop: until Task 11 the use case still looks twice and no more.
+    /// </summary>
+    public const int Attempts = 8;
+
     private readonly IEventStore _events;
     private readonly UlidGenerator _ids;
 
