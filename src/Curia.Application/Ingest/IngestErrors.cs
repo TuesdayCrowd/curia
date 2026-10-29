@@ -78,6 +78,13 @@ public static class IngestErrors
     public static Error RevisionGateUnavailable() =>
         new(RevisionGateUnavailableType, "The revision gate could not be reached; nothing was stored");
 
+    /// <summary>The slug of <see cref="RevisionCheckUnavailable"/>, which the submit route maps to 503 (R8.77).</summary>
+    public const string RevisionCheckUnavailableType = "curia/ingest/revision-check-unavailable";
+
+    /// <summary>R8.77: the post a revision names is not in the log read under the gate, so the successor check cannot be made. Nothing was stored; the detail is not served.</summary>
+    public static Error RevisionCheckUnavailable() =>
+        new(RevisionCheckUnavailableType, "The post this revision names could not be read; nothing was stored");
+
     /// <summary>R8.78: the Forum already stores a post of this digest. The detail is <c>post=&lt;post id&gt;</c> and nothing an author wrote.</summary>
     public static Error AlreadyRecorded(string postId) =>
         new(AlreadyRecordedType, "This post is already recorded", $"post={postId}");

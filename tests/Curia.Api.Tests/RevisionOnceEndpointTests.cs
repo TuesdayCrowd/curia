@@ -299,8 +299,9 @@ public sealed class RevisionOnceEndpointTests : IClassFixture<RevisionOnceForumF
         var p1 = await AskAsync(author, board);
         _forum.Gate.Reset();
         var leaked = await ReviseAsync(author, board, p1, "My token is ghp_A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o");
+        var leakedCounters = Counters();
         var afterLeak = await NextIsNotInFlightAsync(p1);
-        lines.Add($"screened {leaked.Status}: {Counters()}; {afterLeak}");
+        lines.Add($"screened {leaked.Status}: {leakedCounters}; {afterLeak}");
 
         // A store that throws at the append.
         var p2 = await AskAsync(author, board);
@@ -308,8 +309,9 @@ public sealed class RevisionOnceEndpointTests : IClassFixture<RevisionOnceForumF
         _forum.Store.ThrowOnRevisionAppend = true;
         var thrown = await ReviseAsync(author, board, p2);
         _forum.Store.ThrowOnRevisionAppend = false;
+        var thrownCounters = Counters();
         var afterThrow = await NextIsNotInFlightAsync(p2);
-        lines.Add($"append throws {thrown.Status}: {Counters()}; {afterThrow}");
+        lines.Add($"append throws {thrown.Status}: {thrownCounters}; {afterThrow}");
 
         // A client that cancels while the append is parked.
         var p3 = await AskAsync(author, board);
@@ -325,8 +327,9 @@ public sealed class RevisionOnceEndpointTests : IClassFixture<RevisionOnceForumF
 
         _forum.Store.Release();
         await Task.Delay(300, Ct);
+        var cancelledCounters = Counters();
         var afterCancel = await NextIsNotInFlightAsync(p3);
-        lines.Add($"cancelled: {Counters()}; {afterCancel}");
+        lines.Add($"cancelled: {cancelledCounters}; {afterCancel}");
 
         // One lost race on the key stream (R6.56): the attempt enters again.
         var racer = await NewAsync("rvo7-racer");
@@ -483,7 +486,7 @@ public sealed class RevisionOnceEndpointTests : IClassFixture<RevisionOnceForumF
         var rounds = await RaceAsync(Board(), 2, 50, (question, i) => i == 0 ? question.PostId : "01NOPOST" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant());
 
         Said(
-            "50 repetitions of 50 stored exactly one revision",
+            "50 repetitions of 50 stored exactly one revision (largest stored for one prev: 1)",
             $"{rounds.Count(r => r.Stored == 1)} repetitions of {rounds.Count} stored exactly one revision (largest stored for one prev: {rounds.Max(r => r.Stored)})");
     }
 
