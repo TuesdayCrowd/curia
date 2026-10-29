@@ -176,9 +176,19 @@ public sealed partial class McpSupersessionEndToEndTests(KestrelForumFixture for
 
         var failures = new List<string>();
 
-        void Expect(string reader, string output)
+        // PR 3 (errata G47, R11.62) changed this fact's object, not its strength: curia_read's first block now carries one more line that names the
+        // revision, the root's own (it holds `the text that stands`); that line is asserted apart, and the passage's line is still counted as it was.
+        void Expect(string reader, string output, bool firstBlockStatesTheRoot = false)
         {
             var named = LinesNaming(output, revisionDigest, revisionId);
+            if (firstBlockStatesTheRoot)
+            {
+                var firstBlock = named.Where(l => l.Contains("the text that stands", StringComparison.Ordinal)).ToArray();
+                if (firstBlock.Length != 1) failures.Add($"{reader}: {firstBlock.Length} first-block line(s) state the root's revision and the text that stands (expected one)");
+                // A counted filter, not a set difference: a passage line printed twice stays two lines and fails the count below.
+                named = [.. named.Where(l => !l.Contains("the text that stands", StringComparison.Ordinal))];
+            }
+
             if (named.Length != 1)
                 failures.Add($"{reader}: {named.Length} line(s) state the supersession and name the revision's digest and id (expected one); the lines that mention supersession: [{string.Join(" | ", Stating(output))}]");
         }
@@ -186,7 +196,7 @@ public sealed partial class McpSupersessionEndToEndTests(KestrelForumFixture for
         // The MCP readers, by the protocol.
         var read = await session.CallAsync("curia_read", new() { ["postId"] = original });
         Assert.False(read.IsError, read.Text);
-        Expect("curia_read", read.Text);
+        Expect("curia_read", read.Text, firstBlockStatesTheRoot: true);
 
         var search = await session.CallAsync("curia_search", new() { ["criteria"] = new Dictionary<string, object?> { ["query"] = word, ["board"] = board } });
         Assert.False(search.IsError, search.Text);

@@ -89,7 +89,24 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
     /// answers and accept it, so "accepted" must read as a claim about the asker and never about the answer. None of
     /// verified, correct, trusted, endorsed or true (R10.50: no field is a badge).
     /// </summary>
-    public const string AcceptedStatement = "accepted by the thread's asker (the Forum's word: no signature covers an acceptance, and it checks nothing about the answer)";
+    public const string AcceptedStatement = "accepted by the thread's asker " + AcceptedBasis;
+
+    /// <summary>The parenthesis every kind's statement of an acceptance carries; <see cref="AnswerStanding.Basis"/> is cut from it.</summary>
+    private const string AcceptedBasis = "(the Forum's word: no signature covers an acceptance, and it checks nothing about the answer)";
+
+    /// <summary>
+    /// R10.87 (errata G47): the statement for an accepted post of kind <c>revision</c>. After R9.46 a revision's accepted state is relative to its
+    /// correction chain, so the line says whose text it is and whose asker accepted it, and names no thread: the revision's own <c>parent</c> is its
+    /// author's word and the statement never prints it. The basis parenthesis is the same words as for every kind.
+    /// </summary>
+    public const string AcceptedRevisionStatement = "accepted as the text of the answer it revises, by the asker of that answer's thread " + AcceptedBasis;
+
+    /// <summary>
+    /// The one definition of the statement of an acceptance by kind (R10.87), called by the line form, the titled index and the screen's header, so no
+    /// form can say of a revision what it says of an answer.
+    /// </summary>
+    public static string AcceptedStatementFor(string kind) =>
+        string.Equals(kind, PostKinds.Wire(PostKind.Revision), StringComparison.Ordinal) ? AcceptedRevisionStatement : AcceptedStatement;
 
     /// <summary>R8.66's tail for a count line: how many signed items this client could not read, or nothing when none were dropped.</summary>
     private static OwnText NotRead(int dropped) =>
@@ -160,7 +177,7 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         // span, only for a post the Forum serves as accepted: an absent line is silence, not "none accepted". The
         // statement is a constant the screen's header shares (R10.74), so the two cannot drift.
         if (Post.Accepted)
-            frame.Line($"thread    {new OwnText(AcceptedStatement)}");
+            frame.Line($"thread    {new OwnText(AcceptedStatementFor(Post.Kind))}");
 
         // R10.80 (errata G32): the Forum's word that a revision of this post's author supersedes it, in the frame and never in
         // the span, from the one definition every form shares (Supersession). A list the Forum did not serve is said to be

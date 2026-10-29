@@ -732,9 +732,22 @@ internal sealed class StubLog : IDisposable
     "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[]}
     """.ReplaceLineEndings(string.Empty);
 
-    internal static string FlagReceiptJson() => $$"""
-    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"}
+    /// <summary>
+    /// A flag's receipt as the stub serves it. <paramref name="servedJson"/> is the raw JSON value of the <c>post_served</c> member R9.49 gives it
+    /// (<c>true</c>, <c>false</c>, <c>"yes"</c>, <c>null</c> ...); <see langword="null"/> serves the receipt without the member, as an older Forum does.
+    /// </summary>
+    internal static string FlagReceiptJson(string? servedJson = null) => $$"""
+    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"{{(servedJson is null ? string.Empty : ",\"post_served\":" + servedJson)}}}
     """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>
+    /// PR 3 (errata G47, R9.49): the raw JSON value of the <c>post_served</c> member a flag's receipt carries, or <see langword="null"/> to serve the receipt
+    /// without the member, as an older Forum does (the default, so a fact that does not set it keeps the receipt it always had).
+    /// </summary>
+    internal string? FlagReceiptServedJson { get; set; }
+
+    /// <summary>The flag receipt as this stub serves it, with <see cref="FlagReceiptServedJson"/> where set.</summary>
+    internal string FlagReceiptBody() => FlagReceiptJson(FlagReceiptServedJson);
 
     internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
@@ -1185,9 +1198,21 @@ internal sealed class StubLog : IDisposable
     {"results":[{"post":{{PostJson()}},"score_micro":1000000}],
     "next_cursor":{{(SearchNextCursor is null ? "null" : JsonString(SearchNextCursor))}},
     "floor":{"surface":"mcp-search","min_verification":"{{(FloorClamped ? "V1" : "V0")}}","source":"{{(FloorClamped ? "configured" : "published")}}",
-    "applies_to":["answer","finding"],"not_applicable_to":["question","comment"],"excluded_disputed":0{{ClampMembersJson()}}},
+    {{FloorListsMembersJson()}}"excluded_disputed":0{{ClampMembersJson()}}},
     "model":"hashed-ngram@1","corpus_bound":1}
     """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>
+    /// PR 3 (errata G47, R11.63): the floor block's two kind lists as raw JSON members (<c>"applies_to":[...],"not_applicable_to":[...]</c>, either left
+    /// out or malformed), replacing the stub's own, so a fact can serve a Forum that states one list, neither, or a list that is no array of strings.
+    /// </summary>
+    internal string? FloorListsJson { get; set; }
+
+    /// <summary>PR 3 (errata G47, R10.90): the raw JSON the stub serves at the Reader Contract's well-known path, or <see langword="null"/> for the unrouted answer it gave before.</summary>
+    internal string? ContractJson { get; set; }
+
+    private string FloorListsMembersJson() =>
+        (FloorListsJson ?? "\"applies_to\":[\"answer\",\"finding\"],\"not_applicable_to\":[\"question\",\"comment\"]") is { Length: > 0 } lists ? lists + "," : string.Empty;
 
     /// <summary>R9.31's three members as the Forum serves them after <c>excluded_disputed</c>, or nothing for an older Forum.</summary>
     private string ClampMembersJson()
@@ -1801,7 +1826,7 @@ internal sealed class StubLog : IDisposable
             }
 
             return path.EndsWith("/flags", StringComparison.Ordinal)
-                ? (HttpStatusCode.Created, StubLog.FlagReceiptJson(), null)
+                ? (HttpStatusCode.Created, log.FlagReceiptBody(), null)
                 : (HttpStatusCode.OK, StubLog.AcceptanceJson(log.AcceptanceAlreadyAccepted, log.AcceptanceReplacedAnswerJson, log.AcceptanceReplacedRelationJson), null);
         }
 
@@ -1980,6 +2005,9 @@ internal sealed class StubLog : IDisposable
                     ? log.DecoyJson()
                     : log.PostJson());
             }
+
+            if (path == Curia.Domain.Serving.ReaderContract.WellKnownPath && log.ContractJson is { } contract)
+                return (HttpStatusCode.OK, contract);
 
             if (path == "/v1/search" && log.SearchRefusesTheCursor)
             {

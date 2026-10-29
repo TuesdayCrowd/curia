@@ -309,10 +309,10 @@ public sealed class AcceptTheTextToolTests : IDisposable
         }
     }
 
-    /// <summary>R11.60: <c>curia-mcp</c> was 0.8.7 here, 0.8.8 since errata G45 and is 0.8.9 since errata G46 (the descriptions and a refusal's wording change; no tool is added): the pin follows the version, and RVO35 holds it too.</summary>
+    /// <summary>R11.60: <c>curia-mcp</c> was 0.8.7 here, 0.8.8 since errata G45 and was 0.8.9 under errata G46 and is 0.8.10 since errata G47 (the descriptions and a refusal's wording change; no tool is added): the pin follows the version, and RVO35 holds it too.</summary>
     [Fact]
     public void R11_60_PK30_TheVersionIs089()
     {
-        Assert.Equal("0.8.9", ToolCatalogue.Version);
+        Assert.Equal("0.8.10", ToolCatalogue.Version);
     }
 }

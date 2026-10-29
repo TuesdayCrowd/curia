@@ -188,6 +188,10 @@ internal sealed partial class ForumTools(
             // flags); the ids are the Forum's, so display literals. Written only here: where the shown thread is cut or unread, the accepted
             // answer may be above what is shown and "none" would be a guess.
             AcceptedLine(frame, top);
+
+            // R11.62: and, from the root's own superseded_by and the members the thread holds, what became of the root and the text that stands.
+            // Beneath the accepted line and only here, for the same reason; silence for an unrevised root, as the passage's line is.
+            if (Supersession.RootLine(top, members) is { } revision) frame.Line($"{revision}");
         }
 
         if (unreadableParent is not null)
@@ -526,7 +530,7 @@ internal sealed partial class ForumTools(
     {
         var frame = new FrameBuilder()
             .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
-            .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
+            .Append($"source={page.Floor.Source} applies_to={FloorKinds.Render(page.Floor.AppliesTo, ",")} not_applicable_to={FloorKinds.Render(page.Floor.NotApplicableTo, ",")} ")
             .Append($"{ClampWords(page.Floor)} ")
             .Append($"model={page.Model} results={page.Results.Length} ")
             .Append($"excluded_by_floor={Count(page.Floor.ExcludedByFloor)} excluded_disputed={Count(page.Floor.ExcludedDisputed)}");

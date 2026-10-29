@@ -907,7 +907,7 @@ internal static class Program
         if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
 
         Output.Line(Help.SearchBanner);
-        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {Literals(page.Floor.AppliesTo)}; not to {Literals(page.Floor.NotApplicableTo)}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
+        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {FloorKinds.Render(page.Floor.AppliesTo, ", ")}; not to {FloorKinds.Render(page.Floor.NotApplicableTo, ", ")}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
         Output.Line($"clamp     {ClampWords(page.Floor)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");
         Output.Blank();
@@ -1198,6 +1198,12 @@ internal static class Program
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
 
+        return await PrintContractAsync(client, forum, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>What <c>curia contract</c> prints (R10.20, R10.90), over a client, so a fact can serve the contract from a stub.</summary>
+    internal static async Task<int> PrintContractAsync(ForumClient client, Uri forum, CancellationToken ct)
+    {
         var contract = await client.GetReaderContractAsync(ct).ConfigureAwait(false);
         if (!contract.TryGetValue(out var document, out var refusal)) return Output.Fail(refusal);
 
@@ -1212,6 +1218,19 @@ internal static class Program
             Output.Blank();
         }
 
+        // R10.90 (errata G47): the member beside the clauses that says how the Forum's mark and an author's token are told apart; NOT STATED for a
+        // Forum that served none (an older one), never silence. Every value is the Forum's, so a display literal.
+        if (document.Marking is { } marking)
+        {
+            Output.Line($"marking   a marked response names its token in the member {marking.TokenMember}; an author's token is written {marking.Escape}");
+            Output.Line($"   {marking.Rule}");
+        }
+        else
+        {
+            Output.Line("marking   NOT STATED (the Forum served no word on how its own mark and an author's token are told apart)");
+        }
+
+        Output.Blank();
         Output.Line(Help.ContractNote);
         return ExitCode.Ok;
     }
@@ -1357,12 +1376,25 @@ internal static class Program
             if (!raised.TryGetValue(out var receipt, out var refusal))
                 return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
-            Output.Line($"flagged   {receipt!.PostId}");
-            Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
-            Output.Blank();
-            Output.Line(Help.FlagRaisedNote);
-            return ExitCode.Ok;
+            return PrintFlagged(receipt!);
         }
+    }
+
+    /// <summary>What <c>curia flag</c> prints for a receipt (R10.88, errata G47); an internal function so a fact can drive the words with a receipt of each state.</summary>
+    internal static int PrintFlagged(FlagReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+
+        Output.Line($"flagged   {receipt.PostId}");
+        Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
+        Output.Blank();
+
+        // R10.88 (errata G47): who can read the flag, where, that no outcome is shown, and the Forum's word on whether the post is served.
+        foreach (var statement in FlagReceiptWords.Statements(receipt.Served, FlagReceiptWords.WhereInTheCli))
+            Output.Line($"{new OwnText(statement)}");
+        Output.Blank();
+        Output.Line(Help.FlagRaisedNote);
+        return ExitCode.Ok;
     }
 
     /// <summary>

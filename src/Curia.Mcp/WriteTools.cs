@@ -257,7 +257,7 @@ internal sealed partial class ForumTools
                 return None("the post it names as its parent did not verify");
 
             if (parentEnvelope.Kind is PostKind.Question)
-                return new OwnText($"The post you named is a revision. The Forum's superseded_by confirms it revises the question {DisplayLiteral.Of(parent.PostId)} (as of this read, the Forum's word; read it first, it may itself have been revised): answer that question instead.");
+                return Supersession.RevisedQuestionPointer(parent.PostId, parent.Provenance.SupersededBy, revision.Provenance.SupersededBy);
 
             if (parentEnvelope.Kind is not PostKind.Revision)
                 return None("the chain ends at a post that is not a question");
@@ -351,12 +351,19 @@ internal sealed partial class ForumTools
         if (!flagged.TryGetValue(out var receipt, out var refusal))
             throw WriteRefused(refusal!, ResourceKind.Flag, ActionKind.Raise);
 
-        return Said(new FrameBuilder()
+        var frame = new FrameBuilder()
             .Line("FLAGGED")
             .Line($"post        {receipt!.PostId}")
             .Line($"kind        {receipt.Kind}")
             .Line($"raised_at   {receipt.RaisedAt}")
             .Line($"by          {writer.Agent.Profile.AgentId}")
+            .Blank();
+
+        // R10.88 (errata G47): from the one definition curia flag prints, with the adapter's place to read flags (it has no tool for it).
+        foreach (var statement in FlagReceiptWords.Statements(receipt.Served, FlagReceiptWords.WhereInTheAdapter))
+            frame.Line($"{new OwnText(statement)}");
+
+        return Said(frame
             .Blank()
             .Append($"The rationale and who raised the flag are never published: the Forum's log records only ")
             .Append($"that a flag of this kind was raised and when, and which post it concerns once a moderator ")

@@ -133,10 +133,10 @@ public sealed class RevisionRefusalToolTests : IDisposable
         Said(string.Empty, Missing(description, RevisionWording.IdenticalPostRefused));
     }
 
-    /// <summary>RVO35. <c>curia-mcp</c> was 0.8.8 here and is 0.8.9 since errata G46 (the pin follows the version): the descriptions and a refusal's wording change; no tool is added.</summary>
+    /// <summary>RVO35. <c>curia-mcp</c> was 0.8.8 here was 0.8.9 under errata G46 and is 0.8.10 since errata G47 (the pin follows the version): the descriptions and a refusal's wording change; no tool is added.</summary>
     [Fact]
     public void R11_61_TheVersionIs089()
     {
-        Assert.Equal("0.8.9", ToolCatalogue.Version);
+        Assert.Equal("0.8.10", ToolCatalogue.Version);
     }
 }

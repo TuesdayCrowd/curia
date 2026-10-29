@@ -33,6 +33,7 @@
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
     <Compile Include="../Shared/PublishedRecheck.cs" Link="Shared/PublishedRecheck.cs" />
     <Compile Include="../Shared/PublishedReadersWords.cs" Link="Shared/PublishedReadersWords.cs" />
+    <Compile Include="../Shared/PublishedChainWords.cs" Link="Shared/PublishedChainWords.cs" />
     <Compile Include="../Shared/PublishedParentRule.cs" Link="Shared/PublishedParentRule.cs" />
     <Compile Include="../Shared/PublishedWithheldWords.cs" Link="Shared/PublishedWithheldWords.cs" />
     <Compile Include="../Shared/PublishedForkWords.cs" Link="Shared/PublishedForkWords.cs" />

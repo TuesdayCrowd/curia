@@ -132,7 +132,8 @@ public sealed record SearchHitDocument(ProvenancePost Post, long ScoreMicro, Why
 /// <summary>
 /// R10.2 as stated on the response: the floor in force, where it came from, and the kinds it applied to.
 /// <c>ExcludedByFloor</c> and <c>ExcludedDisputed</c> (R9.30) are the counts the Forum states; null means the
-/// Forum did not state one (an older Forum), which is not the same as zero.
+/// Forum did not state one (an older Forum), which is not the same as zero. The same holds of the two kind lists
+/// (R11.63): the default array is a list the Forum did not serve (<see cref="FloorKinds.NotStated"/>), and an empty array is one it served empty.
 /// </summary>
 public sealed record RetrievalFloorDocument(
     string Surface,
@@ -189,7 +190,23 @@ public sealed record DuplicateRefusalDocument(
 /// <para>No rationale comes back, and none is expected: the Forum's projection deliberately does
 /// not carry one, so that nothing which serves can echo attacker-supplied text.</para>
 /// </summary>
-public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt);
+public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt, PostServed Served = PostServed.NotStated);
+
+/// <summary>
+/// Errata G47 (R9.49, R10.88): the Forum's word, in a flag's receipt, on whether the flagged post is served. Three states,
+/// told apart: the member absent (<see cref="NotStated"/>, an older Forum), a JSON boolean (its value), and anything else, which is a malformed receipt.
+/// </summary>
+public enum PostServed
+{
+    /// <summary>The Forum served no <c>post_served</c> member.</summary>
+    NotStated,
+
+    /// <summary>The member was <c>false</c>: an anonymous read of the id would not answer <c>200</c>.</summary>
+    NotServed,
+
+    /// <summary>The member was <c>true</c>.</summary>
+    Served,
+}
 
 /// <summary>
 /// §10.6's provenance envelope as it arrives: the envelope is the outer object and the content
@@ -342,7 +359,13 @@ public sealed record KeySetDocument(
 /// <summary>§10.7's contract as served, clause by clause.</summary>
 public sealed record ReaderContractClause(int Number, string Force, string Text, bool ClientMustImplement);
 
-public sealed record ReaderContractDocument(string Version, ImmutableArray<ReaderContractClause> Clauses);
+public sealed record ReaderContractDocument(string Version, ImmutableArray<ReaderContractClause> Clauses, ContractMarking? Marking = null);
+
+/// <summary>
+/// Errata G47 (R10.90): the Reader Contract's <c>marking</c> member beside the clauses. <see langword="null"/> on a
+/// <see cref="ReaderContractDocument"/> is a Forum that served none (<c>NOT STATED</c>); a member present and unreadable is a malformed contract.
+/// </summary>
+public sealed record ContractMarking(string TokenMember, string Escape, string Rule);
 
 /// <summary>Parsers from the wire shapes above. One place, so a field rename fails in one place.</summary>
 internal static class ForumDocuments
@@ -477,6 +500,13 @@ internal static class ForumDocuments
         if (!ReadClamp(floor).TryGetValue(out var clamp, out var clampError))
             return Result<SearchPage>.Fail(clampError!);
 
+        // R11.63 (errata G47): each kind list is read in three states. Absent is not stated (the default array), an array of strings is its value, and
+        // anything else (a string, an object, null, an array holding a non-string) is a malformed search page and not an empty list, which Strings would
+        // make of it: "nothing is excluded" said of a floor this reader could not read.
+        if (!KindList(floor, "applies_to").TryGetValue(out var appliesTo, out var listError)
+            || !KindList(floor, "not_applicable_to").TryGetValue(out var notApplicableTo, out listError))
+            return Result<SearchPage>.Fail(listError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -484,8 +514,8 @@ internal static class ForumDocuments
                 ClientJson.String(floor, "surface") ?? string.Empty,
                 ClientJson.String(floor, "min_verification") ?? string.Empty,
                 ClientJson.String(floor, "source") ?? string.Empty,
-                Strings(floor, "applies_to"),
-                Strings(floor, "not_applicable_to"),
+                appliesTo,
+                notApplicableTo,
                 excludedByFloor,
                 excludedDisputed,
                 clamp.PublishedDefault,
@@ -494,6 +524,17 @@ internal static class ForumDocuments
                 clamp.RequestedStated),
             ClientJson.String(o, "model") ?? string.Empty,
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));
+    }
+
+    private static Result<ImmutableArray<string>> KindList(JsonValue.Object floor, string name)
+    {
+        var member = ClientJson.Member(floor, name);
+        if (member is null) return Result<ImmutableArray<string>>.Ok(default);
+
+        if (member is JsonValue.Array array && array.Items.All(item => item is JsonValue.String))
+            return Result<ImmutableArray<string>>.Ok([.. array.Items.Cast<JsonValue.String>().Select(item => item.Value)]);
+
+        return Result<ImmutableArray<string>>.Fail(ClientErrors.ResponseMalformed($"search page's floor {name} is not an array of strings"));
     }
 
     /// <summary>
@@ -630,12 +671,27 @@ internal static class ForumDocuments
     private static int? BasisPoints(JsonValue.Object parent, string name) =>
         ClientJson.WholeNumber(parent, name) is { } value and >= 0 and <= 10_000 ? (int)value : null;
 
-    internal static Result<FlagReceipt> ReadFlagReceipt(JsonValue.Object o) =>
-        ClientJson.String(o, "post_id") is { } id
-        && ClientJson.String(o, "kind") is { } kind
-        && ClientJson.String(o, "raised_at") is { } at
-            ? Result<FlagReceipt>.Ok(new FlagReceipt(id, kind, at))
-            : Result<FlagReceipt>.Fail(ClientErrors.ResponseMalformed("flag receipt"));
+    internal static Result<FlagReceipt> ReadFlagReceipt(JsonValue.Object o)
+    {
+        ArgumentNullException.ThrowIfNull(o);
+
+        // R10.88 (errata G47): post_served is read in three states. Absent is NotStated (an older Forum), a JSON boolean is its value, and anything
+        // else (a string, a number, null, an object, an array) is a malformed receipt: ClientJson.Bool-style reading would turn a receipt that said
+        // something unreadable into "the post is not served". A member this reader does not know is tolerated.
+        PostServed? served = ClientJson.Member(o, "post_served") switch
+        {
+            null => PostServed.NotStated,
+            JsonValue.Bool b => b.Value ? PostServed.Served : PostServed.NotServed,
+            _ => null,
+        };
+
+        return ClientJson.String(o, "post_id") is { } id
+            && ClientJson.String(o, "kind") is { } kind
+            && ClientJson.String(o, "raised_at") is { } at
+            && served is { } state
+                ? Result<FlagReceipt>.Ok(new FlagReceipt(id, kind, at, state))
+                : Result<FlagReceipt>.Fail(ClientErrors.ResponseMalformed("flag receipt"));
+    }
 
     /// <summary>
     /// R10.44's listing. A served flag carries a post, a kind and an instant and nothing else, so
@@ -1019,8 +1075,24 @@ internal static class ForumDocuments
                 Bool(c, "client_must_implement")));
         }
 
+        // R10.90 (errata G47): `marking` is read in three states. Absent is none (a Forum that served none, printed NOT STATED); an object whose three
+        // members are all strings is its value; anything else (a string, an array, null, an object with a member missing or not a string) is a malformed
+        // contract and not none, since a Forum that stated a rule this reader cannot read must not pass for one that stated none. A member of the contract
+        // this reader does not know is tolerated.
+        ContractMarking? marking = null;
+        if (ClientJson.Member(o, "marking") is { } member)
+        {
+            if (member is not JsonValue.Object m
+                || ClientJson.String(m, "token_member") is not { } tokenMember
+                || ClientJson.String(m, "escape") is not { } escape
+                || ClientJson.String(m, "rule") is not { } rule)
+                return Result<ReaderContractDocument>.Fail(ClientErrors.ResponseMalformed("reader contract"));
+
+            marking = new ContractMarking(tokenMember, escape, rule);
+        }
+
         return Result<ReaderContractDocument>.Ok(
-            new ReaderContractDocument(version, clauses.ToImmutable()));
+            new ReaderContractDocument(version, clauses.ToImmutable(), marking));
     }
 
     private static bool Bool(JsonValue.Object o, string name) =>

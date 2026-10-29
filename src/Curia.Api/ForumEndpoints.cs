@@ -1141,13 +1141,19 @@ public static class ForumEndpoints
             if (!raised.TryGetValue(out var flag, out var raiseError))
                 return Problem(StatusFor(raiseError!), raiseError!);
 
+            // R9.49 (errata G47): whether the post is served, always present, decided from the log read for this flag by the one predicate the single
+            // read of a post answers 200 by (ServedPost), so the receipt is true exactly where an anonymous read of the id would be 200 and the two cannot
+            // drift. A vote is a post that exists (a flag against it is accepted, R10.35) and no post a reader is served: false.
+            var postServed = ServedPost(PostProjector.Fold(log), Servable(log), flag!.PostId) is not null;
+
             return Results.Created(
                 $"/v1/posts/{Uri.EscapeDataString(postId)}",
                 new
                 {
-                    post_id = flag!.PostId,
+                    post_id = flag.PostId,
                     kind = FlagKinds.Wire(flag.Kind),
                     raised_at = flag.RaisedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+                    post_served = postServed,
                 });
         }
     }
@@ -1371,15 +1377,18 @@ public static class ForumEndpoints
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var servable = Servable(log);
         var posts = PostProjector.Fold(log);
-        var post = posts.FirstOrDefault(p => p.PostId == postId && servable(p.PostId) && ServedToReaders(p));
+        var post = ServedPost(posts, servable, postId);
 
         // R9.42 (errata G41): a post that exists and is not served is answered "withheld", and an id no post bears
         // "not-found". The concealment this replaced bought nothing: the batch route (R9.10), the thread, a flag
         // and a reply each disclosed what it hid, and it cost an honest reader the difference between a typo and a
         // decision. Existence is the log's (the fold already run), servability is moderation's (the same fold's
         // `servable`), so there is no second read; a signal kind is no post a reader is served and keeps
-        // not-found, so the new type cannot say that a vote exists. The body holds the id and fixed words, never
-        // anything an author wrote. No ETag on either 404: a withheld post has changed in the one way a post can.
+        // not-found. That is an answer for the read and not a concealment of the vote: the flag route and the
+        // parent check already tell that a vote exists (R10.35 counts any stream that holds a post's creation,
+        // errata G38 decision 1), and a flag's receipt says post_served false for it (R9.49, errata G47). The body holds
+        // the id and fixed words, never anything an author wrote. No ETag on either 404: a withheld post has changed
+        // in the one way a post can.
         if (post is null)
         {
             var exists = posts.Any(p => p.PostId == postId && ServedToReaders(p));
@@ -1521,15 +1530,17 @@ public static class ForumEndpoints
         // thread is. An id of white space alone once reached PostProjector.Thread, which threw, and an
         // anonymous GET /v1/threads/%0A answered 500 (register D25's sweep; R11.33, errata G17). Since
         // R11.34 (errata G18) Thread takes a PostId, parsed here at its first use.
+        // R9.48: a revision is placed by its correction chain's root, so the index is folded above the call, from all the log's posts and before
+        // the serving filter below (a withheld hop does not detach what is placed by it).
         var posts = PostProjector.Fold(log);
+        var corrections = CorrectionIndex.Fold(posts, servable);
         var thread = PostId.Parse(rootPostId, "root_post_id").TryGetValue(out var root, out _)
             ? ImmutableArray.CreateRange(
-                PostProjector.Thread(posts, root!).Where(p => servable(p.PostId) && Discussion(p)))
+                PostProjector.Thread(posts, root!, corrections).Where(p => servable(p.PostId) && Discussion(p)))
             : [];
         var standings = AgentStandingProjector.Fold(log);
         var disputed = DisputedPosts.Fold(log, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
-        var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
         var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
 
@@ -1602,6 +1613,14 @@ public static class ForumEndpoints
             // merely acknowledge.
             client_must_implement = c.Mechanical,
         }),
+
+        // R10.90 (errata G47): beside the clauses and not one of them, so no clause's text or force and not the version moves.
+        marking = new
+        {
+            token_member = ReaderContractMarking.TokenMember,
+            escape = ReaderContractMarking.Escape,
+            rule = ReaderContractMarking.Rule,
+        },
     });
 
     /// <summary>
@@ -2341,6 +2360,13 @@ public static class ForumEndpoints
     }
 
     private static string? Nullable(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>
+    /// The post the single read of an id serves (<c>GET /v1/posts/{id}</c> answers <c>200</c> exactly when this is not null): it exists, moderation
+    /// lets it be served and its kind is one a reader is served. One definition for the read and for a flag's receipt (R9.49, errata G47).
+    /// </summary>
+    private static PostView? ServedPost(ImmutableArray<PostView> posts, Func<string, bool> servable, string postId) =>
+        posts.FirstOrDefault(p => p.PostId == postId && servable(p.PostId) && ServedToReaders(p));
 
     /// <summary>A vote is never served to readers before its epoch is sealed (R8.55); everything else may be.</summary>
     private static bool ServedToReaders(PostView p) =>

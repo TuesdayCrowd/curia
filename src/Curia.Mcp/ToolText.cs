@@ -102,6 +102,12 @@ internal static class ToolText
         "The accepted line says when the accepted answer has been superseded: it takes the Forum's word from that answer's own list, " +
         "names each revision (FORKED where there is more than one), and says the acceptance names the answer and not its revision; " +
         "it says nothing of a revision where the answer has none.\n\n" +
+        "Beneath the accepted line, where the thread was read, a `revision` line states what became of the root from the root's own " +
+        "superseded_by (never from the post you read): the revisions, each by post id or as a digest not served, FORKED where there is " +
+        "more than one, and `the text that stands`, found among the posts the thread holds by following each revision's own list to " +
+        "any depth. Where a digest leads outside what the thread holds it says so and names no head for it, a fork names every head " +
+        "and picks none, and a root whose list the Forum did not serve reads 'revision NOT STATED'. An unrevised root has no such line. " +
+        "It is the Forum's word, no signature covers it, and it is made from the thread's members with no further read.\n\n" +
         "A passage of a post its author has since corrected carries a `revision` line, after the thread line, naming the revision's " +
         "digest and, when the Forum serves it, its post id, or 'not served'; more than one revision is FORKED and the Forum picks none. " +
         "Where the Forum served no word on it, the line reads 'revision NOT STATED', which is not 'no revision'. The line is the " +
@@ -133,8 +139,9 @@ internal static class ToolText
         "post id and says the Forum reports no later revision of that document, which is its standing in the log: it is not soundness, and no signature and no acceptance was checked. " +
         "A 'current' line for a post that is one branch of a fork says it is one of N revisions of the same post, FORKED, names the other branches and says the Forum picks none, from the fork member of the Forum's answer; fork NOT STATED means the Forum did not say. " +
         "'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
-        "Forum gave the digest alone; it names the direct revisions only, and a revision's own standing is one call: put its digest in a call of its own. FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
-        "choose. 'withheld' and 'unknown' say to drop the citation. 'disputed' is the Forum's word that the key was declared " +
+        "Forum gave the digest alone, and says the original is still served, which is all it establishes; it names the direct revisions only, and a revision's own standing is one call: put its digest in a call of its own. FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
+        "choose. Words in these lines: withheld means the Forum holds a post with that digest and is not serving it (a moderator withheld it, and it can be restored), so drop the citation and check again later; " +
+        "not served means a revision the Forum named by its digest alone, with no post id, and recheck of that digest says whether it is withheld. 'unknown' says to drop the citation. 'disputed' is the Forum's word that the key was declared " +
         "compromised from before the post: do not cite it as the author's. An element that was not a digest is named by its " +
         "zero-based position as digests[<n>] and is never echoed.\n\n" +
         "Where the Forum names a post, its digest is recomputed here from the canonical form the Forum served, and the line says it " +
@@ -266,7 +273,7 @@ internal static class ToolText
     /// where the Forum's own <c>superseded_by</c> confirms it. States what the pointer is built from so that its absence is not read as "no question".
     /// </summary>
     private const string RevisedQuestionSentence =
-        "If the post you named is a revision of a question, the Forum refuses, and this tool adds the question it revises when the Forum's own superseded_by confirms it (the revision's digest is recomputed here, and the question must verify); answer that question instead. No question is named where the Forum does not confirm one, and the pointer is the Forum's word as of the read.";
+        "If the post you named is a revision of a question, the Forum refuses, and this tool adds the question it revises when the Forum's own superseded_by confirms it (the revision's digest is recomputed here, and the question must verify); answer that question instead. The refusal states the question's standing from that read (the revisions its superseded_by lists, each by post id or as a digest not served, FORKED where there are two or more) and the standing of the revision you named (the latest the Forum reports, or the revisions that supersede it), with no hedge: the original is still the only parent an answer can have, so say in the answer which text it answers. No question is named where the Forum does not confirm one, and then no standing is stated; the pointer is the Forum's word as of the read.";
 
     /// <summary>R11.55's receipt line (R11.26): the question's standing at the read this tool already makes; a note, never a refusal.</summary>
     private const string QuestionReceiptSentence =
@@ -369,7 +376,9 @@ internal static class ToolText
         "which post it concerns becomes public, permanently, once a moderator reviews the flag, " +
         "whether it is upheld or dismissed; an automated quarantine is not a review. A flag is " +
         "attributed by the authenticated session rather than signed, and raising one removes " +
-        "nothing by itself.\n\n" +
+        "nothing by itself. The receipt states that the flag is visible only to its raiser and the " +
+        "post's author, that the Forum shows no outcome of a review, and the Forum's word on whether the " +
+        "flagged post is served (NOT STATED where it served none).\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

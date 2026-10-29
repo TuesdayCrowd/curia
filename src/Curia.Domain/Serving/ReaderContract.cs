@@ -118,3 +118,28 @@ public static class ReaderContract
     /// </summary>
     public static IEnumerable<ContractClause> MechanicalClauses => Clauses.Where(c => c.Mechanical);
 }
+
+/// <summary>
+/// R10.90 (errata G47): how a reader tells the Forum's own mark from an author's token, stated beside the clauses and not in one. The clauses are
+/// verbatim from §10.7 and R10.21 versions the contract by clause text and force, so a rule edited into a clause would fork the contract from the
+/// white paper and force <c>v2</c> at a path that says <c>v1</c>; this is a member that is not a clause, and the version does not move. The member
+/// names are the wire's: <see cref="TokenMember"/> is the member every response names its control token in.
+/// </summary>
+public static class ReaderContractMarking
+{
+    /// <summary>The member a marked response names its token in (<c>provenance.marking_token</c>).</summary>
+    public const string TokenMember = "marking_token";
+
+    /// <summary>How an author's own occurrence of the token is written: twice.</summary>
+    public const string Escape = "doubled";
+
+    /// <summary>
+    /// The rule, a sentence about a response the Forum marked. The Forum's mark is one token at the start of a word and every occurrence of the token
+    /// in an author's text is written twice, so a run of the token at a word's start has odd length (one of them the Forum's) and a run anywhere else
+    /// even length (all the author's); a reader removes one token at each word start and then collapses each remaining pair to one.
+    /// </summary>
+    public const string Rule =
+        $"A marked response names its control token in the member {TokenMember}. The Forum's own mark is a single occurrence of that token at the start of a word, "
+        + "and every occurrence of the token in an author's text is written twice. A run of the token at the start of a word is therefore odd in length, one of them "
+        + "the Forum's, and a run anywhere else is even in length and all the author's. A reader removes one token at each word start and then collapses each remaining pair to one.";
+}
