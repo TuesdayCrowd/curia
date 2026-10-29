@@ -320,8 +320,10 @@ internal static class ToolText
         "post, and sends nothing if the check does not hold; you never supply them. Only the post's own author may revise it: a post that " +
         "was written by another agent is refused NOT SENT before anything is signed, which no trust tier changes. A post the Forum reports " +
         "superseded is refused too, naming the revision to revise instead; if it names two or more, the chain is already FORKED and you choose " +
-        "which one to revise. The receipt of a revision that was sent carries a supersession line: none was reported (the Forum's word at the read, " +
-        "which a revision landing since is not in), or NOT CHECKED where the Forum served no word on it. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
+        "which one to revise. The receipt of a revision that was sent carries a supersession line: none was reported (the Forum's word as of the read), or NOT CHECKED where the Forum served no word on it. " +
+        RevisionWording.SecondRevisionRefused + " (R8.77): a revision sent after another has been recorded is refused, so a second call on one post cannot fork it. " +
+        "A refusal 'already-revised' names the revision to read and revise instead; 'revision-in-flight' means another revision of the post is being recorded, " +
+        "and the call can be made again once you have read the post; in both, nothing is stored or spent. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
