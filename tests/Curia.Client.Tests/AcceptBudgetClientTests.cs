@@ -101,6 +101,20 @@ public sealed partial class AcceptBudgetClientTests
     }
 
     /// <summary>
+    /// TRW55, the CLI's half. <c>curia resolve</c>'s help says an acceptance spends the acceptance budget and not the posting budget, in R7.26's terms, and
+    /// nowhere that it spends the posting budget (a help that names both budgets passes TRW25 whichever way round it says it).
+    /// </summary>
+    [Fact]
+    public void R7_26_TRW55_TheHelpSaysAnAcceptanceSpendsItsOwnBudgetAndNotThePostingBudget()
+    {
+        var help = Help.For("resolve")!;
+
+        var problems = PublishedAcceptBudget.SpendProblems(help);
+
+        Assert.True(problems.Length == 0, $"{string.Join("; ", problems)}. Help: \"{help}\"");
+    }
+
+    /// <summary>
     /// TRW52. The CLI's words for a lost race: nothing was recorded, the acceptance may be sent again, it is neither a tier denial nor a spent budget; not the
     /// advice default and not a budget's words. The phrases are checked against R8.79's text first, so a rewording of the errata is a red here. The exit is
     /// the one every server fault has (recorded: 8, the Forum fault).

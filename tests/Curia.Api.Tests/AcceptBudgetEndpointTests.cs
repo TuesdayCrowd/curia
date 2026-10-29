@@ -66,10 +66,10 @@ public sealed class AcceptBudgetEndpointTests(ForumFixture forum) : IClassFixtur
     }
 
     /// <summary>The first <c>count</c> acceptances of the scene's asker, alternating its two answers, each a new acceptance. Returns the last receipt.</summary>
-    private async Task<Reply> SpendAsync(Scene scene, int count)
+    private async Task<Reply> SpendAsync(Scene scene, int count, int start = 0)
     {
         Reply? last = null;
-        for (var i = 0; i < count; i++)
+        for (var i = start; i < start + count; i++)
             last = await AcceptedAsync(scene.Asker, (i % 2 == 0 ? scene.Answer1 : scene.Answer2).PostId);
 
         return last!;
@@ -191,6 +191,32 @@ public sealed class AcceptBudgetEndpointTests(ForumFixture forum) : IClassFixtur
 
         Assert.Equal(Budget(0) + 1, (await AcceptedByAsync(scene.Asker.Agent.AgentId)).Length);
         Assert.Equal(scene.Answer1.PostId, eleventh.Body.GetProperty("post_id").GetString());
+    }
+
+    /// <summary>
+    /// TRW54 (green first, held by FTRW10). The window is the trailing 24 hours at the route, not a shorter one: an asker whose ten acceptances are half 13
+    /// hours old and half new is refused the eleventh; with all ten 25 hours old the eleventh is stored (the contrast, so the refusal is the window's).
+    /// </summary>
+    [Fact]
+    public async Task R7_26_TRW54_TheRouteCountsAcceptancesAcrossTheWholeDay()
+    {
+        var half = Budget(0) / 2;
+        var inside = await Scene.BuildAsync(forum, Ct);
+        await SpendAsync(inside, half);
+        forum.Clock.Advance(TimeSpan.FromHours(13));
+        await SpendAsync(inside, Budget(0) - half, start: half);
+
+        var refused = await AcceptRawAsync(inside.Asker, inside.Answer1.PostId);
+
+        var outside = await Scene.BuildAsync(forum, Ct);
+        await SpendAsync(outside, Budget(0));
+        forum.Clock.Advance(TimeSpan.FromHours(25));
+        var allowed = await AcceptRawAsync(outside.Asker, outside.Answer1.PostId);
+
+        Assert.True(
+            (refused.Status, allowed.Status) == (HttpStatusCode.Forbidden, HttpStatusCode.Created),
+            $"Expected: 403 for ten acceptances 13 and 0 hours old, 201 for ten 25 hours old. Actual: {(int)refused.Status} and {(int)allowed.Status}; {refused.Raw}");
+        Assert.Equal(PublishedAcceptBudget.Reason() + " tier=T0", Refusal(refused).Detail);
     }
 
     /// <summary>

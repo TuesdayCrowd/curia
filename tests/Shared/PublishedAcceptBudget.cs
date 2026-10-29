@@ -27,6 +27,27 @@ internal static partial class PublishedAcceptBudget
         return [.. matches[0].Groups.Values.Skip(1).Select(g => int.Parse(g.Value, CultureInfo.InvariantCulture))];
     }
 
+    /// <summary>
+    /// What a description of the acceptance must say about the two budgets, as problems (empty when it says it). The errata's vocabulary is read from R7.26
+    /// ("word the refusal as the <c>acceptance budget</c>", "that the <c>posting budget</c> is untouched"); the sentence is "spends the acceptance budget,
+    /// not the posting budget", and a text that says an acceptance spends the posting budget, alone or beside its own, is a problem.
+    /// </summary>
+    internal static string[] SpendProblems(string text)
+    {
+        var paragraph = Paragraph("**R7.26**");
+        var own = One(OwnBudgetTerm(), paragraph, "R7.26's name for the acceptance's own budget");
+        var posting = One(PostingBudgetTerm(), paragraph, "R7.26's name for the budget an acceptance leaves untouched");
+        var folded = Whitespace().Replace(text, " ");
+
+        var problems = new List<string>();
+        if (!folded.Contains($"spends the {own}, not the {posting}", StringComparison.Ordinal))
+            problems.Add($"does not say \"spends the {own}, not the {posting}\"");
+        if (Regex.IsMatch(folded, $@"\bspends? (?:both )?the {Regex.Escape(posting)}", RegexOptions.CultureInvariant))
+            problems.Add($"says an acceptance spends the {posting}");
+
+        return [.. problems];
+    }
+
     /// <summary>R7.24 (rev.)'s list of causes, one per element, the parentheticals taken off.</summary>
     internal static string[] Causes()
     {
@@ -97,6 +118,12 @@ internal static partial class PublishedAcceptBudget
 
     [GeneratedRegex(@"with the reason `(table-1[01]/[a-z-]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex Reasons();
+
+    [GeneratedRegex(@"word the refusal as the (acceptance budget)", RegexOptions.CultureInvariant)]
+    private static partial Regex OwnBudgetTerm();
+
+    [GeneratedRegex(@"that the (posting budget) is untouched", RegexOptions.CultureInvariant)]
+    private static partial Regex PostingBudgetTerm();
 
     [GeneratedRegex(@"(\d+) acceptances at T0, (\d+) at T1 and (\d+) at T2", RegexOptions.CultureInvariant)]
     private static partial Regex Budgets();

@@ -96,6 +96,18 @@ public sealed class AcceptBudgetToolTests : IDisposable
         Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Expected: description containing \"acceptance budget\"");
     }
 
+    /// <summary>
+    /// TRW55, the adapter's half. <c>curia_resolve</c>'s description says an acceptance spends the acceptance budget and not the posting budget, in R7.26's
+    /// terms, and nowhere that it spends the posting budget (a description that names both budgets passes TRW25 whichever way round it says it).
+    /// </summary>
+    [Fact]
+    public void R7_26_TRW55_TheResolveDescriptionSaysAnAcceptanceSpendsItsOwnBudgetAndNotThePostingBudget()
+    {
+        var problems = PublishedAcceptBudget.SpendProblems(ToolText.ResolveTemplate);
+
+        Assert.True(problems.Length == 0, $"{string.Join("; ", problems)}. Expected: \"spends the acceptance budget, not the posting budget\"");
+    }
+
     /// <summary>TRW26. <c>curia-mcp</c> is 0.8.9: the descriptions and a refusal's wording change; no tool is added.</summary>
     [Fact]
     public void R7_26_TRW26_CuriaMcpIs089() => Assert.Equal("0.8.9", ToolCatalogue.Version);

@@ -220,6 +220,25 @@ public sealed partial class PwdKeywordTests
     }
 
     /// <summary>
+    /// TRW56 (green first, held by FTRW54). The benign file is read whole: no row of it, however added, raises the keyword rule on the built scanner, and the
+    /// rows read include the eighth exercise's false positive and every row that mentions <c>pwd</c> or <c>password</c> (TRW37 and the fixed lists reach only
+    /// the rows someone named).
+    /// </summary>
+    [Fact]
+    public void R10_86_TRW56_NoBenignRowOfTheFileIsFlaggedByTheKeywordRule()
+    {
+        var rows = Load("benign.jsonl");
+        var keywordRows = rows.Where(r => r.Content.Contains("pwd", StringComparison.OrdinalIgnoreCase) || r.Content.Contains("password", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+        var flagged = rows.Where(r => KeywordFlags(r.Content).Length > 0).Select(r => r.Id).ToArray();
+
+        Assert.Contains("shell-remap-path-prefix-pwd", keywordRows.Select(r => r.Id));
+        Assert.True(BenignIds.All(id => keywordRows.Any(r => r.Id == id)), "a named benign pwd row is not among the rows read");
+        Assert.True(keywordRows.Length >= BenignIds.Length, $"Expected: at least {BenignIds.Length} pwd/password rows. Actual: {keywordRows.Length} of {rows.Length} rows read");
+        Assert.True(flagged.Length == 0, $"Expected: no benign row flagged by the keyword rule. Actual: {string.Join(", ", flagged)} of {rows.Length} rows read");
+    }
+
+    /// <summary>
     /// TRW38 (green first, held by FTRW53). The corpus holds every form R10.86 names: the code spans of each of its three clauses are substrings of some
     /// content of the file the clause names. The paragraph and the files are parsed here and the scanner is not called.
     /// </summary>
