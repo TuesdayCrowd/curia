@@ -2,9 +2,8 @@ namespace Curia.Client;
 
 /// <summary>
 /// R11.61 (errata G45): the words a refusal, a description and a help text share about the Forum's three <c>409</c>s on a submission, in one place
-/// so that none of them can edit the words alone. <b>Behaviour-preserving seam of PR 1's Task 0:</b> declared and used by nothing yet; the probes
-/// RVO31 to RVO34 and RVO50 read <see cref="Refusal.Summary"/>, a description and a help text against these constants, and are red until each carries
-/// them.
+/// so that none of them can edit the words alone. <see cref="Refusal.Summary"/>, the tool descriptions and the help text carry them, and the probes
+/// RVO31 to RVO34 and RVO50 hold each against these constants.
 /// </summary>
 public static class RevisionWording
 {

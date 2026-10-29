@@ -152,7 +152,7 @@ public sealed class Program
         // R7.22, R10.70 (errata G18): one raiser's flags are counted and recorded under one hold.
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().FlagRaiserGate);
 
-        // R8.77 (errata G45): one post's revisions entered one at a time. Registered as the port; a seam until the plan's Task 1.
+        // R8.77 (errata G45): one post's revisions entered one at a time. Registered as the port; the submit route enters it for a revision.
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().RevisionGate);
 
         // The vector half of hybrid retrieval (§9.2). The embedder is the dependency-free hashed

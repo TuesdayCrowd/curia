@@ -107,8 +107,8 @@ public sealed class PostgresAdapters : IAsyncDisposable
     public IFlagRaiserGate FlagRaiserGate => new PostgresFlagRaiserGate(_gateDataSource);
 
     /// <summary>
-    /// R8.77 (errata G45): one post's revisions entered one at a time, on the gate pool beside <see cref="FlagRaiserGate"/>. A seam until the plan's
-    /// Task 1: the gate admits every entry and the route does not call it.
+    /// R8.77 (errata G45): one post's revisions entered one at a time, on the gate pool beside <see cref="FlagRaiserGate"/>, held
+    /// by the submit route for the whole of a revision's attempt.
     /// </summary>
     public IRevisionGate RevisionGate => new PostgresRevisionGate(_gateDataSource);
 
