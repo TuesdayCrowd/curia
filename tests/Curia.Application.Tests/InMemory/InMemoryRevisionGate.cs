@@ -1,15 +1,15 @@
+using System.Collections.Concurrent;
+using Curia.Application.Ingest;
 using Curia.Application.Ports;
 using Curia.Domain.Primitives;
 
 namespace Curia.Application.Tests.InMemory;
 
-/// <summary>
-/// R11.4's in-memory <see cref="IRevisionGate"/> (R8.77; errata G45). <b>A seam of PR 1's Task 0:</b> it admits every entry and its hold releases
-/// nothing, so <c>RevisionGatePortContractTests</c> fails by assertion and not by compile error. Task 1 replaces it with the flag gate's shape
-/// (<c>InMemoryFlagRaiserGate</c>): a set of the digests whose revision is in flight, entered by try-add and never waited on.
-/// </summary>
+/// <summary>R11.4's in-memory <see cref="IRevisionGate"/> (R8.77; errata G45): a set of the digests whose revision is in flight, entered by try-add and never waited on.</summary>
 internal sealed class InMemoryRevisionGate : IRevisionGate
 {
+    private readonly ConcurrentDictionary<string, byte> _held = new(StringComparer.Ordinal);
+
     [System.Diagnostics.CodeAnalysis.SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
@@ -18,11 +18,21 @@ internal sealed class InMemoryRevisionGate : IRevisionGate
     {
         ArgumentNullException.ThrowIfNull(prevDigest);
 
-        return Task.FromResult(Result<IAsyncDisposable>.Ok(new Hold()));
+        if (!_held.TryAdd(prevDigest, 0)) return Task.FromResult(Result<IAsyncDisposable>.Fail(IngestErrors.RevisionInFlight()));
+
+        return Task.FromResult(Result<IAsyncDisposable>.Ok(new Hold(this, prevDigest)));
     }
 
-    private sealed class Hold : IAsyncDisposable
+    private sealed class Hold(InMemoryRevisionGate gate, string prevDigest) : IAsyncDisposable
     {
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        private int _released;
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 0)
+                gate._held.TryRemove(prevDigest, out _);
+
+            return ValueTask.CompletedTask;
+        }
     }
 }
