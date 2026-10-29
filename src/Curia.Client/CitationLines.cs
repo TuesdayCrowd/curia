@@ -91,7 +91,7 @@ public static class CitationLines
                 return new CitationLine("current", Of($"current     {asked}  {Supersession.CurrentStanding()}{ForkWords(item.Fork, stated: true)}{PostOf(item.Post)}"), false, false, false, false);
 
             case "superseded":
-                return new CitationLine("superseded", Of($"superseded  {asked}  -> {Revisions(item)}{Forked(item)}  re-read before citing; the original still stands{ForkWords(item.Fork, stated: false)}{PostOf(item.Post)}"), false, false, false, false);
+                return new CitationLine("superseded", Of($"superseded  {asked}  -> {Revisions(item)}{Forked(item)}  the original is still served; read the revision(s) before citing this post{UnservedBranches(item)}{ForkWords(item.Fork, stated: false)}{PostOf(item.Post)}"), false, false, false, false);
 
             case "withheld":
                 return new CitationLine("withheld", Of($"withheld    {asked}  drop this citation; it is no longer served (withholding can be reversed -- re-check later)"), true, false, false, false);
@@ -159,6 +159,21 @@ public static class CitationLines
     /// </summary>
     private static OwnText ForkWords(ImmutableArray<Successor> fork, bool stated) =>
         (!fork.IsDefault && fork.IsEmpty) || (fork.IsDefault && !stated) ? new OwnText(string.Empty) : new OwnText($"; {Supersession.ForkBranch(fork).Text}");
+
+    /// <summary>
+    /// R10.89 (errata G47): for each revision the Forum names with a digest and no post id, the digest again, that it is not served, and that
+    /// <c>recheck</c> of the digest says whether it is withheld, since "read it" is not an act a reader can perform on a post the Forum does not
+    /// serve. Nothing where every revision has a post id. The digests are display literals.
+    /// </summary>
+    private static OwnText UnservedBranches(CitationDocument item)
+    {
+        var served = item.Post?.Provenance.SupersededBy ?? default;
+        var unserved = item.Successors
+            .Where(digest => served.IsDefaultOrEmpty || served.FirstOrDefault(s => string.Equals(s.Digest, digest, StringComparison.Ordinal))?.PostId is null)
+            .Select(digest => $"{DisplayLiteral.Of(digest)} is not served; recheck of that digest says whether it is withheld")
+            .ToArray();
+        return unserved.Length == 0 ? new OwnText(string.Empty) : new OwnText("; " + string.Join("; ", unserved));
+    }
 
     private static OwnText Forked(CitationDocument item) => item.Forked ? new OwnText(Supersession.ForkedSentence) : new OwnText(string.Empty);
 

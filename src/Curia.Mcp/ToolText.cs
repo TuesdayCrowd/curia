@@ -139,8 +139,9 @@ internal static class ToolText
         "post id and says the Forum reports no later revision of that document, which is its standing in the log: it is not soundness, and no signature and no acceptance was checked. " +
         "A 'current' line for a post that is one branch of a fork says it is one of N revisions of the same post, FORKED, names the other branches and says the Forum picks none, from the fork member of the Forum's answer; fork NOT STATED means the Forum did not say. " +
         "'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
-        "Forum gave the digest alone; it names the direct revisions only, and a revision's own standing is one call: put its digest in a call of its own. FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
-        "choose. 'withheld' and 'unknown' say to drop the citation. 'disputed' is the Forum's word that the key was declared " +
+        "Forum gave the digest alone, and says the original is still served, which is all it establishes; it names the direct revisions only, and a revision's own standing is one call: put its digest in a call of its own. FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
+        "choose. Words in these lines: withheld means the Forum holds a post with that digest and is not serving it (a moderator withheld it, and it can be restored), so drop the citation and check again later; " +
+        "not served means a revision the Forum named by its digest alone, with no post id, and recheck of that digest says whether it is withheld. 'unknown' says to drop the citation. 'disputed' is the Forum's word that the key was declared " +
         "compromised from before the post: do not cite it as the author's. An element that was not a digest is named by its " +
         "zero-based position as digests[<n>] and is never echoed.\n\n" +
         "Where the Forum names a post, its digest is recomputed here from the canonical form the Forum served, and the line says it " +
