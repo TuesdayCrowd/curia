@@ -1031,6 +1031,16 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal (string ParentId, string Kind)? RefusesAsParentNotAQuestion { get; set; }
 
+    /// <summary>
+    /// R8.77 and R8.78 (errata G45): refuse every <c>POST /v1/posts</c> as the Forum refuses with one of its three <c>409</c>s on a submission, or with the
+    /// <c>503</c> of a revision gate it cannot reach, and record nothing. <b>Behaviour-preserving seam of PR 1's Task 0:</b> declared and ignored; the stub
+    /// accepts the submission as before. RVO33, RVO36 and RVO51 read what the stub does with it and are red until Task 4 gives it a body.
+    /// </summary>
+    internal StubIngestRefusal? RefusesSubmissionsAs { get; set; }
+
+    /// <summary>R8.77 and R8.78: the post id a <see cref="RefusesSubmissionsAs"/> refusal names (the successor, or the earlier copy). Ignored with the knob.</summary>
+    internal string RefusalNamedPostId { get; set; } = SubmittedPostId;
+
     /// <summary>PR 2: signs <paramref name="draft"/> with the stub's agent, as a client would, without serving it.</summary>
     internal SignedSubmission SignDraft(PostDraft draft) =>
         SubmissionBuilder.Build(_agent, draft, DateTimeOffset.UnixEpoch).TryGetValue(out var signed, out var error)
@@ -1993,4 +2003,20 @@ internal enum StubAcceptedAnswer
 
     /// <summary>The member names the stub's answer by digest alone (a Forum that does not serve that answer).</summary>
     StandingUnserved,
+}
+
+/// <summary>R8.77 and R8.78 (errata G45): which refusal <see cref="StubLog.RefusesSubmissionsAs"/> asks the stub to answer a submission with.</summary>
+internal enum StubIngestRefusal
+{
+    /// <summary><c>409 curia/ingest/already-revised</c>, detail <c>successor=&lt;post id&gt;</c>.</summary>
+    AlreadyRevised,
+
+    /// <summary><c>409 curia/ingest/revision-in-flight</c>.</summary>
+    RevisionInFlight,
+
+    /// <summary><c>503 curia/ingest/revision-gate-unavailable</c>.</summary>
+    RevisionGateUnavailable,
+
+    /// <summary><c>409 curia/ingest/already-recorded</c>, detail <c>post=&lt;post id&gt;</c>.</summary>
+    AlreadyRecorded,
 }

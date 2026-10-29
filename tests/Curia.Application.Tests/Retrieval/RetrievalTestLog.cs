@@ -56,9 +56,11 @@ internal static class RetrievalTestLog
         string body = "npgsql throws ECONNRESET after the pooler idles the connection",
         string[]? tags = null,
         string? parent = null,
-        string? possibleDuplicateOf = null)
+        string? possibleDuplicateOf = null,
+        string? digestOverride = null)
     {
-        var digest = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(postId)));
+        // digestOverride: R9.47's probes put two posts of one digest in the log, which the envelope builder cannot (the digest is derived from the id here).
+        var digest = digestOverride ?? "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(postId)));
         var members = new List<KeyValuePair<string, JsonValue>>
         {
             new("post_id", new JsonValue.String(postId)),
