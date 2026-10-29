@@ -261,6 +261,30 @@ public sealed class QuestionStandingTests : IDisposable
         Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Actual: {text}");
     }
 
+    /// <summary>
+    /// CHN61. Naming the latest revision of a twice-revised question: the named revision's own <c>superseded_by</c> is empty while the question's lists r1.
+    /// The clause about the revision named states it as the latest the Forum reports, and names no revision as superseding it (not r1, which the question's
+    /// list holds and the named revision's does not).
+    /// </summary>
+    [Fact]
+    public async Task R11_62_CHN61_TheLatestRevisionIsNeverSaidToBeSupersededByAnEarlierOne()
+    {
+        var chain = Chain("L", 2);
+        var latest = PublishedChainWords.RefusalPhrase("latest the Forum reports");
+        var named = PublishedChainWords.RefusalAndBlock().Named;
+
+        var text = await RefusalUnderAsync(chain[2]);
+
+        var at = text.IndexOf(named, StringComparison.Ordinal);
+        Assert.True(at >= 0, $"lacks \"{named}\". Actual: {text}");
+        var clause = text[at..];
+        var problems = new List<string>();
+        if (!clause.Contains(latest, StringComparison.Ordinal)) problems.Add($"the clause on the revision named does not say it is the {latest}");
+        if (clause.Contains(Literal(chain[1].Id), StringComparison.Ordinal)) problems.Add("the clause on the revision named names r1, which does not supersede it");
+        if (clause.Contains("superseded by", StringComparison.OrdinalIgnoreCase)) problems.Add("the clause on the revision named says it is superseded");
+        Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Clause: {clause}");
+    }
+
     // ----- the first block (CHN27 to CHN30, CHN57 (b)) -----
 
     private void ServeThread(string rootId, params Link[] members) =>
@@ -384,6 +408,35 @@ public sealed class QuestionStandingTests : IDisposable
         if (ia < 0 || ib < 0 || ia > ib) problems.Add("does not name both heads in log order");
         if (!line.Contains("does not pick one", StringComparison.Ordinal) && !line.Contains("picks none", StringComparison.Ordinal)) problems.Add("does not say the Forum picks none");
         Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Actual: {line}");
+    }
+
+    /// <summary>
+    /// CHN62. A question forked into two heads, both held in the thread: the clause after the root's own superseded statement ("the text that stands")
+    /// names every head and says FORKED by itself, so it does not lean on the root statement, which already names both successors (CHN30).
+    /// </summary>
+    [Fact]
+    public async Task R11_62_CHN62_TheTextThatStandsClauseNamesEveryHeadAndSaysForked()
+    {
+        var q = Question("M");
+        var a = Revise(q, "M", 1);
+        var b = Revise(q, "M", 2);
+        _log.ServePost(q.Id, q.Draft, q.Signed, [a.AsSuccessor(), b.AsSuccessor()]);
+        _log.ServePost(a.Id, a.Draft, a.Signed, []);
+        _log.ServePost(b.Id, b.Draft, b.Signed, []);
+        ServeThread(q.Id, q, a, b);
+        var stands = PublishedChainWords.RefusalAndBlock().Stands;
+
+        var line = RevisionLine(await FirstBlockAsync(q.Id));
+
+        Assert.True(line is not null, "Expected: a revision line Actual: none");
+        var at = line!.IndexOf(stands, StringComparison.Ordinal);
+        Assert.True(at >= 0, $"the line has no \"{stands}\" clause. Actual: {line}");
+        var clause = line[at..];
+        var problems = new List<string>();
+        if (!clause.Contains("FORKED", StringComparison.Ordinal)) problems.Add("the clause does not say FORKED");
+        if (!clause.Contains(Literal(a.Id), StringComparison.Ordinal)) problems.Add("the clause does not name the first head");
+        if (!clause.Contains(Literal(b.Id), StringComparison.Ordinal)) problems.Add("the clause does not name the second head");
+        Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Clause: {clause}");
     }
 
     /// <summary>
