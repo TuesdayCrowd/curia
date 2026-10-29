@@ -91,7 +91,7 @@ public sealed class PostgresRevisionGateContractTests : RevisionGatePortContract
     public async Task R8_77_AnUnreachableStoreIsGateUnavailableAndWritesNothing()
     {
         var ct = TestContext.Current.CancellationToken;
-        var builder = new NpgsqlConnectionStringBuilder(_fixture.AppRoleDataSource.ConnectionString)
+        var builder = new NpgsqlConnectionStringBuilder(_fixture.AppRoleConnectionString)
         {
             MaxPoolSize = 1,
             MinPoolSize = 0,

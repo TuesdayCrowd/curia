@@ -33,6 +33,7 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
     private string _roleName = string.Empty;
     private NpgsqlDataSource? _adminDataSource;
     private NpgsqlDataSource? _appRoleDataSource;
+    private string? _appRoleConnectionString;
 
     /// <summary>Admin-privileged access to the throwaway database -- schema setup, TRUNCATE
     /// between tests, and anything else that needs more than INSERT/SELECT.</summary>
@@ -46,6 +47,14 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
     /// the standalone grant-refusal test.
     /// </summary>
     public NpgsqlDataSource AppRoleDataSource => _appRoleDataSource
+        ?? throw new InvalidOperationException($"{nameof(PostgresDatabaseFixture)} was not initialized.");
+
+    /// <summary>
+    /// The connection string <see cref="AppRoleDataSource"/> was built from, password included. Npgsql leaves the password out of a data
+    /// source's own <c>ConnectionString</c>, so a test that builds a second data source for the role (a starved pool, say) starts from this,
+    /// or it passes under trust authentication and fails where the server asks for the role's password.
+    /// </summary>
+    public string AppRoleConnectionString => _appRoleConnectionString
         ?? throw new InvalidOperationException($"{nameof(PostgresDatabaseFixture)} was not initialized.");
 
     [SuppressMessage(
@@ -99,7 +108,8 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
             Username = _roleName,
             Password = rolePassword,
         };
-        _appRoleDataSource = NpgsqlDataSource.Create(appRoleBuilder.ConnectionString);
+        _appRoleConnectionString = appRoleBuilder.ConnectionString;
+        _appRoleDataSource = NpgsqlDataSource.Create(_appRoleConnectionString);
     }
 
     /// <summary>
