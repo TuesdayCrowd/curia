@@ -57,6 +57,7 @@
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
     <Compile Include="../Shared/PublishedSmallWords.cs" Link="Shared/PublishedSmallWords.cs" />
     <Compile Include="../Shared/PublishedParentRule.cs" Link="Shared/PublishedParentRule.cs" />
+    <Compile Include="../Shared/PublishedRevisionSlugs.cs" Link="Shared/PublishedRevisionSlugs.cs" />
     <Compile Include="../Shared/PublishedWithheldWords.cs" Link="Shared/PublishedWithheldWords.cs" />
     <Compile Include="../Shared/PublishedForkWords.cs" Link="Shared/PublishedForkWords.cs" />
     <Compile Include="../Shared/PublishedCliRules.cs" Link="Shared/PublishedCliRules.cs" />

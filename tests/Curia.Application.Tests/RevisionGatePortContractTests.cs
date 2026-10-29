@@ -9,7 +9,7 @@ namespace Curia.Application.Tests;
 /// <summary>
 /// What every <see cref="IRevisionGate"/> promises, run against the in-memory adapter here and against Postgres in <c>Curia.Infrastructure.Tests</c>
 /// (R11.4). R8.77 (errata G45): one post's revisions are entered one at a time, by the digest the revision names as its <c>prev</c>. Probes RVO19 to
-/// RVO21; the shape of <see cref="FlagRaiserGatePortContractTests"/>.
+/// RVO21 and RVO54; the shape of <see cref="FlagRaiserGatePortContractTests"/>.
 ///
 /// <para>Every digest is a fresh value, so a fact that fails while holding one cannot block a later fact sharing the adapter's store, and every hold is
 /// disposed on every path.</para>
@@ -86,6 +86,40 @@ public abstract class RevisionGatePortContractTests
             whileFourthHolds = await OutcomeAsync(await gate.TryEnterAsync(digest, ct));
 
         Assert.Equal(IngestErrors.RevisionInFlightType, whileFourthHolds);
+    }
+
+    /// <summary>
+    /// RVO54. A hold disposed a second time does not release a later holder's entry: A enters P and disposes; B enters P; A disposes again; C's entry
+    /// is refused while B holds, and entered once B has released. RVO21 disposes twice before anyone else enters, so it cannot tell a second dispose that
+    /// releases the digest from one that does nothing.
+    /// </summary>
+    [Fact]
+    public async Task R8_77_RVO54_ASecondDisposeOfAnEarlierHoldDoesNotReleaseALaterHolder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var gate = CreateGate();
+        var digest = NewDigest();
+
+        var a = Require(await gate.TryEnterAsync(digest, ct));
+        await a.DisposeAsync();
+        var b = Require(await gate.TryEnterAsync(digest, ct));
+        await a.DisposeAsync();
+
+        string whileBHolds;
+        try
+        {
+            whileBHolds = await OutcomeAsync(await gate.TryEnterAsync(digest, ct));
+        }
+        finally
+        {
+            await b.DisposeAsync();
+        }
+
+        var afterBReleases = await OutcomeAsync(await gate.TryEnterAsync(digest, ct));
+
+        Assert.Equal(
+            $"{IngestErrors.RevisionInFlightType} while B holds; entered after B releases",
+            $"{whileBHolds} while B holds; {afterBReleases} after B releases");
     }
 }
 

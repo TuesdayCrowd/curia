@@ -13,7 +13,7 @@ using static Curia.Api.Tests.RevisionProbe;
 namespace Curia.Api.Tests;
 
 /// <summary>
-/// R8.77 (errata G45) at the route, probes RVO1 to RVO18: the Forum refuses the second revision of a served <c>prev</c>, under a gate, whatever the
+/// R8.77 (errata G45) at the route, probes RVO1 to RVO18, RVO53 and RVO55: the Forum refuses the second revision of a served <c>prev</c>, under a gate, whatever the
 /// order requests arrive in. The host is <see cref="RevisionOnceForumFixture"/>: the production Forum, its store, revision gate and policy decision
 /// point wrapped by decorators that forward to the real objects.
 ///
@@ -666,5 +666,90 @@ public sealed class RevisionOnceEndpointTests : IClassFixture<RevisionOnceForumF
         var revised = await ReviseAsync(author, board, post);
 
         Said("201", revised.Says);
+    }
+
+    // ---------------------------------------------------------------- RVO53
+
+    /// <summary>
+    /// RVO53. Other work is not held up by a request parked in its own gate, at a named seam and not by timing. Twice, one request is parked at the store's
+    /// append (first a comment, then a revision of a post), and while it is parked the same author's comment on a question, a T1 author's answer to it and a
+    /// revision of a different post are each answered <c>201</c> within 5 s; then the parked request is released and answered <c>201</c>. RVO13 releases its
+    /// requests together and can pass a gate on every kind when they do not overlap; this one holds a request in its gate. Green now; red under FRVO18's first form.
+    /// </summary>
+    [Fact]
+    public async Task R8_77_RVO53_WorkIsNotHeldUpByARequestParkedInItsOwnGate()
+    {
+        var board = Board();
+        var asker = await T1Async(board);
+        var answerer = await T1Async(board);
+        var question = await AskAsync(asker, board);
+        var firstOther = await AskAsync(asker, board);
+        var secondOther = await AskAsync(asker, board);
+        var askerToken = await asker.Dpop.GetTokenAsync(_forum.Client, TokenEndpoint, _forum.Now, Ct);
+        var answererToken = await answerer.Dpop.GetTokenAsync(_forum.Client, TokenEndpoint, _forum.Now, Ct);
+
+        Task<Sent> Comment() => SendAsync(_forum, asker, asker.Agent.Sign(PostKind.Comment, board, "Comment " + Unrelated(), null, question.PostId, _forum.Now), askerToken, Ct);
+        Task<Sent> Answer() => SendAsync(_forum, answerer, answerer.Agent.SignAnswer(board, "Answer " + Unrelated(), question.PostId, _forum.Now), answererToken, Ct);
+        Task<Sent> Revise(ScenePost of) => SendAsync(_forum, asker, asker.Agent.SignRevision(board, "Correction " + Unrelated(), of.PostId, of.Digest, _forum.Now), askerToken, Ct);
+
+        async Task<string> WhileParkedAsync(Task<Sent> parkedSend, ScenePost revised)
+        {
+            var parkedAtSeam = await _forum.Store.WaitForParkedAsync(1, Wait);
+            var all = Task.WhenAll(Task.Run(Comment, Ct), Task.Run(Answer, Ct), Task.Run(() => Revise(revised), Ct));
+            var answered = await Task.WhenAny(all, Task.Delay(Wait, Ct)) == all ? await all : null;
+            _forum.Store.Release();
+            var parked = await parkedSend;
+            var said = answered is null
+                ? "no answer within 5 s"
+                : $"comment {answered[0].Says}, answer {answered[1].Says}, revision of another post {answered[2].Says}";
+            if (answered is null) _ = await all;
+            return $"{(parkedAtSeam ? "parked" : "never parked")}; {said}; parked request {parked.Says}";
+        }
+
+        _forum.Store.ParkNextAppendOf("comment");
+        var parkedComment = Task.Run(Comment, Ct);
+        var whileCommentParked = await WhileParkedAsync(parkedComment, firstOther);
+
+        _forum.Store.ParkNextAppendOf("revision");
+        var parkedRevision = Task.Run(() => Revise(secondOther), Ct);
+        var whileRevisionParked = await WhileParkedAsync(parkedRevision, question);
+
+        const string Fine = "parked; comment 201, answer 201, revision of another post 201; parked request 201";
+        Said(
+            $"comment parked: {Fine}; revision parked: {Fine}",
+            $"comment parked: {whileCommentParked}; revision parked: {whileRevisionParked}");
+    }
+
+    // ---------------------------------------------------------------- RVO55
+
+    /// <summary>
+    /// RVO55. The three refusals' types are the spellings the errata publishes. The slugs are read from R8.77's and R8.78's paragraphs at test time
+    /// (<see cref="PublishedRevisionSlugs"/>), not from <see cref="IngestErrors"/>, and each Forum response's <c>type</c> is compared with them: a revision
+    /// sent while another is parked (in flight), one sent after it was recorded (already revised) and the first one's bytes sent again (already recorded).
+    /// RVO14 and RVO9 compare with the production constants, so a constant whose value changes moves both sides; this does not. Green now; red under
+    /// FRVO22's first form and under a change of a constant's value.
+    /// </summary>
+    [Fact]
+    public async Task R8_77_RVO55_TheThreeRefusalsAnswerTheSlugsTheErrataPublishes()
+    {
+        var board = Board();
+        var author = await T1Async(board);
+        var post = await AskAsync(author, board);
+        var wireA = author.Agent.SignRevision(board, "A " + Unrelated(), post.PostId, post.Digest, _forum.Now);
+
+        _forum.Store.ParkRevisionAppends();
+        var sendA = Task.Run(() => SendAsync(_forum, author, wireA, cancellationToken: Ct), Ct);
+        await _forum.Store.WaitForParkedAsync(1, Wait);
+        var sendB = Task.Run(() => ReviseAsync(author, board, post, "B " + Unrelated()), Ct);
+        var inFlight = await Task.WhenAny(sendB, Task.Delay(Wait, Ct)) == sendB ? await sendB : null;
+        _forum.Store.Release();
+        _ = await sendA;
+        _ = await sendB;
+        var revised = await ReviseAsync(author, board, post, "C " + Unrelated());
+        var recorded = await SendAsync(_forum, author, wireA, cancellationToken: Ct);
+
+        Said(
+            $"in flight {PublishedRevisionSlugs.RevisionInFlight()}; already revised {PublishedRevisionSlugs.AlreadyRevised()}; already recorded {PublishedRevisionSlugs.AlreadyRecorded()}",
+            $"in flight {(inFlight is null ? "B parked at the append" : Slug(inFlight))}; already revised {Slug(revised)}; already recorded {Slug(recorded)}");
     }
 }

@@ -24,6 +24,8 @@ internal sealed class PausingEventStore(IEventStore inner) : IEventStore
     private readonly object _gate = new();
     private TaskCompletionSource _release = NewRelease();
     private bool _armed;
+    private bool _once;
+    private string _kind = "revision";
     private int _parked;
 
     private static TaskCompletionSource NewRelease() => new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -46,6 +48,21 @@ internal sealed class PausingEventStore(IEventStore inner) : IEventStore
         lock (_gate)
         {
             _armed = true;
+            _once = false;
+            _kind = "revision";
+            _parked = 0;
+            _release = NewRelease();
+        }
+    }
+
+    /// <summary>From now, the next append of a post of <paramref name="kind"/> parks until <see cref="Release"/>; the ones after it do not (RVO53).</summary>
+    internal void ParkNextAppendOf(string kind)
+    {
+        lock (_gate)
+        {
+            _armed = true;
+            _once = true;
+            _kind = kind;
             _parked = 0;
             _release = NewRelease();
         }
@@ -85,22 +102,21 @@ internal sealed class PausingEventStore(IEventStore inner) : IEventStore
         Release();
     }
 
-    private static bool IsRevisionAppend(IReadOnlyList<DomainEvent> events) =>
+    private static bool IsAppendOf(IReadOnlyList<DomainEvent> events, string kind) =>
         events.Count == 1
         && string.Equals(events[0].Type.Value, "post.accepted", StringComparison.Ordinal)
         && events[0].Payload is JsonValue.Object payload
-        && payload.Members.Any(m => m.Key == "kind" && m.Value is JsonValue.String { Value: "revision" });
+        && payload.Members.Any(m => m.Key == "kind" && m.Value is JsonValue.String s && string.Equals(s.Value, kind, StringComparison.Ordinal));
 
     private async Task ParkIfRevisionAsync(IReadOnlyList<DomainEvent> events, CancellationToken cancellationToken)
     {
-        if (!IsRevisionAppend(events)) return;
-
-        if (ThrowOnRevisionAppend) throw new InvalidOperationException("the test store failed this revision's append");
+        if (ThrowOnRevisionAppend && IsAppendOf(events, "revision")) throw new InvalidOperationException("the test store failed this revision's append");
 
         Task wait;
         lock (_gate)
         {
-            if (!_armed) return;
+            if (!_armed || !IsAppendOf(events, _kind)) return;
+            if (_once) _armed = false;
             _parked++;
             wait = _release.Task;
         }
