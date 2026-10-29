@@ -361,9 +361,8 @@ public sealed record ReaderContractClause(int Number, string Force, string Text,
 public sealed record ReaderContractDocument(string Version, ImmutableArray<ReaderContractClause> Clauses, ContractMarking? Marking = null);
 
 /// <summary>
-/// PR 3's seam (errata G47, R10.90), inert until Task 7: the Reader Contract's <c>marking</c> member beside the clauses. <see langword="null"/> on a
+/// Errata G47 (R10.90): the Reader Contract's <c>marking</c> member beside the clauses. <see langword="null"/> on a
 /// <see cref="ReaderContractDocument"/> is a Forum that served none (<c>NOT STATED</c>); a member present and unreadable is a malformed contract.
-/// Until Task 7 reads the member, every contract reads <see langword="null"/>.
 /// </summary>
 public sealed record ContractMarking(string TokenMember, string Escape, string Rule);
 
@@ -1057,8 +1056,24 @@ internal static class ForumDocuments
                 Bool(c, "client_must_implement")));
         }
 
+        // R10.90 (errata G47): `marking` is read in three states. Absent is none (a Forum that served none, printed NOT STATED); an object whose three
+        // members are all strings is its value; anything else (a string, an array, null, an object with a member missing or not a string) is a malformed
+        // contract and not none, since a Forum that stated a rule this reader cannot read must not pass for one that stated none. A member of the contract
+        // this reader does not know is tolerated.
+        ContractMarking? marking = null;
+        if (ClientJson.Member(o, "marking") is { } member)
+        {
+            if (member is not JsonValue.Object m
+                || ClientJson.String(m, "token_member") is not { } tokenMember
+                || ClientJson.String(m, "escape") is not { } escape
+                || ClientJson.String(m, "rule") is not { } rule)
+                return Result<ReaderContractDocument>.Fail(ClientErrors.ResponseMalformed("reader contract"));
+
+            marking = new ContractMarking(tokenMember, escape, rule);
+        }
+
         return Result<ReaderContractDocument>.Ok(
-            new ReaderContractDocument(version, clauses.ToImmutable()));
+            new ReaderContractDocument(version, clauses.ToImmutable(), marking));
     }
 
     private static bool Bool(JsonValue.Object o, string name) =>

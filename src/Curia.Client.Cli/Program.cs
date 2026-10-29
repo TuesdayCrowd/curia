@@ -1201,7 +1201,7 @@ internal static class Program
         return await PrintContractAsync(client, forum, ct).ConfigureAwait(false);
     }
 
-    /// <summary>PR 3's seam: what <c>curia contract</c> prints, over a client, so a fact can serve the contract from a stub.</summary>
+    /// <summary>What <c>curia contract</c> prints (R10.20, R10.90), over a client, so a fact can serve the contract from a stub.</summary>
     internal static async Task<int> PrintContractAsync(ForumClient client, Uri forum, CancellationToken ct)
     {
         var contract = await client.GetReaderContractAsync(ct).ConfigureAwait(false);
@@ -1218,6 +1218,19 @@ internal static class Program
             Output.Blank();
         }
 
+        // R10.90 (errata G47): the member beside the clauses that says how the Forum's mark and an author's token are told apart; NOT STATED for a
+        // Forum that served none (an older one), never silence. Every value is the Forum's, so a display literal.
+        if (document.Marking is { } marking)
+        {
+            Output.Line($"marking   a marked response names its token in the member {marking.TokenMember}; an author's token is written {marking.Escape}");
+            Output.Line($"   {marking.Rule}");
+        }
+        else
+        {
+            Output.Line("marking   NOT STATED (the Forum served no word on how its own mark and an author's token are told apart)");
+        }
+
+        Output.Blank();
         Output.Line(Help.ContractNote);
         return ExitCode.Ok;
     }

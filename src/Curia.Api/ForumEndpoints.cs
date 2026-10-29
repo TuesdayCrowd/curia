@@ -1613,6 +1613,14 @@ public static class ForumEndpoints
             // merely acknowledge.
             client_must_implement = c.Mechanical,
         }),
+
+        // R10.90 (errata G47): beside the clauses and not one of them, so no clause's text or force and not the version moves.
+        marking = new
+        {
+            token_member = ReaderContractMarking.TokenMember,
+            escape = ReaderContractMarking.Escape,
+            rule = ReaderContractMarking.Rule,
+        },
     });
 
     /// <summary>
