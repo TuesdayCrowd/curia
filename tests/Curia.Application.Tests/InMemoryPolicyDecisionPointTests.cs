@@ -135,19 +135,31 @@ public sealed class InMemoryPolicyDecisionPointTests
     /// The adapter agrees with the domain model on every modelled pair and tier. This is the
     /// statement a swapped-in engine has to satisfy, so it is written as a sweep rather than as a
     /// sample.
+    ///
+    /// <para><b>TRW44 (R7.26, errata G46): the sweep compares decisions, not two failures.</b> It used to build
+    /// every request with no counts, so a pair whose decision needs one failed on both sides and "agreed":
+    /// the <c>flag</c>/<c>raise</c> pairs since R7.22, and the <c>answer</c>/<c>accept</c> pairs once the
+    /// acceptance budget needs its count. The sweep now supplies every count, runs twice (all counts zero;
+    /// then every count at <see cref="int.MaxValue"/> with nothing marked a replay) and asserts that the only
+    /// failure on either side is the owner-authenticated <c>agent</c>/<c>enroll</c> row.</para>
     /// </summary>
-    [Fact]
-    public async Task The_adapter_agrees_with_the_domain_model_everywhere()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(int.MaxValue)]
+    public async Task The_adapter_agrees_with_the_domain_model_everywhere(int count)
     {
         var pdp = new InMemoryPolicyDecisionPoint();
         var ct = TestContext.Current.CancellationToken;
         var compared = 0;
+        var failedOtherThanEnroll = new List<string>();
 
         foreach (var pair in ResourceActionModel.ModelledPairs)
         foreach (var tier in Enum.GetValues<PrincipalTier>())
         foreach (var state in new[] { CredentialState.Active, CredentialState.Quarantined })
         {
-            var request = new AuthorizationRequest(TierFixture.As(tier), state, pair.Resource, pair.Action);
+            var request = new AuthorizationRequest(
+                TierFixture.As(tier), state, pair.Resource, pair.Action,
+                PostsToday: 0, FlagsToday: count, AcceptsToday: count, AcceptRecordsNothing: false);
 
             var viaPort = await pdp.EvaluateAsync(request, ct);
             var viaDomain = AccessPolicy.Decide(request);
@@ -158,6 +170,11 @@ public sealed class InMemoryPolicyDecisionPointTests
             Assert.Equal(domainOk, portOk);
             Assert.Equal(domainDecision, portDecision);
             Assert.Equal(domainError, portError);
+
+            var isEnroll = pair.Resource is ResourceKind.Agent && pair.Action is ActionKind.Enroll;
+            if (!domainOk && !isEnroll)
+                failedOtherThanEnroll.Add($"{pair.Resource}/{pair.Action} {tier} {state}: {domainError!.Type}");
+
             compared++;
         }
 
@@ -166,5 +183,41 @@ public sealed class InMemoryPolicyDecisionPointTests
         // Asserted so that a sweep which silently iterated nothing -- the failure this project keeps
         // rediscovering -- cannot pass as agreement.
         Assert.Equal(200, compared);
+
+        // TRW44: with every count supplied, a failure on both sides is not agreement but a pair the sweep did not reach.
+        Assert.Empty(failedOtherThanEnroll);
+    }
+
+    /// <summary>
+    /// TRW44, second half: with a count missing, the port and the domain both fail, and fail alike, for each action that needs one. R7.22 for
+    /// <c>flag</c>/<c>raise</c> (green first) and R7.26 for <c>answer</c>/<c>accept</c> (red until the policy needs its count).
+    /// </summary>
+    [Fact]
+    public async Task A_missing_count_is_a_failure_on_both_sides_for_every_action_that_needs_one()
+    {
+        var pdp = new InMemoryPolicyDecisionPoint();
+        var ct = TestContext.Current.CancellationToken;
+        var outcomes = new List<string>();
+        var expected = new List<string>();
+
+        foreach (var (resource, action) in new[] { (ResourceKind.Flag, ActionKind.Raise), (ResourceKind.Answer, ActionKind.Accept) })
+        foreach (var tier in new[] { PrincipalTier.T0, PrincipalTier.T1, PrincipalTier.T2, PrincipalTier.T3 })
+        {
+            var request = new AuthorizationRequest(
+                TierFixture.As(tier), CredentialState.Active, resource, action,
+                PostsToday: 0, FlagsToday: resource is ResourceKind.Flag ? null : 0, AcceptsToday: null);
+
+            var viaPort = await pdp.EvaluateAsync(request, ct);
+            var viaDomain = AccessPolicy.Decide(request);
+
+            var port = viaPort.TryGetValue(out var portDecision, out var portError) ? portDecision!.Effect.ToString() : "fail " + portError!.Type;
+            var domain = viaDomain.TryGetValue(out var domainDecision, out var domainError) ? domainDecision!.Effect.ToString() : "fail " + domainError!.Type;
+            outcomes.Add($"{resource}/{action} {tier}: port {port}; domain {domain}");
+
+            var slug = resource is ResourceKind.Flag ? "flag-count-missing" : "accept-count-missing";
+            expected.Add($"{resource}/{action} {tier}: port fail curia/authz/{slug}; domain fail curia/authz/{slug}");
+        }
+
+        Assert.Equal(expected, outcomes);
     }
 }

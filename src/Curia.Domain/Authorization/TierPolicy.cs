@@ -129,6 +129,19 @@ public static class TierPolicy
     };
 
     /// <summary>
+    /// R7.26 (errata G46): acceptances per trailing 24 hours, beside the posting and flag budgets. Provisional, revisable against the rate observed.
+    /// </summary>
+    public static int AcceptsPerDay(PrincipalTier tier) => tier switch
+    {
+        PrincipalTier.T0 => 10,
+        PrincipalTier.T1 => 50,
+        PrincipalTier.T2 => 200,
+        PrincipalTier.T3 => int.MaxValue,   // "Negotiated", as PostsPerDay
+        PrincipalTier.Anonymous => 0,
+        _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, "Not a Table 11 tier"),
+    };
+
+    /// <summary>
     /// R7.23 (provisional): the most keys an identity may hold live at once. A rotation that would make a
     /// fifth is refused by name before anything is written. R4.17 needs two live keys, not more.
     /// </summary>

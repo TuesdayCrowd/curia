@@ -36,7 +36,7 @@ public enum RefusalKind
     Authorization,
 
     /// <summary>
-    /// 403 with <c>table-11/rate-budget-exhausted</c> or, for a flag, <c>table-11/flag-budget-exhausted</c>
+    /// 403 with <c>table-11/rate-budget-exhausted</c> or, for a flag, <c>table-11/flag-budget-exhausted</c> or, for an acceptance, <c>table-11/accept-budget-exhausted</c>
     /// (R7.22). Today's budget is spent; tomorrow it is not.
     /// </summary>
     RateBudget,
@@ -102,6 +102,13 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .Append($"{Error.Title} ({Error.Detail}). Today's flag budget is spent -- 10 flags at T0, ")
             .Append($"50 at T1, 200 at T2, over a trailing 24 hours (R7.22). This one resets; it is not a tier denial.")
             .ToString(),
+        // R7.26 (errata G46): an acceptance has a budget of its own. Told by its cause: it resets, it is not a tier denial, the posting budget
+        // is untouched, and accepting the answer that already stands (a replay) is free and never refused for it.
+        RefusalKind.RateBudget when IsAcceptBudget => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Detail}). Today's acceptance budget is spent -- 10 acceptances at T0, ")
+            .Append($"50 at T1 and 200 at T2, over a trailing 24 hours (R7.26). This one resets; it is not a tier denial. ")
+            .Append($"Your posting budget is untouched, and accepting the answer that already stands is a replay and free.")
+            .ToString(),
         RefusalKind.RateBudget => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Today's posting budget is spent -- 3 a day at T0, ")
             .Append($"25 at T1, 100 at T2. This one resets; it is not a tier denial.")
@@ -141,12 +148,20 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         RefusalKind.Conflict => Said($"{Error.Title}{Detailed}"),
         RefusalKind.Transport => Said($"{Error.Title}{Detailed}"),
         RefusalKind.Malformed => Said($"{Error.Title}{Detailed}"),
+        // R8.79 (errata G46): the Forum declined to keep trying an acceptance whose thread kept moving. Told apart by the type it issues. Nothing was
+        // recorded and the same acceptance may be sent again; this is neither a tier denial nor a spent budget. Shared by `curia` and `curia-mcp`.
+        RefusalKind.ServerFault when Error.Type == AcceptContendedType => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Type}){Detailed}. Nothing was recorded: the acceptance may be sent again. ")
+            .Append($"This is neither a tier denial nor a spent budget.")
+            .ToString(),
         RefusalKind.ServerFault => Said($"{Error.Title} ({Error.Type}){Detailed}"),
         RefusalKind.Local => Said($"{Error.Title}{Detailed}"),
         _ => Said($"{Error.Title} ({Error.Type})"),
     };
 
     /// <summary>The post id a <c>post=</c> or <c>successor=</c> detail names, or the whole detail where it is not in that form; the caller quotes it.</summary>
+    private const string AcceptContendedType = "curia/accept/contended";
+
     private string? NamedPostId(string prefix) =>
         Error.Detail is { } d && d.StartsWith(prefix, StringComparison.Ordinal) ? d[prefix.Length..] : Error.Detail;
 
@@ -184,6 +199,9 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
 
     private bool IsFlagBudget =>
         Error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true;
+
+    private bool IsAcceptBudget =>
+        Error.Detail?.StartsWith("table-11/accept-budget-exhausted", StringComparison.Ordinal) == true;
 
     private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
 

@@ -199,12 +199,14 @@ public sealed class CachingPolicyDecisionPointTests
     /// and the product below is its ceiling. <c>PostsToday</c> is deliberately on one list and not
     /// the other: reads never consult it (<c>AccessPolicyTests.Read_decisions_do_not_consult_the_posting_count</c>).
     /// <c>FlagsToday</c> is too (R7.22, errata G18): only <c>flag</c>/<c>raise</c> consults it, which is
-    /// a write, and a write is never cached.
+    /// a write, and a write is never cached. <c>AcceptsToday</c> and <c>AcceptRecordsNothing</c> are too
+    /// (R7.26, errata G46, TRW43): only <c>answer</c>/<c>accept</c> consults them, which is a write and so
+    /// never cached, and neither is an enum, so neither could join the key without making it unbounded.
     /// </summary>
     [Fact]
     public void The_cache_key_carries_every_request_field_except_the_instant_and_the_post_count()
     {
-        string[] requestFields = ["Action", "CredentialState", "FlagsToday", "PostsToday", "Resource", "Tier"];
+        string[] requestFields = ["AcceptRecordsNothing", "AcceptsToday", "Action", "CredentialState", "FlagsToday", "PostsToday", "Resource", "Tier"];
         string[] keyFields = ["Action", "CredentialState", "Resource", "Tier"];
 
         var request = FieldsOf(typeof(AuthorizationRequest));

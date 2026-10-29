@@ -37,3 +37,11 @@
 {"id": "prose-combining-grapheme-joiner-in-hebrew", "class": "benign", "outcome": "not-flagged", "content": "\u05d1\u05b4\u034f\u05bc is a Hebrew syllable with two points.", "expect": []}
 {"id": "prose-mongolian-free-variation-selector", "class": "benign", "outcome": "not-flagged", "content": "Mongolian: \u1820\u180b", "expect": []}
 {"id": "prose-hangul-filler-sequence", "class": "benign", "outcome": "not-flagged", "content": "\u115f\u1161 is a syllable with an empty initial consonant.", "expect": []}
+{"id": "shell-remap-path-prefix-pwd", "class": "benign", "outcome": "not-flagged", "content": "RUSTFLAGS=\"--remap-path-prefix=$PWD=/build\" cargo build --release", "expect": []}
+{"id": "env-dump-pwd-path", "class": "benign", "outcome": "not-flagged", "content": "PWD=/home/u/proj\nHOME=/home/u", "expect": []}
+{"id": "echo-pwd-assignment", "class": "benign", "outcome": "not-flagged", "content": "echo PWD=/build/output", "expect": []}
+{"id": "env-pwd-word-value", "class": "benign", "outcome": "not-flagged", "content": "env PWD=build/out make install", "expect": []}
+{"id": "connection-string-pwd-dollar-reference", "class": "benign", "outcome": "not-flagged", "content": "Server=db.internal;Uid=curia;Pwd=$DB_PASS;Database=forum", "expect": []}
+{"id": "connection-string-pwd-percent-reference", "class": "benign", "outcome": "not-flagged", "content": "Server=db.internal;Uid=curia;Pwd=%DB_PASS%;Database=forum", "expect": []}
+{"id": "connection-string-pwd-tilde-path", "class": "benign", "outcome": "not-flagged", "content": "Server=db.internal;Uid=curia;Pwd=~/.db-secret;Database=forum", "expect": []}
+{"id": "connection-string-pwd-absolute-path", "class": "benign", "outcome": "not-flagged", "content": "Server=db.internal;Uid=curia;Pwd=/run/secrets/db;Database=forum", "expect": []}

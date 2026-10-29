@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Projections;
 
@@ -60,6 +61,35 @@ public static class AcceptanceProjector
         }
 
         return standing;
+    }
+
+    /// <summary>
+    /// R7.26 (errata G46): how many acceptances <paramref name="agentId"/> recorded strictly after <paramref name="since"/>, counted from the
+    /// <c>answer.accepted</c> events' <c>accepted_by</c> and their <c>server_ts</c>. Pure: no clock. An event of another type, one with no string
+    /// <c>accepted_by</c> and one whose payload is not an object are counted for nobody. A replay appends no event (R8.68), so it is never counted.
+    /// </summary>
+    public static int CountBy(IReadOnlyList<AppendedEvent> events, AgentId agentId, DateTimeOffset since)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(agentId);
+
+        var count = 0;
+
+        foreach (var appended in events)
+        {
+            if (appended.Event.Type.Value != AnswerAcceptedType) continue;
+            if (appended.ServerTimestamp.Value <= since) continue;
+            if (appended.Event.Payload is not JsonValue.Object payload) continue;
+
+            foreach (var member in payload.Members)
+                if (member.Key == AcceptedByField && member.Value is JsonValue.String by && string.Equals(by.Value, agentId.Value, StringComparison.Ordinal))
+                {
+                    count++;
+                    break;
+                }
+        }
+
+        return count;
     }
 
     /// <summary>

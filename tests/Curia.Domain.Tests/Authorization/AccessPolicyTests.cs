@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Text.RegularExpressions;
 using Curia.Domain.Authorization;
 using Curia.Domain.Credentials;
+using Curia.Tests.Shared;
 using Xunit;
 
 namespace Curia.Domain.Tests.Authorization;
@@ -14,7 +14,7 @@ namespace Curia.Domain.Tests.Authorization;
 public sealed class AccessPolicyTests
 {
     /// <summary>
-    /// A request counted at <paramref name="flagsToday"/> flags, zero by default: these facts are about
+    /// A request counted at <paramref name="flagsToday"/> flags and <paramref name="acceptsToday"/> acceptances, zero by default: these facts are about
     /// Table 10, Table 11's posting budget and quarantine, and a flag evaluated with no count is a
     /// failure (R7.22), asserted by <see cref="R7_22_AFlagWithNoCountIsAFailureNotADecision"/>.
     /// </summary>
@@ -24,8 +24,9 @@ public sealed class AccessPolicyTests
         ActionKind action,
         CredentialState state = CredentialState.Active,
         int postsToday = 0,
-        int? flagsToday = 0) =>
-        new(TierFixture.As(tier), state, resource, action, postsToday, flagsToday);
+        int? flagsToday = 0,
+        int? acceptsToday = 0) =>
+        new(TierFixture.As(tier), state, resource, action, postsToday, flagsToday, acceptsToday);
 
     private static AuthorizationDecision Decide(AuthorizationRequest request)
     {
@@ -50,12 +51,19 @@ public sealed class AccessPolicyTests
         {
             var posts = new[] { 0, TierPolicy.PostsPerDay(tier), int.MaxValue };
             var flags = new int?[] { 0, TierPolicy.FlagsPerDay(tier) };
+            var accepts = new int?[] { 0, TierPolicy.AcceptsPerDay(tier) };
             foreach (var postsToday in posts)
             foreach (var flagsToday in flags)
+            foreach (var acceptsToday in accepts)
             {
-                if (!AccessPolicy.Decide(Request(tier, resource, action, state, postsToday, flagsToday))
-                        .TryGetValue(out var decision, out _))
+                // TRW9 (vacuity question 3 in a helper): a failed decision used to be skipped, so an action evaluated without the count it needs would
+                // have dropped out of the set silently. The only failure the model has is the owner-authenticated row, which names no denial.
+                var evaluated = AccessPolicy.Decide(Request(tier, resource, action, state, postsToday, flagsToday, acceptsToday));
+                if (!evaluated.TryGetValue(out var decision, out var failure))
+                {
+                    Assert.Equal("curia/authz/owner-authentication-required", failure!.Type);
                     continue;
+                }
 
                 if (decision!.Effect is DecisionEffect.Deny)
                     reasons.Add(decision.Reason);
@@ -97,22 +105,16 @@ public sealed class AccessPolicyTests
         Assert.DoesNotContain("trust tier", AccessPolicy.NeutralDenialTitle, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// TRW9. R7.24 (rev.) names as many causes as the PDP gives: the paragraph in force is the revision (eight causes, the acceptance budget among them),
+    /// and the enumerator varies the acceptance count over {0, the tier's budget} so that the accept denial is reached rather than dropped.
+    /// </summary>
     [Fact]
     public void R7_24_TheCausesTheErrataListsAreTheReasonsThePdpGives()
     {
-        var errata = File.ReadAllText(FindAbove("curia-whitepaper-ERRATA-AND-ADDENDUM.md"));
-        var start = errata.IndexOf("**R7.24**", StringComparison.Ordinal);
-        Assert.True(start >= 0, "the errata no longer define R7.24");
-        var paragraph = errata[start..].Split("\n\n")[0].Replace('\n', ' ');
-        var marker = "SHALL name its cause:";
-        var at = paragraph.IndexOf(marker, StringComparison.Ordinal);
-        Assert.True(at >= 0, "R7.24 no longer reads 'SHALL name its cause:'");
-        var list = paragraph[(at + marker.Length)..];
-        list = list[..list.IndexOf(". ", StringComparison.Ordinal)];
-        list = Regex.Replace(list, @"\s*\(R7\.22\)", "");
-        var causes = list.Split([", ", " or "], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var causes = PublishedAcceptBudget.Causes();
 
-        Assert.Equal(7, causes.Length);
+        Assert.Equal(8, causes.Length);
         Assert.Equal(causes.Length, ObservedDenialReasons().Count);
     }
 

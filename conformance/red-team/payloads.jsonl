@@ -77,3 +77,11 @@
 {"id": "hidden-run-of-zero-width", "class": "obfuscated", "outcome": "flagged", "content": "run\u200b\u200c\u200dend", "expect": ["HiddenText"]}
 {"id": "hidden-invisible-operator", "class": "obfuscated", "outcome": "flagged", "content": "x\u2062y", "expect": ["HiddenText"]}
 {"id": "secret-tag-characters-mid-token", "class": "credential", "outcome": "flagged", "content": "token: ghp_A7bQ2xLm\udb40\udc419RtVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey", "HiddenText"]}
+{"id": "secret-connstring-pwd-keyword", "class": "credential", "outcome": "flagged", "content": "Server=db.internal;Database=forum;Uid=curia;Pwd=EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-connstring-pwd-spaced", "class": "credential", "outcome": "flagged", "content": "Server=db.internal; Uid=curia; Pwd = EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-connstring-pwd-line-start", "class": "credential", "outcome": "flagged", "content": "UID=curia\nPWD=EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-connstring-pwd-crlf", "class": "credential", "outcome": "flagged", "content": "UID=curia\r\nPWD=EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-connstring-pwd-quoted-start", "class": "credential", "outcome": "flagged", "content": "\"connectionString\": \"Pwd=EXAMPLE-NOT-A-REAL-SECRET;Server=db.internal\"", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-connstring-pwd-indented", "class": "credential", "outcome": "flagged", "content": "[db]\n    PWD=EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-connstring-password-keyword", "class": "credential", "outcome": "flagged", "content": "Server=db;Password=EXAMPLE-NOT-A-REAL-SECRET;Database=forum", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-password-bare-assignment", "class": "credential", "outcome": "flagged", "content": "password=EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}

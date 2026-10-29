@@ -10,7 +10,7 @@ namespace Curia.Mcp.Tests;
 /// <summary>
 /// R11.61 (errata G45) at the tool: <c>curia_revise</c> relays the Forum's second-revision refusals worded by their cause (RVO33), its description and
 /// those of the three other posting tools state the refusals and no longer say a revision landing after the read is not seen (RVO34, RVO50), and
-/// <c>curia-mcp</c> is 0.8.8 (RVO35). The golden phrases are <see cref="RevisionWording"/>'s, the same constants <c>Refusal.Summary</c> and the help share.
+/// <c>curia-mcp</c> is 0.8.9 since errata G46 (RVO35). The golden phrases are <see cref="RevisionWording"/>'s, the same constants <c>Refusal.Summary</c> and the help share.
 ///
 /// <para>RVO33 drives the stub's <see cref="StubLog.RefusesSubmissionsAs"/> knob, which PR 1's Task 0 declared and the stub ignores: the tool posts and
 /// reports <c>POSTED</c>, so each fact is red by assertion until Task 4 gives the knob a body.</para>
@@ -133,10 +133,10 @@ public sealed class RevisionRefusalToolTests : IDisposable
         Said(string.Empty, Missing(description, RevisionWording.IdenticalPostRefused));
     }
 
-    /// <summary>RVO35. <c>curia-mcp</c> is 0.8.8: the descriptions and a refusal's wording change; no tool is added.</summary>
+    /// <summary>RVO35. <c>curia-mcp</c> was 0.8.8 here and is 0.8.9 since errata G46 (the pin follows the version): the descriptions and a refusal's wording change; no tool is added.</summary>
     [Fact]
-    public void R11_61_TheVersionIs088()
+    public void R11_61_TheVersionIs089()
     {
-        Assert.Equal("0.8.8", ToolCatalogue.Version);
+        Assert.Equal("0.8.9", ToolCatalogue.Version);
     }
 }

@@ -40,8 +40,9 @@ public static partial class SecretScanner
     /// high-entropy rule's keyword boundary is consumed rather than looked behind. Verdicts on the
     /// red-team corpus are unchanged; on other input they may not be.
     /// 2026-10-18: no pattern changed; the line-joined view deletes the characters HiddenCharacters now names, tag characters and U+2061 to U+206F among them (register D35, errata G23, R10.76), so a credential interleaved with one is found.
+    /// 2026-10-29: the keyword connection-string rule reads `pwd=` only in position (after a semicolon, an opening quotation mark or the start of a line) and not when its value starts like a path or a reference (`/`, `~`, `$`, `%`), so a working directory or a shell variable is no longer a password; `password=` is unchanged (register D84, errata G46, R10.86).
     /// </summary>
-    public const string Version = "secrets/2026-10-18";
+    public const string Version = "secrets/2026-10-29";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -99,8 +100,13 @@ public static partial class SecretScanner
         // "connection strings with embedded passwords", the keyword form: `Password=...` is an
         // assignment whose value class is open, so it runs here with the other assignment rule and
         // not in ScanShapes -- see ScanShapes for why the line-joined view reads neither.
+        // R10.86: the span is the keyword to the end of its value, taken from whichever alternative matched, so the
+        // prefix the `pwd` alternative consumes (a semicolon, a quotation mark, indentation) is never inside it.
         foreach (var match in ConnectionStringKeywordPassword().Matches(derivedCopy).Cast<Match>())
-            yield return new RiskFlag(RiskCategory.ConnectionStringPassword, match.Index, match.Length, Version);
+        {
+            var span = match.Groups["pwd"].Success ? match.Groups["pwd"] : match.Groups["password"];
+            yield return new RiskFlag(RiskCategory.ConnectionStringPassword, span.Index, span.Length, Version);
+        }
 
         // "high-entropy strings in assignment position" is the one rule with a second condition,
         // so it runs outside the table rather than being forced into it. The regex finds the
@@ -192,10 +198,13 @@ public static partial class SecretScanner
     private static partial Regex ConnectionStringUriPassword();
 
     // A keyword connection string carrying a password. An assignment, so Scan runs it and
-    // ScanShapes does not.
+    // ScanShapes does not. R10.86 (errata G46): `password=` keeps its rule exactly. `pwd=` is a password only in position (after a
+    // semicolon, an opening quotation mark, a carriage return or the start of a line, with optional blanks) and only when its value
+    // does not start like a path or a reference (`/`, `~`, `$`, `%`): `PWD=/build` and `Pwd=$DB_PASS` are not credentials. The prefix is
+    // consumed, not looked behind (R10.69), so the span is taken from the named group.
     [GeneratedRegex(
-        @"\b(?:password|pwd)\s*=\s*[^\s;""']{4,}",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+        @"(?<password>\bpassword\s*=\s*[^\s;""']{4,})|(?:^|[;""'\r])[ \t]*(?<pwd>pwd\s*=\s*[^\s;""'/~$%][^\s;""']{3,})",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Multiline | RegexOptions.NonBacktracking)]
     private static partial Regex ConnectionStringKeywordPassword();
 
     [GeneratedRegex(

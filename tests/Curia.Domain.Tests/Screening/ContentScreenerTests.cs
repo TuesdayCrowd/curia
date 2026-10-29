@@ -572,9 +572,11 @@ public sealed class ContentScreenerTests
     // ---- R10.10: the versions the errata names are the built ones ------------------------------
 
     /// <summary>
-    /// Every <c>injection/</c> and <c>secrets/</c> version string in the G23 entry equals the built
-    /// constant, and the entry names at least one of each. The entry runs from its heading to the
-    /// next top-level heading, so its prose and its closing summary are both read.
+    /// TRW42 (PR 2, plan ruling 18; trap 52). The latest version the errata names for each detector is the built one, none is named that is dated after
+    /// the built one, and a built one is named (a version is a prefix followed by a date; prose that merely mentions the prefix is not one). Older names are history: each later bump makes the earlier names so, and the fact does not read them as
+    /// lies. The slice is Part G from the G23 heading to the first level-one heading after it, and the fact fails if either heading is missing (the
+    /// fact it replaces searched for a level-one heading inside a document whose entries are level-two headings, and so read G23 to G46). At least two
+    /// <c>secrets/</c> versions must be named, so that the history rule is exercised and a one-version errata cannot pass it vacuously.
     /// </summary>
     [Fact]
     public void R10_10_TheVersionsTheErrataNamesAreTheBuiltOnes()
@@ -589,15 +591,21 @@ public sealed class ContentScreenerTests
         var start = text.IndexOf("## G23 ", StringComparison.Ordinal);
         Assert.True(start >= 0, "the errata has no G23 entry");
         var end = text.IndexOf("\n# ", start, StringComparison.Ordinal);
-        var entry = end < 0 ? text[start..] : text[start..end];
+        Assert.True(end > start, "the errata has no level-one heading after the G23 entry, so Part G has no end to slice at");
+        var partG = text[start..end];
 
-        var injection = NamedVersions(entry, "injection/");
-        var secrets = NamedVersions(entry, "secrets/");
+        foreach (var (prefix, built) in new[] { ("injection/", InjectionDetector.Version), ("secrets/", SecretScanner.Version) })
+        {
+            var named = NamedVersions(partG, prefix);
+            Assert.NotEmpty(named);
 
-        Assert.NotEmpty(injection);
-        Assert.NotEmpty(secrets);
-        Assert.All(injection, v => Assert.Equal(InjectionDetector.Version, v));
-        Assert.All(secrets, v => Assert.Equal(SecretScanner.Version, v));
+            var latest = named.Max(StringComparer.Ordinal)!;
+            Assert.True(latest == built, $"named {latest}, built {built}");
+        }
+
+        Assert.True(
+            NamedVersions(partG, "secrets/").Distinct(StringComparer.Ordinal).Count() >= 2,
+            "Part G names fewer than two secrets/ versions, so the history rule is not exercised");
     }
 
     /// <summary>Every <c>prefix</c> followed by a date written <c>dddd-dd-dd</c>, prefix included.</summary>
