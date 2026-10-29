@@ -146,6 +146,72 @@ public static class Supersession
     }
 
     /// <summary>
+    /// R11.62 (errata G47): the first block's <c>revision</c> line for the root a thread was read from: the root's own supersession in the passage's words
+    /// (<see cref="PassageLine"/>: <c>NOT STATED</c> for a list the Forum did not serve, nothing for an unrevised root) and, for a superseded root, the text
+    /// that stands among the posts the thread holds (<see cref="TextThatStands"/>). Written from the root, never from the post that was read.
+    /// </summary>
+    public static OwnText? RootLine(ProvenancePost root, ImmutableArray<ProvenancePost> members)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        var line = PassageLine(root.Provenance.SupersededBy);
+        return line is not null && IsSuperseded(root.Provenance.SupersededBy)
+            ? new OwnText($"{line.Value.Text}; {TextThatStands(root, members).Text}")
+            : line;
+    }
+
+    /// <summary>
+    /// The text that stands among <paramref name="members"/>, found by following each successor digest of <paramref name="root"/> to the member that bears
+    /// it and recursing through that member's own <c>superseded_by</c>, to any depth (each member is followed once, so the walk is bounded by the member
+    /// count). A member whose list is empty is a head; a member whose list the Forum did not serve is named as NOT STATED and is no head; a digest no
+    /// member bears leads outside what the thread holds and is said to, and no head is claimed for it. A fork names every head and picks none. Computed
+    /// from the thread's members alone: no read is made, and the claim is only as complete as the Forum's lists are.
+    /// </summary>
+    public static OwnText TextThatStands(ProvenancePost root, ImmutableArray<ProvenancePost> members)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        var heads = new List<string>();
+        var notStated = new List<string>();
+        var outside = new List<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { root.PostId };
+
+        void Follow(ProvenancePost node)
+        {
+            foreach (var successor in node.Provenance.SupersededBy.IsDefault ? [] : node.Provenance.SupersededBy)
+            {
+                var member = members.IsDefault ? null : members.FirstOrDefault(m => string.Equals(m.Digest, successor.Digest, StringComparison.Ordinal));
+                if (member is null)
+                {
+                    outside.Add(successor.Digest);
+                    continue;
+                }
+
+                if (!visited.Add(member.PostId)) continue;
+                if (member.Provenance.SupersededBy.IsDefault) notStated.Add(member.PostId);
+                else if (member.Provenance.SupersededBy.IsEmpty) heads.Add(member.PostId);
+                else Follow(member);
+            }
+        }
+
+        Follow(root);
+
+        var parts = new List<string>();
+        parts.Add(heads.Count switch
+        {
+            0 => "the text that stands is not named: no post this thread holds is a head of the chain",
+            1 => $"the text that stands among the posts this thread holds is post {DisplayLiteral.Of(heads[0])}",
+            _ => $"the text that stands is not one text, the chain is FORKED: the heads this thread holds are {string.Join(", ", heads.Select(h => "post " + DisplayLiteral.Of(h)))}, and the Forum picks none",
+        });
+        if (outside.Count > 0)
+            parts.Add($"{string.Join(", ", outside.Select(DisplayLiteral.Of))} leads outside what this thread holds, so no head is claimed for it");
+        if (notStated.Count > 0)
+            parts.Add($"{string.Join(", ", notStated.Select(n => "post " + DisplayLiteral.Of(n)))}: revision NOT STATED, so no head is claimed past it");
+
+        return new OwnText(string.Join("; ", parts));
+    }
+
+    /// <summary>
     /// R11.47 (errata G34): the refusal <c>curia_revise</c> gives for a post the Forum serves as superseded, naming the post to revise
     /// instead (its post id, or the digest and that it is not served), and saying the chain is already FORKED where there is more than one.
     /// Null for a list that is not a statement (unstated or empty), which is the caller's cue to proceed. Every value is a display literal

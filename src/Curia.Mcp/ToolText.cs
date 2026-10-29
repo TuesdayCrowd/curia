@@ -102,6 +102,12 @@ internal static class ToolText
         "The accepted line says when the accepted answer has been superseded: it takes the Forum's word from that answer's own list, " +
         "names each revision (FORKED where there is more than one), and says the acceptance names the answer and not its revision; " +
         "it says nothing of a revision where the answer has none.\n\n" +
+        "Beneath the accepted line, where the thread was read, a `revision` line states what became of the root from the root's own " +
+        "superseded_by (never from the post you read): the revisions, each by post id or as a digest not served, FORKED where there is " +
+        "more than one, and `the text that stands`, found among the posts the thread holds by following each revision's own list to " +
+        "any depth. Where a digest leads outside what the thread holds it says so and names no head for it, a fork names every head " +
+        "and picks none, and a root whose list the Forum did not serve reads 'revision NOT STATED'. An unrevised root has no such line. " +
+        "It is the Forum's word, no signature covers it, and it is made from the thread's members with no further read.\n\n" +
         "A passage of a post its author has since corrected carries a `revision` line, after the thread line, naming the revision's " +
         "digest and, when the Forum serves it, its post id, or 'not served'; more than one revision is FORKED and the Forum picks none. " +
         "Where the Forum served no word on it, the line reads 'revision NOT STATED', which is not 'no revision'. The line is the " +
@@ -266,7 +272,7 @@ internal static class ToolText
     /// where the Forum's own <c>superseded_by</c> confirms it. States what the pointer is built from so that its absence is not read as "no question".
     /// </summary>
     private const string RevisedQuestionSentence =
-        "If the post you named is a revision of a question, the Forum refuses, and this tool adds the question it revises when the Forum's own superseded_by confirms it (the revision's digest is recomputed here, and the question must verify); answer that question instead. No question is named where the Forum does not confirm one, and the pointer is the Forum's word as of the read.";
+        "If the post you named is a revision of a question, the Forum refuses, and this tool adds the question it revises when the Forum's own superseded_by confirms it (the revision's digest is recomputed here, and the question must verify); answer that question instead. The refusal states the question's standing from that read (the revisions its superseded_by lists, each by post id or as a digest not served, FORKED where there are two or more) and the standing of the revision you named (the latest the Forum reports, or the revisions that supersede it), with no hedge: the original is still the only parent an answer can have, so say in the answer which text it answers. No question is named where the Forum does not confirm one, and then no standing is stated; the pointer is the Forum's word as of the read.";
 
     /// <summary>R11.55's receipt line (R11.26): the question's standing at the read this tool already makes; a note, never a refusal.</summary>
     private const string QuestionReceiptSentence =

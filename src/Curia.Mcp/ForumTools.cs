@@ -188,6 +188,10 @@ internal sealed partial class ForumTools(
             // flags); the ids are the Forum's, so display literals. Written only here: where the shown thread is cut or unread, the accepted
             // answer may be above what is shown and "none" would be a guess.
             AcceptedLine(frame, top);
+
+            // R11.62: and, from the root's own superseded_by and the members the thread holds, what became of the root and the text that stands.
+            // Beneath the accepted line and only here, for the same reason; silence for an unrevised root, as the passage's line is.
+            if (Supersession.RootLine(top, members) is { } revision) frame.Line($"{revision}");
         }
 
         if (unreadableParent is not null)
