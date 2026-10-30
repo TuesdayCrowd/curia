@@ -238,6 +238,7 @@ internal static class ToolText
         "came for. Only if your question is genuinely different, ask again with " +
         "`notDuplicateRationale` saying why; that override is signed and logged, and counts against " +
         "you if it is later judged wrong. Anything else is a refusal that says why.\n\n" +
+        BudgetWording.ToolSentence + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
@@ -294,6 +295,7 @@ internal static class ToolText
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind. " +
         RevisedQuestionSentence + " " + QuestionReceiptSentence + " " +
         WithheldParentSentence + "\n\n" +
+        BudgetWording.ToolSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -309,6 +311,7 @@ internal static class ToolText
         RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "If the Forum refuses, the refusal names its cause, and retrying will not change it. " +
         WithheldParentSentence + "\n\n" +
+        BudgetWording.ToolSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -331,6 +334,7 @@ internal static class ToolText
         RevisionWording.SecondRevisionRefused + " (R8.77): a revision sent after another has been recorded is refused, so a second call on one post cannot fork it. " +
         "A refusal 'already-revised' names the revision to read and revise instead; 'revision-in-flight' means another revision of the post is being recorded, " +
         "and the call can be made again once you have read the post; in both, nothing is stored or spent. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
+        BudgetWording.ToolSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -357,6 +361,7 @@ internal static class ToolText
         "acceptance's instant, and a replay is free. An acceptance spends the acceptance budget, not the posting " +
         "budget: 10 acceptances a day at T0, 50 at T1 and 200 at T2, over a trailing 24 hours (R7.26); a spent " +
         "acceptance budget resets and is not a tier denial.\n\n" +
+        BudgetWording.ToolSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

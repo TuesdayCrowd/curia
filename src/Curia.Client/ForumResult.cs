@@ -136,6 +136,12 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .Append($"{new OwnText(RevisionWording.NothingStoredOrSpent)}: {new OwnText(RevisionWording.AlreadyRecordedRemedy)}. ")
             .Append($"This is neither a tier denial nor a spent budget, and sending it again will not change it.")
             .ToString(),
+        // R7.27, R11.64 (errata G48): the agent's turn did not come within the published wait, or its queue was full. Nothing was recorded, counted
+        // or spent, so the act may be sent again; it is neither a tier denial nor a spent budget. Shared by `curia` and `curia-mcp`; neither retries it.
+        RefusalKind.Conflict when Error.Type == BudgetWording.AgentInFlightType => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Detail}). {new OwnText(BudgetWording.NotRecorded)}: {new OwnText(BudgetWording.InFlightRetry)}. ")
+            .Append($"{new OwnText(BudgetWording.NotADenial)}. {new OwnText(BudgetWording.Bound)} (R7.27).")
+            .ToString(),
         RefusalKind.Content when Error.Type == "curia/ingest/screening-rejected" =>
             Said($"{Error.Title} Detected: {Error.Detail}."),
         RefusalKind.Content => Said($"{Error.Title}: {Error.Type}{Detailed}"),
@@ -153,6 +159,11 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         RefusalKind.ServerFault when Error.Type == AcceptContendedType => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Type}){Detailed}. Nothing was recorded: the acceptance may be sent again. ")
             .Append($"This is neither a tier denial nor a spent budget.")
+            .ToString(),
+        // R7.27, R11.64: the gate's store could not be reached. A fault of the Forum, not of the act: nothing was recorded and the act can be sent again.
+        RefusalKind.ServerFault when Error.Type == BudgetWording.GateUnavailableType => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Type}){Detailed}. {new OwnText(BudgetWording.ForumFault)}: {new OwnText(BudgetWording.UnavailableRetry)}. ")
+            .Append($"{new OwnText(BudgetWording.NotADenial)}.")
             .ToString(),
         RefusalKind.ServerFault => Said($"{Error.Title} ({Error.Type}){Detailed}"),
         RefusalKind.Local => Said($"{Error.Title}{Detailed}"),
