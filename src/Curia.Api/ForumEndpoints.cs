@@ -1739,6 +1739,7 @@ public static class ForumEndpoints
         string postId,
         HttpRequest http,
         AcceptAnswer accept,
+        IAgentWriteGate agentGate,
         IPolicyDecisionPoint pdp,
         IEventReader events,
         AccessTokenValidationContext authn,
@@ -1761,10 +1762,19 @@ public static class ForumEndpoints
 
         var subject = authenticated!.Claims.Sub;
 
-        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         if (!PrincipalOf(subject).TryGetValue(out var acceptor, out var subjectError))
             return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
+        // R7.27 (errata G48): one agent's acceptances (and posts) are counted and recorded one at a time. The principal is resolved first, as it is
+        // pure, so the gate is entered before the first read of the log and the count below includes the acceptances of the requests that came before
+        // this one; the hold spans the decision, the target's resolution, RecordAsync's passes and the receipt, and is released on every path out.
+        var turn = await agentGate.EnterAsync(acceptor!, cancellationToken).ConfigureAwait(false);
+        if (!turn.TryGetValue(out var hold, out var gateRefusal))
+            return GateRefusalProblem(gateRefusal!);
+
+        await using var heldTurn = hold!.ConfigureAwait(false);
+
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var posture = PostureQuery.Of(log, acceptor!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
@@ -1796,8 +1806,8 @@ public static class ForumEndpoints
             : null;
 
         // R7.26: the answer named exists, its thread root exists, and the log's last acceptance for that thread is this answer. Computed from the
-        // same fold the serving path reads; RecordAsync decides again under its own read, so a race can make this wrong in either direction and the
-        // consequence is bounded (the budget is overshot by at most the number in flight, register D88).
+        // same fold the serving path reads; RecordAsync decides again under its own read (it is the store's second line, and with the agent's gate
+        // held the asker's own acceptances cannot race it; R7.27).
         var acceptRecordsNothing = answer is not null
             && root is not null
             && AcceptanceProjector.Fold(log).TryGetValue(root.PostId, out var standingAnswer)
@@ -2743,7 +2753,8 @@ public static class ForumEndpoints
 
     /// <summary>
     /// R7.26's acceptance count (errata G46): the acceptances the agent recorded in the posting budget's trailing 24 hours, from the
-    /// <c>answer.accepted</c> events' <c>accepted_by</c>. The one helper an eventual gate (register D88) would call.
+    /// <c>answer.accepted</c> events' <c>accepted_by</c>. Counted under the agent's write gate (R7.27, errata G48), so the count includes every
+    /// acceptance of the requests that came before this one.
     /// </summary>
     private static int AcceptsInBudgetWindow(
         IReadOnlyList<AppendedEvent> log, AgentId agentId, DateTimeOffset now) =>

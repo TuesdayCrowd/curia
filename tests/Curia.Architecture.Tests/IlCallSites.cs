@@ -260,8 +260,12 @@ internal static class IlCallSites
     {
         if (!name.StartsWith('<'))
             return null;
-        var close = name.IndexOf('>', StringComparison.Ordinal);
-        return close > 0 ? name[1..close] : null;
+
+        // An async lambda's state machine is <<Method>b__0>d: the source method is inside the innermost leading brackets.
+        var open = 0;
+        while (open < name.Length && name[open] == '<') open++;
+        var close = name.IndexOf('>', open);
+        return close > open ? name[open..close] : null;
     }
 
     /// <summary>The parent as a type reference: itself, or a generic instantiation's definition.</summary>
