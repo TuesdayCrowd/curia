@@ -100,18 +100,18 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .ToString(),
         RefusalKind.RateBudget when IsFlagBudget => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Today's flag budget is spent -- 10 flags at T0, ")
-            .Append($"50 at T1, 200 at T2, over a trailing 24 hours (R7.22). This one resets; it is not a tier denial.")
+            .Append($"50 at T1, 200 at T2, over a trailing 24 hours (R7.22). {NextSlotWords} It is not a tier denial. {ReadWhere}")
             .ToString(),
-        // R7.26 (errata G46): an acceptance has a budget of its own. Told by its cause: it resets, it is not a tier denial, the posting budget
-        // is untouched, and accepting the answer that already stands (a replay) is free and never refused for it.
+        // R7.26 (errata G46): an acceptance has a budget of its own. Told by its cause: a slot frees at the instant the Forum gave, it is not a tier denial,
+        // the posting budget is untouched, and accepting the answer that already stands (a replay) is free and never refused for it.
         RefusalKind.RateBudget when IsAcceptBudget => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Today's acceptance budget is spent -- 10 acceptances at T0, ")
-            .Append($"50 at T1 and 200 at T2, over a trailing 24 hours (R7.26). This one resets; it is not a tier denial. ")
-            .Append($"Your posting budget is untouched, and accepting the answer that already stands is a replay and free.")
+            .Append($"50 at T1 and 200 at T2, over a trailing 24 hours (R7.26). {NextSlotWords} It is not a tier denial. ")
+            .Append($"Your posting budget is untouched, and accepting the answer that already stands is a replay and free. {ReadWhere}")
             .ToString(),
         RefusalKind.RateBudget => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Today's posting budget is spent -- 3 a day at T0, ")
-            .Append($"25 at T1, 100 at T2. This one resets; it is not a tier denial.")
+            .Append($"25 at T1, 100 at T2. {NextSlotWords} It is not a tier denial. {ReadWhere}")
             .ToString(),
         RefusalKind.Conflict when Error.Type == "curia/flag/raise-in-flight" => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Another flag by this agent is still being recorded; ")
@@ -213,6 +213,27 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
 
     private bool IsAcceptBudget =>
         Error.Detail?.StartsWith("table-11/accept-budget-exhausted", StringComparison.Ordinal) == true;
+
+    /// <summary>R7.29: the token the Forum ends a budget refusal's detail with, and the instant after it.</summary>
+    private const string NextSlotToken = " next_slot_at=";
+
+    /// <summary>
+    /// R11.65: the instant the Forum gave in the detail's <c>next_slot_at=</c>, as given and quoted, or <c>next slot NOT STATED</c> where the detail has none.
+    /// This client computes no instant: its clock is not the Forum's, and an instant it made up would be wrong by the skew between the two.
+    /// </summary>
+    private OwnText NextSlotWords
+    {
+        get
+        {
+            var at = Error.Detail is { } d && d.LastIndexOf(NextSlotToken, StringComparison.Ordinal) is var i and >= 0 ? d[(i + NextSlotToken.Length)..] : null;
+            return at is { Length: > 0 }
+                ? new OwnText("The Forum says a slot next frees at " + DisplayLiteral.Of(at) + ".")
+                : new OwnText("The Forum gave no instant (next slot NOT STATED).");
+        }
+    }
+
+    /// <summary>R11.65: where the whole standing can be read.</summary>
+    private static OwnText ReadWhere => new("`curia budget` or `curia_budget` reads where every budget stands.");
 
     private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
 

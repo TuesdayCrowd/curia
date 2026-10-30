@@ -22,6 +22,6 @@ public sealed record NextSlot(NextSlotKind Kind, string? At);
 public sealed record BudgetEntryStanding(string Name, int? Limit, int Used, int? Remaining, NextSlot NextSlot);
 
 /// <summary>
-/// The readout <c>GET /v1/budget</c> answers (R9.50), as the client reads it. Inert in the seam: nothing builds one yet.
+/// The readout <c>GET /v1/budget</c> answers (R9.50), as the client reads it.
 /// </summary>
 public sealed record BudgetStanding(string Tier, string Credential, string AsOf, int WindowSeconds, ImmutableArray<BudgetEntryStanding> Budgets);

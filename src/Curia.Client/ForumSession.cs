@@ -327,10 +327,25 @@ public sealed class ForumSession
     }
 
     /// <summary>
-    /// <c>GET /v1/budget</c> (R9.50): the calling agent's own budgets. Inert in the seam: it sends nothing and answers a local refusal.
+    /// <c>GET /v1/budget</c> (R9.50): the calling agent's own budgets, as <c>flag</c>/<c>list</c> reads its own flags. The route takes no parameter, so none
+    /// is sent; the standing it answers is a snapshot (R11.65) and is read strictly by <see cref="ForumDocuments.ReadBudget"/>.
     /// </summary>
     public Task<ForumResult<BudgetStanding>> BudgetAsync(CancellationToken ct) =>
-        Task.FromResult(ForumResult<BudgetStanding>.Local(new Error("curia/client/budget-not-built", "The budget readout is not built", $"would have read {_client.UrlFor("/v1/budget")}")));
+        WithRemintAsync(() => BudgetOnceAsync(ct));
+
+    private async Task<ForumResult<BudgetStanding>> BudgetOnceAsync(CancellationToken ct)
+    {
+        var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
+        if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
+            return ForumResult<BudgetStanding>.Refused(tokenRefusal);
+
+        var htu = _client.UrlFor("/v1/budget");
+        using var http = new HttpRequestMessage(HttpMethod.Get, "/v1/budget");
+        http.Headers.Authorization = ForumClient.DpopAuthorization(token!);
+        http.Headers.Add("DPoP", _signer.Proof("GET", htu, _clock.GetUtcNow(), token, nonce: null));
+
+        return await _client.SendAsync(http, (Func<byte[], JsonValue, Result<BudgetStanding>>)ForumDocuments.ReadBudget, ct).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// One DPoP-bound write, including RFC 9449 §8's nonce exchange.

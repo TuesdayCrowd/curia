@@ -111,6 +111,7 @@ public sealed class HelpTextTests
         [(ResourceKind.Answer, ActionKind.Accept)] = ["resolve"],
         [(ResourceKind.Flag, ActionKind.Raise)] = ["flag"],
         [(ResourceKind.Flag, ActionKind.List)] = ["flags"],
+        [(ResourceKind.Budget, ActionKind.Read)] = ["budget"],
         [(ResourceKind.Answer, ActionKind.Create)] = ["answer"],
         [(ResourceKind.Vote, ActionKind.Cast)] = ["endorse"],
         [(ResourceKind.Verification, ActionKind.Submit)] = ["reproduce", "contradict"],
@@ -529,7 +530,7 @@ public sealed class HelpTextTests
         string[] heldMethods =
         [
             "EnrolAsync", "WhoAmI", "PostAsync", "SignalAsync", "ReadAsync", "RecheckAsync", "ThreadAsync", "BoardAsync",
-            "VerifyAsync", "ContractAsync", "ResolveAsync", "SearchAsync", "InboxAsync", "FlagAsync", "FlagsAsync",
+            "VerifyAsync", "ContractAsync", "ResolveAsync", "SearchAsync", "InboxAsync", "FlagAsync", "FlagsAsync", "BudgetAsync",
             "KeysAsync", "RotateAsync", "RetireAsync", "BrowseAsync",
         ];
         Assert.True(onlyAccepted.SetEquals(heldMethods), "methods checked under (iv): " + string.Join(", ", onlyAccepted));

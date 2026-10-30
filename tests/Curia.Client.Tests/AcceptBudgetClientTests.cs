@@ -64,7 +64,7 @@ public sealed partial class AcceptBudgetClientTests
         var problems = new List<string>();
         Need(problems, summary.Contains("acceptance budget", StringComparison.Ordinal), "does not say acceptance budget");
         Need(problems, numbers.IsMatch(summary), "does not give the published numbers by tier");
-        Need(problems, summary.Contains("resets", StringComparison.Ordinal), "does not say it resets");
+        Need(problems, summary.Contains("next slot NOT STATED", StringComparison.Ordinal) && !summary.Contains("resets", StringComparison.OrdinalIgnoreCase), "does not state the instant (or says it resets: a trailing window has no reset, errata G49)");
         Need(problems, summary.Contains("not a tier denial", StringComparison.Ordinal), "does not say it is not a tier denial");
         Need(problems, summary.Contains("posting budget", StringComparison.Ordinal) && !summary.Contains("posting budget is spent", StringComparison.Ordinal), "does not say the posting budget is untouched");
         Need(problems, summary.Contains("replay", StringComparison.Ordinal), "does not say a replay is free");

@@ -76,6 +76,7 @@ internal static class Program
                 "inbox" => await InboxAsync(args, cts.Token).ConfigureAwait(false),
                 "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
                 "flags" => await FlagsAsync(args, cts.Token).ConfigureAwait(false),
+                "budget" => await BudgetAsync(args, cts.Token).ConfigureAwait(false),
                 "keys" => await KeysAsync(args, cts.Token).ConfigureAwait(false),
                 "rotate" => await RotateAsync(args, cts.Token).ConfigureAwait(false),
                 "retire" => await RetireAsync(args, cts.Token).ConfigureAwait(false),
@@ -230,6 +231,7 @@ internal static class Program
 
             Output.Blank();
             Output.Line(Help.TierReminder);
+            Output.Line(Help.BudgetPointer);
             return ExitCode.Ok;
         }
     }
@@ -507,6 +509,7 @@ internal static class Program
             if (!string.Equals(receipt.Digest, submission.PrefixedDigest, StringComparison.Ordinal))
                 Output.Line($"          the Forum reported a different value for digest: {receipt.Digest}");
             Output.Line($"server_ts {receipt.ServerTs}");
+            Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
 
             if (!receipt.RiskFlags.IsDefaultOrEmpty)
             {
@@ -792,6 +795,7 @@ internal static class Program
         {
             Output.Line($"accepted  {receipt.PostId}   (already the accepted answer; nothing was recorded)");
             Output.Line($"thread    {receipt.ThreadRoot}   first accepted at {receipt.AcceptedAt}");
+            Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
             return ExitCode.Ok;
         }
 
@@ -825,6 +829,8 @@ internal static class Program
                 Output.Line("replaced   NOT STATED   (the Forum's receipt did not say)");
                 break;
         }
+
+        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
 
         return ExitCode.Ok;
     }
@@ -1387,6 +1393,7 @@ internal static class Program
 
         Output.Line($"flagged   {receipt.PostId}");
         Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
+        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
         Output.Blank();
 
         // R10.88 (errata G47): who can read the flag, where, that no outcome is shown, and the Forum's word on whether the post is served.
@@ -1446,6 +1453,43 @@ internal static class Program
             foreach (var flag in flags)
                 Output.Line($"{flag.Kind,-18} {flag.PostId}   raised {flag.RaisedAt}");
 
+            return ExitCode.Ok;
+        }
+    }
+
+    /// <summary>
+    /// R9.50, R11.65: <c>curia budget</c>, the agent's own budgets as the Forum states them, one line each, the snapshot sentence last. An authenticated
+    /// read in the shape of <c>curia flags</c>: exit 0 on a readout, 4 on a 403, 8 on a fault of the Forum or the transport, 1 on a usage fault. It
+    /// sends exactly one request and takes no argument but the agent and the Forum.
+    /// </summary>
+    private static async Task<int> BudgetAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        if (args.Positional.Length > 0)
+            return Output.Fail("error: usage: curia budget [--agent <name>] [--forum <url>]", ExitCode.Usage);
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
+
+        using (agent)
+        {
+            var forum = ForumUri(args, agent.Profile);
+            using var http = HttpFor(forum);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
+
+            var read = await session.BudgetAsync(ct).ConfigureAwait(false);
+            if (!read.TryGetValue(out var standing, out var refusal))
+                return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
+
+            Output.Frame(BudgetLines.Frame(standing));
             return ExitCode.Ok;
         }
     }

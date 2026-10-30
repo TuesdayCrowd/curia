@@ -215,7 +215,7 @@ public sealed class AcceptTheTextClientTests
         var phrases = PublishedReadersWords.R1085Phrases();
         var (notStated, moved, another) = (phrases[1], phrases[2], phrases[3]);
 
-        var replay = await ReceiptTextAsync(new AcceptanceReceipt(Thread, AnswerId, At, true, AcceptanceReplaced.None, AcceptanceRelation.None));
+        var replay = await ReceiptTextAsync(new AcceptanceReceipt(Thread, AnswerId, At, true, AcceptanceReplaced.None, AcceptanceRelation.None, new BudgetReceipt("acceptance", 10, 3, 7)));
         Assert.DoesNotContain(moved, replay, StringComparison.Ordinal);
         Assert.DoesNotContain(another, replay, StringComparison.Ordinal);
         Assert.DoesNotContain(notStated, replay, StringComparison.Ordinal);
@@ -228,7 +228,7 @@ public sealed class AcceptTheTextClientTests
         Assert.Contains(another, other, StringComparison.Ordinal);
         Assert.DoesNotContain(moved, other, StringComparison.Ordinal);
 
-        var absent = await ReceiptTextAsync(new AcceptanceReceipt(Thread, AnswerId, At, false, AcceptanceReplaced.Of(Old), AcceptanceRelation.NotStated));
+        var absent = await ReceiptTextAsync(new AcceptanceReceipt(Thread, AnswerId, At, false, AcceptanceReplaced.Of(Old), AcceptanceRelation.NotStated, new BudgetReceipt("acceptance", 10, 3, 7)));
         var relationLines = absent.Split('\n').Where(l => l.Contains(notStated, StringComparison.Ordinal) && !l.StartsWith("replaced", StringComparison.Ordinal)).ToArray();
         Assert.NotEmpty(relationLines);
     }

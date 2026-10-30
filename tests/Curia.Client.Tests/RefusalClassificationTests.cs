@@ -94,7 +94,8 @@ public sealed class RefusalClassificationTests
 
         Assert.False(result.TryGetValue(out _, out var refusal));
         Assert.Equal(RefusalKind.RateBudget, refusal!.Kind);
-        Assert.Contains("resets", refusal.Summary, StringComparison.Ordinal);
+        Assert.Contains("next slot NOT STATED", refusal.Summary, StringComparison.Ordinal);   // errata G49: the trailing window states the Forum's instant, and has no reset
+        Assert.DoesNotContain("resets", refusal.Summary, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Waiting is the only remedy", refusal.Summary, StringComparison.Ordinal);
     }
 
