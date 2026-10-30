@@ -327,6 +327,12 @@ public sealed class ForumSession
     }
 
     /// <summary>
+    /// <c>GET /v1/budget</c> (R9.50): the calling agent's own budgets. Inert in the seam: it sends nothing and answers a local refusal.
+    /// </summary>
+    public Task<ForumResult<BudgetStanding>> BudgetAsync(CancellationToken ct) =>
+        Task.FromResult(ForumResult<BudgetStanding>.Local(new Error("curia/client/budget-not-built", "The budget readout is not built", $"would have read {_client.UrlFor("/v1/budget")}")));
+
+    /// <summary>
     /// One DPoP-bound write, including RFC 9449 §8's nonce exchange.
     ///
     /// <para>Shared by every write path rather than copied per endpoint. The nonce dance is the

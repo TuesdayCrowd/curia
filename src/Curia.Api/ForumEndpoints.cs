@@ -856,7 +856,7 @@ public static class ForumEndpoints
                 facts!.CredentialState,
                 resource,
                 action,
-                PostsToday: PostsInBudgetWindow(log, v.AuthorAgentId.Value, now)),
+                PostsToday: BudgetReadout.PostsUsed(log, v.AuthorAgentId, now)),
             cancellationToken).ConfigureAwait(false);
 
         if (!decision.TryGetValue(out var d, out var decisionError))
@@ -1132,8 +1132,8 @@ public static class ForumEndpoints
                     facts!.CredentialState,
                     ResourceKind.Flag,
                     ActionKind.Raise,
-                    PostsToday: PostsInBudgetWindow(log, subject, now),
-                    FlagsToday: FlagsInBudgetWindow(raisedFlags, subject, now)),
+                    PostsToday: BudgetReadout.PostsUsed(log, raiser!, now),
+                    FlagsToday: BudgetReadout.FlagsUsed(raisedFlags, raiser!, now)),
                 cancellationToken).ConfigureAwait(false);
 
             if (!decision.TryGetValue(out var d, out var decisionError))
@@ -1819,7 +1819,7 @@ public static class ForumEndpoints
                 facts!.CredentialState,
                 ResourceKind.Answer,
                 ActionKind.Accept,
-                AcceptsToday: AcceptsInBudgetWindow(log, acceptor!, now),
+                AcceptsToday: BudgetReadout.AcceptsUsed(log, acceptor!, now),
                 AcceptRecordsNothing: acceptRecordsNothing),
             cancellationToken).ConfigureAwait(false);
 
@@ -2722,60 +2722,6 @@ public static class ForumEndpoints
                 .WriteAsJsonAsync(new Problem(error.Type, error.Title, error.Detail))
                 .ConfigureAwait(false);
         }
-    }
-
-    /// <summary>The trailing window every Table 11 budget (posts, flags, acceptances) is counted over: 24 hours, not a calendar day.</summary>
-    private static readonly TimeSpan BudgetWindow = TimeSpan.FromDays(1);
-
-    /// <summary>
-    /// R7.15's "recent post rate", counted from the log the request already read.
-    ///
-    /// <para><b>A trailing 24 hours, not a calendar day.</b> Table 11 says "3 posts/day" without
-    /// naming a boundary, and a calendar day needs a timezone nobody has specified -- which would
-    /// make an agent's budget depend on where the Forum is deployed. A rolling window also has no
-    /// midnight cliff, where an agent at its limit gains a full fresh budget in one second and every
-    /// rate-limited client on the Forum retries simultaneously.</para>
-    ///
-    /// <para>Counted from the event log rather than a counter, so it survives a restart and cannot
-    /// drift from what actually happened. That is a scan per write, which is the same order as
-    /// everything else on this path; a counter would be faster and would be the thing that goes
-    /// stale.</para>
-    /// </summary>
-    private static int PostsInBudgetWindow(
-        IReadOnlyList<AppendedEvent> log, string agentId, DateTimeOffset now)
-    {
-        var since = now - BudgetWindow;
-
-        return PostProjector.Fold(log).Count(p =>
-            string.Equals(p.Author, agentId, StringComparison.Ordinal)
-            && p.ServerTimestamp.Value > since);
-    }
-
-    /// <summary>
-    /// R7.26's acceptance count (errata G46): the acceptances the agent recorded in the posting budget's trailing 24 hours, from the
-    /// <c>answer.accepted</c> events' <c>accepted_by</c>. Counted under the agent's write gate (R7.27, errata G48), so the count includes every
-    /// acceptance of the requests that came before this one.
-    /// </summary>
-    private static int AcceptsInBudgetWindow(
-        IReadOnlyList<AppendedEvent> log, AgentId agentId, DateTimeOffset now) =>
-        AcceptanceProjector.CountBy(log, agentId, now - BudgetWindow);
-
-    /// <summary>
-    /// R7.22's flag count (errata G18): the flags the agent raised in the posting budget's trailing
-    /// 24 hours.
-    ///
-    /// <para><b>Counted from the joined directory, not the log alone.</b> A <c>flag.committed</c>
-    /// leaf names its kind and a commitment and never its raiser (R10.62), so the log cannot say whose
-    /// a flag is; the private store's row supplies the raiser, as it does for the flag listings.</para>
-    /// </summary>
-    private static int FlagsInBudgetWindow(
-        ImmutableArray<RaisedFlag> flags, string agentId, DateTimeOffset now)
-    {
-        var since = now - BudgetWindow;
-
-        return flags.Count(f =>
-            string.Equals(f.RaisedBy, agentId, StringComparison.Ordinal)
-            && f.At.Value > since);
     }
 
     /// <summary>R10.20's stable well-known URL, so every envelope points a reader at the contract.</summary>
