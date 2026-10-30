@@ -256,7 +256,7 @@ internal static class IlCallSites
     }
 
     /// <summary>The text inside a generated name's leading angle brackets, or null for a name the source wrote.</summary>
-    private static string? Bracketed(string name)
+    internal static string? Bracketed(string name)
     {
         if (!name.StartsWith('<'))
             return null;

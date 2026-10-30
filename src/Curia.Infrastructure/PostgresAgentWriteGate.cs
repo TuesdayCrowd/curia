@@ -16,9 +16,9 @@ namespace Curia.Infrastructure;
 /// <para><b>Two legs, one deadline.</b> A request first takes its turn in <see cref="AgentWriteQueue"/>, which holds no connection while it waits
 /// (BRB15). The holder of the turn, and only it, opens a connection on the agent pool and takes <c>pg_try_advisory_xact_lock</c> on
 /// <see cref="AgentWriteLockKey"/>, retrying every <see cref="RetryPeriod"/> on the same connection and transaction until the wait set at arrival runs
-/// out. Running out in the queue or in the retries is <c>agent-in-flight</c> (another write of this agent holds the lock, here or in another
-/// process); failing or running out in opening the connection, a pool timeout or a driver error is <c>gate-unavailable</c> (the store, not the agent).
-/// A request is therefore answered within the wait and one round trip whatever else happens (BRB11, BRB14).</para>
+/// out. Running out in the queue or in the retries, or being granted the turn with nothing left of the wait, is <c>agent-in-flight</c> (another write of this
+/// agent holds the lock, here or in another process); failing to open the connection, a pool timeout or a driver error is <c>gate-unavailable</c> (the store,
+/// not the agent). The open is bounded by the store's own connection timeout and not by the wait's remainder, so the wait running out is never told as the store failing (BRB66).</para>
 ///
 /// <para><b>Transaction-scoped</b>, as <see cref="PostgresFlagRaiserGate"/>'s lock is: the lock is released when the hold's transaction ends, and a
 /// process that dies holding it releases it with its session. The hold ends the transaction first and the in-process turn second, so the next waiter
@@ -82,22 +82,25 @@ public sealed class PostgresAgentWriteGate : IAgentWriteGate
         var taken = await _queue.TakeTurnAsync(agent, cancellationToken).ConfigureAwait(false);
         if (!taken.TryGetValue(out var turn, out var refusal)) return Result<IAsyncDisposable>.Fail(refusal!);
 
+        // A turn granted with nothing left of the wait is a request that has not entered when its wait has passed: agent-in-flight, and no connection is opened.
+        if (turn!.Remaining <= TimeSpan.Zero) return await RefuseAsync(null, null, turn, BudgetErrors.AgentInFlight()).ConfigureAwait(false);
+
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
-        var opening = true;
         try
         {
-            using var deadline = new CancellationTokenSource(turn!.Remaining, _clock);
-            using var bounded = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+            // The open is bounded by the store's own limits (the pool's connection timeout), not by what is left of the queue's wait: a store that fails is
+            // gate-unavailable, and the wait running out is never mistaken for it.
+            connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false);
 
-            connection = await _dataSource.OpenConnectionAsync(bounded.Token).ConfigureAwait(false);
-            transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, bounded.Token).ConfigureAwait(false);
-            opening = false;
+            using var deadline = new CancellationTokenSource(turn.Remaining, _clock);
+            using var bounded = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
 
             var key = AgentWriteLockKey(_schema, agent);
             while (true)
             {
-                if (await TryLockAsync(connection, transaction, key, bounded.Token).ConfigureAwait(false))
+                if (await TryLockAsync(connection, transaction, key, cancellationToken).ConfigureAwait(false))
                 {
                     var hold = new Hold(connection, transaction, turn);
                     connection = null;
@@ -114,8 +117,8 @@ public sealed class PostgresAgentWriteGate : IAgentWriteGate
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // The deadline fired: in opening the connection that is the store, in the retries it is the agent's other write still holding the lock.
-            return await RefuseAsync(connection, transaction, turn, opening ? BudgetErrors.GateUnavailable() : BudgetErrors.AgentInFlight()).ConfigureAwait(false);
+            // Only the pause between tries is bounded by the deadline: the agent's other write still holds the lock.
+            return await RefuseAsync(connection, transaction, turn, BudgetErrors.AgentInFlight()).ConfigureAwait(false);
         }
         catch (NpgsqlException)
         {

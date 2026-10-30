@@ -30,6 +30,7 @@ public sealed class PostgresAdapters : IAsyncDisposable
     private readonly NpgsqlDataSource _agentDataSource;
     private readonly TimeProvider _clock;
     private readonly ILifecycleAppendGate _lifecycleGate;
+    private readonly PostgresAgentWriteGate _agentWriteGate;
 
     public PostgresAdapters(string connectionString, TimeProvider clock, ILifecycleAppendGate lifecycleGate)
     {
@@ -56,6 +57,7 @@ public sealed class PostgresAdapters : IAsyncDisposable
         _agentDataSource = NpgsqlDataSource.Create(agent.ConnectionString);
         _clock = clock;
         _lifecycleGate = lifecycleGate;
+        _agentWriteGate = new PostgresAgentWriteGate(_agentDataSource, clock, Curia.Application.Budget.AgentWriteGateBounds.Wait, Curia.Application.Budget.AgentWriteGateBounds.Waiters);
     }
 
     /// <summary>The append-only event log (R11.6), which is the system of record.</summary>
@@ -116,12 +118,11 @@ public sealed class PostgresAdapters : IAsyncDisposable
     public IRevisionGate RevisionGate => new PostgresRevisionGate(_gateDataSource);
 
     /// <summary>
-    /// R7.27 (errata G48): one agent's posts and acceptances counted and recorded one at a time, by the in-memory queue followed by a try-only advisory lock,
+    /// R7.27 (errata G48): one agent's posts and acceptances counted and recorded one at a time (one gate, and so one queue, for this adapter), by the in-memory queue followed by a try-only advisory lock,
     /// on a connection pool of its own. The hold keeps its connection for the whole write, while the write draws on the Forum's pool and a revision takes
     /// the revision gate on the gate pool; the order of acquisition is agent, gate, Forum.
     /// </summary>
-    public IAgentWriteGate AgentWriteGate =>
-        new PostgresAgentWriteGate(_agentDataSource, _clock, Curia.Application.Budget.AgentWriteGateBounds.Wait, Curia.Application.Budget.AgentWriteGateBounds.Waiters);
+    public IAgentWriteGate AgentWriteGate => _agentWriteGate;
 
     public async ValueTask DisposeAsync()
     {

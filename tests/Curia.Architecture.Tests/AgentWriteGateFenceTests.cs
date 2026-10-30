@@ -26,6 +26,16 @@ public sealed class AgentWriteGateFenceTests
             throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }
 
+    /// <summary>The control for BRB51's call closure: a generated name yields the source method the compiler wrote it for, in each of the three shapes, and a written name yields none.</summary>
+    [Fact]
+    public void R7_27_BRB51_GeneratedNamesYieldTheirSourceMethod()
+    {
+        string?[] names = ["<M>d__0", "<<M>b__0>d", "<>c__DisplayClass3_0", "M"];
+        var actual = string.Join("; ", names.Select(n => IlCallSites.Bracketed(n!) ?? "none"));
+
+        Said("M; M; none; none", actual);
+    }
+
     private const string AgentGate = "Curia.Application.Ports.IAgentWriteGate";
     private const string Endpoints = "Curia.Api.ForumEndpoints";
 

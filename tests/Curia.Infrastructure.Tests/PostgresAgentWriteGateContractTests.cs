@@ -227,11 +227,11 @@ public sealed class PostgresAgentWriteGateContractTests : AgentWriteGatePortCont
         Said("the agent write family is among the lock keys; per schema; pairwise disjoint", problems.Count == 0 ? "the agent write family is among the lock keys; per schema; pairwise disjoint" : string.Join(" | ", problems) + " (families: " + string.Join(", ", names) + ")");
     }
 
-    /// <summary>BRB14. A starved pool is <c>gate-unavailable</c>, never a hang: the request's own deadline governs, not Npgsql's 15 s default.</summary>
+    /// <summary>BRB14. A starved pool is <c>gate-unavailable</c>, never a hang: the store's own connection timeout (1 s here) governs the open, not the queue's wait (BRB66 pins the converse).</summary>
     [Fact]
     public async Task R7_27_BRB14_AStarvedPoolIsGateUnavailableWithinTheBound()
     {
-        var starved = StarvedSource(poolSize: 1, timeoutSeconds: 15);
+        var starved = StarvedSource(poolSize: 1, timeoutSeconds: 1);
         await using var occupant = await starved.OpenConnectionAsync(Ct);
         var bound = TimeSpan.FromSeconds(1);
         var gate = new PostgresAgentWriteGate(starved, TimeProvider.System, bound, Waiters, NewSchema());
@@ -250,6 +250,61 @@ public sealed class PostgresAgentWriteGateContractTests : AgentWriteGatePortCont
         var elapsed = timer.Elapsed;
         var timely = elapsed <= bound + TimeSpan.FromSeconds(1.5) ? "inside the bound and a slack" : $"after {elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} s";
         Said($"{PublishedBudgetGate.UnavailableType()} inside the bound and a slack", $"{outcome} {timely}");
+    }
+
+    /// <summary>A clock whose timestamps move only when the test says and whose timers never fire: the wait runs out without the queue's own timeout getting a say.</summary>
+    private sealed class StalledClock : TimeProvider
+    {
+        private long _ticks;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => Interlocked.Read(ref _ticks);
+
+        public void Advance(TimeSpan by) => Interlocked.Add(ref _ticks, by.Ticks);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => new InertTimer();
+
+        private sealed class InertTimer : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+            public void Dispose()
+            {
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// BRB66. A waiter granted the turn at the end of its wait is not told the store failed: granted with a millisecond left on a healthy store it enters, and
+    /// granted with nothing left it is <c>agent-in-flight</c> without a connection opened; never <c>gate-unavailable</c>. The clock is manual, so no wall time is in the fact.
+    /// </summary>
+    [Fact]
+    public async Task R7_27_BRB66_ATailWaiterIsToldAgentInFlightAndNeverGateUnavailable()
+    {
+        var wait = TimeSpan.FromSeconds(5);
+        var clock = new StalledClock();
+        var gate = new PostgresAgentWriteGate(_fixture.AppRoleDataSource, clock, wait, Waiters, NewSchema());
+        var x = Agent("tail");
+
+        var holder = Require(await gate.EnterAsync(x, Ct));
+        var nearly = gate.EnterAsync(x, Ct);
+        clock.Advance(wait - TimeSpan.FromMilliseconds(1));
+        await holder.DisposeAsync();
+        var nearlyResult = await nearly.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        var nearlyOutcome = Outcome(nearlyResult);
+        var secondHolder = Require(nearlyResult);
+
+        var late = gate.EnterAsync(x, Ct);
+        clock.Advance(wait + TimeSpan.FromSeconds(1));
+        await secondHolder.DisposeAsync();
+        var lateOutcome = Outcome(await late.WaitAsync(TimeSpan.FromSeconds(5), Ct));
+
+        Said(
+            $"entered with a millisecond left; {PublishedBudgetGate.InFlightType()} with none",
+            $"{nearlyOutcome} with a millisecond left; {lateOutcome} with none");
     }
 
     /// <summary>BRB15. Waiting holds no connection: with an agent pool of two, X holds and many more X requests wait, and agents Y and Z still enter at once.</summary>

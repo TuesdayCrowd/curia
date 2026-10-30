@@ -822,7 +822,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         Said("the revision 201 having entered the agent gate", $"the revision {BudgetBursts.Kind(sent)} having entered the agent gate{(gateEntries == 1 ? string.Empty : " " + Times(gateEntries))}");
     }
 
-    /// <summary>BRB36. The fleet twin of R7.22's fact, for posts: 16 distinct agents each post once on the small pool; no answer is 500, the table holds exactly the 201s, and an anonymous read is answered 200 inside the connection timeout (3 s; a deadlock would stall it to the timeout).</summary>
+    /// <summary>BRB36. The fleet twin of R7.22's fact, for posts: 16 distinct agents each post once on the small pool; no answer is 500, at least one is 201 and each is a 201 or a 503 gate-unavailable, the table holds exactly the 201s, and an anonymous read is answered 200 inside the connection timeout (3 s; a deadlock would stall it to the timeout).</summary>
     [Fact]
     public async Task R7_27_BRB36_ASmallPoolServesAFleetOfDistinctAgents()
     {
@@ -849,10 +849,13 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         foreach (var a in fleet) stored += await BudgetOracle.PostsInWindowAsync(forum, a.Agent.AgentId);
         // A one-connection agent pool serializes the fleet, and a request that cannot get that connection inside the connection timeout is told gate-unavailable
         // (503, ruling 4, BRB14): the Forum saying it is overloaded, as R7.22's fleet fact allows its raiser gate to. Any other 5xx is a fault.
-        var faults = sent.Count(s => s.Status >= 500 && !(s.Status == PublishedBudgetGate.UnavailableStatus() && s.Type == PublishedBudgetGate.UnavailableType()));
+        var unavailable = sent.Count(s => s.Status == PublishedBudgetGate.UnavailableStatus() && s.Type == PublishedBudgetGate.UnavailableType());
+        var faults = sent.Count(s => s.Status >= 500) - unavailable;
+        // The floor: the pool serves the fleet, so at least one agent is created, and every request is a 201 or an honest 503 (nothing else, no hang).
+        var accounted = created >= 1 && created + unavailable == fleet.Count;
         Said(
-            "no 500; the table holds exactly the 201s; a read answered 200 in under 3000 ms",
-            $"{(faults == 0 ? "no 500" : faults + " x 500 or other 5xx (" + BudgetBursts.Tally(sent) + ")")}; the table holds {(stored == created ? "exactly the 201s" : stored + " for " + created + " x 201")}; a read answered {readStatus} in {(readTime < TimeSpan.FromMilliseconds(3000) ? "under 3000 ms" : Ms(readTime))}");
+            "no 500; at least one 201 and every request a 201 or a gate-unavailable; the table holds exactly the 201s; a read answered 200 in under 3000 ms",
+            $"{(faults == 0 ? "no 500" : faults + " x 500 or other 5xx (" + BudgetBursts.Tally(sent) + ")")}; {(accounted ? "at least one 201 and every request a 201 or a gate-unavailable" : "only " + created + " x 201 and " + unavailable + " x gate-unavailable of " + fleet.Count + " (" + BudgetBursts.Tally(sent) + ")")}; the table holds {(stored == created ? "exactly the 201s" : stored + " for " + created + " x 201")}; a read answered {readStatus} in {(readTime < TimeSpan.FromMilliseconds(3000) ? "under 3000 ms" : Ms(readTime))}");
     }
 
     /// <summary>BRB37. The retry loop is the second line: eight and sixteen simultaneous accepts alternating two answers of one thread record two events, no 500, and the store raised no concurrency conflict.</summary>

@@ -183,6 +183,9 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     private TaskCompletionSource _release = NewRelease();
     private Func<DomainEvent, bool>? _parkWhen;
     private Func<DomainEvent, bool>? _throwWhen;
+    private Func<DomainEvent, bool>? _parkEveryWhen;
+    private readonly Queue<TaskCompletionSource> _parkedEvery = new();
+    private int _permits;
     private bool _loseNextConditioned;
     private int _parked;
     private int _reads;
@@ -216,6 +219,31 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
         }
     }
 
+    /// <summary>
+    /// Every append holding an event <paramref name="matches"/> parks until <see cref="ReleaseOne"/> gives it a permit, in the order they reach the semaphore, until
+    /// <see cref="Reset"/>. The test releases the appends one at a time, so what it observes does not depend on how fast the machine is.
+    /// </summary>
+    internal void ParkEvery(Func<DomainEvent, bool> matches)
+    {
+        lock (_gate)
+        {
+            _parkEveryWhen = matches;
+            _parked = 0;
+            _permits = 0;
+            _parkedEvery.Clear();
+        }
+    }
+
+    /// <summary>Lets exactly one parked append (of <see cref="ParkEvery"/>) go on to the real store.</summary>
+    internal void ReleaseOne()
+    {
+        lock (_gate)
+        {
+            if (_parkedEvery.Count > 0) _parkedEvery.Dequeue().TrySetResult();
+            else _permits++;
+        }
+    }
+
     /// <summary>Every append holding an event <paramref name="matches"/> throws instead of reaching the store, until <see cref="Reset"/>.</summary>
     internal void ThrowAt(Func<DomainEvent, bool> matches)
     {
@@ -245,7 +273,14 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
         lock (_gate)
         {
             _throwWhen = null;
+            _parkEveryWhen = null;
             _loseNextConditioned = false;
+        }
+
+        lock (_gate)
+        {
+            _permits = int.MaxValue / 2;
+            while (_parkedEvery.Count > 0) _parkedEvery.Dequeue().TrySetResult();
         }
 
         Release();
@@ -266,6 +301,7 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     private async Task<Result<IReadOnlyList<AppendedEvent>>?> BeforeAppendAsync(AggregateId aggregateId, IReadOnlyList<DomainEvent> events, bool conditioned, CancellationToken cancellationToken)
     {
         Task? wait = null;
+        Task? waitEvery = null;
         lock (_gate)
         {
             if (conditioned) Interlocked.Increment(ref _conditionedAppends);
@@ -277,7 +313,18 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
                 return Result<IReadOnlyList<AppendedEvent>>.Fail(DomainErrors.ConditionConflict(aggregateId, AggregateVersion.New, AggregateVersion.From(1).Match(v => v, _ => AggregateVersion.New)));
             }
 
-            if (_parkWhen is not null && events.Any(_parkWhen))
+            if (_parkEveryWhen is not null && events.Any(_parkEveryWhen))
+            {
+                _parked++;
+                if (_permits > 0) _permits--;
+                else
+                {
+                    var parkedHere = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _parkedEvery.Enqueue(parkedHere);
+                    waitEvery = parkedHere.Task;
+                }
+            }
+            else if (_parkWhen is not null && events.Any(_parkWhen))
             {
                 _parkWhen = null;
                 _parked++;
@@ -285,6 +332,7 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
             }
         }
 
+        if (waitEvery is not null) await waitEvery.WaitAsync(cancellationToken).ConfigureAwait(false);
         if (wait is not null) await wait.WaitAsync(cancellationToken).ConfigureAwait(false);
         return null;
     }
@@ -358,6 +406,11 @@ public sealed class AgentWriteGateForumFixture : ForumFixture
     /// <summary>How the production composition registered <see cref="IAgentWriteGate"/>: its lifetime and how many registrations it made (BRB52), captured before the decorator replaced it.</summary>
     internal (ServiceLifetime Lifetime, int Registrations) ProductionRegistration { get; private set; }
 
+    /// <summary>Whether this fixture's log has been seeded to the reference size, and the gate that makes the seeding happen once (BRB57).</summary>
+    internal SemaphoreSlim SeedGate { get; } = new(1, 1);
+
+    internal bool LogSeeded { get; set; }
+
     internal ParkingEventStore Store => StoreOf(Services);
 
     internal ObservingAgentWriteGate Gate => GateOf(Services);
@@ -427,6 +480,37 @@ public sealed class AgentWriteGateForumFixture : ForumFixture
         var index = Registered<IVectorIndex>(services);
         services.Remove(index);
         services.AddSingleton<IVectorIndex>(sp => new FailingVectorIndex((IVectorIndex)index.ImplementationFactory!(sp)));
+    }
+}
+
+/// <summary>
+/// The wall clock of a host (<see cref="ManualTimeProvider"/>'s instants) with a monotonic timestamp that moves only when the test says and timers that never
+/// fire: the agent write queue's wait is then measured on this clock alone, so a fact can place a request anywhere in its wait without waiting (BRB67).
+/// </summary>
+internal sealed class StalledGateClock(ManualTimeProvider wall) : TimeProvider
+{
+    private long _ticks;
+
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+    public override DateTimeOffset GetUtcNow() => wall.GetUtcNow();
+
+    public override long GetTimestamp() => Interlocked.Read(ref _ticks);
+
+    /// <summary>Moves the queue's clock, and nothing else, forward.</summary>
+    internal void Advance(TimeSpan by) => Interlocked.Add(ref _ticks, by.Ticks);
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => new InertTimer();
+
+    private sealed class InertTimer : ITimer
+    {
+        public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
 
