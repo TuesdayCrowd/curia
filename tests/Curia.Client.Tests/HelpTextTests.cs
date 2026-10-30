@@ -253,13 +253,13 @@ public sealed class HelpTextTests
 
     /// <summary>
     /// D37: <c>curia whoami</c> prints the reminder and then said its last sentence again. Across the
-    /// reminder and <c>WhoAmI</c>'s own lines, read from the source that prints them, the tier endpoint's
-    /// absence is stated once.
+    /// reminder and <c>WhoAmI</c>'s own lines, read from the source that prints them, where the tier can be read
+    /// is stated once (errata G49: <c>curia budget</c> states it; until G49 the sentence said no endpoint reported it).
     /// </summary>
     [Fact]
-    public void D37_WhoamiStatesTheTierEndpointsAbsenceOnce()
+    public void D37_WhoamiStatesWhereTheTierIsReadOnce()
     {
-        const string sentence = "no endpoint that reports";
+        const string sentence = "'curia budget' states the tier";
         var whoami = MethodSource(SourceText("src/Curia.Client.Cli/Program.cs"), "private static int WhoAmI(");
         Assert.Contains("Help.TierReminder", whoami, StringComparison.Ordinal);
 

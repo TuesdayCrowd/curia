@@ -226,6 +226,13 @@ public sealed class BudgetToolTests : IDisposable
     }
 
     /// <summary>
+    /// SEB47's literal twin (the D90 review): every other version fact reads the same errata sentence, so a change made to both the code and that sentence
+    /// would pass them all. This one is written by hand and moves only when someone means the version to move.
+    /// </summary>
+    [Fact]
+    public void R11_65_SEB47_TheVersionIs090() => Assert.Equal("0.9.0", ToolCatalogue.Version);
+
+    /// <summary>
     /// SEB51, the tool half. The tool's description says that every receipt already states the standing after the act, that the readout is read before the
     /// first act and that it is a snapshot: R11.65's words.
     /// </summary>
