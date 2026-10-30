@@ -50,10 +50,13 @@ public static class BudgetLines
     public static string Receipt(BudgetReceipt? budget) => ReceiptFrame(budget).ToString();
 
     /// <summary>The same line as a frame.</summary>
-    public static FrameBuilder ReceiptFrame(BudgetReceipt? budget) =>
-        budget is null
+    public static FrameBuilder ReceiptFrame(BudgetReceipt? budget) => new FrameBuilder().Line($"{ReceiptLine(budget)}");
+
+    /// <summary>The receipt's budget line without its line feed, as text of this client's own with the Forum's strings quoted: for a frame that places it itself.</summary>
+    public static OwnText ReceiptLine(BudgetReceipt? budget) =>
+        new((budget is null
             ? new FrameBuilder().Line($"budget  {new OwnText("NOT STATED")}   (the Forum's receipt did not say where this budget stands; `curia budget` reads it)")
-            : new FrameBuilder().Line($"budget  {budget.Name}  {new OwnText("after this act:")} {Counts(budget.Limit, budget.Used, budget.Remaining)}");
+            : new FrameBuilder().Line($"budget  {budget.Name}  {new OwnText("after this act:")} {Counts(budget.Limit, budget.Used, budget.Remaining)}")).ToString().TrimEnd('\n'));
 
     private static OwnText NextWords(BudgetEntryStanding entry)
     {

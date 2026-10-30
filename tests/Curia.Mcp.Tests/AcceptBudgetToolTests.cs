@@ -68,7 +68,7 @@ public sealed class AcceptBudgetToolTests : IDisposable
         Need(problems, message.StartsWith("REFUSED:", StringComparison.Ordinal), "does not start REFUSED:");
         Need(problems, message.Contains("acceptance budget", StringComparison.Ordinal), "does not say acceptance budget");
         Need(problems, numbers.IsMatch(message), "does not give the published numbers by tier");
-        Need(problems, message.Contains("resets", StringComparison.Ordinal), "does not say it resets");
+        Need(problems, message.Contains("next slot NOT STATED", StringComparison.Ordinal) && !message.Contains("resets", StringComparison.OrdinalIgnoreCase), "does not state the Forum's instant (or says it resets: a trailing window has no reset, errata G49)");
         Need(problems, message.Contains("not a tier denial", StringComparison.Ordinal), "does not say it is not a tier denial");
         Need(problems, message.Contains("posting budget", StringComparison.Ordinal) && !message.Contains("posting budget is spent", StringComparison.Ordinal), "does not say the posting budget is untouched");
         Need(problems, message.Contains("replay", StringComparison.Ordinal), "does not say a replay is free");
@@ -110,7 +110,7 @@ public sealed class AcceptBudgetToolTests : IDisposable
 
     /// <summary>TRW26. <c>curia-mcp</c> was 0.8.9 here and was 0.8.10 under errata G47 and is 0.8.11 since errata G48 (the pin follows the version; the name keeps its id): the descriptions and a refusal's wording change; no tool is added.</summary>
     [Fact]
-    public void R7_26_TRW26_CuriaMcpIs089() => Assert.Equal("0.8.11", ToolCatalogue.Version);
+    public void R7_26_TRW26_CuriaMcpIs089() => Assert.True(string.Equals(PublishedBudgetReadout.Version(), ToolCatalogue.Version, StringComparison.Ordinal), $"Expected: {PublishedBudgetReadout.Version()} Actual: {ToolCatalogue.Version}");   // 0.9.0 since errata G49: the pin follows the errata's version
 
     /// <summary>
     /// TRW53. <c>WriteRefused</c> for a lost race at <c>answer</c>/<c>accept</c> says the same as the CLI, in the adapter's frame: nothing was recorded, the

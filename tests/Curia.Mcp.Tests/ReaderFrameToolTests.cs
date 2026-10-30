@@ -567,6 +567,7 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_revise" => await tools.ReviseAsync(StubLog.PostId, "A corrected body.", null, null, null, ct),
                 "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
                 "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
+                "curia_budget" => await tools.BudgetAsync(ct),
                 _ => throw new InvalidOperationException(
                     $"{name} is registered and this gate does not know how to call it. Add the call: a tool this gate never calls is a tool whose output nothing checks."),
             });

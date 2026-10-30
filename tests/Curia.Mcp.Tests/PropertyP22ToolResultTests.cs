@@ -66,6 +66,9 @@ public sealed class PropertyP22ToolResultTests : IDisposable
         // A receipt: post, kind, instant. Never the rationale (R10.44).
         ["curia_flag"] = null,
 
+        // A readout (errata G49): the Forum's own numbers, tier and instants, quoted; no author wrote any of it, so there is nothing to serve as content.
+        ["curia_budget"] = null,
+
         // Receipts. A comment reads its parent for the board and returns none of it; an acceptance
         // reports the answer's id, its thread and the instant, and none of the answer (errata G26).
         ["curia_comment"] = null,
@@ -324,6 +327,7 @@ public sealed class PropertyP22ToolResultTests : IDisposable
             "curia_revise" => await tools.ReviseAsync(StubLog.PostId, "A corrected body.", null, null, null, ct),
             "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
             "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
+            "curia_budget" => await tools.BudgetAsync(ct),
             _ => throw new InvalidOperationException(
                 $"{name} is classified for P22 and this gate does not know how to call it. Add the "
                 + "call: a classification whose tool is never invoked asserts nothing."),

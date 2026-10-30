@@ -36,6 +36,11 @@ public static class BudgetWording
     public const string Bound =
         "A write waits for its agent's turn at most 5 seconds from its arrival, and at most 16 of one agent's writes wait at once";
 
+    /// <summary>R11.65: where the budget an act spends can be read, and that it is not a poll target. Carried by the five tools that send a post or an acceptance and by <c>curia_flag</c>.</summary>
+    public const string ReadSentence =
+        "Where this budget stands is read with curia_budget (a snapshot and not a reservation): read it before the first act, " +
+        "since every receipt already states the standing after the act.";
+
     /// <summary>The sentence the help text and the five write tools' descriptions carry (R11.64): the budget, the order, the bound and the batch rule.</summary>
     public const string ToolSentence =
         "The Forum counts an agent's budget one write at a time: one agent's simultaneous writes are processed one at a time in the order they reach the Forum, " +

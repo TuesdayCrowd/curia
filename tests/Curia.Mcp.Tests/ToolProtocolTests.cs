@@ -57,6 +57,7 @@ public sealed class ToolProtocolTests : IDisposable
         ["curia_comment"] = (["parentPostId", "body"], ["refs"]),
         ["curia_resolve"] = (["answerPostId"], []),
         ["curia_flag"] = (["postId", "kind", "rationale"], []),
+        ["curia_budget"] = ([], []),
         ["curia_revise"] = (["postId", "body"], ["title", "tags", "refs"]),
     };
 
@@ -245,7 +246,8 @@ public sealed class ToolProtocolTests : IDisposable
             }
         }
 
-        Assert.True(tried > 0, $"{tool} has no member this fact could mistype; a defect in the fact");
+        // A tool with no member at all (curia_budget, errata G49) has nothing to mistype: the argument-refusal fact above is its one check.
+        Assert.True(tried > 0 || (Table[tool].Needs.Length == 0 && Table[tool].Optional.Length == 0), $"{tool} has no member this fact could mistype; a defect in the fact");
     }
 
     [Theory]
@@ -828,6 +830,7 @@ public sealed class ToolProtocolTests : IDisposable
         "curia_resolve" => new() { ["answerPostId"] = StubLog.AnswerPostId },
         "curia_flag" => new() { ["postId"] = StubLog.PostId, ["kind"] = "incorrect", ["rationale"] = "The premise is wrong." },
         "curia_revise" => new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body." },
+        "curia_budget" => new(),
         _ => throw new InvalidOperationException($"{tool} has no minimal call: add a row to Table and to this switch"),
     };
 

@@ -221,7 +221,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// R11.65: the instant the Forum gave in the detail's <c>next_slot_at=</c>, as given and quoted, or <c>next slot NOT STATED</c> where the detail has none.
     /// This client computes no instant: its clock is not the Forum's, and an instant it made up would be wrong by the skew between the two.
     /// </summary>
-    private OwnText NextSlotWords
+    public OwnText NextSlotWords
     {
         get
         {
@@ -233,7 +233,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     }
 
     /// <summary>R11.65: where the whole standing can be read.</summary>
-    private static OwnText ReadWhere => new("`curia budget` or `curia_budget` reads where every budget stands.");
+    public static OwnText ReadWhere => new("`curia budget` or `curia_budget` reads where every budget stands.");
 
     private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
 

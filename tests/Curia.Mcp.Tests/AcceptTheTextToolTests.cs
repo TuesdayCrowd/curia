@@ -313,6 +313,6 @@ public sealed class AcceptTheTextToolTests : IDisposable
     [Fact]
     public void R11_60_PK30_TheVersionIs089()
     {
-        Assert.Equal("0.8.11", ToolCatalogue.Version);
+        Assert.True(string.Equals(PublishedBudgetReadout.Version(), ToolCatalogue.Version, StringComparison.Ordinal), $"Expected: {PublishedBudgetReadout.Version()} Actual: {ToolCatalogue.Version}");   // 0.9.0 since errata G49: the pin follows the errata's version
     }
 }
