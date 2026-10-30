@@ -98,7 +98,8 @@ public sealed class BudgetReadoutGateEndpointTests(AgentWriteGateForumFixture fo
 
             forum.ResetSeams();
             var (control, _) = await InterleaveAsync(board, passThrough: true);
-            Probe.Said("receipts used 2 then used 2 (the control reads the same count twice)", $"receipts used {Used(control.First)} then used {Used(control.Second)}");
+            // The control reads the same count twice: the expected text is the receipts alone (as written first it carried this parenthetical and could never equal the actual).
+            Probe.Said("receipts used 2 then used 2", $"receipts used {Used(control.First)} then used {Used(control.Second)}");
         }
         finally
         {

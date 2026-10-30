@@ -64,7 +64,21 @@ public sealed record PostAcceptedResponse(
     [property: JsonPropertyName("post_id")] string PostId,
     [property: JsonPropertyName("digest")] string Digest,
     [property: JsonPropertyName("server_ts")] string ServerTimestamp,
-    [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags);
+    [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags,
+    [property: JsonPropertyName("budget")] BudgetReceiptResponse Budget);
+
+/// <summary>
+/// R7.29, R9.50: a budget's standing after the act a receipt reports, computed inside the hold by <see cref="BudgetReadout.After"/>. It states no instant:
+/// the instant an act was stamped is held at a precision the stored row may not keep, and a number a later read may contradict is worse than none.
+/// </summary>
+public sealed record BudgetReceiptResponse(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("limit")] int? Limit,
+    [property: JsonPropertyName("used")] int Used,
+    [property: JsonPropertyName("remaining")] int? Remaining)
+{
+    internal static BudgetReceiptResponse Of(BudgetEntry e) => new(e.Name, e.Limit, e.Used, e.Remaining);
+}
 
 /// <summary>
 /// R10.17's provenance envelope, as it appears on the wire.
@@ -866,14 +880,19 @@ public static class ForumEndpoints
         var now = clock.GetUtcNow();
         var tier = TierPolicy.Evaluate(facts!, now);
 
-        var (resource, action) = PairFor(v!.Envelope.Kind);
+        // R7.28, R7.29: the instants the posting count reads, taken once from the log this decision is made on (under the agent's hold, R7.27): the
+        // policy's count is CountIn over them, a refusal's next_slot_at is the standing's over them, and the receipt adds the act to them.
+        var postInstants = BudgetReadout.PostInstants(log, v!.AuthorAgentId).ToArray();
+        var postLimit = TierPolicy.PostsPerDay(tier.Tier);
+
+        var (resource, action) = PairFor(v.Envelope.Kind);
         var decision = await pdp.EvaluateAsync(
             new AuthorizationRequest(
                 tier,
                 facts!.CredentialState,
                 resource,
                 action,
-                PostsToday: BudgetReadout.PostsUsed(log, v.AuthorAgentId, now)),
+                PostsToday: BudgetReadout.CountIn(postInstants, now)),
             cancellationToken).ConfigureAwait(false);
 
         if (!decision.TryGetValue(out var d, out var decisionError))
@@ -890,7 +909,7 @@ public static class ForumEndpoints
         if (!d.IsAllowed)
             return Problem(
                 StatusCodes.Status403Forbidden,
-                Denial(d, $"{d.Reason} tier={tier.Tier}"));
+                Denial(d, DeniedDetail(d, tier.Tier, BudgetKinds.Posting, () => BudgetReadout.Entry(BudgetKinds.Posting, postLimit, postInstants, now))));
 
         // R8.78 (errata G45): the same bytes are not recorded twice. The envelope carries its author and a signed nonce, so an
         // equal digest is the same author and the very bytes; a fresh nonce is a new post. After AUTHORIZE (a caller denied by
@@ -904,8 +923,10 @@ public static class ForumEndpoints
         // learns a successor) and before the parent checks, the near-duplicate check, SCREEN and PERSIST. The log AUTHORIZE read is older than any
         // hold, so the checks are made again on a log read under the hold, and the hold is released when the attempt ends on any path (the
         // `await using`), after PERSIST has committed or refused. Try, never wait: a held gate is 409 revision-in-flight.
+        BudgetEntry BudgetAfter(DateTimeOffset act) => BudgetReadout.After(BudgetKinds.Posting, postLimit, postInstants, act, now);
+
         if (v.Envelope.Kind is not PostKind.Revision || v.Envelope.Prev is not { Length: > 0 } prevDigest)
-            return await PersistSubmissionAsync(v, log, pipeline, events, indexer, dedupe, http, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, log, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
 
         var entered = await revisionGate.TryEnterAsync(prevDigest, cancellationToken).ConfigureAwait(false);
         if (!entered.TryGetValue(out var held, out var gateError))
@@ -927,7 +948,7 @@ public static class ForumEndpoints
             if (RevisionRefusal(fresh!, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
                 return refusal;
 
-            return await PersistSubmissionAsync(v, fresh!, pipeline, events, indexer, dedupe, http, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, fresh!, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -967,6 +988,7 @@ public static class ForumEndpoints
         EmbeddingIndexer indexer,
         DuplicateCheck dedupe,
         HttpRequest http,
+        Func<DateTimeOffset, BudgetEntry> budgetAfter,
         CancellationToken cancellationToken)
     {
         // R8.70 (errata G38): an answer's parent is a question that exists and a comment's is a post that exists. After the
@@ -1056,7 +1078,8 @@ public static class ForumEndpoints
             post.PostId,
             post.Digest,
             post.ServerTimestamp.ToString(),
-            [.. s!.Annotations.Flags.Select(f => f.Category.ToString())]));
+            [.. s!.Annotations.Flags.Select(f => f.Category.ToString())],
+            BudgetReceiptResponse.Of(budgetAfter(post.ServerTimestamp.Value))));
     }
 
     /// <summary>
@@ -1143,6 +1166,9 @@ public static class ForumEndpoints
             if (flagsProblem is not null)
                 return flagsProblem;
 
+            var flagInstants = BudgetReadout.FlagInstants(raisedFlags, raiser!).ToArray();
+            var flagLimit = TierPolicy.FlagsPerDay(tier.Tier);
+
             var decision = await pdp.EvaluateAsync(
                 new AuthorizationRequest(
                     tier,
@@ -1150,7 +1176,7 @@ public static class ForumEndpoints
                     ResourceKind.Flag,
                     ActionKind.Raise,
                     PostsToday: BudgetReadout.PostsUsed(log, raiser!, now),
-                    FlagsToday: BudgetReadout.FlagsUsed(raisedFlags, raiser!, now)),
+                    FlagsToday: BudgetReadout.CountIn(flagInstants, now)),
                 cancellationToken).ConfigureAwait(false);
 
             if (!decision.TryGetValue(out var d, out var decisionError))
@@ -1159,7 +1185,7 @@ public static class ForumEndpoints
             if (!d!.IsAllowed)
                 return Problem(
                     StatusCodes.Status403Forbidden,
-                    Denial(d, $"{d.Reason} tier={tier.Tier}"));
+                    Denial(d, DeniedDetail(d, tier.Tier, BudgetKinds.Flag, () => BudgetReadout.Entry(BudgetKinds.Flag, flagLimit, flagInstants, now))));
 
             // R11.34 (errata G18): the post id and the rationale reach RaiseFlag as the types it takes,
             // parsed at their first use, after authorization. Each parse outcome is passed rather than
@@ -1186,6 +1212,9 @@ public static class ForumEndpoints
                     kind = FlagKinds.Wire(flag.Kind),
                     raised_at = flag.RaisedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
                     post_served = postServed,
+
+                    // R7.29: the standing after this flag, from the directory counted under the raiser's hold and the flag just recorded.
+                    budget = BudgetReceiptResponse.Of(BudgetReadout.After(BudgetKinds.Flag, flagLimit, flagInstants, flag.RaisedAt, now)),
                 });
         }
     }
@@ -1305,6 +1334,20 @@ public static class ForumEndpoints
             Instant(now),
             (int)BudgetReadout.Window.TotalSeconds,
             [.. entries.Select(e => new BudgetEntryResponse(e.Name, e.Limit, e.Used, e.Remaining, e.NextSlotAt is { } at ? Instant(at) : null))]));
+    }
+
+    /// <summary>
+    /// R7.29: a refusal's detail, <c>&lt;reason&gt; tier=&lt;tier&gt;</c>, and for the three budget refusals, and no other, ending
+    /// <c> next_slot_at=&lt;instant&gt;</c> from the standing over the instants the decision counted (never a second read or a clock of its own).
+    /// </summary>
+    private static string DeniedDetail(AuthorizationDecision d, PrincipalTier tier, string budget, Func<BudgetEntry> standing)
+    {
+        var detail = $"{d.Reason} tier={tier}";
+        var kind = BudgetKinds.All.First(k => string.Equals(k.Name, budget, StringComparison.Ordinal));
+
+        return string.Equals(d.Reason, kind.DenialReason, StringComparison.Ordinal) && standing().NextSlotAt is { } at
+            ? $"{detail} next_slot_at={Instant(at)}"
+            : detail;
     }
 
     private static string Instant(DateTimeOffset at) => at.ToUniversalTime().ToString("o", System.Globalization.CultureInfo.InvariantCulture);
@@ -1906,13 +1949,16 @@ public static class ForumEndpoints
             && AcceptanceProjector.Fold(log).TryGetValue(root.PostId, out var standingAnswer)
             && string.Equals(standingAnswer, answer.PostId, StringComparison.Ordinal);
 
+        var acceptInstants = BudgetReadout.AcceptInstants(log, acceptor!).ToArray();
+        var acceptLimit = TierPolicy.AcceptsPerDay(tier.Tier);
+
         var decision = await pdp.EvaluateAsync(
             new AuthorizationRequest(
                 tier,
                 facts!.CredentialState,
                 ResourceKind.Answer,
                 ActionKind.Accept,
-                AcceptsToday: BudgetReadout.AcceptsUsed(log, acceptor!, now),
+                AcceptsToday: BudgetReadout.CountIn(acceptInstants, now),
                 AcceptRecordsNothing: acceptRecordsNothing),
             cancellationToken).ConfigureAwait(false);
 
@@ -1924,7 +1970,7 @@ public static class ForumEndpoints
         if (!d!.IsPermitted)
             return Problem(
                 StatusCodes.Status403Forbidden,
-                Denial(d, $"{d.Reason} tier={tier.Tier}"));
+                Denial(d, DeniedDetail(d, tier.Tier, BudgetKinds.Acceptance, () => BudgetReadout.Entry(BudgetKinds.Acceptance, acceptLimit, acceptInstants, now))));
 
         // The resource has to be resolved before the qualifier can be discharged, and the answer
         // has to exist before "whose thread is it" is even a question -- so the shape of the target
@@ -1994,6 +2040,12 @@ public static class ForumEndpoints
             replaced_answer = acceptance.ReplacedAnswer,
             // R8.76 (errata G44): always present; null exactly when replaced_answer is, else whether the two texts share a chain root.
             replaced_relation = ReplacedRelation(acceptance.ReplacedAnswer, posts, corrections, acceptance.AnswerId),
+
+            // R7.29: the standing after the act; an acceptance answered because the answer already stands recorded nothing, so its budget is as it was.
+            budget = BudgetReceiptResponse.Of(
+                acceptance.AlreadyAccepted
+                    ? BudgetReadout.Entry(BudgetKinds.Acceptance, acceptLimit, acceptInstants, now)
+                    : BudgetReadout.After(BudgetKinds.Acceptance, acceptLimit, acceptInstants, acceptance.AcceptedAt, now)),
         };
 
         return acceptance.AlreadyAccepted

@@ -750,15 +750,22 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal static string ReceiptJson(string digest) => $$"""
     {"post_id":"{{SubmittedPostId}}","digest":"{{digest}}",
-    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[]}
+    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"budget":{{DefaultBudget("posting")}}}
     """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>
+    /// Errata G49 (R9.50): the <c>budget</c> member the Forum's receipts carry, as the static receipt documents hold it so that <c>StubFidelityTests</c> compares the
+    /// Forum's member set with the stub's whole. The stub's <em>served</em> receipt drops it unless <see cref="ReceiptBudgetJson"/> is set (the default is an older
+    /// Forum, which sent none), so a fact that does not set it keeps the receipt it always had.
+    /// </summary>
+    internal static string DefaultBudget(string name) => $$"""{"name":"{{name}}","limit":3,"used":1,"remaining":2}""";
 
     /// <summary>
     /// A flag's receipt as the stub serves it. <paramref name="servedJson"/> is the raw JSON value of the <c>post_served</c> member R9.49 gives it
     /// (<c>true</c>, <c>false</c>, <c>"yes"</c>, <c>null</c> ...); <see langword="null"/> serves the receipt without the member, as an older Forum does.
     /// </summary>
     internal static string FlagReceiptJson(string? servedJson = null) => $$"""
-    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"{{(servedJson is null ? string.Empty : ",\"post_served\":" + servedJson)}}}
+    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"{{(servedJson is null ? string.Empty : ",\"post_served\":" + servedJson)}},"budget":{{DefaultBudget("flag")}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -772,7 +779,7 @@ internal sealed class StubLog : IDisposable
 
     internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
-    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}{{(replacedRelationJson is null ? string.Empty : ",\"replaced_relation\":" + replacedRelationJson)}}}
+    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}{{(replacedRelationJson is null ? string.Empty : ",\"replaced_relation\":" + replacedRelationJson)}},"budget":{{DefaultBudget("acceptance")}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -1565,9 +1572,13 @@ internal sealed class StubLog : IDisposable
                     ? Written(log, path, request)
                     : Answered(Answer(log, path, query));
 
-            if (method == HttpMethod.Post && log.ReceiptBudgetJson is { } receiptBudget && path != "/oauth/token" && path != "/v1/posts/batch"
-                && (status is HttpStatusCode.OK or HttpStatusCode.Created) && body.EndsWith('}'))
-                body = body[..^1] + ",\"budget\":" + receiptBudget + "}";
+            if (method == HttpMethod.Post && path != "/oauth/token" && path != "/v1/posts/batch" && (status is HttpStatusCode.OK or HttpStatusCode.Created) && body.EndsWith('}'))
+            {
+                // The static receipts hold the default budget member (for the fidelity fact); the served receipt has the fact's own or none.
+                body = System.Text.RegularExpressions.Regex.Replace(body, ",\"budget\":\\{\"name\":\"[a-z]+\",\"limit\":3,\"used\":1,\"remaining\":2\\}", string.Empty, System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+                if (log.ReceiptBudgetJson is { } receiptBudget)
+                    body = body[..^1] + ",\"budget\":" + receiptBudget + "}";
+            }
 
             if (path != "/oauth/token")
             {
