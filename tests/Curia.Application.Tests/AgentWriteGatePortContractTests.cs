@@ -161,7 +161,7 @@ public abstract class AgentWriteGatePortContractTests
 
             Said(
                 $"k={k}: none entered before the holder released; entered in arrival order {string.Join(",", Enumerable.Range(0, k))}",
-                $"k={k}: {(beforeRelease.Length == 0 ? "none" : "waiters " + beforeRelease)} entered before the holder released; entered in order {string.Join(",", sequence)}");
+                $"k={k}: {(beforeRelease.Length == 0 ? "none" : "waiters " + beforeRelease)} entered before the holder released; entered in arrival order {string.Join(",", sequence)}");
         }
     }
 
@@ -209,7 +209,7 @@ public abstract class AgentWriteGatePortContractTests
         await holder.DisposeAsync();
         Said(
             $"waiter {Waiters + 1} refused {PublishedBudgetGate.InFlightType()} at once; the first waiter timed out {PublishedBudgetGate.InFlightType()}; a new waiter pending",
-            $"waiter {Waiters + 1} {overflow}; the first waiter {firstOutcome}; a new waiter {replacementOutcome}");
+            $"waiter {Waiters + 1} refused {overflow} at once; the first waiter timed out {firstOutcome}; a new waiter {replacementOutcome}");
     }
 
     /// <summary>BRB6. A cancelled waiter leaves, frees its slot, and is never granted the permit.</summary>
@@ -367,7 +367,7 @@ public abstract class AgentWriteGatePortContractTests
 
         Said(
             $"the newcomer's second entry pending, then entered; X's {Waiters + 1}th refused {PublishedBudgetGate.InFlightType()}",
-            $"the newcomer's second entry {zOutcome}, then {zServed}; X's {Waiters + 1}th {xOverflow}");
+            $"the newcomer's second entry {zOutcome}, then {zServed}; X's {Waiters + 1}th refused {xOverflow}");
     }
 }
 

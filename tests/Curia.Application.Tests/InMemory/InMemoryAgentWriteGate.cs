@@ -8,8 +8,6 @@ namespace Curia.Application.Tests.InMemory;
 /// <summary>
 /// R11.4's in-memory <see cref="IAgentWriteGate"/> (R7.27; errata G48): the queue alone, so the rule is written once in <see cref="AgentWriteQueue"/> and
 /// the Postgres adapter is the same queue followed by the lock. <see cref="StoreUnreachable"/> stands in for the lock leg's store failing (BRB10).
-///
-/// <para>Task 0 seam: the queue admits every entry at once, so this adapter is a pass-through until Task 1 gives the queue its body.</para>
 /// </summary>
 internal sealed class InMemoryAgentWriteGate(TimeProvider clock, TimeSpan wait, int waiters) : IAgentWriteGate
 {
@@ -22,5 +20,7 @@ internal sealed class InMemoryAgentWriteGate(TimeProvider clock, TimeSpan wait, 
     public int TrackedKeys => _queue.TrackedKeys;
 
     public Task<Result<IAsyncDisposable>> EnterAsync(AgentId agent, CancellationToken cancellationToken) =>
-        _queue.EnterAsync(agent, cancellationToken);
+        StoreUnreachable
+            ? Task.FromResult(Result<IAsyncDisposable>.Fail(BudgetErrors.GateUnavailable()))
+            : _queue.EnterAsync(agent, cancellationToken);
 }
