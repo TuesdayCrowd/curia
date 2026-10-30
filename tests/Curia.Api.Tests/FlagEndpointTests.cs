@@ -1019,7 +1019,7 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     /// stall the Forum. At 4b3e91a each hold kept one of the Forum's pooled connections while the
     /// flag's reads and append drew others from the same pool, so as many raisers in flight as the
     /// pool held deadlocked it until Npgsql's timeout: every flag inside answered 500, and an
-    /// unrelated read stalled. Here the pool is four connections with a three-second timeout, sixteen
+    /// unrelated read stalled. Here the pool is four connections (carved since errata G48, R7.27, into the agent gate's one, the raiser gate's one and the Forum's two) with a three-second timeout, sixteen
     /// distinct T0 raisers flag one post at once, and an anonymous read is sent 300 ms in. No answer
     /// may be a 500; each flag is 201 or 503 raiser-gate-unavailable, at least one is 201, the join
     /// holds exactly the 201s, and the read answers 200 in under half the timeout.

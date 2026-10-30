@@ -392,6 +392,11 @@ public sealed class RevisionOnceForumFixture : ForumFixture
 
     protected override void ConfigureStore(IServiceCollection services)
     {
+        // Errata G48, ruling 22: these facts' object is the revision gate (one revision of a post in flight, another refused) and the work around it, which the
+        // agent gate now serializes in front of it. They run on the host as it was before the agent gate, so each keeps its strength; BRB33, BRB34 and BRB63
+        // observe the two gates together through the real one.
+        PassThroughAgentWriteGate.Install(services);
+
         var store = Registered<IEventStore>(services);
         services.Remove(store);
         services.AddSingleton<IEventStore>(sp =>

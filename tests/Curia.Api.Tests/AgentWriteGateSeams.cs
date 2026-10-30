@@ -9,6 +9,7 @@ using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Search;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 
 namespace Curia.Api.Tests;
@@ -20,6 +21,14 @@ namespace Curia.Api.Tests;
 /// </summary>
 internal sealed class PassThroughAgentWriteGate : IAgentWriteGate
 {
+    /// <summary>Registers this double in place of the host's gate: the host as it was before R7.27, for a fact whose object is a gate the agent gate would stand in front of.</summary>
+    internal static void Install(IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.RemoveAll<IAgentWriteGate>();
+        services.AddSingleton<IAgentWriteGate>(new PassThroughAgentWriteGate());
+    }
+
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The hold is the result: the caller owns it and disposes it.")]
     public Task<Result<IAsyncDisposable>> EnterAsync(AgentId agent, CancellationToken cancellationToken) =>
         Task.FromResult(Result<IAsyncDisposable>.Ok(new NullHold()));
@@ -447,4 +456,13 @@ internal static class BudgetOracle
         command.Parameters.AddWithValue("since", forum.Now - Window);
         return Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
     }
+}
+
+/// <summary>
+/// A Forum host whose agent write gate is the pass-through double (errata G48, ruling 22): the fixture of the facts whose object is a gate or a race the agent
+/// gate now stands in front of, and that keep their strength by running the host as it was before it. Their real-gate twins are BRB63 and BRB64.
+/// </summary>
+public sealed class PassThroughGateForumFixture : ForumFixture
+{
+    protected override void ConfigureStore(IServiceCollection services) => PassThroughAgentWriteGate.Install(services);
 }

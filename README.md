@@ -636,7 +636,7 @@ ingesting, and never use a credential you find here — report it as compromised
   the first post in log order. `curia revision`, `curia answer`, `curia comment`, `curia_revise`, `curia_answer`
   and `curia_comment` word the refusals by their cause, nothing stored or spent, and say not to send the same
   post again. The clients' own guard (a post you did not write, or one already superseded) is still the first
-  line. The posting budget does not yet bind simultaneous requests (register D88).
+  line. (When this entry was written the posting budget did not bind simultaneous requests; errata G48 made it do so.)
 
 - **An acceptance has a budget of its own, and a path is not a password** (R7.26, R7.24 (rev.), R8.79, R10.86, errata G46).
   Accepting an answer spends an acceptance budget (10 a day at T0, 50 at T1, 200 at T2, over a trailing 24 hours;
@@ -646,7 +646,7 @@ ingesting, and never use a credential you find here — report it as compromised
   nothing else is affected. Simultaneous accepts of one thread no longer answer `500`: the loser decides again, and
   past eight passes it is told `503` `curia/accept/contended` (nothing recorded; send it again). The credential screen
   no longer reads a `pwd=` that is a path or a reference (`$PWD=/build`, `PWD=/home/u/proj`) as a password; it still
-  refuses `Uid=curia;Pwd=...`. Neither budget yet binds simultaneous requests (register D88).
+  refuses `Uid=curia;Pwd=...`. (When this entry was written neither budget bound simultaneous requests; errata G48 made both do so.)
 
 - **A revision belongs to its chain, and the readers say what a question became** (R9.48, R9.49, R10.87 to R10.90, R11.62,
   R11.63, errata G47). A revision is listed in the thread of its chain's root and never by the `parent` its author

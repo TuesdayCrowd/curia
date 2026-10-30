@@ -847,10 +847,12 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var created = sent.Count(s => s.Status == 201);
         var stored = 0L;
         foreach (var a in fleet) stored += await BudgetOracle.PostsInWindowAsync(forum, a.Agent.AgentId);
-        var faults = sent.Count(s => s.Status >= 500);
+        // A one-connection agent pool serializes the fleet, and a request that cannot get that connection inside the connection timeout is told gate-unavailable
+        // (503, ruling 4, BRB14): the Forum saying it is overloaded, as R7.22's fleet fact allows its raiser gate to. Any other 5xx is a fault.
+        var faults = sent.Count(s => s.Status >= 500 && !(s.Status == PublishedBudgetGate.UnavailableStatus() && s.Type == PublishedBudgetGate.UnavailableType()));
         Said(
             "no 500; the table holds exactly the 201s; a read answered 200 in under 3000 ms",
-            $"{(faults == 0 ? "no 500" : faults + " x 500")}; the table holds {(stored == created ? "exactly the 201s" : stored + " for " + created + " x 201")}; a read answered {readStatus} in {(readTime < TimeSpan.FromMilliseconds(3000) ? "under 3000 ms" : Ms(readTime))}");
+            $"{(faults == 0 ? "no 500" : faults + " x 500 or other 5xx (" + BudgetBursts.Tally(sent) + ")")}; the table holds {(stored == created ? "exactly the 201s" : stored + " for " + created + " x 201")}; a read answered {readStatus} in {(readTime < TimeSpan.FromMilliseconds(3000) ? "under 3000 ms" : Ms(readTime))}");
     }
 
     /// <summary>BRB37. The retry loop is the second line: eight and sixteen simultaneous accepts alternating two answers of one thread record two events, no 500, and the store raised no concurrency conflict.</summary>
