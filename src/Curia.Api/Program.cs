@@ -155,6 +155,10 @@ public sealed class Program
         // R8.77 (errata G45): one post's revisions entered one at a time. Registered as the port; the submit route enters it for a revision.
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().RevisionGate);
 
+        // R7.27 (errata G48): one agent's posts and acceptances counted and recorded under one hold. One instance per host, so the queue is one per host.
+        // Task 0 seam: registered, entered by no route yet.
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().AgentWriteGate);
+
         // The vector half of hybrid retrieval (§9.2). The embedder is the dependency-free hashed
         // model (see HashedNGramEmbedding for what it is and is not); the index is pgvector through
         // the same adapters object as every other Postgres port; the reconcile brings the index up

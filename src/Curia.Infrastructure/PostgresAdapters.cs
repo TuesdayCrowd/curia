@@ -112,6 +112,13 @@ public sealed class PostgresAdapters : IAsyncDisposable
     /// </summary>
     public IRevisionGate RevisionGate => new PostgresRevisionGate(_gateDataSource);
 
+    /// <summary>
+    /// R7.27 (errata G48): one agent's posts and acceptances counted and recorded one at a time. Task 0 seam: the gate admits at once and the pools are
+    /// not yet carved for it (Task 2 builds its pool and gives it the queue and the lock).
+    /// </summary>
+    public IAgentWriteGate AgentWriteGate =>
+        new PostgresAgentWriteGate(_gateDataSource, _clock, Curia.Application.Budget.AgentWriteGateBounds.Wait, Curia.Application.Budget.AgentWriteGateBounds.Waiters);
+
     public async ValueTask DisposeAsync()
     {
         await _gateDataSource.DisposeAsync().ConfigureAwait(false);
