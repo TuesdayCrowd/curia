@@ -462,4 +462,4 @@ PR 2 after the ninth exercise (D90, the budget readout, errata G49), then PR 3 (
 
 The PR is #134, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run on the finished code (the T8 fix's code; docs only after it), 2026-10-30, Release with 0 warnings, built first and run `--no-build`: Client 1173, Domain 872, Mcp 693 and 1 skipped, Application 583, Canon 329, Infrastructure 193, AuthN 140, Domain.Primitives 64, Architecture 72 in Release and Debug, Canon.Sodium 32; the locked restore, `cargo fmt --check`, clippy and `cargo test --locked`, the differential gate (0 classes), `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red, and `conformance/` clean. Api: the first whole run was 1158 of 1159 in 42 m 19 s, and the run's script kept only summary lines, so the one failure is unnamed (the known timing-sensitive candidates are `BrowseEndToEndTests.R10_73`'s SIGHUP fact and BRB57's recorded measurement); an immediate second whole run with a results file was 1159 of 1159 in 40 m 34 s. The script now keeps every assembly's full log and names any failure. The Api suite's time rose from about 30 to about 40 minutes with this PR's probes.
