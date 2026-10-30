@@ -57,6 +57,8 @@ public sealed partial class ReadmeConnectionStringTests(ForumFixture forum) : IC
         var actual = $"{examples.Length} example{(examples.Length == 1 ? string.Empty : "s")}; " +
             (named.Length == 0 ? "no Maximum Pool Size named" : $"Maximum Pool Size {string.Join(", ", named)}{(named.All(n => n <= usable) ? string.Empty : " over the usable " + usable)}") +
             $"; {(statesTheRelation ? "the relation to max_connections stated" : "no relation to max_connections stated")}";
-        Said($"1 example; Maximum Pool Size named and at most the {usable} usable connections; the relation to max_connections stated", actual);
+        var expected = $"1 example; Maximum Pool Size named and at most the {usable} usable connections; the relation to max_connections stated";
+        var fits = examples.Length == 1 && named.Length > 0 && named.All(n => n <= usable) && statesTheRelation;
+        Said(expected, fits ? expected : actual);
     }
 }

@@ -114,7 +114,7 @@ public sealed class PostgresAgentWriteGateContractTests : AgentWriteGatePortCont
         var within = elapsed >= bound * 0.9 && elapsed <= bound * 2 ? "within the bound and twice it" : $"after {elapsed.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture)} ms";
         Said(
             $"refused {PublishedBudgetGate.InFlightType()} within the bound and twice it; the long waiter pending while held; entered after release",
-            $"{whileHeld} {within}; the long waiter {(stillPending ? "pending" : "completed")} while held; {entered} after release");
+            $"{(whileHeld == "entered" ? whileHeld : "refused " + whileHeld)} {within}; the long waiter {(stillPending ? "pending" : "completed")} while held; {entered} after release");
     }
 
     private async Task<int?> BackendHoldingAsync(string schema, AgentId agent)
@@ -140,7 +140,9 @@ public sealed class PostgresAgentWriteGateContractTests : AgentWriteGatePortCont
         var hold = Require(await first.EnterAsync(x, Ct));
         var pid = await BackendHoldingAsync(schema, x);
         await hold.DisposeAsync();
-        var afterDispose = Outcome(await second.EnterAsync(x, Ct));
+        var afterDisposeEntry = await second.EnterAsync(x, Ct);
+        var afterDispose = Outcome(afterDisposeEntry);
+        if (afterDisposeEntry.TryGetValue(out var secondHold, out _)) await secondHold!.DisposeAsync();
 
         var holdAgain = Require(await first.EnterAsync(x, Ct));
         var terminated = "no backend held the lock";
@@ -156,10 +158,12 @@ public sealed class PostgresAgentWriteGateContractTests : AgentWriteGatePortCont
         var entered = Outcome(afterTermination);
         if (afterTermination.TryGetValue(out var held, out _)) await held!.DisposeAsync();
         await holdAgain.DisposeAsync();
-        var released = Outcome(await first.EnterAsync(x, Ct));
+        var releasedEntry = await first.EnterAsync(x, Ct);
+        var released = Outcome(releasedEntry);
+        if (releasedEntry.TryGetValue(out var firstHold, out _)) await firstHold!.DisposeAsync();
 
         Said(
-            "a backend holds the lock; entered after dispose; the holder's backend terminated; entered after termination; the first gate enters once its hold is disposed",
+            "a backend holds the lock; entered after dispose; the holder's backend terminated; entered after termination; the first gate entered once its hold is disposed",
             $"{(pid is null ? "no backend holds the lock" : "a backend holds the lock")}; {afterDispose} after dispose; the holder's backend {terminated}; {entered} after termination; the first gate {released} once its hold is disposed");
     }
 
@@ -257,12 +261,17 @@ public sealed class PostgresAgentWriteGateContractTests : AgentWriteGatePortCont
         var x = Agent("many");
 
         var holder = Require(await gate.EnterAsync(x, Ct));
-        var waiting = Enumerable.Range(0, 32).Select(_ => gate.EnterAsync(x, Ct)).ToArray();
+        using var drain = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var waiting = Enumerable.Range(0, 32).Select(_ => gate.EnterAsync(x, drain.Token)).ToArray();
         await Task.Delay(300, Ct);
         var pendingWaiters = waiting.Count(w => !w.IsCompleted);
 
-        var y = Outcome(await gate.EnterAsync(Agent("y"), Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct));
+        // Each of Y and Z holds the second connection while it is in; Y is released before Z enters, as a finished write would be.
+        var yEntry = await gate.EnterAsync(Agent("y"), Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        var y = Outcome(yEntry);
+        if (yEntry.TryGetValue(out var yHold, out _)) await yHold!.DisposeAsync();
         var z = Outcome(await gate.EnterAsync(Agent("z"), Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct));
+        await drain.CancelAsync();
         await holder.DisposeAsync();
 
         Said("32 of 32 waiters pending; Y entered; Z entered", $"{pendingWaiters} of 32 waiters pending; Y {y}; Z {z}");

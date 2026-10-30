@@ -69,7 +69,7 @@ public sealed class AgentWriteGatePoolArithmeticTests(PostgresDatabaseFixture fi
 
         Said(
             $"three distinct pools of {string.Join(", ", expected)} summing to {configured}; the Forum's at least 2",
-            $"{sizes.Count} {(distinct ? "distinct" : "shared")} pools of {string.Join(", ", actual)} summing to {sum}; the Forum's {(forum >= 2 ? "at least 2" : "under 2")}");
+            $"{(sizes.Count == 3 ? "three" : sizes.Count.ToString(CultureInfo.InvariantCulture))} {(distinct ? "distinct" : "shared")} pools of {string.Join(", ", actual)} summing to {sum}; the Forum's {(forum >= 2 ? "at least 2" : "under 2")}");
     }
 
     /// <summary>BRB58, the refusal: a size that cannot carve three pools is refused at construction with the constructor's own words naming Maximum Pool Size.</summary>
@@ -110,8 +110,10 @@ public sealed class AgentWriteGatePoolArithmeticTests(PostgresDatabaseFixture fi
         var (sizes, _) = PoolsOf(adapters);
         var sum = sizes.Values.Sum();
 
+        var expected = $"the pools of size {Configured} sum to at most {Configured} and at most the {usable} usable connections";
+        var fits = sum <= Configured && sum <= usable && sizes.Count == 3;
         Said(
-            $"the pools of size {Configured} sum to at most {Configured} and at most the {usable} usable connections",
-            $"the pools of size {Configured} sum to {sum}{(sum <= Configured ? string.Empty : ", more than " + Configured)}{(sum <= usable ? string.Empty : ", more than the " + usable + " usable connections")}; {(sizes.Count == 3 ? "three" : sizes.Count.ToString(CultureInfo.InvariantCulture))} pools");
+            expected,
+            fits ? expected : $"the pools of size {Configured} sum to {sum}{(sum <= Configured ? string.Empty : ", more than " + Configured)}{(sum <= usable ? string.Empty : ", more than the " + usable + " usable connections")}; {(sizes.Count == 3 ? "three" : sizes.Count.ToString(CultureInfo.InvariantCulture))} pools");
     }
 }

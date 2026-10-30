@@ -1,8 +1,11 @@
+using System.Data;
+using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Budget;
 using Curia.Application.Ports;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Curia.Infrastructure;
 
@@ -10,12 +13,29 @@ namespace Curia.Infrastructure;
 /// <see cref="IAgentWriteGate"/> as the in-memory queue followed by a Postgres advisory lock (R7.27; errata G48): one agent's writes are decided and
 /// recorded one at a time across every Forum process that shares the database.
 ///
-/// <para><b>Task 0 seam.</b> This gate admits every entry at once and takes no lock. It exists so that the port, the lock key and the registration are
-/// declared and the probes fail by assertion; Task 2 gives it the queue and the lock.</para>
+/// <para><b>Two legs, one deadline.</b> A request first takes its turn in <see cref="AgentWriteQueue"/>, which holds no connection while it waits
+/// (BRB15). The holder of the turn, and only it, opens a connection on the agent pool and takes <c>pg_try_advisory_xact_lock</c> on
+/// <see cref="AgentWriteLockKey"/>, retrying every <see cref="RetryPeriod"/> on the same connection and transaction until the wait set at arrival runs
+/// out. Running out in the queue or in the retries is <c>agent-in-flight</c> (another write of this agent holds the lock, here or in another
+/// process); failing or running out in opening the connection, a pool timeout or a driver error is <c>gate-unavailable</c> (the store, not the agent).
+/// A request is therefore answered within the wait and one round trip whatever else happens (BRB11, BRB14).</para>
+///
+/// <para><b>Transaction-scoped</b>, as <see cref="PostgresFlagRaiserGate"/>'s lock is: the lock is released when the hold's transaction ends, and a
+/// process that dies holding it releases it with its session. The hold ends the transaction first and the in-process turn second, so the next waiter
+/// in this process never tries a lock that is still held by the connection it is replacing.</para>
+///
+/// <para><b>A pool of its own.</b> The hold keeps its connection for the whole write while the write's reads and append draw on the Forum's pool, and a
+/// revision then takes the revision gate on the gate pool; the order of acquisition is agent pool, gate pool, Forum pool, never the reverse, so no cycle
+/// can form (BRB35).</para>
 /// </summary>
+/// <remarks>The <c>schema</c> parameter exists for per-test isolation; see <see cref="PostgresEventStore"/>'s remarks. Production uses the default.</remarks>
 public sealed class PostgresAgentWriteGate : IAgentWriteGate
 {
+    /// <summary>How long a failed try waits before the next one. A starting value: the round trip measured 0.05 ms at the median, so the period dominates a hand-off.</summary>
+    internal static readonly TimeSpan RetryPeriod = TimeSpan.FromMilliseconds(20);
+
     private readonly NpgsqlDataSource _dataSource;
+    private readonly TimeProvider _clock;
     private readonly string _schema;
     private readonly AgentWriteQueue _queue;
 
@@ -26,6 +46,7 @@ public sealed class PostgresAgentWriteGate : IAgentWriteGate
         ArgumentException.ThrowIfNullOrWhiteSpace(schema);
 
         _dataSource = dataSource;
+        _clock = clock;
         _schema = schema;
         _queue = new AgentWriteQueue(clock, wait, waiters);
     }
@@ -46,6 +67,131 @@ public sealed class PostgresAgentWriteGate : IAgentWriteGate
     /// <summary>The data source the gate takes its lock connection from.</summary>
     internal NpgsqlDataSource DataSource => _dataSource;
 
-    public Task<Result<IAsyncDisposable>> EnterAsync(AgentId agent, CancellationToken cancellationToken) =>
-        _queue.EnterAsync(agent, cancellationToken);
+    [SuppressMessage(
+        "Reliability",
+        "CA2007:Consider calling ConfigureAwait on the awaited task",
+        Justification = "Every awaited call carries ConfigureAwait(false); what the analyzer flags is the `await using` disposal of the command, as in PostgresEventStore.")]
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "On success the turn, connection and transaction are owned by the returned Hold, which disposes all three; on every other path they are disposed here.")]
+    public async Task<Result<IAsyncDisposable>> EnterAsync(AgentId agent, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+
+        var taken = await _queue.TakeTurnAsync(agent, cancellationToken).ConfigureAwait(false);
+        if (!taken.TryGetValue(out var turn, out var refusal)) return Result<IAsyncDisposable>.Fail(refusal!);
+
+        NpgsqlConnection? connection = null;
+        NpgsqlTransaction? transaction = null;
+        var opening = true;
+        try
+        {
+            using var deadline = new CancellationTokenSource(turn!.Remaining, _clock);
+            using var bounded = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
+
+            connection = await _dataSource.OpenConnectionAsync(bounded.Token).ConfigureAwait(false);
+            transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, bounded.Token).ConfigureAwait(false);
+            opening = false;
+
+            var key = AgentWriteLockKey(_schema, agent);
+            while (true)
+            {
+                if (await TryLockAsync(connection, transaction, key, bounded.Token).ConfigureAwait(false))
+                {
+                    var hold = new Hold(connection, transaction, turn);
+                    connection = null;
+                    transaction = null;
+                    turn = null;
+                    return Result<IAsyncDisposable>.Ok(hold);
+                }
+
+                var left = turn.Remaining;
+                if (left <= TimeSpan.Zero) return await RefuseAsync(connection, transaction, turn, BudgetErrors.AgentInFlight()).ConfigureAwait(false);
+
+                await Task.Delay(left < RetryPeriod ? left : RetryPeriod, _clock, bounded.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The deadline fired: in opening the connection that is the store, in the retries it is the agent's other write still holding the lock.
+            return await RefuseAsync(connection, transaction, turn, opening ? BudgetErrors.GateUnavailable() : BudgetErrors.AgentInFlight()).ConfigureAwait(false);
+        }
+        catch (NpgsqlException)
+        {
+            // NpgsqlException covers PostgresException and a pool timeout. The message is not carried: a driver message can quote what it read.
+            return await RefuseAsync(connection, transaction, turn, BudgetErrors.GateUnavailable()).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return await RefuseAsync(connection, transaction, turn, BudgetErrors.GateUnavailable()).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The caller's cancellation and anything unforeseen propagate, with what was opened and the turn given back.
+            await ReleaseAsync(connection, transaction, turn).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    [SuppressMessage("Reliability", "CA2007:Consider calling ConfigureAwait on the awaited task", Justification = "The analyzer flags the `await using` disposal of the command, as in PostgresEventStore.")]
+    private static async Task<bool> TryLockAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string key, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand("SELECT pg_try_advisory_xact_lock(hashtextextended(@lockkey, 0));", connection, transaction);
+        command.Parameters.Add(new NpgsqlParameter("lockkey", NpgsqlDbType.Text) { Value = key });
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true;
+    }
+
+    private static async Task<Result<IAsyncDisposable>> RefuseAsync(
+        NpgsqlConnection? connection, NpgsqlTransaction? transaction, AgentWriteTurn? turn, Error error)
+    {
+        await ReleaseAsync(connection, transaction, turn).ConfigureAwait(false);
+        return Result<IAsyncDisposable>.Fail(error);
+    }
+
+    /// <summary>
+    /// Ends the transaction (which rolls back one still open and so releases the lock), returns the connection, then gives the turn back. Takes no
+    /// cancellation token: a release must happen whatever the request's state. A broken session has already lost its transaction-scoped lock on the
+    /// server, so the driver's and the timeout's exceptions are the one failure caught, and the turn is given back whatever happens.
+    /// </summary>
+    private static async ValueTask ReleaseAsync(NpgsqlConnection? connection, NpgsqlTransaction? transaction, AgentWriteTurn? turn)
+    {
+        try
+        {
+            try
+            {
+                if (transaction is not null) await transaction.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                if (connection is not null) await connection.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (NpgsqlException)
+        {
+            // A broken session: its transaction-scoped lock was released when it broke.
+        }
+        catch (TimeoutException)
+        {
+            // As above.
+        }
+        finally
+        {
+            if (turn is not null) await turn.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>A held lock: the connection and the transaction that hold it and the turn that precedes it, released together once.</summary>
+    private sealed class Hold(NpgsqlConnection connection, NpgsqlTransaction transaction, AgentWriteTurn turn) : IAsyncDisposable
+    {
+        private int _released;
+
+        /// <summary>Idempotent. A failure of the session does not leave the caller's <c>await using</c>: the hold is released after the act has committed through other connections.</summary>
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _released, 1) != 0) return;
+
+            await ReleaseAsync(connection, transaction, turn).ConfigureAwait(false);
+        }
+    }
 }

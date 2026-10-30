@@ -70,7 +70,7 @@ its arguments are still cited.
 ## Running it
 
 ```bash
-export CURIA_EVENTS_POSTGRES="Host=localhost;Port=5432;Username=$USER;Database=curia"
+export CURIA_EVENTS_POSTGRES="Host=localhost;Port=5432;Username=$USER;Database=curia;Maximum Pool Size=80"
 export CURIA_ISSUER_SIGNING_KEY_PEM="$(cat issuer-key.pem)"
 
 dotnet run --project src/Curia.Api
@@ -83,6 +83,12 @@ different system. Apply `db/*.sql` in order first; `db/0003` creates the `vector
 the server needs [pgvector](https://github.com/pgvector/pgvector) installed and the migration
 run by a superuser. A Forum whose database has no pgvector refuses to start rather than serving
 lexical-only search under a hybrid name.
+
+`Maximum Pool Size` is the total number of connections one Forum process may hold, carved into three pools
+(R7.27): the agent write gate's and the raiser gate's a quarter each, the Forum's the rest, so a size below 4 is
+refused at start-up. Npgsql's default is 100. Keep the sum of this size over every Forum process, and the
+operator tools, that share a database at or below that database's `max_connections` less its
+`superuser_reserved_connections` (97 on a default Postgres).
 
 The issuer key is an EC P-256 private key in PEM:
 

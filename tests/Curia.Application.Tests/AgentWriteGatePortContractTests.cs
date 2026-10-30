@@ -194,18 +194,21 @@ public abstract class AgentWriteGatePortContractTests
         var gate = CreateGate(Wait, Waiters);
         var x = Agent("queue");
 
+        // Waiters still in line at the end are cancelled before the holder is released, so none is granted a turn nobody disposes (a real database would keep its lock).
+        using var drain = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         var holder = Require(await gate.EnterAsync(x, Ct));
-        var first = gate.EnterAsync(x, Ct);
+        var first = gate.EnterAsync(x, drain.Token);
         await AdvanceAsync(Wait / 2);
         var rest = new List<Task<Result<IAsyncDisposable>>>();
-        for (var i = 1; i < Waiters; i++) rest.Add(gate.EnterAsync(x, Ct));
+        for (var i = 1; i < Waiters; i++) rest.Add(gate.EnterAsync(x, drain.Token));
 
         var overflow = await OutcomeOfAsync(gate.EnterAsync(x, Ct), TimeSpan.FromSeconds(1));
         await AdvanceAsync((Wait / 2) + Slack);
         var firstOutcome = await OutcomeOfAsync(first, TimeSpan.FromSeconds(5));
-        var replacement = gate.EnterAsync(x, Ct);
+        var replacement = gate.EnterAsync(x, drain.Token);
         var replacementOutcome = await OutcomeOfAsync(replacement, TimeSpan.FromMilliseconds(300));
 
+        await drain.CancelAsync();
         await holder.DisposeAsync();
         Said(
             $"waiter {Waiters + 1} refused {PublishedBudgetGate.InFlightType()} at once; the first waiter timed out {PublishedBudgetGate.InFlightType()}; a new waiter pending",
@@ -345,15 +348,16 @@ public abstract class AgentWriteGatePortContractTests
         var gate = CreateGate(Wait * 10, Waiters);
         var held = new List<IAsyncDisposable>();
         var waiting = new List<Task<Result<IAsyncDisposable>>>();
+        using var drain = CancellationTokenSource.CreateLinkedTokenSource(Ct);
 
         var x = Agent("full");
         held.Add(Require(await gate.EnterAsync(x, Ct)));
-        for (var i = 0; i < Waiters; i++) waiting.Add(gate.EnterAsync(x, Ct));
+        for (var i = 0; i < Waiters; i++) waiting.Add(gate.EnterAsync(x, drain.Token));
         for (var a = 0; a < OtherAgents; a++)
         {
             var other = Agent("crowd");
             held.Add(Require(await gate.EnterAsync(other, Ct)));
-            for (var i = 0; i < Waiters; i++) waiting.Add(gate.EnterAsync(other, Ct));
+            for (var i = 0; i < Waiters; i++) waiting.Add(gate.EnterAsync(other, drain.Token));
         }
 
         var z = Agent("newcomer");
@@ -364,6 +368,10 @@ public abstract class AgentWriteGatePortContractTests
 
         await held[^1].DisposeAsync();
         var zServed = await OutcomeOfAsync(zWaits, TimeSpan.FromSeconds(5));
+
+        // Release everything this fact took: cancel the lines first so no waiter is handed a turn nobody disposes.
+        await drain.CancelAsync();
+        foreach (var hold in held) await hold.DisposeAsync();
 
         Said(
             $"the newcomer's second entry pending, then entered; X's {Waiters + 1}th refused {PublishedBudgetGate.InFlightType()}",
