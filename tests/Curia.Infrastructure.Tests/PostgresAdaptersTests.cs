@@ -30,11 +30,11 @@ public sealed class PostgresAdaptersTests
         Assert.Contains("R7.22", refused.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>The positive control: the smallest pool that splits constructs, so the refusal above is the pool's size and not the connection string.</summary>
+    /// <summary>The positive control: the smallest pool that carves into three (R7.27: the agent write gate's, the raiser gate's and the Forum's) constructs, so the refusal above is the pool's size and not the connection string.</summary>
     [Fact]
-    public async Task R7_22_APoolOfTwoIsAccepted()
+    public async Task R7_27_APoolOfFourIsAccepted()
     {
-        var adapters = new PostgresAdapters(Unreached + ";Maximum Pool Size=2", Clock(), new PermissiveLifecycleAppendGate());
+        var adapters = new PostgresAdapters(Unreached + ";Maximum Pool Size=4", Clock(), new PermissiveLifecycleAppendGate());
         await adapters.DisposeAsync();
     }
 }

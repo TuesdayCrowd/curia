@@ -27,8 +27,10 @@ public sealed class PostgresAdapters : IAsyncDisposable
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly NpgsqlDataSource _gateDataSource;
+    private readonly NpgsqlDataSource _agentDataSource;
     private readonly TimeProvider _clock;
     private readonly ILifecycleAppendGate _lifecycleGate;
+    private readonly PostgresAgentWriteGate _agentWriteGate;
 
     public PostgresAdapters(string connectionString, TimeProvider clock, ILifecycleAppendGate lifecycleGate)
     {
@@ -36,23 +38,26 @@ public sealed class PostgresAdapters : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(lifecycleGate);
 
-        // R7.22 (errata G18, review of 980fb0e): the raiser gate's pool, a quarter of the Forum's; see
-        // FlagRaiserGate. Refused before either data source is built, so nothing is left to dispose.
+        // R7.27 (errata G48, D91): the configured Maximum Pool Size is the total one Forum process holds, carved into three pools: the agent write
+        // gate's (a quarter), the raiser and revision gates' (a quarter, as R7.22 built it) and the Forum's (the rest). Each is at least 1 and the Forum's at
+        // least 2, so a size below 4 is refused here, before any data source is built and so with nothing to dispose. The sum over every Forum process and
+        // operator tool sharing a database must stay within its max_connections less the reserved ones (README).
         var main = new NpgsqlConnectionStringBuilder(connectionString);
-        if (main.MaxPoolSize < 2)
+        if (main.MaxPoolSize < 4)
             throw new InvalidOperationException(
-                "The raiser gate needs a connection pool of its own smaller than the Forum's (R7.22): Maximum Pool Size must be at least 2.");
+                "The agent write gate and the raiser gate each need a connection pool of their own, carved from the Forum's (R7.22, R7.27): Maximum Pool Size must be at least 4.");
 
-        var gate = new NpgsqlConnectionStringBuilder(connectionString)
-        {
-            MaxPoolSize = Math.Max(1, main.MaxPoolSize / 4),
-            MinPoolSize = 0,
-        };
+        var quarter = main.MaxPoolSize / 4;
+        var forum = new NpgsqlConnectionStringBuilder(connectionString) { MaxPoolSize = main.MaxPoolSize - (2 * quarter) };
+        var gate = new NpgsqlConnectionStringBuilder(connectionString) { MaxPoolSize = quarter, MinPoolSize = 0 };
+        var agent = new NpgsqlConnectionStringBuilder(connectionString) { MaxPoolSize = quarter, MinPoolSize = 0 };
 
-        _dataSource = NpgsqlDataSource.Create(connectionString);
+        _dataSource = NpgsqlDataSource.Create(forum.ConnectionString);
         _gateDataSource = NpgsqlDataSource.Create(gate.ConnectionString);
+        _agentDataSource = NpgsqlDataSource.Create(agent.ConnectionString);
         _clock = clock;
         _lifecycleGate = lifecycleGate;
+        _agentWriteGate = new PostgresAgentWriteGate(_agentDataSource, clock, Curia.Application.Budget.AgentWriteGateBounds.Wait, Curia.Application.Budget.AgentWriteGateBounds.Waiters);
     }
 
     /// <summary>The append-only event log (R11.6), which is the system of record.</summary>
@@ -112,8 +117,16 @@ public sealed class PostgresAdapters : IAsyncDisposable
     /// </summary>
     public IRevisionGate RevisionGate => new PostgresRevisionGate(_gateDataSource);
 
+    /// <summary>
+    /// R7.27 (errata G48): one agent's posts and acceptances counted and recorded one at a time (one gate, and so one queue, for this adapter), by the in-memory queue followed by a try-only advisory lock,
+    /// on a connection pool of its own. The hold keeps its connection for the whole write, while the write draws on the Forum's pool and a revision takes
+    /// the revision gate on the gate pool; the order of acquisition is agent, gate, Forum.
+    /// </summary>
+    public IAgentWriteGate AgentWriteGate => _agentWriteGate;
+
     public async ValueTask DisposeAsync()
     {
+        await _agentDataSource.DisposeAsync().ConfigureAwait(false);
         await _gateDataSource.DisposeAsync().ConfigureAwait(false);
         await _dataSource.DisposeAsync().ConfigureAwait(false);
         GC.SuppressFinalize(this);

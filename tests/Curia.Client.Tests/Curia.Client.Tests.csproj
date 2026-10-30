@@ -39,6 +39,8 @@
     <Compile Include="../Shared/PublishedWithheldWords.cs" Link="Shared/PublishedWithheldWords.cs" />
     <Compile Include="../Shared/PublishedForkWords.cs" Link="Shared/PublishedForkWords.cs" />
     <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
+    <!-- Errata G48 (R7.27, R11.64): the gate's numbers, types and words, read from the errata. -->
+    <Compile Include="../Shared/PublishedBudgetGate.cs" Link="Shared/PublishedBudgetGate.cs" />
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
     <Compile Include="../Shared/PublishedSmallWords.cs" Link="Shared/PublishedSmallWords.cs" />
     <!-- GF9: the refusal documents a guarded Forum serves a lifecycle route; StubLog's guarded mode serves them, and Curia.Api.Tests holds them to the real Forum. -->

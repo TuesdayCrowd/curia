@@ -141,7 +141,7 @@ public sealed class FloorKindsTests : IDisposable
         Assert.True(outcome == "error", $"Expected: a malformed search page Actual: {outcome}");
     }
 
-    /// <summary>CHN51. <c>curia-mcp</c> is the version G47's index row names.</summary>
+    /// <summary>CHN51, which is BRB47 (errata G48): <c>curia-mcp</c> is the version R11.64's index row names.</summary>
     [Fact]
     public void R11_63_CHN51_TheVersionIsTheOneTheErrataNames()
     {

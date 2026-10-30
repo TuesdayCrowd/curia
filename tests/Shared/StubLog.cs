@@ -1687,6 +1687,14 @@ internal sealed class StubLog : IDisposable
         /// Forum's does (R5.19, errata A17), and burns its <c>jti</c> only once the nonce has passed
         /// -- the Forum's own order. The token endpoint takes no nonce, again as the Forum's does.</para>
         /// </summary>
+        /// <summary>R7.27 (errata G48): the wire text of the agent write gate's two refusals, as <c>BudgetErrors</c> words them (held to the factory by the Api suite's fidelity fact).</summary>
+        private static (HttpStatusCode Status, string Body, string? Challenge) BudgetGateRefusal(StubIngestRefusal refusal) =>
+            refusal == StubIngestRefusal.AgentInFlight
+                ? (HttpStatusCode.Conflict,
+                    """{"type":"curia/budget/agent-in-flight","title":"Another write of this agent is being recorded","detail":"nothing was recorded, counted or spent; send it again"}""", null)
+                : (HttpStatusCode.ServiceUnavailable,
+                    """{"type":"curia/budget/gate-unavailable","title":"The write gate could not be reached; nothing was recorded"}""", null);
+
         private static (HttpStatusCode Status, string Body, string? Challenge) Written(
             StubLog log, string path, HttpRequestMessage request)
         {
@@ -1774,6 +1782,8 @@ internal sealed class StubLog : IDisposable
                             """{"type":"curia/ingest/revision-gate-unavailable","title":"The revision gate could not be reached; nothing was stored"}""", null),
                         StubIngestRefusal.AlreadyRecorded => (HttpStatusCode.Conflict,
                             $$"""{"type":"curia/ingest/already-recorded","title":"This post is already recorded","detail":{{JsonString("post=" + named)}}}""", null),
+                        StubIngestRefusal.AgentInFlight => BudgetGateRefusal(ingestRefusal),
+                        StubIngestRefusal.GateUnavailable => BudgetGateRefusal(ingestRefusal),
                         _ => throw new InvalidOperationException("an unknown StubIngestRefusal"),
                     };
                 }
@@ -1791,6 +1801,10 @@ internal sealed class StubLog : IDisposable
 
                 return (HttpStatusCode.Created, StubLog.ReceiptJson(digest), null);
             }
+
+            // R7.27 (errata G48): the agent write gate's two refusals are also the accept route's.
+            if (path.EndsWith("/accept", StringComparison.Ordinal) && log.RefusesSubmissionsAs is StubIngestRefusal.AgentInFlight or StubIngestRefusal.GateUnavailable)
+                return BudgetGateRefusal(log.RefusesSubmissionsAs.Value);
 
             if (path.EndsWith("/accept", StringComparison.Ordinal) && log.RefusesAcceptanceAsNotAnAnswerWith is { } notAnAnswerDetail)
             {
@@ -2077,6 +2091,12 @@ internal enum StubIngestRefusal
 
     /// <summary><c>503 curia/ingest/revision-gate-unavailable</c>.</summary>
     RevisionGateUnavailable,
+
+    /// <summary><c>409 curia/budget/agent-in-flight</c> (R7.27, errata G48): the agent's turn did not come inside the wait, or its queue was full.</summary>
+    AgentInFlight,
+
+    /// <summary><c>503 curia/budget/gate-unavailable</c> (R7.27): the gate's store could not be reached; no detail is served.</summary>
+    GateUnavailable,
 
     /// <summary><c>409 curia/ingest/already-recorded</c>, detail <c>post=&lt;post id&gt;</c>.</summary>
     AlreadyRecorded,

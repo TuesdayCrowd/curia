@@ -65,6 +65,9 @@
     <Compile Include="../Shared/PublishedCliRules.cs" Link="Shared/PublishedCliRules.cs" />
     <Compile Include="../Shared/PublishedReadersWords.cs" Link="Shared/PublishedReadersWords.cs" />
     <Compile Include="../Shared/PublishedChainWords.cs" Link="Shared/PublishedChainWords.cs" />
+    <!-- Errata G48 (R7.27): the gate's numbers and types read from the errata, and Table 11's posting limits read from the white paper. -->
+    <Compile Include="../Shared/PublishedBudgetGate.cs" Link="Shared/PublishedBudgetGate.cs" />
+    <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable11.cs" Link="Shared/PublishedTable11.cs" />
     <Compile Include="../Shared/McpProtocolSession.cs" Link="Shared/McpProtocolSession.cs" />
     <!-- GF9: the refusal documents a guarded Forum serves a lifecycle route; StubLog's guarded mode serves them, and Curia.Api.Tests holds them to the real Forum. -->
     <Compile Include="../Shared/LifecycleRefusals.cs" Link="Shared/LifecycleRefusals.cs" />

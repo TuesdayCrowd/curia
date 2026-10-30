@@ -256,12 +256,16 @@ internal static class IlCallSites
     }
 
     /// <summary>The text inside a generated name's leading angle brackets, or null for a name the source wrote.</summary>
-    private static string? Bracketed(string name)
+    internal static string? Bracketed(string name)
     {
         if (!name.StartsWith('<'))
             return null;
-        var close = name.IndexOf('>', StringComparison.Ordinal);
-        return close > 0 ? name[1..close] : null;
+
+        // An async lambda's state machine is <<Method>b__0>d: the source method is inside the innermost leading brackets.
+        var open = 0;
+        while (open < name.Length && name[open] == '<') open++;
+        var close = name.IndexOf('>', open);
+        return close > open ? name[open..close] : null;
     }
 
     /// <summary>The parent as a type reference: itself, or a generic instantiation's definition.</summary>

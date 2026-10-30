@@ -517,7 +517,7 @@ public sealed class RevisionOnceEndpointTests : IClassFixture<RevisionOnceForumF
 
     // ---------------------------------------------------------------- RVO13
 
-    /// <summary>RVO13, control. Other work is not gated: two concurrent comments by one author on a question, two concurrent answers by one T1 author, and two concurrent revisions by one author of two posts are all accepted. Green now; red under FRVO5 and FRVO18.</summary>
+    /// <summary>RVO13, control. Other work is not gated: two concurrent comments by one author on a question, two concurrent answers by one T1 author, and two concurrent revisions by one author of two posts are all accepted. Green now; red under FRVO5 and FRVO18. Since errata G48 (ruling 22) this class runs on the host as it was before the agent write gate (<see cref="PassThroughAgentWriteGate"/>): its object is that no revision gate holds other work, and the agent gate serializes one agent's work in front of it; BRB63 is the same workload through the real gate.</summary>
     [Fact]
     public async Task R8_77_RVO13_OtherConcurrentWorkIsNotGated()
     {
@@ -671,7 +671,7 @@ public sealed class RevisionOnceEndpointTests : IClassFixture<RevisionOnceForumF
     // ---------------------------------------------------------------- RVO53
 
     /// <summary>
-    /// RVO53. Other work is not held up by a request parked in its own gate, at a named seam and not by timing. Twice, one request is parked at the store's
+    /// RVO53. Other work is not held up by a request parked in its own gate (on the pass-through host, errata G48 ruling 22: the agent gate would hold the same author's other work behind the parked hold, which is its rule), at a named seam and not by timing. Twice, one request is parked at the store's
     /// append (first a comment, then a revision of a post), and while it is parked the same author's comment on a question, a T1 author's answer to it and a
     /// revision of a different post are each answered <c>201</c> within 5 s; then the parked request is released and answered <c>201</c>. RVO13 releases its
     /// requests together and can pass a gate on every kind when they do not overlap; this one holds a request in its gate. Green now; red under FRVO18's first form.

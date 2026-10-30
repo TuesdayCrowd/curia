@@ -37,5 +37,8 @@
   <ItemGroup>
     <!-- R4.38 (add.): the test composition's gate, linked so each test assembly holds its own internal copy. -->
     <Compile Include="../Shared/PermissiveLifecycleAppendGate.cs" Link="Shared/PermissiveLifecycleAppendGate.cs" />
+    <!-- Errata G48 (R7.27): the gate's numbers and types, read from the errata; PublishedBudgetGate reads its paragraphs through PublishedAcceptBudget. -->
+    <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
+    <Compile Include="../Shared/PublishedBudgetGate.cs" Link="Shared/PublishedBudgetGate.cs" />
   </ItemGroup>
 </Project>
