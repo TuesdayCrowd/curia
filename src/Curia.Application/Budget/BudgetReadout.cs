@@ -14,8 +14,8 @@ namespace Curia.Application.Budget;
 /// timezone nobody has specified. An entry is counted while it is less than <see cref="Window"/> old, so the slot an entry held is free at the instant it is
 /// exactly that old. Counted from the log rather than a counter, so it survives a restart and cannot drift from what happened.</para>
 ///
-/// <para><b>Pure.</b> No clock, no state: <c>now</c> is a parameter. <see cref="Read"/>, <see cref="After"/> and <see cref="NextSlotAt"/> are declared and
-/// inert in the seam (empty, a zero entry, null); the standing is built on top of this counting, never beside it.</para>
+/// <para><b>Pure.</b> No clock, no state: <c>now</c> is a parameter. <see cref="Read"/>, <see cref="After"/> and <see cref="NextSlotAt"/> are built on
+/// top of this counting, never beside it.</para>
 /// </summary>
 public static class BudgetReadout
 {
@@ -62,22 +62,54 @@ public static class BudgetReadout
         CountIn(FlagInstants(flags, agentId), now);
 
     /// <summary>
-    /// One budget's entry from the instants its events hold: counted by <see cref="CountIn"/>, limited by <paramref name="limit"/> (<see cref="int.MaxValue"/>
-    /// is the policy's "negotiated", stated as null). Inert in the seam: an entry with nothing stated.
+    /// One budget's entry from the instants its events hold (R7.28): the count is <see cref="CountIn"/>'s, <c>remaining</c> the larger of 0 and
+    /// <paramref name="limit"/> less used, and <c>next_slot_at</c> <see cref="NextSlotAt"/>'s over the entries counted. <see cref="int.MaxValue"/> is the
+    /// policy's "negotiated" and is stated as a null limit, remaining and next slot with <c>used</c> the count, never the sentinel.
     /// </summary>
-    public static BudgetEntry Entry(string name, int limit, IReadOnlyList<DateTimeOffset> instants, DateTimeOffset now) =>
-        new(name, null, 0, null, null);
+    public static BudgetEntry Entry(string name, int limit, IReadOnlyList<DateTimeOffset> instants, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(instants);
 
-    /// <summary>The standing of every budget at <paramref name="now"/>. Inert in the seam: empty.</summary>
+        var since = now - Window;
+        var counted = instants.Where(at => at > since).ToArray();
+        if (limit == int.MaxValue) return new BudgetEntry(name, null, counted.Length, null, null);
+
+        return new BudgetEntry(name, limit, counted.Length, Math.Max(0, limit - counted.Length), NextSlotAt(counted, limit));
+    }
+
+    /// <summary>The standing of every budget at <paramref name="now"/>, in R9.50's order, each over the one counting function.</summary>
     public static IReadOnlyList<BudgetEntry> Read(
-        IReadOnlyList<AppendedEvent> log, ImmutableArray<RaisedFlag> flags, AgentId agentId, int postLimit, int acceptLimit, int flagLimit, DateTimeOffset now) => [];
+        IReadOnlyList<AppendedEvent> log, ImmutableArray<RaisedFlag> flags, AgentId agentId, int postLimit, int acceptLimit, int flagLimit, DateTimeOffset now) =>
+    [
+        Entry(BudgetKinds.Posting, postLimit, [.. PostInstants(log, agentId)], now),
+        Entry(BudgetKinds.Acceptance, acceptLimit, [.. AcceptInstants(log, agentId)], now),
+        Entry(BudgetKinds.Flag, flagLimit, [.. FlagInstants(flags, agentId)], now),
+    ];
 
     /// <summary>
-    /// One entry from the instants counted before an act and the act just made. Inert in the seam: an entry with nothing stated.
+    /// One entry from the instants counted before an act and the act just made (R7.29): the same function as <see cref="Entry"/> over the union, so a
+    /// receipt and a readout over the same state agree by construction.
     /// </summary>
-    public static BudgetEntry After(string name, int limit, IReadOnlyList<DateTimeOffset> counted, DateTimeOffset act, DateTimeOffset now) =>
-        new(name, null, 0, null, null);
+    public static BudgetEntry After(string name, int limit, IReadOnlyList<DateTimeOffset> counted, DateTimeOffset act, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(counted);
 
-    /// <summary>The instant a slot next frees for the counted instants under <paramref name="limit"/> (R7.28's k-th oldest rule). Inert in the seam: null.</summary>
-    public static DateTimeOffset? NextSlotAt(IReadOnlyList<DateTimeOffset> counted, int limit) => null;
+        return Entry(name, limit, [.. counted, act], now);
+    }
+
+    /// <summary>
+    /// The instant a slot next frees (R7.28): the k-th oldest of <paramref name="counted"/> plus <see cref="Window"/>, with k the larger of 1 and
+    /// <c>used - limit + 1</c>; null where nothing is counted or the limit is negotiated. The instants are taken as given (the stored column's), so the
+    /// answer is that instant plus the window and no rounding of its own.
+    /// </summary>
+    public static DateTimeOffset? NextSlotAt(IReadOnlyList<DateTimeOffset> counted, int limit)
+    {
+        ArgumentNullException.ThrowIfNull(counted);
+
+        if (counted.Count == 0 || limit == int.MaxValue) return null;
+
+        var ordered = counted.Order().ToArray();
+        var k = Math.Min(ordered.Length, Math.Max(1, ordered.Length - limit + 1));
+        return ordered[k - 1] + Window;
+    }
 }
