@@ -107,6 +107,7 @@ internal static class Exemplars
             m.Query.Add(new("marking", "datamark"));
         }),
         Authenticated("GET", "/v1/flags", (_, _) => { }),
+        Authenticated("GET", "/v1/budget", (_, _) => { }),   // R9.50: a route that honours no query name needs no query entry (the pass sends none)
         Authenticated("GET", "/v1/posts/{postId}/flags", (m, c) => m.RouteValues.Add(new("postId", c.OwnQuestionId))),
         Anonymous("POST", "/v1/posts/batch", (m, c) =>
         {

@@ -388,6 +388,22 @@ public sealed record FlagSummaryResponse(
     [property: JsonPropertyName("kind")] string Kind,
     [property: JsonPropertyName("raised_at")] string RaisedAt);
 
+/// <summary>R9.50: one budget's standing; <c>limit</c>, <c>remaining</c> and <c>next_slot_at</c> are written as JSON <c>null</c> where the limit is negotiated or nothing is counted.</summary>
+public sealed record BudgetEntryResponse(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("limit")] int? Limit,
+    [property: JsonPropertyName("used")] int Used,
+    [property: JsonPropertyName("remaining")] int? Remaining,
+    [property: JsonPropertyName("next_slot_at")] string? NextSlotAt);
+
+/// <summary>R9.50: the readout. It names no agent and states no prose of the Forum's own.</summary>
+public sealed record BudgetResponse(
+    [property: JsonPropertyName("tier")] string Tier,
+    [property: JsonPropertyName("credential")] string Credential,
+    [property: JsonPropertyName("as_of")] string AsOf,
+    [property: JsonPropertyName("window_seconds")] int WindowSeconds,
+    [property: JsonPropertyName("budgets")] ImmutableArray<BudgetEntryResponse> Budgets);
+
 /// <summary>The flags one <c>flag</c>/<c>list</c> request is entitled to see.</summary>
 public sealed record FlagListResponse(
     [property: JsonPropertyName("flags")] ImmutableArray<FlagSummaryResponse> Flags);
@@ -492,6 +508,7 @@ public static class ForumEndpoints
         // R10.44: a served flag carries post, category and instant -- never the rationale, which is
         // agent-authored and stays on the moderation queue. So these list allegations, not content.
         app.MapGet("/v1/flags", ListRaisedFlagsAsync).Serves(ServedContent.None);
+        app.MapGet("/v1/budget", GetBudgetAsync).Serves(ServedContent.None);
         app.MapGet("/v1/posts/{postId}/flags", ListPostFlagsAsync).Serves(ServedContent.None);
 
         app.MapGet("/v1/jwks", GetJwks).Serves(ServedContent.None);
@@ -1240,6 +1257,59 @@ public static class ForumEndpoints
     }
 
     /// <summary>
+    /// R7.28, R9.50 (errata G49): an agent reads its own budgets. The preamble is the flag listing's (PEP-1, the log, the posture, the policy), asked for
+    /// <c>budget</c>/<c>read</c> and told to read the log itself, so an unreadable log is a <c>503</c> and never a tier the missing log produced. No gate
+    /// of any kind is entered (R7.28): the readout counts the acts that had committed, from one read of the log and, for flags, one read of the private
+    /// store, by <see cref="BudgetReadout.Read"/>, the function the policy's decisions count with. The route reads only the subject's standing and names no
+    /// agent, so "own" (Table 10) is discharged by construction. Nothing is cached and nothing is recorded.
+    /// </summary>
+    private static async Task<IResult> GetBudgetAsync(
+        HttpRequest http,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        IFlagDetailStore details,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var (ok, problem) = await AuthorizeFlagListAsync(
+                http, pdp, events, authn, nonces, clock, cancellationToken, ResourceKind.Budget, ActionKind.Read, unreadableLogIsAFault: true)
+            .ConfigureAwait(false);
+
+        if (problem is not null) return problem;
+
+        // R9.29's order: an unknown name is told before anything is read or counted.
+        if (BudgetQueryParameters.Check(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
+        if (!BudgetKinds.CredentialWord(ok!.Facts.CredentialState).TryGetValue(out var credential, out var credentialError))
+            return Problem(StatusCodes.Status403Forbidden, credentialError!);
+
+        var (flags, detailProblem) = await FlagsAsync(ok.Log, details, cancellationToken).ConfigureAwait(false);
+        if (detailProblem is not null) return detailProblem;
+
+        if (!PrincipalOf(ok.Subject).TryGetValue(out var agent, out var subjectError))
+            return Problem(StatusCodes.Status403Forbidden, subjectError!);
+
+        var now = clock.GetUtcNow();
+        var tier = TierPolicy.Evaluate(ok.Facts, now).Tier;
+        var entries = BudgetReadout.Read(
+            ok.Log, flags, agent!, TierPolicy.PostsPerDay(tier), TierPolicy.AcceptsPerDay(tier), TierPolicy.FlagsPerDay(tier), now);
+
+        http.HttpContext.Response.Headers.CacheControl = "no-store";
+
+        return Results.Ok(new BudgetResponse(
+            tier.ToString(),
+            credential!,
+            Instant(now),
+            (int)BudgetReadout.Window.TotalSeconds,
+            [.. entries.Select(e => new BudgetEntryResponse(e.Name, e.Limit, e.Used, e.Remaining, e.NextSlotAt is { } at ? Instant(at) : null))]));
+    }
+
+    private static string Instant(DateTimeOffset at) => at.ToUniversalTime().ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
     /// R7.18's second set: flags raised against a post the requesting agent authored.
     ///
     /// <para>A caller asking about someone else's post is asking for something only
@@ -1290,7 +1360,8 @@ public static class ForumEndpoints
     private sealed record FlagListContext(
         string Subject,
         IReadOnlyList<AppendedEvent> Log,
-        AuthorizationDecision Decision);
+        AuthorizationDecision Decision,
+        PostureFacts Facts);
 
     /// <summary>
     /// PEP-1 then PEP-2 for both listing routes, up to but not including Table 10's parenthetical —
@@ -1306,7 +1377,10 @@ public static class ForumEndpoints
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
         TimeProvider clock,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ResourceKind resource = ResourceKind.Flag,
+        ActionKind action = ActionKind.List,
+        bool unreadableLogIsAFault = false)
     {
         var principal = await AccessTokenValidator.ValidateRequestAsync(
             new IncomingRequest(
@@ -1323,7 +1397,22 @@ public static class ForumEndpoints
 
         var subject = authenticated!.Claims.Sub;
 
-        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        // R9.50 (errata G49, ruling 19): a route that must never state a count from a log it could not read reads it itself. ReadEventsAsync's empty log
+        // makes the posture Pending and the tier Anonymous, which would tell a real agent a tier denial a missing log produced.
+        IReadOnlyList<AppendedEvent> log;
+        if (unreadableLogIsAFault)
+        {
+            var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!read.TryGetValue(out var all, out var readError))
+                return (null, Problem(StatusCodes.Status503ServiceUnavailable, new Error(LogBoundKeys.LogUnreadableType, "The event log could not be read", readError!.Type)));
+
+            log = all!;
+        }
+        else
+        {
+            log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        }
+
         if (!PrincipalOf(subject).TryGetValue(out var lister, out var subjectError))
             return (null, Problem(StatusCodes.Status403Forbidden, subjectError!));
 
@@ -1336,8 +1425,8 @@ public static class ForumEndpoints
             new AuthorizationRequest(
                 TierPolicy.Evaluate(facts!, clock.GetUtcNow()),
                 facts!.CredentialState,
-                ResourceKind.Flag,
-                ActionKind.List),
+                resource,
+                action),
             cancellationToken).ConfigureAwait(false);
 
         if (!decision.TryGetValue(out var d, out var decisionError))
@@ -1346,7 +1435,7 @@ public static class ForumEndpoints
         if (!d!.IsPermitted)
             return (null, Problem(StatusCodes.Status403Forbidden, Denial(d, d.Reason)));
 
-        return (new FlagListContext(subject, log, d), null);
+        return (new FlagListContext(subject, log, d, facts), null);
     }
 
     /// <summary>
@@ -1359,7 +1448,11 @@ public static class ForumEndpoints
     {
         var rows = await details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
         if (!rows.TryGetValue(out var detailRows, out var error))
-            return ([], Problem(StatusCodes.Status503ServiceUnavailable, error!));
+        {
+            // R9.50: one name for one fault. A store that fails in a way of its own is still this route's 503, under the type the real store uses.
+            var served = string.Equals(error!.Type, "curia/flag/detail-store-unavailable", StringComparison.Ordinal) ? error : new Error("curia/flag/detail-store-unavailable", "The flag detail store could not complete the request", error.Type);
+            return ([], Problem(StatusCodes.Status503ServiceUnavailable, served));
+        }
 
         return (FlagDirectory.Join(log, detailRows!).Flags, null);
     }

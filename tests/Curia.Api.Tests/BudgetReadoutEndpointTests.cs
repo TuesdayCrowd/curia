@@ -350,19 +350,26 @@ public sealed class BudgetReadoutEndpointTests(ForumFixture forum) : IClassFixtu
         Clean(problems);
     }
 
-    /// <summary>SEB18. Anonymous: no <c>Authorization</c> header is <c>401</c> with a DPoP challenge, never a <c>200</c> of anything.</summary>
+    /// <summary>
+    /// SEB18. Anonymous: no <c>Authorization</c> header is <c>401</c> naming the missing authorization, with no budget member, and the same answer
+    /// <c>GET /v1/flags</c> gives (the route's authentication is the nearest read's), never a <c>200</c> of anything. Amended at the build: the plan said
+    /// "with a DPoP challenge", but the Forum answers a <c>WWW-Authenticate: DPoP</c> only for a nonce failure (<c>NonceChallengeOrProblemAsync</c>: "Only
+    /// nonce failures get the challenge") and R9.50 asks for no nonce, so a challenge here would be this route's alone and unspecified.
+    /// </summary>
     [Fact]
-    public async Task R9_50_SEB18_AnonymousIsRefusedWithAChallenge()
+    public async Task R9_50_SEB18_AnonymousIsRefused()
     {
         var owner = await AcceptedAnswerScene.EnrolAsync(forum, "anon-control", Ct);
         var real = await BudgetReadouts.GetAsync(forum, owner);
         Assert.True(real.Status == HttpStatusCode.OK, $"Expected: 200 for the authenticated control Actual: {real.Says}");
 
         var anonymous = await BudgetReadouts.GetAsync(forum, null);
+        var flags = await BudgetReadouts.GetAsync(forum, null, "/v1/flags");
 
         Assert.True(
-            anonymous.Status == HttpStatusCode.Unauthorized && (anonymous.Challenge ?? string.Empty).StartsWith("DPoP", StringComparison.Ordinal),
-            $"Expected: 401 with a DPoP challenge Actual: {anonymous.Says} challenge={anonymous.Challenge}");
+            anonymous.Status == HttpStatusCode.Unauthorized && anonymous.Type == "curia/authn/missing-authorization" && !anonymous.Raw.Contains("\"budgets\"", StringComparison.Ordinal)
+                && (anonymous.Status, anonymous.Type) == (flags.Status, flags.Type),
+            $"Expected: 401 curia/authn/missing-authorization, the same as /v1/flags ({flags.Says}) Actual: {anonymous.Says}");
     }
 
     /// <summary>
