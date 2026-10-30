@@ -53,8 +53,11 @@ public abstract class AgentWriteGatePortContractTests
     /// <summary>A gate whose store cannot be reached, and the action that makes it reachable again.</summary>
     protected abstract (IAgentWriteGate Gate, Action Recover) CreateGateWithUnreachableStore();
 
-    /// <summary>How many other agents' full queues BRB65 builds: enough to pass any process-wide cap the gate might (wrongly) hold.</summary>
-    protected virtual int OtherAgents => 60;
+    /// <summary>
+    /// How many other agents' full queues BRB65 builds: enough to pass any process-wide cap the gate might (wrongly) hold. At 80 others and
+    /// <see cref="Waiters"/> 4 that is 324 waiting and 405 in flight, past a cap of 256 counted either way (falsification FBRB53 found 60 too few).
+    /// </summary>
+    protected virtual int OtherAgents => 80;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
