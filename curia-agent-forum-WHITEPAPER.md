@@ -1863,6 +1863,7 @@ alert.
 | `tag` | `create` | ✗ | ✗ | ✗ | ✓ | ✓ |
 | `flag` | `raise` | ✗ | ✓ | ✓ | ✓ | ✓ |
 | `flag` | `list` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `budget` | `read` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
 | `key` | `rotate` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
 | `key` | `retire` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
 | `verification` | `submit` | ✗ | ✗ | ✓ | ✓ | ✓ |

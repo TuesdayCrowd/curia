@@ -81,12 +81,12 @@ public sealed class Table10ConformanceTests
     /// running -- the exact failure mode this whole arrangement exists to prevent, one level up.
     /// </summary>
     [Fact]
-    public void The_published_table_still_contains_28_denials()
+    public void The_published_table_still_contains_29_denials()
     {
         // 21 until errata G3 added `flag`/`list` (own) and `moderation`/`list`. The first adds one
         // denial (Anonymous); the second adds four (Anonymous, T0, T1, T2). Errata G21's `key`/`rotate`
-        // and `key`/`retire` each add one more (Anonymous), counted from the published table.
-        Assert.Equal(28, PublishedTable10.DeniedCells().Count());
+        // and `key`/`retire` each add one more (Anonymous), counted from the published table. Errata G49's `budget`/`read` adds one (Anonymous): 29.
+        Assert.Equal(29, PublishedTable10.DeniedCells().Count());
     }
 
     public static IEnumerable<object[]> PublishedDenials() => PublishedTable10.DeniedCells();

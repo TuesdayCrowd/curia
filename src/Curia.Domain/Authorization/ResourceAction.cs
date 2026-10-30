@@ -21,6 +21,9 @@ public enum ResourceKind
     Moderation,
     Agent,
     Key,
+
+    /// <summary>Errata G49's row: an agent's own budget standing (R7.28).</summary>
+    Budget,
 }
 
 /// <summary>
@@ -172,6 +175,7 @@ public static class ResourceActionNames
         ResourceKind.Moderation => "moderation",
         ResourceKind.Agent => "agent",
         ResourceKind.Key => "key",
+        ResourceKind.Budget => "budget",
         _ => throw new ArgumentOutOfRangeException(nameof(resource), resource, "Not a Table 10 resource"),
     };
 

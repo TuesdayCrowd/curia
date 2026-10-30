@@ -118,6 +118,11 @@ public static class ResourceActionModel
             // it asks the PDP and discharges the qualifier with the answer, as every "(own)" row is.
             [(ResourceKind.Key, ActionKind.Rotate)] = new(N, Y, Y, Y, Y, GrantQualifier.OwnResourceOnly),
             [(ResourceKind.Key, ActionKind.Retire)] = new(N, Y, Y, Y, Y, GrantQualifier.OwnResourceOnly),
+
+            // `budget` | `read` (own) -- errata G49's row (R7.28). "Own" is the token's subject: the route has no way to name another agent and reads only the
+            // subject's standing, which it discharges as `flag`/`list` does. Anonymous is ✗ because an anonymous principal has no budget. Not `rate-limited`
+            // at T0: a spent budget must be readable, and the policy compares no count for a read.
+            [(ResourceKind.Budget, ActionKind.Read)] = new(N, Y, Y, Y, Y, GrantQualifier.OwnResourceOnly),
         }.ToFrozenDictionary();
 
     /// <summary>Every (resource, action) pair Table 10 models, for tests that must cover all of them.</summary>
