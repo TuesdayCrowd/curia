@@ -104,15 +104,15 @@ internal static partial class PublishedChainWords
             One(spans.Where(t => t == "not stated").ToArray(), "R11.63's not stated"));
     }
 
-    /// <summary>The <c>curia-mcp</c> version G47 names: the number after <c>curia-mcp</c> in R11.63's index row.</summary>
+    /// <summary>The <c>curia-mcp</c> version G48 names (BRB47, which is CHN51 re-pointed): the number after <c>curia-mcp</c> in R11.64's index row.</summary>
     internal static string Version()
     {
         var text = ErrataText();
-        var row = text.IndexOf("| R11.63 |", StringComparison.Ordinal);
-        if (row < 0) throw new InvalidOperationException($"{Errata} has no index row for R11.63");
+        var row = text.IndexOf("| R11.64 |", StringComparison.Ordinal);
+        if (row < 0) throw new InvalidOperationException($"{Errata} has no index row for R11.64");
         var end = text.IndexOf('\n', row);
         var match = VersionAfterName().Match(text[row..end]);
-        if (!match.Success) throw new InvalidOperationException($"{Errata}'s R11.63 index row names no curia-mcp version");
+        if (!match.Success) throw new InvalidOperationException($"{Errata}'s R11.64 index row names no curia-mcp version");
         return match.Groups[1].Value;
     }
 

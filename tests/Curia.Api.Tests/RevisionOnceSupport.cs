@@ -50,13 +50,18 @@ internal static class RevisionProbe
     /// <summary>Text with nothing in common with any other call's, so the near-duplicate check (R8.18) refuses none of them.</summary>
     internal static string Unrelated() => string.Join(' ', Enumerable.Range(0, 4).Select(_ => Guid.NewGuid().ToString("N")));
 
+    internal static Task<Sent> SendAsync(ForumFixture forum, SceneActor actor, byte[] wire, string? token = null, CancellationToken cancellationToken = default) =>
+        SendViaAsync(forum, null, actor, wire, token, cancellationToken);
+
+    /// <summary>As <see cref="SendAsync"/>, to <paramref name="client"/> when one is given (a second host over the same database), else the fixture's.</summary>
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "A request the host threw out of is recorded as 500 with the exception's type: the deployed host answers 500, and an in-process client sees the exception instead.")]
-    internal static async Task<Sent> SendAsync(ForumFixture forum, SceneActor actor, byte[] wire, string? token = null, CancellationToken cancellationToken = default)
+    internal static async Task<Sent> SendViaAsync(ForumFixture forum, HttpClient? client, SceneActor actor, byte[] wire, string? token, CancellationToken cancellationToken)
     {
         try
         {
-            token ??= await actor.Dpop.GetTokenAsync(forum.Client, TokenEndpoint, forum.Now, cancellationToken);
-            using var response = await actor.Dpop.PostAsync(forum.Client, PostsUrl, token, wire, forum.Now, cancellationToken);
+            client ??= forum.Client;
+            token ??= await actor.Dpop.GetTokenAsync(client, TokenEndpoint, forum.Now, cancellationToken);
+            using var response = await actor.Dpop.PostAsync(client, PostsUrl, token, wire, forum.Now, cancellationToken);
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
             return Parse((int)response.StatusCode, body, response.Content.Headers.ContentType?.MediaType);
         }
