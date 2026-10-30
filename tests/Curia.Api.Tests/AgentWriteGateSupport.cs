@@ -120,18 +120,50 @@ internal static class BudgetBursts
     internal static string Tally(IEnumerable<Sent> sent) =>
         string.Join(", ", sent.GroupBy(Kind).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Count()} x {g.Key}"));
 
+    /// <summary>One response and the time from its send to its answer.</summary>
+    internal sealed record TimedSent(Sent Sent, TimeSpan Elapsed);
+
+    /// <summary>The sends released together from one signal, each answer carrying the time its own send took.</summary>
+    internal static async Task<TimedSent[]> TogetherTimedAsync(IEnumerable<Func<Task<Sent>>> sends)
+    {
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var running = sends.Select(send => Task.Run(async () =>
+        {
+            await start.Task;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            var sent = await send();
+            return new TimedSent(sent, timer.Elapsed);
+        })).ToArray();
+        start.SetResult();
+        return await Task.WhenAll(running);
+    }
+
+    /// <summary><see cref="BurstAsync"/> with each answer timed.</summary>
+    internal static async Task<TimedSent[]> BurstTimedAsync(ForumFixture forum, SceneActor actor, byte[][] wires, HttpClient? client = null, CancellationToken ct = default)
+    {
+        var token = await actor.Dpop.GetTokenAsync(client ?? forum.Client, TokenEndpoint, forum.Now, ct);
+        return await TogetherTimedAsync(wires.Select(w => (Func<Task<Sent>>)(() => Probe.SendViaAsync(forum, client, actor, w, token, ct))));
+    }
+
+    /// <summary>The slack allowed between a request's own clock and the gate's when judging whether an agent-in-flight answer came at the published wait.</summary>
+    internal static readonly TimeSpan WaitTolerance = TimeSpan.FromMilliseconds(100);
+
     /// <summary>
-    /// Whether every response is the one a burst may be answered with: stored, or told the budget, or (only for the tail of a burst wider than the holder and the
-    /// queue, R7.27) told agent-in-flight: at most as many of those as requests beyond the holder and the published number waiting.
+    /// Whether every response is the one a burst may be answered with: stored, or told the budget, or told agent-in-flight (R7.27). An agent-in-flight answer
+    /// that came at or after the published wait (less <see cref="WaitTolerance"/>) is the bound itself, caused by time: a slower machine meets it with a queue
+    /// of 16 serialized writes and that is not a fault. One that came earlier was caused by the count, and only the tail of a burst wider than the holder
+    /// and the published queue may have one: at most as many as requests beyond them. BRB67 holds the queue's size without a clock.
     /// </summary>
-    internal static bool OnlyStoredOrBudget(IEnumerable<Sent> sent)
+    internal static bool OnlyStoredOrBudget(IEnumerable<TimedSent> sent)
     {
         var (posting, acceptance) = PublishedBudgetGate.BudgetReasons();
         var all = sent.ToArray();
         var inFlight = $"{PublishedBudgetGate.InFlightStatus()} {PublishedBudgetGate.InFlightType()}";
+        var wait = PublishedBudgetGate.Wait();
         var tail = Math.Max(0, all.Length - (PublishedBudgetGate.Waiters() + 1));
-        return all.Count(s => Kind(s) == inFlight) <= tail
-            && all.All(s => Kind(s) is "201" or "200" || Kind(s) == "403 " + posting || Kind(s) == "403 " + acceptance || Kind(s) == inFlight);
+        var countCaused = all.Count(s => Kind(s.Sent) == inFlight && s.Elapsed < wait - WaitTolerance);
+        return countCaused <= tail
+            && all.All(s => Kind(s.Sent) is "201" or "200" || Kind(s.Sent) == "403 " + posting || Kind(s.Sent) == "403 " + acceptance || Kind(s.Sent) == inFlight);
     }
 
     /// <summary>An accept of <paramref name="postId"/> by the asker, as the route receives it.</summary>

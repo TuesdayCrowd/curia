@@ -199,17 +199,22 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
                 continue;
             }
 
-            var sent = await BudgetBursts.BurstAsync(forum, actor, BudgetBursts.Wires(actor, tier, board, parent.PostId, width, forum.Now), null, Ct);
+            var sent = await BudgetBursts.BurstTimedAsync(forum, actor, BudgetBursts.Wires(actor, tier, board, parent.PostId, width, forum.Now), null, Ct);
             var stored = await BudgetOracle.PostsInWindowAsync(forum, actor.Agent.AgentId);
             if (stored > limit) overshoots++;
             if (stored != limit || !BudgetBursts.OnlyStoredOrBudget(sent))
-                failures.Add($"rep {rep}: {stored} stored of limit {limit} ({BudgetBursts.Tally(sent)})");
+                failures.Add($"rep {rep}: {stored} stored of limit {limit} ({BudgetBursts.Tally(sent.Select(t => t.Sent))})");
         }
 
         return (failures, overshoots);
     }
 
-    /// <summary>BRB18. The burst, posts, over the grid: tier x width, 20 repetitions each, the table holds exactly the limit and every answer is a stored post or the budget.</summary>
+    /// <summary>
+    /// BRB18. The burst, posts, over the grid: tier x width, 20 repetitions each, the table holds exactly the limit and every answer is a stored post, the budget,
+    /// or agent-in-flight. An agent-in-flight answer is accepted when it came at the published wait (less 100 ms): that is R7.27's time bound, and how many
+    /// writes fit inside it depends on the machine. One answered earlier was caused by the count and fails, beyond the width-32 tail's allowance of width - 17;
+    /// BRB67 holds the queue's 17 places without a clock.
+    /// </summary>
     [Theory]
     [InlineData("T0", 4)]
     [InlineData("T0", 16)]
@@ -253,16 +258,20 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
             for (var i = 0; i < 16; i++) threads.Add(await BudgetBursts.StoredThreadAsync(forum, asker.Agent, answerer, board, Ct));
 
             var token = await asker.Dpop.GetTokenAsync(forum.Client, BudgetBursts.TokenEndpoint, forum.Now, Ct);
-            var sent = await Probe.TogetherAsync(threads.Select(t => (Func<Task<Sent>>)(() => BudgetBursts.AcceptAsync(forum, asker, t, token, null, Ct))));
+            var sent = await BudgetBursts.TogetherTimedAsync(threads.Select(t => (Func<Task<Sent>>)(() => BudgetBursts.AcceptAsync(forum, asker, t, token, null, Ct))));
             var recorded = await BudgetOracle.AcceptsInWindowAsync(forum, asker.Agent.AgentId);
             if (recorded != limit || !BudgetBursts.OnlyStoredOrBudget(sent))
-                failures.Add($"rep {rep}: {recorded} recorded of limit {limit} ({BudgetBursts.Tally(sent)})");
+                failures.Add($"rep {rep}: {recorded} recorded of limit {limit} ({BudgetBursts.Tally(sent.Select(t => t.Sent))})");
         }
 
         return (failures, repetitions);
     }
 
-    /// <summary>BRB19. The burst, acceptances, over the grid: tier x 16 threads, 20 repetitions each, the table holds exactly the limit and every answer is a recorded acceptance or the budget.</summary>
+    /// <summary>
+    /// BRB19. The burst, acceptances, over the grid: tier x 16 threads, 20 repetitions each, the table holds exactly the limit and every answer is a recorded
+    /// acceptance, the budget, or agent-in-flight answered at the published wait (less 100 ms). That one is R7.27's time bound, which a slower runner reaches
+    /// with 16 serialized accepts; an earlier one was caused by the count and fails. BRB67 holds the queue's size without a clock.
+    /// </summary>
     [Theory]
     [InlineData("T0")]
     [InlineData("T1")]
