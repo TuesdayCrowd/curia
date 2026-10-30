@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Curia.Api.Adapters;
+using Curia.Application.Budget;
 using Curia.Application.Credentials;
 using Curia.Application.Ingest;
 using Curia.Application.Moderation;
@@ -729,6 +730,7 @@ public static class ForumEndpoints
         IPolicyDecisionPoint pdp,
         IEventReader events,
         IRevisionGate revisionGate,
+        IAgentWriteGate agentGate,
         EmbeddingIndexer indexer,
         DuplicateCheck dedupe,
         AccessTokenValidationContext authn,
@@ -759,9 +761,13 @@ public static class ForumEndpoints
         // The principal is now the token's subject, not anything the envelope claims.
         var subject = authenticated!.Claims.Sub;
 
-        using var buffer = new MemoryStream();
-        await http.Body.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
-        var wire = buffer.ToArray();
+        // The copy of the body is released before the gate: a request that waits for its turn holds the bytes and the admitted tree, not the buffer too.
+        byte[] wire;
+        using (var buffer = new MemoryStream())
+        {
+            await http.Body.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+            wire = buffer.ToArray();
+        }
 
         // ADMIT.
         var admitted = pipeline.Admit(wire);
@@ -776,6 +782,15 @@ public static class ForumEndpoints
         // own content a 400, and only a credential or key that fails a 401.
         if (!PrincipalOf(subject).TryGetValue(out var author, out var subjectError))
             return Problem(StatusCodes.Status403Forbidden, subjectError!);
+
+        // R7.27 (errata G48): one agent's posts are counted and recorded one at a time. The gate is entered after authentication, ADMIT and the
+        // principal and before the first read of the log, so every attempt below reads its log under the hold and counts the posts of the requests
+        // that came before this one; it is released on every path out, after the act has committed (and its vector row written) or been refused.
+        var turn = await agentGate.EnterAsync(author!, cancellationToken).ConfigureAwait(false);
+        if (!turn.TryGetValue(out var hold, out var gateRefusal))
+            return GateRefusalProblem(gateRefusal!);
+
+        await using var heldTurn = hold!.ConfigureAwait(false);
 
         // R6.56: VERIFY through PERSIST is one act against the author's stream, repeated while the stream
         // moves under it (IngestAttempts), and answered 503 contended after three. The attempt answers
@@ -2772,6 +2787,15 @@ public static class ForumEndpoints
     /// goes to the log: a server fault's detail is what the failing component said about itself
     /// (R11.33, errata G17).
     /// </summary>
+    /// <summary>
+    /// R7.27 (errata G48): a refusal of the agent write gate. <c>agent-in-flight</c> is a 409 (the agent's turn did not come; nothing was recorded, counted or
+    /// spent); <c>gate-unavailable</c> is a 503 served as a fault of the Forum, without a detail. Neither is a tier denial or a spent budget.
+    /// </summary>
+    private static IResult GateRefusalProblem(Error error) =>
+        Problem(
+            error.Type == BudgetErrors.GateUnavailableType ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status409Conflict,
+            error);
+
     private static IResult Problem(int status, Error error) =>
         status >= StatusCodes.Status500InternalServerError
             ? new ServerFault(status, error)

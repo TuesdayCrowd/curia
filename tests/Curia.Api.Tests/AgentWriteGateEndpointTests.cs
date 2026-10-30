@@ -177,9 +177,10 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
     // ---- the burst grids (BRB18, BRB19) and the control that sees the bug (BRB20) -----------------------------------------------------------------------------
 
     /// <summary>One cell of BRB18: <paramref name="repetitions"/> bursts of <paramref name="width"/> posts by a fresh agent of <paramref name="tier"/>; the repetitions that did not hold the table at the limit.</summary>
-    private async Task<(List<string> Failures, int Overshoots)> PostCellAsync(string tier, int width, int repetitions)
+    private async Task<(List<string> Failures, int Overshoots)> PostCellAsync(string tier, int width, int repetitions, bool passThrough = false)
     {
         forum.ResetSeams();
+        forum.Gate.UsePassThrough = passThrough;
         var limit = BudgetBursts.PostLimit(tier);
         var slots = Math.Min(limit, width / 4);
         var failures = new List<string>();
@@ -287,8 +288,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
 
         var posts = await PostInterleaveAsync(passThrough: true);
         var accepts = await AcceptInterleaveAsync(passThrough: true);
-        forum.Gate.UsePassThrough = true;
-        var (_, overshoots) = await PostCellAsync("T0", 16, repetitions: 20);
+        var (_, overshoots) = await PostCellAsync("T0", 16, repetitions: 20, passThrough: true);
 
         var actual = $"posts interleave stores {posts.StoredAfter}; acceptances interleave stores {accepts.StoredAfter}; the T0 width-16 cell overshoots in {(overshoots >= 1 ? "at least one" : "none")} of 20 repetitions";
         Said(
@@ -371,9 +371,11 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
             _ = await a;
 
             var timely = elapsed >= wait - TimeSpan.FromMilliseconds(200) && elapsed <= wait + TimeSpan.FromSeconds(3);
+            var expected = $"B {PublishedBudgetGate.InFlightStatus()} {PublishedBudgetGate.InFlightType()} after the {Ms(wait)} wait while A is still parked; the table unchanged by B";
+            var held = BudgetBursts.Kind(b) == $"{PublishedBudgetGate.InFlightStatus()} {PublishedBudgetGate.InFlightType()}" && timely && !aDone && before == after;
             Said(
-                $"B {PublishedBudgetGate.InFlightStatus()} {PublishedBudgetGate.InFlightType()} after the {Ms(wait)} wait while A is still parked; the table unchanged by B",
-                $"B {BudgetBursts.Kind(b)} after {Ms(elapsed)} ({(timely ? "at the wait" : "not at the wait")}) while A is {(aDone ? "no longer parked" : "still parked")}; the table {(before == after ? "unchanged" : $"changed from {before} to {after}")} by B");
+                expected,
+                held ? expected : $"B {BudgetBursts.Kind(b)} after {Ms(elapsed)} ({(timely ? "at the wait" : "not at the wait")}) while A is {(aDone ? "no longer parked" : "still parked")}; the table {(before == after ? "unchanged" : $"changed from {before} to {after}")} by B");
         }
         finally
         {
@@ -409,9 +411,11 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
             _ = await holder;
             _ = await Task.WhenAll(waiting);
 
+            var expected = $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {PublishedBudgetGate.InFlightType()} within 2 s while A is still parked";
+            var refusedAtOnce = BudgetBursts.Kind(overflow).EndsWith(PublishedBudgetGate.InFlightType(), StringComparison.Ordinal) && elapsed < TimeSpan.FromSeconds(2) && !holderDone;
             Said(
-                $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {PublishedBudgetGate.InFlightType()} within 2 s while A is still parked",
-                $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {BudgetBursts.Kind(overflow)} after {Ms(elapsed)} while A is {(holderDone ? "no longer parked" : "still parked")}");
+                expected,
+                refusedAtOnce ? expected : $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {BudgetBursts.Kind(overflow)} after {Ms(elapsed)} while A is {(holderDone ? "no longer parked" : "still parked")}");
         }
         finally
         {
@@ -427,11 +431,13 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var actor = await AcceptedAnswerScene.EnrolAsync(forum, "unavailable", Ct);
         var answerer = ForumAgent.Create("https://agents.example/answerer-" + Guid.NewGuid().ToString("N")[..8], "answerer");
         var thread = await BudgetBursts.StoredThreadAsync(forum, actor.Agent, answerer, board, Ct);
+        // The asker's own question is in the thread the scene stored for it: what the refused requests wrote is the difference from here.
+        var storedBefore = await BudgetOracle.PostsInWindowAsync(forum, actor.Agent.AgentId);
 
         forum.Gate.FailEntries = true;
         var post = await Probe.SendAsync(forum, actor, BudgetBursts.Wire(actor.Agent, PostKind.Comment, board, parent.PostId, forum.Now), null, Ct);
         var accept = await BudgetBursts.AcceptAsync(forum, actor, thread, ct: Ct);
-        var stored = await BudgetOracle.PostsInWindowAsync(forum, actor.Agent.AgentId);
+        var stored = await BudgetOracle.PostsInWindowAsync(forum, actor.Agent.AgentId) - storedBefore;
         var recorded = await BudgetOracle.AcceptsInWindowAsync(forum, actor.Agent.AgentId);
         var entries = forum.Gate.Entered.Count(e => e == actor.Agent.AgentId);
         forum.Gate.FailEntries = false;
@@ -538,9 +544,11 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var forged = b.Agent.Sign(PostKind.Comment, board, Probe.Unrelated(), null, parent.PostId, forum.Now, authorOverride: a.Agent.AgentId);
         var sent = await Probe.SendAsync(forum, b, forged, null, Ct);
 
+        var expected = $"the gate entered by {b.Agent.AgentId} only";
+        var enteredBy = forum.Gate.Entered.Distinct().ToArray();
         Said(
-            $"the gate entered by {b.Agent.AgentId} only",
-            $"the gate entered by {(forum.Gate.Entered.IsEmpty ? "no one" : string.Join(", ", forum.Gate.Entered.Distinct()))} (the forged envelope answered {BudgetBursts.Kind(sent)})");
+            expected,
+            enteredBy.Length == 1 && enteredBy[0] == b.Agent.AgentId ? expected : $"the gate entered by {(forum.Gate.Entered.IsEmpty ? "no one" : string.Join(", ", forum.Gate.Entered.Distinct()))} (the forged envelope answered {BudgetBursts.Kind(sent)})");
     }
 
     /// <summary>BRB30. The key is the agent, not the token: two sessions of one agent, A on token 1 parked, B on token 2 stores nothing until release.</summary>
@@ -636,13 +644,16 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var actor = await AcceptedAnswerScene.EnrolAsync(forum, "released", Ct);
         var answerer = ForumAgent.Create("https://agents.example/answerer-" + Guid.NewGuid().ToString("N")[..8], "answerer");
         var thread = await BudgetBursts.StoredThreadAsync(forum, actor.Agent, answerer, board, Ct);
+        // The asker's own question is in the thread the scene stored for it, so the counts at each release are read against what the table held before the post.
+        var baseline = await forum.SnapshotAsync(actor.Agent.AgentId);
 
         var post = await Probe.SendAsync(forum, actor, BudgetBursts.Wire(actor.Agent, PostKind.Comment, board, parent.PostId, forum.Now), null, Ct);
         var accept = await BudgetBursts.AcceptAsync(forum, actor, thread, ct: Ct);
-        var releases = forum.Gate.Releases.Where(r => r.Subject == actor.Agent.AgentId).Select(r => r.AtRelease).ToArray();
+        var releases = forum.Gate.Releases.Where(r => r.Subject == actor.Agent.AgentId)
+            .Select(r => new GateSnapshot(r.AtRelease.Posts - baseline.Posts, r.AtRelease.Accepts - baseline.Accepts, r.AtRelease.Vectors - baseline.Vectors)).ToArray();
 
         var expected = "2 releases: after the post, 1 post and 1 vector row and 0 acceptances; after the acceptance, 1 post and 1 vector row and 1 acceptance";
-        string Describe(GateSnapshot s) => $"{s.Posts} post and {s.Vectors} vector row and {s.Accepts} acceptances";
+        string Describe(GateSnapshot s) => $"{s.Posts} post and {s.Vectors} vector row and {s.Accepts} acceptance{(s.Accepts == 1 ? string.Empty : "s")}";
         var actual = $"{releases.Length} releases (post {BudgetBursts.Kind(post)}, accept {BudgetBursts.Kind(accept)}): " + string.Join("; ", releases.Select(Describe));
         _ = Said(expected, releases.Length == 2 && releases[0] is { Posts: 1, Vectors: 1, Accepts: 0 } && releases[1] is { Posts: 1, Vectors: 1, Accepts: 1 } ? expected : actual);
     }
@@ -709,9 +720,10 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var next = timer.Elapsed;
 
         var leaked = forum.Gate.HeldCount != 0 || notes.Any(n => !n.EndsWith("held 0", StringComparison.Ordinal));
+        var expected = "every path entered the gate and left nothing held; the next request served within 2 s";
         Said(
-            "every path entered the gate and left nothing held; the next request served within 2 s",
-            $"{(neverEntered.Count == 0 ? "every path entered the gate" : "never entered the gate: " + string.Join(", ", neverEntered))} and {(leaked ? "left a hold open" : "left nothing held")}; the next request served {(next < TimeSpan.FromSeconds(2) ? "within 2 s" : "in " + Ms(next))} [{string.Join("; ", notes)}]");
+            expected,
+            neverEntered.Count == 0 && !leaked && next < TimeSpan.FromSeconds(2) ? expected : $"{(neverEntered.Count == 0 ? "every path entered the gate" : "never entered the gate: " + string.Join(", ", neverEntered))} and {(leaked ? "left a hold open" : "left nothing held")}; the next request served {(next < TimeSpan.FromSeconds(2) ? "within 2 s" : "in " + Ms(next))} [{string.Join("; ", notes)}]");
     }
 
     /// <summary>BRB40. A lone request is not delayed: an idle agent's requests enter without waiting.</summary>
@@ -747,7 +759,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
 
         Said(
             "answered 201 after two attempts; the gate entered once; released once, after the post was stored",
-            $"answered {BudgetBursts.Kind(sent)} after {forum.Store.ConditionedAppends - attemptsBefore} attempts; the gate entered {Times(entries)}; released {Times(releases.Length)}{(releases.Length == 1 ? ", " + (releases[0].Posts == 1 ? "after the post was stored" : "before the post was stored") : string.Empty)}");
+            $"answered {BudgetBursts.Kind(sent)} after {(forum.Store.ConditionedAppends - attemptsBefore == 2 ? "two" : (forum.Store.ConditionedAppends - attemptsBefore).ToString(CultureInfo.InvariantCulture))} attempts; the gate entered {Times(entries)}; released {Times(releases.Length)}{(releases.Length == 1 ? ", " + (releases[0].Posts == 1 ? "after the post was stored" : "before the post was stored") : string.Empty)}");
     }
 
     // ---- the combination with the revision gate (BRB33 to BRB36) and the retry loop (BRB37) -------------------------------------------------------------------
@@ -786,7 +798,8 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var sent = await Probe.ReviseAsync(forum, actor, board, post, null, null, Ct);
         var order = forum.Sequence.Entries.Select(e => e.StartsWith("agent:", StringComparison.Ordinal) ? "agent gate" : "revision gate").ToArray();
 
-        Said("agent gate, revision gate", $"{(order.Length == 0 ? "no gate" : string.Join(", ", order))} (the revision answered {BudgetBursts.Kind(sent)})");
+        var inOrder = order.SequenceEqual(["agent gate", "revision gate"]);
+        Said("agent gate, revision gate", inOrder ? "agent gate, revision gate" : $"{(order.Length == 0 ? "no gate" : string.Join(", ", order))} (the revision answered {BudgetBursts.Kind(sent)})");
     }
 
     /// <summary>A host over the fixture's database whose Maximum Pool Size is 4 and connection timeout 3 s: after R7.27's carve the agent pool and the gate pool are one connection each and the Forum's two.</summary>
@@ -905,9 +918,12 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var fourth = await Probe.SendAsync(forum, actor, BudgetBursts.Wire(actor.Agent, PostKind.Comment, board, parent.PostId, forum.Now), null, Ct);
         var (posting, _) = PublishedBudgetGate.BudgetReasons();
 
+        var expected = $"the failed index answered 500 {PublishedStatusQuo.IndexUnavailable} (expiring: D92 flips it) with the post stored (1), the gate entered once and nothing held; the next request 201 inside 2 s; the request beyond the limit of {limit} 403 {posting}";
+        var pinned = $"{failed.Status} {failed.Type}" == $"500 {PublishedStatusQuo.IndexUnavailable}" && storedAfterFailure == 1 && entries == 1 && held == 0
+            && BudgetBursts.Kind(next).StartsWith("201", StringComparison.Ordinal) && nextTime < TimeSpan.FromSeconds(2) && BudgetBursts.Kind(fourth) == $"403 {posting}";
         Said(
-            $"the failed index answered 500 {PublishedStatusQuo.IndexUnavailable} (expiring: D92 flips it) with the post stored (1), the gate entered once and nothing held; the next request 201 inside 2 s; the request beyond the limit of {limit} 403 {posting}",
-            $"the failed index answered {failed.Status} {failed.Type} (expiring: D92 flips it) with the post {(storedAfterFailure == 1 ? "stored (1)" : $"counted {storedAfterFailure}")}, the gate entered {Times(entries)} and {(held == 0 ? "nothing held" : held + " held")}; " +
+            expected,
+            pinned ? expected : $"the failed index answered {failed.Status} {failed.Type} (expiring: D92 flips it) with the post {(storedAfterFailure == 1 ? "stored (1)" : $"counted {storedAfterFailure}")}, the gate entered {Times(entries)} and {(held == 0 ? "nothing held" : held + " held")}; " +
             $"the next request {BudgetBursts.Kind(next)} in {Ms(nextTime)}; the request beyond the limit of {limit} {BudgetBursts.Kind(fourth)} (the third {BudgetBursts.Kind(third)})");
     }
 }

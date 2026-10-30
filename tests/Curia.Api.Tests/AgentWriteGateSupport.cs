@@ -120,11 +120,18 @@ internal static class BudgetBursts
     internal static string Tally(IEnumerable<Sent> sent) =>
         string.Join(", ", sent.GroupBy(Kind).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Count()} x {g.Key}"));
 
-    /// <summary>Whether every response is the one a burst may be answered with: stored, or told the budget.</summary>
+    /// <summary>
+    /// Whether every response is the one a burst may be answered with: stored, or told the budget, or (only for the tail of a burst wider than the holder and the
+    /// queue, R7.27) told agent-in-flight: at most as many of those as requests beyond the holder and the published number waiting.
+    /// </summary>
     internal static bool OnlyStoredOrBudget(IEnumerable<Sent> sent)
     {
         var (posting, acceptance) = PublishedBudgetGate.BudgetReasons();
-        return sent.All(s => Kind(s) is "201" or "200" || Kind(s) == "403 " + posting || Kind(s) == "403 " + acceptance);
+        var all = sent.ToArray();
+        var inFlight = $"{PublishedBudgetGate.InFlightStatus()} {PublishedBudgetGate.InFlightType()}";
+        var tail = Math.Max(0, all.Length - (PublishedBudgetGate.Waiters() + 1));
+        return all.Count(s => Kind(s) == inFlight) <= tail
+            && all.All(s => Kind(s) is "201" or "200" || Kind(s) == "403 " + posting || Kind(s) == "403 " + acceptance || Kind(s) == inFlight);
     }
 
     /// <summary>An accept of <paramref name="postId"/> by the asker, as the route receives it.</summary>
