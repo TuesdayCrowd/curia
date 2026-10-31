@@ -133,9 +133,9 @@ public sealed class AcceptTheTextClientTests
     {
         var line = PassageLine(new AcceptedAnswerMember(Digest, null, [], "revision"));
 
-        Assert.Contains($"the revision with digest {DisplayLiteral.Of(Digest)} (not served)", line, StringComparison.Ordinal);
+        Assert.Contains($"the revision with digest {DisplayLiteral.Of(Digest)} ({PublishedReadersLastWords.DefinitionSentence()})", line, StringComparison.Ordinal);
         Assert.Equal(
-            $"answers  accepted: the answer with digest {DisplayLiteral.Of(Digest)} (not served), chosen by the thread's asker {Basis}",
+            $"answers  accepted: the answer with digest {DisplayLiteral.Of(Digest)} ({PublishedReadersLastWords.DefinitionSentence()}), chosen by the thread's asker {Basis}",
             PassageLine(new AcceptedAnswerMember(Digest, null, [], "answer")));
     }
 

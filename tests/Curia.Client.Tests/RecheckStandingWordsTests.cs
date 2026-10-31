@@ -113,8 +113,9 @@ public sealed class RecheckStandingWordsTests : IDisposable
         Assert.Contains($"post \"{IdOther}\"", line, StringComparison.Ordinal);
 
         // The branch the Forum serves no post for is its digest and "not served", beside the digest and not beside the other one.
-        Assert.Contains($"\"{third}\" (not served)", line, StringComparison.Ordinal);
-        Assert.DoesNotContain($"\"{second}\" (not served)", line, StringComparison.Ordinal);
+        // R10.91: a form that lists it says it in the definition's words (published in G50), once beside this digest.
+        Assert.Contains($"\"{third}\" ({PublishedReadersLastWords.DefinitionSentence()})", line, StringComparison.Ordinal);
+        Assert.DoesNotContain($"\"{second}\" (not served", line, StringComparison.Ordinal);
     }
 
     [Fact]

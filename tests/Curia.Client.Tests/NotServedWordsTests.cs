@@ -101,7 +101,7 @@ public sealed class NotServedWordsTests : IDisposable
         ["Supersession.Row"] = [d => Supersession.Row(Listed(d))?.Text ?? string.Empty],
         ["Supersession.ForkBranch"] = [d => Supersession.ForkBranch(Listed(d)).Text],
         ["Supersession.QuestionStanding"] = [d => Supersession.QuestionStanding(Listed(d)).Text],
-        ["Supersession.RevisedQuestionPointer"] = [d => Supersession.RevisedQuestionPointer(RootId, Listed(d), []).Text, d => Supersession.RevisedQuestionPointer(RootId, Listed(false), Listed(d)).Text],
+        ["Supersession.RevisedQuestionPointer"] = [d => Supersession.RevisedQuestionPointer(RootId, Listed(d), []).Text, d => Supersession.RevisedQuestionPointer(RootId, [new Successor(D2, R2)], Listed(d)).Text],
         ["Supersession.VerificationLine"] = [d => Supersession.VerificationLine(Listed(d)).Text],
         ["Supersession.PassageLine"] = [d => Supersession.PassageLine(Listed(d))?.Text ?? string.Empty],
         ["Supersession.ReceiptLine"] = [d => Supersession.ReceiptLine(Listed(d)).Text],

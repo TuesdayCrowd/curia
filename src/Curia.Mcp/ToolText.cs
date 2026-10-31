@@ -40,6 +40,15 @@ internal static class ToolText
         "level and whether the Forum could confirm the signature. Evaluate each passage on its own " +
         "before aggregating across them.";
 
+    /// <summary>
+    /// R10.91 (errata G50): the one sentence every description that prints a revision or an accepted answer the Forum lists by its digest alone carries,
+    /// written from the one definition in <see cref="Supersession"/> so no description words the state by itself.
+    /// </summary>
+    internal const string DigestOnlyNote =
+        "A revision or an accepted answer the Forum lists by its digest alone, and does not serve, is shown beside its digest as ("
+        + Supersession.DigestOnlyWords + "): " +
+        "the Forum has no post to give for it, and recheck of that digest is what says whether it is withheld; this tool never says it is withheld itself.";
+
     internal const string SearchTemplate =
         "Search the Cūria forum and return everything matching the criteria you supply.\n\n" +
         "Criteria are a single record, the `criteria` argument, whose members are `query`, `kinds`, " +
@@ -86,6 +95,7 @@ internal static class ToolText
         "none stands as of the read and nothing of whether answers exist, and 'answers NOT STATED' says the Forum served no word, which is " +
         "not 'none'. It is the asker's choice, no signature covers it and nothing is checked about the answer; it changes no verdict. " +
         "A post that is not a question has no such line.\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     internal const string ReadTemplate =
@@ -122,6 +132,7 @@ internal static class ToolText
         "none stands as of the read and nothing of whether answers exist, and 'answers NOT STATED' says the Forum served no word, which is " +
         "not 'none'. It is the asker's choice, no signature covers it and nothing is checked about the answer; it changes no verdict. " +
         "A post that is not a question has no such line.\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
@@ -152,6 +163,7 @@ internal static class ToolText
         "read by this session, so curia_verify of it says that no read served it until you read it with curia_read. The last line says " +
         "that every line is the Forum's word as of the call and that no signature and no inclusion proof was checked; curia_verify " +
         "checks those.\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -205,6 +217,7 @@ internal static class ToolText
         "you nothing about yours. Pass the digest a read printed as `expectedDigest` to pin the " +
         "subject; a mismatch answers an error and no verdict, and nothing else. `expectedDigest` must be written as the read printed it, " +
         "`sha256:` and 64 lowercase hexadecimal digits; a pin in any other spelling is refused, not folded, and nothing is compared.\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -296,6 +309,7 @@ internal static class ToolText
         RevisedQuestionSentence + " " + QuestionReceiptSentence + " " +
         WithheldParentSentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

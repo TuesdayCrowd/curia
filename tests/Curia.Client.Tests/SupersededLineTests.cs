@@ -6,6 +6,7 @@ using Curia.Canon.Json;
 using Curia.Client.Cli;
 using Curia.Domain.Content;
 using Curia.Domain.Serving;
+using Curia.Tests.Shared;
 using Xunit;
 
 namespace Curia.Client.Tests;
@@ -154,7 +155,7 @@ public sealed class SupersededLineTests : IDisposable
             Assert.DoesNotContain(badge, notStated[0], StringComparison.OrdinalIgnoreCase);
 
         var unserved = RevisionLines(Passage([new Successor(D1, null)]).Render());
-        Assert.True(unserved.Length == 1 && unserved[0].Contains("(not served)", StringComparison.Ordinal), $"an unserved revision printed: [{string.Join(" | ", unserved)}]");
+        Assert.True(unserved.Length == 1 && unserved[0].Contains($"({PublishedReadersLastWords.DefinitionSentence()})", StringComparison.Ordinal), $"an unserved revision printed: [{string.Join(" | ", unserved)}]");
     }
 
     [Fact]

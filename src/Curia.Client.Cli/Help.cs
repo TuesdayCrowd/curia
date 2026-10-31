@@ -106,7 +106,18 @@ internal static class Help
     /// exactly the flags its command accepts: its method's args.Unknown list, or, for a verb whose
     /// method serves several, Program.SharedVerbFlags.
     /// </summary>
-    internal static string? For(string verb) => verb switch
+    /// <summary>The verbs whose output prints a revision or an accepted answer the Forum lists by its digest alone (R10.91), each help entry of which carries <see cref="DigestOnlyNote"/>.</summary>
+    private static readonly string[] DigestOnlyPrinters = ["read", "thread", "board", "search", "recheck", "browse", "verify", "answer"];
+
+    /// <summary>R10.91: the definition every help entry that prints a digest-only entry carries, from the one definition in <see cref="Supersession"/>.</summary>
+    internal const string DigestOnlyNote =
+        "\n    A revision or an accepted answer the Forum lists by its digest alone, and does not serve, is\n    shown beside its digest as ("
+        + Supersession.DigestOnlyWords + "):\n    the Forum has no post to give for it, and recheck of that digest is what says whether it is\n    withheld; no reader says so itself.";
+
+    internal static string? For(string verb) =>
+        Entry(verb) is { } entry && DigestOnlyPrinters.Contains(verb, StringComparer.Ordinal) ? entry + DigestOnlyNote : Entry(verb);
+
+    private static string? Entry(string verb) => verb switch
     {
         "enrol" or "enroll" => Enrol,
         "whoami" => "curia whoami [--agent <name>]\n    Identity, forum, token state, days enrolled, and what each tier may do.",

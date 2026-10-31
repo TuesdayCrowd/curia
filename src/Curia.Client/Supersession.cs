@@ -37,10 +37,20 @@ public static class Supersession
     public const string NotServedWords = "not served";
 
     /// <summary>
-    /// R10.91's definition, declared by PR 3's Task 0 and used by nothing yet: what a digest-only entry means and what to do about it. The probes
-    /// (RLW9 to RLW15, RLW43) read G50's text and not this constant, and are red until every form says it.
+    /// R10.91's definition, written once: what a post the Forum lists by its digest alone and does not serve means, and what to do about it. Every form that
+    /// prints such an entry, and every description and help that says <c>not served</c>, takes its words from here. A reader never says <c>withheld</c> itself:
+    /// <c>recheck</c>, which asks the Forum, is the one that can say more.
     /// </summary>
     public const string DigestOnlyWords = "not served; recheck of its digest says whether it is withheld";
+
+    /// <summary><see cref="DigestOnlyWords"/> in parentheses, the mark a form writes after a digest-only entry (R10.91).</summary>
+    public const string DigestOnlyMark = "(" + DigestOnlyWords + ")";
+
+    /// <summary>
+    /// <c>recheck</c>'s own statement of the pointer (R10.89's clause, which names the digest it sits beside as <c>that digest</c>): the same words as
+    /// <see cref="DigestOnlyWords"/>, so the two cannot drift apart, with the pronoun R10.89 uses.
+    /// </summary>
+    internal static string RecheckClauseWords => DigestOnlyWords.Replace("of its digest", "of that digest", StringComparison.Ordinal);
 
     /// <summary>The fork's sentence: with more than one revision chaining to a post, the Forum does not pick one, and neither does a reader.</summary>
     internal const string ForkedSentence = " FORKED: more than one revision chains here and the Forum does not pick one";
@@ -48,11 +58,15 @@ public static class Supersession
     /// <summary>True when the Forum served a non-empty list.</summary>
     public static bool IsSuperseded(ImmutableArray<Successor> list) => !list.IsDefaultOrEmpty;
 
-    /// <summary>The revisions, each digest and the post that holds it (or that it is not served), as display literals.</summary>
-    public static OwnText Revisions(ImmutableArray<Successor> list) =>
+    /// <summary>
+    /// The revisions, each digest and the post that holds it (or, for a digest the Forum lists and does not serve, R10.91's definition beside it), as
+    /// display literals. <paramref name="pointToRecheck"/> is false only for the form that states the pointer itself in the same line
+    /// (<c>recheck</c>, R10.89): it then carries the bare <see cref="NotServedMark"/> and says the rest once, from the same words.
+    /// </summary>
+    public static OwnText Revisions(ImmutableArray<Successor> list, bool pointToRecheck = true) =>
         new(string.Join(", ", list.Select(s => s.PostId is { } id
             ? $"{DisplayLiteral.Of(s.Digest)} (post {DisplayLiteral.Of(id)})"
-            : $"{DisplayLiteral.Of(s.Digest)} {NotServedMark}")));
+            : $"{DisplayLiteral.Of(s.Digest)} {(pointToRecheck ? DigestOnlyMark : NotServedMark)}")));
 
     /// <summary>
     /// The statement of a populated list: how many revisions, which, the basis, and the fork sentence when there is more than one.
@@ -198,7 +212,7 @@ public static class Supersession
 
         var heads = new List<string>();
         var notStated = new List<string>();
-        var outside = new List<string>();
+        var outside = new List<Successor>();
         var visited = new HashSet<string>(StringComparer.Ordinal) { root.PostId };
 
         void Follow(ProvenancePost node)
@@ -208,7 +222,7 @@ public static class Supersession
                 var member = members.IsDefault ? null : members.FirstOrDefault(m => string.Equals(m.Digest, successor.Digest, StringComparison.Ordinal));
                 if (member is null)
                 {
-                    outside.Add(successor.Digest);
+                    outside.Add(successor);
                     continue;
                 }
 
@@ -230,7 +244,9 @@ public static class Supersession
             _ => $"the text that stands is not one text, the chain is FORKED: the heads this thread holds are {string.Join(", ", heads.Select(h => "post " + DisplayLiteral.Of(h)))}, and the Forum picks none",
         });
         if (outside.Count > 0)
-            parts.Add($"{string.Join(", ", outside.Select(DisplayLiteral.Of))} leads outside what this thread holds, so no head is claimed for it");
+            // R10.91: a successor with no post id is a digest-only entry and is said in the definition's words; one with a post id is served, in a
+            // thread this one does not hold, and keeps its own words.
+            parts.Add($"{string.Join(", ", outside.Select(s => s.PostId is null ? $"{DisplayLiteral.Of(s.Digest)} {DigestOnlyMark}" : DisplayLiteral.Of(s.Digest)))} leads outside what this thread holds, so no head is claimed for it");
         if (notStated.Count > 0)
             parts.Add($"{string.Join(", ", notStated.Select(n => "post " + DisplayLiteral.Of(n)))}: revision NOT STATED, so no head is claimed past it");
 
