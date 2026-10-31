@@ -402,4 +402,82 @@ These are not entries; Task 11 files them or drops them. (a) Table 11's reads pe
 
 ## As run
 
-Not yet built. Written at Task 11 from the ledger and the records of Tasks 0 to 10, in the shape of the previous plan's: commits oldest first, probes with the red text each printed on the seam tree, falsification with the rows that were green on their first form, the deviations from this plan stated, the gates with the Api suite's added minutes, the live run (Task 10) with what held and what did not, and what was left open and filed.
+Written at Task 11 from the ledger and the records of Tasks 0 to 10; the branch is `an-agent-can-see-its-budgets`, on `main` `9ae14b3a` (#134). Dates are 2026-10-30. The planned text above is kept as the record; this section says what was built.
+
+### Commits, oldest first
+
+| Commit | What |
+|---|---|
+| `0616186e` | The plan: errata G49, D90 planned. |
+| `0f86b179` | The plan amended from Task 0's live part: no read guard (D93), the stored instant (D94), the unreadable log (D95), no stub route in the seam, SEB51 to SEB56 and FSEB59 to FSEB68 (rulings 15 to 24). |
+| `612606db` | Task 0, the behaviour-preserving seam: the three counting helpers moved into `Curia.Application` as one function (`BudgetReadout.CountIn`, reached through `PostsUsed`, `AcceptsUsed`, `FlagsUsed`), inert declarations, no route and no exemplar. |
+| `f984fefe` | Task 0, probes SEB1 to SEB56 seen red. |
+| `6bec025c` | Task 1: Table 10's `budget` / `read` (own) row in the model and the white paper; denials 28 to 29; unmodelled pairs 148 to 159. |
+| `906f1e93` | Task 2: the pure standing (`BudgetKinds`, `BudgetReadout.Entry/Read/After/NextSlotAt`), instants from the stored column. |
+| `4d440ba9` | Task 3: `GET /v1/budget` (`GetBudgetAsync`, `BudgetQueryParameters`), `no-store`, the shared preamble parameterized, the fuzzer's exemplar. |
+| `ed1b8de5` | Task 4: receipts carry `budget`, computed inside the hold; the three refusals end ` next_slot_at=<instant>`. |
+| `ec12d0b2` | Task 5: the client reader, `BudgetLines`, `curia budget`, the `whoami` pointer, the receipt and refusal wording, the help. |
+| `e8833049` | Task 6: `curia_budget`, the pointer sentences, receipts and refusals; `curia-mcp` 0.9.0 and the version pins read from R11.65. |
+| `f5daeaec` | Task 7: the flag-privacy sweep drives `/v1/budget` (the one existing fact the whole run found red). |
+| `88da5f86` | The review's fixes: the tier is stated where it can now be read (`curia budget`), D37's fact follows the sentence, a literal 0.9.0 pin beside the parsed ones. |
+| `2664d40c` | Task 9's fix round: SEB69 and a contextual SEB56; FSEB10 and FSEB32 were already red on probes the first run did not list. |
+| Task 11 | Register and docs: errata G49 built, D90 closed, D93 and D95 extended, D91's tail given evidence, D61 item 49, traps 64 to 69, this section, `curia-mcp` 0.9.0 in the README and `CLAUDE.md`. |
+
+Tasks 8 (the review) and 9 (the falsification, patches on kept copies) committed nothing beyond the fix above; Task 10 (the live run) committed nothing.
+
+### Probes
+
+SEB1 to SEB56 as the plan lists them, and **SEB69 added by the falsification's fix round** (a token minted at T0 and promoted within its life reads the T1 tier and limits from the same token: the tier is the log's and not the token's; red under FSEB56's first form). Task 0 ran them against the seam tree and recorded each red text: Application 9 failed (SEB1 to SEB6, SEB27, SEB28, SEB52), Domain 3 (SEB8 to SEB10), Architecture 2 (SEB34, SEB37), Client 8, Mcp 7, and Api 36 of 78 probe-class tests (a `404` problem document `curia/request/no-route`, not "no body" as ruling 20 predicted); every failure was a new probe and no existing fact changed colour. **Controls that were green on the seam tree (they see the bug or hold a fence the seam already satisfied):** SEB7, SEB33, SEB36 (after four reasoned rows), SEB49, SEB50 and SEB56. Probes that changed from the plan: **SEB18** (the plan said a `401` with a DPoP challenge; the Forum challenges only a nonce failure and R9.50 asks for no nonce, so it is `401` `curia/authn/missing-authorization`, equal to `GET /v1/flags`'s answer), **SEB21's control** (its expected text carried a parenthetical the actual could never equal), **SEB38** (R11.65 says a missing budget is `NOT STATED`; only a duplicated or unknown name is malformed), **SEB34** (it required `Check` to call only the shared engine, so `Honoured` reads a private field), **SEB28's route half** (a fresh token is used; the claim that the tier is not the token's is SEB69's) and the stub, whose static receipts hold the Forum's `budget` member.
+
+### Falsification
+
+FSEB1 to FSEB68, each row patched on a kept copy, rebuilt `--no-incremental`, restored by a plain copy and a touch, one unpatched run after: **62 red on the first form.** The six others:
+
+- **FSEB10** (`Entry` counts with `>=`): green on the named probes; found red by SEB1 (Application: "exactly the window old: Expected: used 0 Actual: used 1"). Nothing added.
+- **FSEB32** (a fourth budget-exhausted reason with no title): found red by the R7.24 facts (`R7_24_TheCausesTheErrataListsAreTheReasonsThePdpGives`, `R7_24_EveryDeniedReasonAPdpCanGiveHasItsOwnTitle`); SEB6 stayed green. Nothing added.
+- **FSEB12** (cache the readout 10 s): green on SEB20 and SEB25; red via SEB19 (posting used 2 expected, 0 served).
+- **FSEB56** (the tier from the token claim): green on SEB28; closed by **SEB69**, red under the first form (tier T1 expected, T0 served; posting limit 25 expected, 3 served).
+- **FSEB65** (`curia_resolve`'s acceptance limit changed in the description): green on SEB56 as first written (it matched a number anywhere in the text); closed by making SEB56 contextual (each limit beside its own tier word or in the L0/L1/L2 run), red under 10, 50, 200 to 12, 55, 250.
+- **FSEB60** (`next_slot_at` rounded up to the microsecond): green on SEB54 and SEB13; **an equivalent mutant**, because the stored column is microsecond-precise, so the instant has no sub-microsecond part to round. Accepted.
+
+Also: FSEB24 and FSEB48's first compile attempts failed on an analyzer and a test-compile error; the patch text changed, never the tests' assertions. **The falsifier's run was lost twice to a dropped connection** (`ECONNRESET`, nothing recorded, the tree verified clean each time) and re-run with incremental results. Closing checks: `shasum -c --quiet` over the kept copies printed nothing; `git status --porcelain` empty; unpatched rebuild `--no-incremental` 0 warnings and every `_SEB` probe in the six projects green (Application 12, Domain 3, Architecture 3, Client 9, Mcp 9, Api 37); after the fix round Domain 901, Application 595, Client 1,182, Mcp 720 with 2 skipped, Architecture 75, and the Api classes `BudgetReadoutEndpointTests` 21, the gate 2, the seams 4 and the receipt class 11 all green; no `curia_e2e_*` database or role left. A `~Budget` filter over the whole Api project hung with no CPU twice after discovery (the broad filter includes `RequestFuzzClosedTests`, 28 minutes and IO-bound) and was killed; not traced to this change.
+
+### Deviations from the plan, stated
+
+1. **The seam carries no stub route** (ruling 20): the closed fuzz pass failed a `404` stub for four reasons, so the route and its exemplar arrive together in Task 3.
+2. **`curia_budget` is registered by its own `IdentityReadTools` method** under the one identity gate and is not in `WriteToolNames`: putting it in `WriteTools` made the server's instructions say it writes. The review ruled this right.
+3. **No instant on any receipt**, and the readout and the refusals take the stored column's (D94, ruling 18).
+4. **SEB18, SEB21's control, SEB28's route half and SEB38 changed** (see Probes); SEB27's and SEB28's T3 and quarantine legs are pure-only because no event produces either (ruling 17).
+5. **SEB36 needed four reasoned rows** (`AnonymousReadAllowedAsync`, `AuthorizeFlagListAsync`, `AuthorizeKeyActAsync`, `InboxAsync`: builders of `AuthorizationRequest` that spend no budget), and three reasoned rows were added to the port-string allowlist for `RaisedFlag`'s constructor strings.
+6. **SEB48 found two hits beyond the plan's list** (`Help.cs:124`, the resolve entry, and `ForumClient.cs:510`, a comment).
+7. **The review's fixes:** the stale sentence that no endpoint reports the tier (`Help.cs:19`, a `ProfileStore` comment, D37's fact re-pointed) and a literal 0.9.0 pin beside the parsed ones.
+8. **R9.50's `503` for an unreadable log was amended after the live run** (ruling 1 of Task 11 and D95's extension): it holds where the event reader reports the failure and not against the Postgres store.
+9. **The probe set grew by SEB69 and a contextual SEB56** in the fix round; nothing else was added after Task 7.
+
+### Gates
+
+Release, built first, 0 warnings, `--no-build`, as recorded in `task-build-report.md` at the end of Task 7: Canon 329, Canon.Sodium 32, AuthN 140, Domain.Primitives 64, Domain 876, Application 595, Architecture 75 (Release and Debug), Client 1,182, Mcp 719 passed and 2 skipped (the suite's own `curia_search`, and the new `curia_budget`, which has no required member), Infrastructure 193 (a first run concurrent with the Api run failed 90 with `gate-unavailable` on Postgres contention; alone, 193 passed), Api 1,196 of which 1,194 passed and 2 failed (`FlagPrivacyGateTests`, fixed in Task 7 and 2 of 2 passing; the Api suite was not re-run whole after that one edit). **Api time 41 min 18 s against a baseline of 42 min 9 s, so the PR added no minutes** (ruling 11(g): the exemplar adds about 1.3 minutes of fuzzer sends). The request fuzzer's closed pass and the other Fuzz classes: 21 passed, ledger empty. `check-spec` clean, `falsify-spec-checks` 4 of 4, `curia-testis` fmt, clippy and test (70 passed), the differential `--fail-on-divergence` exit 0. About 5,500 tests, none failed after Task 7. The fix round's and the review's re-runs are in the falsification entry above.
+
+### The live run (Task 10, the built tree `2664d40c`, a throwaway database, two Forum processes for L5): 8 of 9 held
+
+| Item | Result |
+|---|---|
+| L1 true at the moment it is read | held: 3 bursts of 16 across one and two processes, a poller reading throughout (250 to 255 readouts each, each bracketed by the events count before and after): every `used` lay in the bracket, monotone, never over the limit, `remaining` = max(0, limit - used); 0 violations |
+| L2 receipts in log order | held: T0 1, 0; T1 19 down to 4; across two processes 4, 3, 2, 1, 0, the events count equal to the limit, no overshoot |
+| L3 the instant is the policy's | held: 12 of 12 cells and 3 of 3 over-limit cells, the readout's `next_slot_at` the k-th oldest in-window stored instant plus 86,400 s to the microsecond, and the refusal's equal to the readout's |
+| L4 a slot frees at the instant (wall clock) | held, observed and gating nothing: the last refusal 95, 101 and 69 ms before the instant and the first admission 78, 78 and 102 ms after it, at a 150 ms poll |
+| L5 two processes | held: readouts from both during a burst split across them, L1 holds, the held-out process kept the count at the limit |
+| L6 own-only live | held: 15 query-name variants `400`, path forms `404`, B's numbers byte-identical after A's acts, no agent identifier in a body, `no-store` and no validator, `401` unauthenticated, `405` for `POST` |
+| L7 the clients | held: `curia budget`, `curia_budget` and the route agree (3 of 3 each way); `curia-mcp` reports 0.9.0; receipts state the standing for every kind (11 of 11 equal to the readout taken next); the three refusals end in the Forum's instant by CLI and MCP; `curia whoami` points to `curia budget` with the Forum stopped |
+| L8 the cost | held, gating nothing: 1.2 to 1.3 times `GET /v1/flags` at one reader (p50 199 ms against 158 at 20,000 events), 1.1 to 1.2 at 16 and 64 readers; a writer's p95 386 ms alone to 12.2 s (64 budget readers) and 13.3 s (64 flags readers) at 20,000 events, so the readout slows a writer as the flags route does (D93's evidence) |
+| L9 the gates | **the fuzz held, "no `5xx` in the run" did not**: `RequestFuzzClosedTests` 8 of 8 in 27 min 46 s with an empty ledger; the Forum's log held 27 load-induced `500`s on `GET /v1/flags` at 64 readers and 20,000 events (D91's evidence; none on `GET /v1/budget`) and the deliberate fault injections' `500` and `503` |
+
+**What did not hold, with the ruling.** R9.50's `503` `curia/log/unreadable` against the real store: with Postgres failing the whole-log read (a row-level-security policy whose function raises on rows only a whole-log scan reaches), `GET /v1/budget` and `GET /v1/flags` answered `500` with an empty body, because `PostgresEventStore.ReadForwardAsync` lets the driver exception escape. The flag-store half held (`503` `curia/flag/detail-store-unavailable` with no detail on both routes, writes unaffected, `200` again after the grant). **Ruled by the controller:** the PR does not change the store, G49's R9.50 is amended, D95 is extended with the store-level cause and notes that D61 item 48 and D91's tail are the same family, and the load-induced `500`s and the writer's p95 go to D91's tail and D93 as evidence. Disclosed by Task 10: spend-to-the-limit for T2 acceptance and every flag budget, and the over-the-limit cells, used cloned own events with instants spread by an admin `UPDATE` of `server_ts`; a null limit is not reachable through the route (ruling 17), so it was not exercised live. Cleanup: the throwaway database and role dropped, no `curia_e2e_*` database or role left.
+
+### What was left open and filed
+
+D93 (Table 11's reads per minute enforced nowhere, readers slow writers; extended), D94 (an event holds two instants; open), D95 (an unreadable log is a body-less `500` and the empty-log swallow; extended, with D61 item 48 and D91's tail the same family), D61 item 49 (the fuzzer cannot exercise a route that refuses every query name), D92 untouched, and the key-rotation budget outside the readout (non-property (j), `budgets` being a list of named entries so a fourth is additive). Traps 64 to 69 are in `IMPLEMENTATION_PLAN.md`. The curia skill's table and `references/cli.md` (the new verb) are outside this repository and the controller's.
+
+The PR is #135, on `main` at ________.
+
+Final whole run: FINAL_RUN
