@@ -58,9 +58,6 @@ internal static partial class PublishedBudgetReadout
     /// <summary>R9.50's two credential words, in the order given.</summary>
     internal static string[] CredentialWords() => Spans(Only(CredentialPhrase(), Route(), "R9.50's credential words"));
 
-    /// <summary>R11.65's version: "`curia-mcp` is N".</summary>
-    internal static string Version() => Only(VersionPhrase(), Words(), "R11.65's version");
-
     /// <summary>R11.65's spans, in the order given. A fact looks one up by its text, so a removed span is a thrown read and not a missed comparison.</summary>
     internal static string Span(string text)
     {
@@ -194,9 +191,6 @@ internal static partial class PublishedBudgetReadout
 
     [GeneratedRegex(@"other than (`active` and `quarantined`)", RegexOptions.CultureInvariant)]
     private static partial Regex CredentialPhrase();
-
-    [GeneratedRegex(@"`curia-mcp` is (\d+\.\d+\.\d+)", RegexOptions.CultureInvariant)]
-    private static partial Regex VersionPhrase();
 
     [GeneratedRegex(@"Gains the row `(\w+)` / `(\w+)` \(own\), `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex RowPhrase();

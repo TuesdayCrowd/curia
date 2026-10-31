@@ -222,7 +222,7 @@ public sealed class BudgetToolTests : IDisposable
     [Fact]
     public void R11_65_SEB47_TheVersionIsTheErratas()
     {
-        Assert.True(PublishedBudgetReadout.Version() == ToolCatalogue.Version, $"Expected: {PublishedBudgetReadout.Version()} Actual: {ToolCatalogue.Version}");
+        Assert.True(PublishedReadersLastWords.Version() == ToolCatalogue.Version, $"Expected: {PublishedReadersLastWords.Version()} Actual: {ToolCatalogue.Version}");
     }
 
     /// <summary>
@@ -230,7 +230,7 @@ public sealed class BudgetToolTests : IDisposable
     /// would pass them all. This one is written by hand and moves only when someone means the version to move.
     /// </summary>
     [Fact]
-    public void R11_65_SEB47_TheVersionIs090() => Assert.Equal("0.9.0", ToolCatalogue.Version);
+    public void R11_65_SEB47_TheVersionIs091() => Assert.Equal("0.9.1", ToolCatalogue.Version);   // the hand-written twin: 0.9.1 since errata G50 (R11.66)
 
     /// <summary>
     /// SEB51, the tool half. The tool's description says that every receipt already states the standing after the act, that the readout is read before the

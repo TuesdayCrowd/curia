@@ -221,7 +221,8 @@ internal static class ToolText
         "Forum may serve a different document under the same id, and a verdict about that one tells " +
         "you nothing about yours. Pass the digest a read printed as `expectedDigest` to pin the " +
         "subject; a mismatch answers an error and no verdict, and nothing else. `expectedDigest` must be written as the read printed it, " +
-        "`sha256:` and 64 lowercase hexadecimal digits; a pin in any other spelling is refused, not folded, and nothing is compared.\n\n" +
+        "`sha256:` and 64 lowercase hexadecimal digits; a pin in any other spelling is refused, not folded, and nothing is compared. " +
+        VerifyWording.BatchSentence + "\n\n" +
         DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 

@@ -59,7 +59,7 @@ public sealed class BudgetPinsTests
         Check("table 10 row", "budget/read/✗,✓,✓,✓,✓", $"{PublishedBudgetReadout.Table10Row().Resource}/{PublishedBudgetReadout.Table10Row().Action}/{string.Join(',', PublishedBudgetReadout.Table10Row().Cells)}");
         Check("the spans R11.65 names", "curia budget,curia_budget,NOT STATED,no fixed limit,curia whoami,next slot NOT STATED",
             string.Join(',', Spans.Select(PublishedBudgetReadout.Span)));
-        Check("version shape", "True", Regex.IsMatch(PublishedBudgetReadout.Version(), @"^\d+\.\d+\.\d+$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)));
+        Check("version shape", "True", Regex.IsMatch(PublishedReadersLastWords.Version(), @"^\d+\.\d+\.\d+$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)));
 
         var errata = File.ReadAllLines(Path.Combine(RepoRoot(), "curia-whitepaper-ERRATA-AND-ADDENDUM.md"));
         foreach (var number in Indexed)

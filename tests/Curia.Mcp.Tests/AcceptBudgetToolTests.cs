@@ -110,7 +110,7 @@ public sealed class AcceptBudgetToolTests : IDisposable
 
     /// <summary>TRW26. <c>curia-mcp</c> was 0.8.9 here and was 0.8.10 under errata G47 and is 0.8.11 since errata G48 (the pin follows the version; the name keeps its id): the descriptions and a refusal's wording change; no tool is added.</summary>
     [Fact]
-    public void R7_26_TRW26_CuriaMcpIs089() => Assert.True(string.Equals(PublishedBudgetReadout.Version(), ToolCatalogue.Version, StringComparison.Ordinal), $"Expected: {PublishedBudgetReadout.Version()} Actual: {ToolCatalogue.Version}");   // 0.9.0 since errata G49: the pin follows the errata's version
+    public void R7_26_TRW26_CuriaMcpIs089() => Assert.True(string.Equals(PublishedReadersLastWords.Version(), ToolCatalogue.Version, StringComparison.Ordinal), $"Expected: {PublishedReadersLastWords.Version()} Actual: {ToolCatalogue.Version}");   // the pin follows the errata's version (R11.66 since errata G50)
 
     /// <summary>
     /// TRW53. <c>WriteRefused</c> for a lost race at <c>answer</c>/<c>accept</c> says the same as the CLI, in the adapter's frame: nothing was recorded, the

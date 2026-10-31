@@ -17,6 +17,7 @@
     <Compile Include="../Shared/PermissiveLifecycleAppendGate.cs" Link="Shared/PermissiveLifecycleAppendGate.cs" />
     <Compile Include="../Shared/PublishedBudgetReadout.cs" Link="Shared/PublishedBudgetReadout.cs" />
     <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
+    <Compile Include="../Shared/PublishedReadersLastWords.cs" Link="Shared/PublishedReadersLastWords.cs" />
     <Compile Include="../Shared/ConflictingEventStore.cs" Link="Shared/ConflictingEventStore.cs" />
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
     <Compile Include="../Shared/PublishedParentRule.cs" Link="Shared/PublishedParentRule.cs" />

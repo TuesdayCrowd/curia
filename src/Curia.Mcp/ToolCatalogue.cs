@@ -38,7 +38,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.9.0";
+    internal const string Version = "0.9.1";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
