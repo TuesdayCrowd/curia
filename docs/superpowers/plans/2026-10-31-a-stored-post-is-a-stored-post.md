@@ -1,0 +1,283 @@
+# A Stored Post Is a Stored Post: Implementation Plan (D92, the first PR after the ninth exercise's order)
+
+> Repository path: `docs/superpowers/plans/2026-10-31-a-stored-post-is-a-stored-post.md`
+> Written by `curia-architect` on 2026-10-31 against `main` at `daf39c57` (#136, errata G50, `curia-mcp` 0.9.1; the ninth exercise's order, #134 to #136, is complete). Scope and decisions: register D92, whose rulings of 2026-10-29 (plan ruling 17 of "A budget binds a burst": the target is a `201` with a member stating the index did not take the post; the D88 PR settled only the release) this plan carries out, and one finding the register did not have (finding 2 below). The errata entry **G51** and its four index rows (R8.81, R9.51, R11.69, R11.70) were applied to `curia-whitepaper-ERRATA-AND-ADDENDUM.md` by the same job, status "specified; not built"; Task 0 re-reads it before building on it. Every `file:line` below was read from `main`'s tree; Task 0 re-reads each against the tree it starts from. Nothing in this plan has been built, run or measured: every "predicted red" is a prediction, and the one claim that rests on reading alone (finding 2) is measured first, in Task 0, because the plan's second half depends on it.
+> Not read, so Task 0 reads it: `ForumFixture` (how a host restarts, how its clock runs, whether `ILogger` output can be captured), `RetrievalTestLog` and the in-memory `IVectorIndex`, `VectorIndexPortContractTests`, `EventReaderExtensions.PageSize`, `HashedNGramEmbedder` and `EmbeddedText.Of`, `ForumDocuments.ReadReceipt` and its strict neighbours (`:396-401`, `:1057`), `SendDraftAsync` and the CLI's receipt writer, `WriteTools.Posted` (`:447`), `StubLog` in `Curia.Mcp.Tests` (what receipt it builds and whether a fact compares its member names with the Forum's), `ToolText`/`Help.cs` for the verbs that send a post, `ToolCatalogue.Version` and the one version parser, the request fuzzer's closed pass, `README.md`'s operations paragraph on the app role's grants, `db/0003_create_retrieval_index.sql`'s grants.
+
+## What the reading found that the register did not know
+
+1. **The register's defect is real and is load-dependent.** `PersistSubmissionAsync` appends (`ForumEndpoints.cs:1053-1061`), then writes the vector (`:1063-1076`), and answers `500` with the index's error if that fails. Measured by "A budget binds a burst" Task 0: 1 and 43 answers of `500 curia/retrieval/index-unavailable` at 128 and 256 simultaneous writers were posts in the log; Task 9 saw none in 180 repetitions after the pool carve. BRB60 pins the present answer as an expiring status quo, and `PublishedStatusQuo.IndexUnavailable` exists to be deleted by this PR.
+2. **The repair the call's comment names does not repair.** The comment says "the startup reconcile closes any gap a crash between the two writes leaves (R11.10)". `EmbeddingIndexer.ReconcileAsync` starts from `MaxSequenceAsync` (`:65`): the highest `seq` indexed under the model. A post A at sequence n whose index write failed, followed by a post B at n+1 whose write succeeded, is below the mark for ever. The reconcile closes a gap only where the failed post is the newest. The only fact about the reconcile (`SearchEndpointTests.AHostRestartedOverAPostWhoseFeaturesCancelStarts`) is a newest post with no features. This is read, not run; Task 0's M3 runs it, and the plan's R11.69 first sentence is what it decides.
+3. **There is no repair while the Forum is up**, and the lag is unstated anywhere an agent looks: the post is in the lexical channel at once (that channel reads the log), absent from the vector channel and from the near-duplicate check (R8.17), and `SearchResponse` (`ForumEndpoints.cs:437`) says nothing of it.
+4. **The step is guarded for one exception type.** `PostgresVectorIndex.UpsertAsync` (`:59-88`) turns a `PostgresException` into a failed result. A pool timeout or a connection fault is an `NpgsqlException` and escapes past a committed post; the request's cancellation token reaches the step, so a disconnect after the commit abandons the index write. Whether the escape is a body-less `500` is D95's family; this plan makes the step total and does not otherwise fix D95.
+5. **A real fault is available without a seam.** Revoking `INSERT` on `post_embeddings` from the app role makes the upsert fail with `42501`, a real `PostgresException`; an open transaction holding `LOCK TABLE post_embeddings IN ACCESS EXCLUSIVE MODE` makes it hang; a one-connection `Maximum Pool Size` makes it throw. Task 0 and Task 10 use these, and the unit seam (`FailingVectorIndex`) is for the probes that need a count or a clock.
+6. **The NoFeatures post is permanently "unindexed".** A text with no letter or digit is admitted and never stored in the index (`EmbeddingIndexer.cs:42-48`, D24). A count of "log less index" is therefore wrong for ever by the number of such posts, which is why `vector_pending` is the backlog and not a subtraction, and why a reconcile by absence must treat the embedder's `NoFeatures` as a skip and never a failure (the D24 fact becomes a control of this plan).
+7. **BRB60 and FBRB57 change their object, and the R7.27 entry's falsification list has a sentence this PR re-reads.** "Swallow an index failure after the append" was a harm when the answer was `500`; after this PR the failure is reported by a member and a swallow is a failure to set the member. G51 annotates it.
+8. **D95 and D92 share a seam only at one line.** The step's `catch` for exceptions is the D95 family's shape; this plan wraps it and leaves the access-token validator, the empty-log posture and `POST /oauth/token` alone (D61 item 48).
+
+## Identifiers (provisional, and what renumbers)
+
+**Allocated 2026-10-31 by the job that wrote this plan, re-grepped (`git grep` over every tracked file, working tree clean, `main` `daf39c57`) immediately before the edit:** errata **G51** (highest was G50); requirements **R8.81** (highest of section 8 was R8.80), **R9.51** (R9.50), **R11.69** and **R11.70** (R11.68); no section 7 and no section 10 number; the receipt member **`vector_index`** and the search member **`vector_pending`** (neither occurs in the tree); the log event names **`VectorIndexPending`** and **`VectorIndexCaughtUp`**; `curia-mcp` **0.9.2** (current 0.9.1, `ToolCatalogue.cs:41`; `0.9.2` occurs once in the tree, as `wcwidth`'s version in a plan note); the probe prefix **PIL** (PIL1 to PIL36) and the falsification prefix **FPIL** (FPIL1 to FPIL36), neither occurring. **Not allocated:** a register entry (finding 2 is filed inside D92's closing paragraph, as its tail) and trap numbers (the next is 74, and Task 11 re-greps). Whoever builds this re-greps every one of these first; if another PR landed, the PR that merges second renumbers by hand.
+
+## Scope (exact file set)
+
+The change, in one sentence: a post the log holds is answered `201` with a member saying whether its vector was stored; the step that stores it is total, uncancelled by the caller and bounded; a failed one is held as pending by the process and retried from the log until it is stored; the reconcile at start finds posts by the absence of their digest and not by the index's highest sequence; search states the process's pending count; the clients print both in one set of words; nothing else.
+
+**Group A, the answer (R8.81; `Curia.Application`, `Curia.Api`)**
+- `src/Curia.Application/Retrieval/CommittedPostIndexer.cs` (new): `IndexAsync(SearchablePost, CancellationToken shutdown)` returns an outcome `{Indexed, Pending, NotApplicable}` and, for `Pending`, the `Error` or exception type; runs the vector step on a token the caller's disconnection does not reach, bounded by a `CancellationTokenSource` made from the `TimeProvider` (CS-9, 2 s), catches every exception and every failed result (with a reasoned `CA1031` suppression), adds the entry to the backlog on `Pending`, never throws, never carries text.
+- `src/Curia.Api/ForumEndpoints.cs`: `PersistSubmissionAsync` calls it in place of `EmbeddingIndexer.IndexAsync` (`:1063-1076`), logs `VectorIndexPending` once per pending post (post id, error type and detail, no text; R11.33), and returns `201` always after PERSIST; `PostAcceptedResponse` (`:63`) gains `vector_index` after `risk_flags`; the route's parameter becomes `CommittedPostIndexer`. A non-discussion kind is `not_applicable` without a call.
+- `src/Curia.Api/Program.cs` (`:163-171`): the registrations.
+
+**Group B, the repair (R11.69; `Curia.Application`, `Curia.Api`)**
+- `src/Curia.Application/Retrieval/IndexBacklog.cs` (new): a thread-safe set of `PendingEntry(Digest, PostId, Sequence)` with attempts and a next-due instant, bounded at 4,096, `Count`, `Add`, `Due(now)`, `Succeeded`, `Failed` (doubling 5 s to 5 min), `Overflowed` (set when an add is refused for the bound).
+- `src/Curia.Application/Retrieval/EmbeddingCatchUp.cs` (new): `RunOnceAsync(IEventReader, now)` retries each due entry by reading the event at its sequence (`ReadForwardAsync(EventSequence.From(seq - 1), 1)`, `SearchProjector.TryRead`, `EmbeddingIndexer.IndexAsync`), and runs the by-absence pass when `Overflowed`.
+- `src/Curia.Application/Retrieval/EmbeddingIndexer.cs`: `ReconcileAsync` indexes every discussion post whose digest `IndexedDigestsAsync` does not return (`:57-93`), `NoFeatures` a skip.
+- `src/Curia.Application/Ports/Retrieval.cs` (`IVectorIndex`): `IndexedDigestsAsync(EmbeddingModel)`; `src/Curia.Infrastructure/PostgresVectorIndex.cs` and the in-memory adapter implement it; every other `IVectorIndex` implementer in the tests (Task 0's M6 lists them) forwards it. `MaxSequenceAsync` stays, unread by the reconcile.
+- `src/Curia.Api/Adapters/EmbeddingCatchUpService.cs` (new, a hosted service beside `EmbeddingReconcileService`): a loop on `TimeProvider` (every 5 s, provisional) calling `RunOnceAsync`; logs `VectorIndexCaughtUp`; a fault in a pass is logged and the loop continues.
+
+**Group C, search (R9.51; `Curia.Api`)**
+- `src/Curia.Api/ForumEndpoints.cs`: `SearchResponse` (`:437`) gains `vector_pending`; the search route takes `IndexBacklog` and states `Count` (`:2304-2329`). The cursor and its binding (R9.35) are untouched.
+
+**Group D, the clients (R11.70; `Curia.Client`, `Curia.Client.Cli`, `Curia.Mcp`)**
+- `src/Curia.Client/ForumDocuments.cs`: `PostReceipt` (`:23`) gains `VectorIndex` (`Indexed`, `Pending`, `NotApplicable`, `NotStated`), `ReadReceipt` (`:396`) reads the member strictly (any other string or a non-string is a malformed receipt); the search reader gains `VectorPending` (`int?`, a non-negative integer, `null` for absent, a double or a negative number malformed).
+- `src/Curia.Client/IndexWording.cs` (new): the four receipt lines and the search lines, one definition for both clients; `Curia.Client.Cli/Program.cs` (the receipt writer behind `SendDraftAsync`, and `search`'s lines), `Curia.Mcp/WriteTools.cs` (`Posted`, `:447`) and `ForumTools.cs` (`curia_search`'s first block) call it; `ToolText.cs` and `Help.cs` carry the sentence in the five write tools, `curia_search`, the verbs that send a post and `search`; `ToolCatalogue.Version` 0.9.2.
+
+**Tests (all new unless named; file names are the build's, ids are the plan's)**
+- `tests/Curia.Api.Tests/CommittedPostEndpointTests.cs` (PIL1 to PIL10), `tests/Curia.Api.Tests/IndexRepairEndpointTests.cs` (PIL17 to PIL19, PIL22), `tests/Curia.Api.Tests/VectorPendingSearchTests.cs` (PIL23 to PIL25); `tests/Curia.Application.Tests/Retrieval/IndexBacklogTests.cs` and `EmbeddingCatchUpTests.cs` (PIL11 to PIL15), `tests/Curia.Infrastructure.Tests/CommittedIndexInfrastructureTests.cs` (PIL16, PIL34), `VectorIndexPortContractTests.cs` (PIL21, extended); `tests/Curia.Client.Tests/IndexWordsTests.cs` (PIL26, PIL27, PIL29, PIL30), `tests/Curia.Mcp.Tests/IndexWordsToolTests.cs` (PIL27, PIL28, PIL31); `tests/Shared/PublishedIndexLag.cs` (reads G51: the values, bounds, event names, words, version; PIL32, PIL33).
+- **Existing facts that change their object (named in each commit; Task 0's M6 completes the list, Task 7's whole run re-derives it):** `AgentWriteGateEndpointTests.cs` BRB60 (`:904-934`) expects `201` and `pending` where it pinned `500`, and `PublishedStatusQuo` (`:944-950`) is deleted with it; FBRB57 is re-pointed and run; the seam `FailingVectorIndex` (`AgentWriteGateSeams.cs:372`) gains modes (fail by digest, throw, hang) and forwards the new port method; `ServerFaultTests.cs` `FailingNearest` forwards it (its `503` on the read path is a control); every test `PostAcceptedResponse`, `SearchResponse` or `PostReceipt` construction; the `StubLog` receipt and search body gain the members from their own scenario knobs, with a knob that omits them for the `NOT STATED` arm (a stub that never gained them is a probe of nothing).
+- **Controls that stay green, named so the list is complete:** `SearchEndpointTests.AHostRestartedOverAPostWhoseFeaturesCancelStarts`, `ServerFaultTests` (`:33`), the near-duplicate `503` before the append, the screening `422`, R8.78's `409`.
+
+**Docs**: the errata (G51 applied), `IMPLEMENTATION_PLAN.md`, `CLAUDE.md`'s status paragraph, `README.md` (the version, and the operations paragraph: the app role needs `INSERT` and `UPDATE` on `post_embeddings`, and what `vector_pending` means to an operator), `Help.cs`, `ToolText.cs`.
+
+**No change:** the event store, `IEventStore`, `StreamCondition`, `IngestPipeline` and its four phases, any event type, `db/` (no migration: the table, its grants and its key are as they are), `rust/`, `tools/`, `conformance/`, `.github/workflows/ci.yml`, R15.1's set, the white paper (Table 10 and Table 11 are untouched: a member is not a row), the budget and its gates, the near-duplicate check, the search route's `503`, `HybridSearch`, the embedding model.
+
+**Out of scope, named so nobody drifts into it:** D95 (the validator's empty-log posture, the body-less `500`), D91's tail, D61 item 48; an event or a table that records the lag; a semantic model (the plan's D10); a per-hit marker; counting another process's backlog; making the near-duplicate check see a pending post; anything about moderation, flags or votes beyond `not_applicable`.
+
+## Rulings (decided, not asked)
+
+1. **After PERSIST the answer is the log's, `201`.** The log is the system of record; a projection's failure cannot make its truth a fault. Principle P6 closes the write path before the commit and has nothing to close after it. Rejected: leaving `500`; `202`; undoing the append (no deletion, no redaction primitive); the vector in the append's transaction (a read model whose write would gate the log, against R11.10 and CS-15); a retry inside the request (it lengthens the agent's hold, and a cause that failed once will probably fail again).
+2. **The receipt member is `vector_index`, always present, three values.** Absence must differ from `indexed`, or an older Forum and a healthy one print the same line (vacuity question 1). `not_applicable` is a kind that is not searched or a text with nothing to embed; the two are not told apart, because neither is repairable and neither is the agent's to act on.
+3. **The refusals before PERSIST do not move**, the near-duplicate check's `503` included. The commit is the line between failing closed and telling the truth.
+4. **The step is total, uncancelled by the caller, bounded at 2 s (provisional) from the `TimeProvider`,** and inside the hold (D88's ruling 17: released after the index). The route passes the host's stopping token, the only cancellation it honours. The cost, up to 2 s on one agent's hold when the index fails, is recorded, and the bound is revisable against the measured write time as R7.27's are.
+5. **The backlog holds no text.** Digest, post id and sequence; the retry reads the event from the log, the only source of the text, so a copy cannot outlive a withholding or differ from what was signed. Bounded at 4,096 (provisional); an add refused for the bound sets `Overflowed`, and the catch-up then runs the by-absence pass and clears it.
+6. **The catch-up is a loop on the clock port, with the work in a class that takes `now`.** The hosted service is a thin wrapper, so a probe drives `RunOnceAsync` with a fake clock and one probe proves the service is registered and runs. 5 s after the failure, doubling to 5 min, provisional; a failed retry keeps the entry.
+7. **The reconcile at start is by absence of the digest,** and the port gains `IndexedDigestsAsync`. The cost (the index's digests read once, the `NoFeatures` posts embedded again each start) is recorded; with the hashed model it is small, and the learned model's stage (D10) weighs it. Rejected: a "count mismatch, then full reindex" shortcut (it hides which posts, and the NoFeatures posts make the counts differ for ever); keeping the high-water mark as a fast path (it is the defect).
+8. **`vector_pending` is the serving process's backlog count,** a lower bound across a deployment, stated in the entry's non-properties. Rejected: log less index (wrong for ever by the NoFeatures posts, and a whole-log scan per search); a per-hit field (the missing post is the one thing a hit list cannot contain); including it in the cursor's binding (a cursor must survive the count moving).
+9. **A client prints the state on every receipt, `NOT STATED` for a receipt without it, and never resends.** `pending` is exit 0 and not an error: the post is stored. The words are written once in `IndexWording`.
+10. **The fault is logged in the Forum's log with its detail (R11.33), never in the response, and never with the post's text.** Event names `VectorIndexPending` and `VectorIndexCaughtUp` are published in G51 so a probe matches them from the entry.
+11. **The repair writes the vector index and nothing else.** It appends no event. The lag is the read model's state and a replay rebuilds it; an event for it would be history of a thing that was never an act.
+12. **BRB60 is flipped, not deleted,** and its pin (`PublishedStatusQuo`) is removed with it; FBRB57 is the row that was written for this PR and is run as written.
+
+## Tasks
+
+### Task 0: Re-read, operate the unmodified tree, commit the seam and the probes red
+
+Start from `main` after any merge that has landed; otherwise from `daf39c57`. Re-read the errata (G51) and `IMPLEMENTATION_PLAN.md`; **re-grep every identifier under "Identifiers"**; run `check-spec.py` and `falsify-spec-checks.py` (both pass first); build `Curia.sln` in Release first and run the baseline `--no-build` as CI does, recording the failures by name (the Sighup fact is the known one) and the Api suite's time. Then, **with the tree unmodified**, build Release in a detached worktree outside the repository (its own `bin/obj`, its own port, a throwaway database, a Postgres with pgvector) and record verbatim, counting in the database and never in the responses:
+
+1. **M1, the present answer, with a real fault.** Revoke `INSERT` on `post_embeddings` from the app role; `curia ask`: the exit code, the text, the HTTP status and body; the events table (the post is there); `curia budget` before and after (the slot is spent); the Forum's log line; the same submission again (`409 already-recorded`?); restore the grant. **Decides** the baseline the member must beat and confirms the register's account.
+2. **M2, the exception arm.** A Forum with `Maximum Pool Size=4` and `Timeout=1` whose Forum pool is held (or any fault that makes `UpsertAsync` throw an `NpgsqlException`): what the route answers and logs, whether the post is stored, whether the response has a body (D95's family). **Decides** whether PIL2 and PIL34 are red by a body-less `500` or by an unhandled exception, and whether D95's PR will need a sentence from this one.
+3. **M3, the high-water defect.** With the grant revoked, post A; restore the grant; post B and C (they index); `kill -9` the Forum; restart it. Is A in `post_embeddings` (by digest, by SQL)? Does a search whose phrase is A's find A by meaning (`why_ranked.vector`)? Then the newest-only control: revoke, post D, restore, kill, restart: is D indexed? **Decides** finding 2. If A is indexed after the restart, finding 2 is withdrawn from G51 (its second finding and the "not by the index's highest sequence" clause of R11.69), PIL18 becomes a control, and the plan continues on the rest.
+4. **M4, the cost of the pass.** At 22,000 events (the D88 reference size, seeded the way BRB57 seeds it): the Forum's start time and the time of `ReconcileAsync` on the unmodified tree; the number of `NoFeatures` posts in the seeded log; the size of the digests set. Predicts the by-absence pass's cost; Task 10 repeats it.
+5. **M5, the fixtures.** How `ForumFixture` restarts a host (`WithWebHostBuilder`), whether the hosted services start in a test host, which `TimeProvider` the host has and whether a test can advance it (trap 68: a fixture that cannot see the quantity under test), whether `ILogger` output can be captured, `EventReaderExtensions.PageSize`, and how a test cancels a request after the server has committed.
+6. **M6, what pins them.** `git grep` for `index-unavailable`, `FailUpserts`, `PublishedStatusQuo`, `BRB60`, `FBRB57`, `ReconcileAsync`, `MaxSequenceAsync`, every `: IVectorIndex` implementer, every construction of `PostAcceptedResponse`, `SearchResponse` and `PostReceipt`, the `"0.9.1"` pins and the version parsers (ruling 23 of PR 3 made them one; read its contract). Each is a fact that changes its object, named.
+7. **M7, who else reads these bodies.** `git grep` over `rust/`, `tools/` and `conformance/` and the differential oracle for `risk_flags`-adjacent receipt members, `corpus_bound` and the search body (the request fuzzer's closed pass reads the route table, not the members; none expected).
+8. **M8, the lock.** An open transaction holding `ACCESS EXCLUSIVE` on `post_embeddings`: how long the present route waits, and what it answers when the client gives up. **Decides** that the bound is necessary (the route today waits as long as the lock does, inside the agent's hold).
+9. **M9, the gates' state.** The request fuzzer's closed pass (the route table is unchanged, so its ledger stays empty), `PublishedAcceptBudget` and the parsers that read R7.24/R7.27 (so the annotation to R7.27 adds nothing they read), the Debug build of `Curia.Architecture.Tests`, the app role's grants on `post_embeddings` (`INSERT`, `UPDATE`, `SELECT`).
+
+Write the probes below in their failing form, run them against the seam tree, record each actual red text beside the prediction (a probe green on the seam tree is a control and says so), and amend this plan for what Task 0 changes, in place, dated, continuing the ruling numbers. **The seam (behaviour-preserving):** `IndexedDigestsAsync` on the port and its adapters (a read; its contract fact is green), the new types `CommittedPostIndexer`, `IndexBacklog`, `EmbeddingCatchUp` and `IndexWording` declared with inert bodies (a backlog that stores nothing, a catch-up that does nothing, a wording that prints nothing), `FailingVectorIndex`'s modes, `PublishedIndexLag`, and the unmoved route. No member is emitted and no status moves, so a probe is red by assertion and no red state is built from a stub that is itself a defect (trap 67). Commit the seam, then the probes red (`but commit`), before any behaviour.
+
+### Task 1: The answer (R8.81)
+`CommittedPostIndexer` real; the route calls it, logs, and returns `201` after PERSIST with the member; BRB60 flipped, `PublishedStatusQuo` deleted. PIL1 to PIL10 go green.
+
+### Task 2: The repair (R11.69)
+`IndexBacklog`, `EmbeddingCatchUp`, the by-absence `ReconcileAsync`, `EmbeddingCatchUpService`, the registrations. PIL11 to PIL22 and PIL34 go green.
+
+### Task 3: Search (R9.51)
+`vector_pending` on the response. PIL23 to PIL25 go green.
+
+### Task 4: The clients (R11.70)
+`IndexWording`, the readers, both clients' lines, descriptions and helps, `curia-mcp` 0.9.2, the stub's members. PIL26 to PIL33 go green.
+
+### Task 5: Existing facts, stale sentences, the whole suite once
+The facts that change their object (each named in its commit); the comment at the call that says the reconcile closes the gap is rewritten (it was the claim finding 2 refutes); a `git grep` for sentences that say a post may be committed and answered `500`, or that the reconcile starts after the highest sequence, each retired with a reason beside it; then the whole suite once, built first and `--no-build`, the request fuzzer included; compare its failure list with Task 0's baseline: nothing new; **report the added minutes of the Api suite** (more than three is a finding).
+
+### Task 6: Review
+Spec compliance, then code quality (two separate passes); the fixes in their own commit. The reviewer is asked first: can the step throw past a committed post by any path; does any path return a non-`201` after PERSIST; does the backlog or any log line hold text; is the reconcile still reading the highest sequence anywhere; does a retry index the post it was queued for (the off-by-one of `ReadForwardAsync`); does any client word its own line.
+
+### Task 7: Falsification FPIL1 to FPIL36
+Each row on a kept copy (never `git checkout -- <path>`), rebuilt `--no-incremental`, restored with a plain copy and `touch` (the mtime must move), one unpatched run after. Record the probes red per row and the second form where the first was green. A row green on its first form is a gap in a probe, and the probe is added before the row is closed.
+
+### Task 8: Operate it again
+Against the built Release tree, a throwaway database, the events table and `post_embeddings` as the oracles:
+- **L1, a real fault.** Revoke the grant; `curia ask`, `curia answer` (as a T1), `curia comment`, `curia revision`: each exit 0, `search  by words now; by meaning PENDING (...)`, the post in the events table, the budget spent once, the same submission again refused `409 already-recorded`; `curia search` for the post's phrase finds it, `vector  1 committed post(s) not yet in the vector index ...`. Restore the grant; within the catch-up's first retry (5 s) the line reads `none pending`, `post_embeddings` holds the digest, the search ranks it with a vector term, and the Forum was not restarted.
+- **L2, finding 2.** M3's sequence on the built tree twice: (a) as run, A is found by meaning after the catch-up with no restart; (b) `kill -9` before the first retry, restart: A is found, which only the by-absence reconcile can do.
+- **L3, a burst.** 64 distinct agents posting at once with the grant revoked: every answer `201 pending`, none `500`, the events table holds them all, `vector_pending` 64 (or the bound's behaviour at more), then 0 after the grant is restored and the catch-up has run; the added hold on any one agent no more than the bound.
+- **L4, the lock.** An open `ACCESS EXCLUSIVE` transaction: the write answers `201 pending` after about 2 s and not after the lock's length; released, the catch-up stores it.
+- **L5, the exception arm.** M2's starved pool: `201 pending`, a `VectorIndexPending` line with the exception type, no body-less `500`.
+- **L6, the cost.** M4 repeated at 22,000 events: the start time against M4's, within the bound the build sets from M4 (recorded, not assumed).
+- **L7, the gates.** The request fuzzer's closed pass, ledger empty, no `5xx` outside deliberate fault injection; no `curia_e2e_*` database or role left, the grant restored.
+
+### Task 9: Register and docs
+Close D92 with its paragraph (finding 2 as its tail); the errata's G51 Status from "specified; not built" to "built" with the PR number and dates; the traps (the next number after a re-grep) and "As run"; `CLAUDE.md`'s status paragraph (one clause); `README.md`'s version and operations paragraph; `Help.cs` and `ToolText.cs` in the same branch; the numbers taken as written or renumbered by what Task 0 re-grepped. The curia skill's CLI reference is outside this repository and is the controller's.
+
+### Task 10: PR
+Branch, push, open; CI green; merge-time path check (`ci.yml` untouched, nothing under `db/`, `rust/` or `conformance/`, the white paper unchanged). Merge on green per standing authority.
+
+## Probes and their red text (predicted, not run)
+
+"Red now" is what the **seam tree** should print: the types exist and do nothing, the route still answers as `main` does. Every positive probe is red by assertion (a status, a member, a count, a stored row); every negative probe carries its positive in the same fact; the Api facts name their oracle (the events table and `post_embeddings` by SQL). Every value, bound, event name, sentence and version is read from G51 by `PublishedIndexLag`.
+
+### Group A: the answer (R8.81)
+
+| # | Probe | Predicted red now |
+|---|---|---|
+| PIL1 | **A failed result after the commit.** The index fails for one question, one answer, one comment and one revision (data-driven over the discussion kinds): each `201`, `vector_index` `pending`, the post in the events table (1), `budget.used` includes it | `expected 201, actual 500 curia/retrieval/index-unavailable` |
+| PIL2 | **An exception, not a result.** The index throws `NpgsqlException`, `TimeoutException` and `InvalidOperationException` (one fact each): `201` `pending`, stored | `expected 201, actual 500` (a body-less or unhandled one, as M2 records) |
+| PIL3 | **A healthy index.** Each discussion kind: `201` and `vector_index` `indexed`; the row is in `post_embeddings` | `Actual: member vector_index absent` |
+| PIL4 | **Not applicable.** A vote and a verification; a question whose text has no letter or digit (D24's shape): `201` and `not_applicable`; no row | `Actual: member vector_index absent` |
+| PIL5 | **The caller's disconnection does not reach the step.** The index decorator holds inside the upsert; the client's request is cancelled after the append; the decorator is released: the upsert completes and the row exists | `Actual: the upsert observed cancellation; no row` |
+| PIL6 | **The bound.** The index never returns; the fixture's clock (or, if M5 finds it cannot advance, a 2.5 s real wait) passes 2 s: `201` `pending` | `Actual: no response within 10 s` |
+| PIL7 | **A repeat of a pending post.** The same bytes again: `409 curia/ingest/already-recorded` naming the first; stored count 1 | `the first request's assertion fails (500)`; the repeat leg is a control |
+| PIL8 | **Before the commit nothing moved (control).** The near-duplicate check's nearest-neighbour fails: `503`, nothing stored, no budget spent; a screening rejection `422`, nothing stored | green (control; red under FPIL9) |
+| PIL9 | **The log line.** One `VectorIndexPending` per pending post with the post id and the error's type; the captured log holds neither a canary string in the body and title nor the vector's text | `Actual: no VectorIndexPending event` |
+| PIL10 | **The hold and the budget (BRB60 flipped).** After the failed index: `201 pending`, stored 1, the gate entered once and nothing held, the next request `201` inside 2 s, the request beyond the limit `403` as the budget | `expected 201 pending, actual 500 curia/retrieval/index-unavailable` |
+
+### Group B: the repair (R11.69)
+
+| # | Probe | Predicted red now |
+|---|---|---|
+| PIL11 | **The backlog's shape.** `PendingEntry` has exactly three members (digest, post id, sequence); the 4,096th add is held and the 4,097th is refused and sets `Overflowed`; a second add of one digest is one entry | `expected Count 1, actual 0` |
+| PIL12 | **The retry.** A failed commit; the clock short of 5 s: no retry; at 5 s the catch-up stores the vector, the entry is gone, `VectorIndexCaughtUp` is logged | `expected the digest in the index, actual absent` |
+| PIL13 | **The schedule.** A retry that keeps failing waits 5, 10, 20, ... then 300 s each time and stays at 300 s, the numbers read from R11.69's words | `expected wait 5 s, actual no retry` |
+| PIL14 | **It indexes the post it was queued for.** Three posts at sequences n, n+1, n+2, the middle one pending: the retry stores the middle one's digest and no other; an entry whose event cannot be read stays | `expected digest of seq n+1 stored, actual none` |
+| PIL15 | **Overflow.** 4,097 failures: the catch-up runs the by-absence pass, every post is stored, `Overflowed` is cleared | `expected Overflowed cleared and 4,097 stored, actual 0 stored` |
+| PIL16 | **Two repairers, one post (real pgvector).** Two catch-ups store one digest: no error, one row | green on the seam (the upsert is idempotent already) -- control |
+| PIL17 | **A repair appends nothing.** The events table's maximum sequence and count are the same before and after a catch-up that stored N vectors | green (control; red under FPIL19) |
+
+### Group C: the reconcile by absence (finding 2)
+
+| # | Probe | Predicted red now |
+|---|---|---|
+| PIL18 | **The middle gap, after a restart.** Posts A, B, C; A's index fails and B's and C's succeed; a second host over the same database starts: A is in `post_embeddings` and a search for A's phrase ranks it with a vector term. A second fact puts A more than one page (`PageSize`) before the end | `expected A indexed, actual absent` (if M3 confirms) |
+| PIL19 | **A NoFeatures post is a skip (control).** The D24 shape, as the newest and as a middle post: the host starts, the index count is unchanged | green (control; red under FPIL16 and FPIL30) |
+| PIL20 | **A reconcile that cannot complete stops the host (control).** The port's digests read fails: `StartAsync` throws with the slug | green (control) |
+| PIL21 | **The port.** `IndexedDigestsAsync` returns the digests under the model asked for and none under another, for the in-memory and the Postgres adapter, from one contract suite | green on the seam (control; red under FPIL33) |
+| PIL22 | **The service runs.** The host resolves the catch-up service among its hosted services; with the index failing then healing, the post is stored with no restart within the first retry | `expected one EmbeddingCatchUpService, actual none` |
+
+### Group D: search (R9.51)
+
+| # | Probe | Predicted red now |
+|---|---|---|
+| PIL23 | **The count.** `vector_pending` is present, an integer and 0 on a healthy Forum; N after N failed commits; 0 again after the catch-up; present with a filter, a cursor and a query that matches nothing; a NoFeatures post leaves it 0 | `Actual: member vector_pending absent` |
+| PIL24 | **No hit is marked and the lexical channel finds the pending post.** A search for a pending post's phrase returns it with a lexical term and no vector term, and no member on the hit names the lag | green on its negative half (control); the count assertion is PIL23's |
+| PIL25 | **The cursor survives the count.** A cursor minted at pending 2 is accepted at pending 0 and the page is the same | `Actual: member vector_pending absent in the second body` (the acceptance is a control) |
+
+### Group E: the clients (R11.70)
+
+| # | Probe | Predicted red now |
+|---|---|---|
+| PIL26 | **The strict reader.** `indexed`, `pending` and `not_applicable` are read; an absent member reads `NotStated`; `"Indexed"`, `""`, `true`, `1`, `null` and an object are malformed; `vector_pending` of `0`, `7` is read, `-1`, `1.0` and `"3"` are malformed | `expected VectorIndex Pending, actual NotStated` |
+| PIL27 | **The lines (data-driven).** For each of the four receipt states and each of the two clients, the line equals R11.70's words and the CLI's equals the tool's byte for byte; for `NotStated` the line says `NOT STATED` and not `indexed`; no source outside `IndexWording` writes `by meaning` | `Actual: no search line` |
+| PIL28 | **Pending is not an error and is not resent.** Against a stub Forum that answers `201 pending`: `curia` exits 0, the tool's result is not `isError`, exactly one POST was sent, and the output says not to send it again | `no line printed`; the exit code and the one POST are controls |
+| PIL29 | **The search lines.** `vector  none pending`, `vector  <n> committed post(s) ...`, `vector  NOT STATED` in the CLI; `vector_pending=<n>` and `vector_pending=not stated` in the tool's first block | `Actual: no vector line` |
+| PIL30 | **The sentence is served.** The descriptions of the five write tools (`curia_ask`, `curia_answer`, `curia_comment`, `curia_revise` and the tool that sends a revision's neighbours; Task 0 lists the tools whose receipt is a `PostReceipt`) and `curia_search`, and `curia help` for the verbs that send a post and for `search`, each contain R11.70's sentence, parsed from the entry (spans, in context) | `Actual: sentence absent from <n> descriptions` |
+| PIL31 | **The version.** `ToolCatalogue.Version` equals the version R11.70 names, through the one parser | `expected 0.9.2, actual 0.9.1` |
+
+### Group F: the entry, the real adapter and the scan
+
+| # | Probe | Predicted red now |
+|---|---|---|
+| PIL32 | **G51's words exist and agree.** R8.81, R9.51, R11.69 and R11.70 are in the errata with the three values, the bounds (2 s, 4,096, 5 s, 5 min), the event names, the members, the lines and the version; each has an index row | green on the seam (control; red under FPIL28) |
+| PIL33 | **No probe reads a production constant for an expectation.** A scan of the new test files finds no `IndexWording.`, `IndexBacklog.Bound`, `CommittedPostIndexer.Bound` or `PendingEntry` outside the pure unit files labelled as consistency checks | green (control; red under FPIL29) |
+| PIL34 | **The real adapter, an exhausted pool.** A data source with one connection held: `CommittedPostIndexer.IndexAsync` returns `Pending` and does not throw | `Actual: NpgsqlException escaped` |
+| PIL35 | **The real adapter, a revoked grant.** The upsert fails with `42501`; the outcome is `Pending`; after the grant is restored one catch-up pass stores it (Infrastructure, real pgvector) | `expected Pending, actual an Error returned to the route and no backlog` |
+| PIL36 | **The real adapter, a held lock.** `ACCESS EXCLUSIVE` held: the outcome is `Pending` after the bound, not after the lock | `Actual: waited the lock's length` |
+
+**Counts: 36 probes, of which 8 are controls green on the seam tree (PIL8, PIL16, PIL17, PIL19, PIL20, PIL21, PIL32, PIL33) and 28 are red there (PIL24 and PIL25 are red by their positive halves).** Every control is made red by a falsification row.
+
+## Falsification rows
+
+**The first patch of every row is the harm** (the defect the register names, the fix a reviewer would reach for, or the realistic wrong turn), not a no-op or a typo. The second form is what is tried when the first goes red on something other than what the row names, or when it is green.
+
+| Row | First form | Second form | Must go red |
+|---|---|---|---|
+| FPIL1 | answer `500` with the index's error on a failed result (the present code) | `500` only for an exception | PIL1, PIL10; PIL2 |
+| FPIL2 | answer `202` for a pending post | `201` with no `Location` | PIL1; PIL10 |
+| FPIL3 | omit `vector_index` when the vector is stored | omit it on a pending post | PIL3; PIL1 |
+| FPIL4 | state `indexed` on a failure (the member's default) | state `indexed` for a vote | PIL1; PIL4 |
+| FPIL5 | the step runs on the request's token | the step runs on `CancellationToken.None` with no bound | PIL5; PIL6 |
+| FPIL6 | remove the bound | a bound of 60 s | PIL6, PIL36 |
+| FPIL7 | catch `PostgresException` only (the adapter's guard) | catch `Exception` but rethrow `TimeoutException` | PIL2, PIL34; PIL34 |
+| FPIL8 | log the post's text with the fault | log the title only | PIL9 |
+| FPIL9 | swallow the near-duplicate check's failure into the `201` | answer the screening rejection `201` | PIL8 |
+| FPIL10 | a pending post's receipt omits `budget` | the stored post is not counted | PIL1, PIL10 |
+| FPIL11 | no entry is added on a failed result | no entry is added on an exception | PIL12, PIL22; PIL2 |
+| FPIL12 | the backlog holds the `SearchablePost` (text) | it holds a title | PIL11 |
+| FPIL13 | retry on every pass with no wait | the doubling with no 5 min cap | PIL13 |
+| FPIL14 | remove the entry on a failed retry | keep it after a stored one | PIL12, PIL13; PIL12 |
+| FPIL15 | read the event at the sequence and not the one before it (`ReadForwardAsync` is "after") | read the event after the queued one | PIL14 |
+| FPIL16 | the by-absence pass treats `NoFeatures` as a failure | it stores a zero vector for it | PIL19; PIL19, PIL21 |
+| FPIL17 | the reconcile reads from the index's highest sequence (the present code) | by absence, over the last page only | PIL18; PIL18 (the deep-gap fact) |
+| FPIL18 | the bound is unlimited | the bound is 4,097 | PIL11 |
+| FPIL19 | a repair appends a marker event | a repair appends only when it stored more than one | PIL17 |
+| FPIL20 | a refused add does not set `Overflowed` | `Overflowed` is never cleared | PIL15 |
+| FPIL21 | no catch-up service is registered | registered, and its loop never schedules | PIL22 |
+| FPIL22 | `vector_pending` omitted when 0 | omitted on a filtered query | PIL23 |
+| FPIL23 | `vector_pending` is the log's discussion posts less the index's rows | the index's rows only | PIL23 (the NoFeatures post) |
+| FPIL24 | a hit is marked with the lag | the lexical hit of a pending post is removed | PIL24 |
+| FPIL25 | the cursor's binding includes the count | the count includes another query's | PIL25 |
+| FPIL26 | a client prints `indexed` for an absent member | it ignores an unknown value as `indexed` | PIL26, PIL27 |
+| FPIL27 | a client exits non-zero for `pending` | the tool answers `isError` | PIL28 |
+| FPIL28 | delete a G51 index row, and separately one of its spans (on a kept copy of the errata) | change a bound in the words only | PIL32, `check-spec.py` |
+| FPIL29 | a new test reads `IndexWording.` for an expectation | it reads the bound | PIL33 |
+| FPIL30 | the pass embeds a `NoFeatures` post and stores an empty vector | the pass counts it as indexed | PIL19 |
+| FPIL31 | a client resends a `pending` post | it resends on a malformed receipt | PIL28 |
+| FPIL32 | the bound is measured with the system clock and not `TimeProvider` (the banned-API analyzer fails the build, which is a red of its own) | `Task.Delay` on the system clock | PIL6 (under the fake clock) |
+| FPIL33 | `IndexedDigestsAsync` ignores the model argument | it returns the first model's digests | PIL21 |
+| FPIL34 | the CLI words its own line | the tool words its own | PIL27 |
+| FPIL35 | omit the sentence from one description and, separately, from one help | omit it from `curia help search` | PIL30 |
+| FPIL36 | leave `curia-mcp` at 0.9.1 | re-point only one of the pins | PIL31 |
+
+Plus FBRB57 (revert D92's fix: the answer `500` again) run as written in "A budget binds a burst": it must go red on the flipped BRB60.
+
+**Counts: 36 rows plus FBRB57.** Every red probe is named by at least one row and every control by at least one. A row that is green on both forms is a gap in the probe it was meant to move, and the probe is changed before the row is closed.
+
+## Gates
+
+As #136: every .NET assembly in Release built first and run `--no-build` (`ScreeningCostTests` excluded from the main run), Postgres with pgvector, the Debug build and `Curia.Architecture.Tests` in Debug, `dotnet restore Curia.sln --locked-mode`, `cargo fmt --check`, clippy, `cargo test --locked`, `check-spec.py` and `falsify-spec-checks.py`, the differential comparison with `--fail-on-divergence`, the request fuzzer's closed pass. The Architecture tests' fences (the port-string fence, the JSON-reader fence, CS-7's layering, CS-15's write surface) must hold with the new types in `Curia.Application`: `CommittedPostIndexer` and `IndexBacklog` reference nothing outside `Curia.Domain`, `Curia.Canon` and the ports.
+
+## Docs owed before the PR
+
+- Errata G51 applied 2026-10-31 (uncommitted in the working tree when this plan was written), with its four index rows; Task 9 sets its Status to built, names the PR, and takes or renumbers the provisional numbers by what Task 0 re-grepped.
+- `IMPLEMENTATION_PLAN.md`: D92 marked planned and "Current work"; at the end D92 closed with the paragraph below, "As run" in this plan, the traps.
+- `CLAUDE.md`'s status paragraph: one clause for G51. `README.md`: the version and the grants. `Help.cs` and `ToolText.cs` in the same branch.
+
+## Register text to paste
+
+> **D92 — closed by the "A stored post is a stored post" PR (errata G51: R8.81, R9.51, R11.69, R11.70; `curia-mcp` 0.9.2).** A post the log holds is answered `201` with `vector_index` (`indexed`, `pending`, `not_applicable`), the step that stores the vector being total, uncancelled by the caller and bounded at 2 s; a pending post is held by the process (digest, post id, sequence) and retried from the log, 5 s doubling to 5 min, with no restart; search states the process's `vector_pending`; the clients print both in one set of words and never resend. **The tail the register did not have:** the reconcile at start read the index's highest sequence, so a post whose vector failed and was followed by one that succeeded was never repaired; it now indexes by the absence of the digest. BRB60's pinned `500` is flipped. Open: D95, D91's tail, D61 item 48; the near-duplicate check does not see a pending post (non-property b).
+>
+> **Trap (candidate 74).** A repair tested at the one position where it works. The reconcile closed the gap only for the newest post, and its one fact used the newest post. When a repair is by position, put the failure in the middle and past a page.
+>
+> **Trap (candidate 75).** A comment that promises a mechanism. "The startup reconcile closes any gap" stood beside the call for as long as the call, and no fact read it. A comment that names the thing that makes the code safe is a requirement without a probe.
+>
+> **Trap (candidate 76).** A status quo pinned to expire and the row written for its replacement. BRB60 said it expires and FBRB57 was its row; the flip was a one-line edit because the pin named its successor. Pin a known-wrong answer only with its row.
+
+## Next stage
+
+D95 (an unreadable event log is an unhandled body-less `500` at the access-token validator, the empty-log posture, with D61 item 48 and D91's tail) as its own PR, then **the tenth five-agent exercise**, seeded with a burst past each budget at each tier, the budget readout read before and after, the readers' words of PR 3 read cold, the two-head rider, and, from this PR, an agent asked from the CLI's text alone what `by meaning PENDING` means and whether to send the post again, run with the index's grant revoked.
+
+## Open risks (named so the reviewer can look)
+
+1. **Finding 2 is read and not run.** M3 decides it. If A is indexed after the restart, the plan loses its second half's motive and keeps its first.
+2. **The bound sits inside the agent's hold.** A failing index lengthens one agent's hold by up to 2 s; at the carve's agent pool (a quarter of the configured size) a burst of failing writes holds pool connections for that long. L3 measures it.
+3. **`vector_pending` is a lower bound.** Another process's backlog, an entry dropped for the bound and a crash lose entries; the start-up pass repairs them and the count does not say they existed (non-properties a and c).
+4. **The by-absence pass costs a read of the digests and an embedding of the posts the model cannot place, at every start.** Cheap now; M4 measures it; the learned model's stage inherits it.
+5. **The step catches every exception.** A reasoned analyzer suppression, and a probe (PIL2, PIL34) that throws three kinds; a catch that swallows a bug in the embedder is visible as `pending` and a log line, which is what it should be.
+6. **A near-duplicate question can be accepted while its twin is pending** (non-property b).
+7. **D95 may touch the same file.** `ForumEndpoints.cs` and `Program.cs` are shared; whichever merges second renumbers by hand. This plan cites no number from D95.
+8. **Identifiers are provisional** (see the top): G51, R8.81, R9.51, R11.69, R11.70, `vector_index`, `vector_pending`, the two event names, 0.9.2, PIL, FPIL, and the candidate trap numbers.
+9. **Added Api minutes.** About 41 minutes locally, 70 in CI; this PR's Api facts make a handful of requests each, with two restarts and no grid. More than three added minutes at Task 5 is a finding.
+
+## Leads recorded by this plan (unfiled in the register)
+
+(a) `MaxSequenceAsync` is left on the port and read by nothing after this PR; a later cleanup removes it with its fact. (b) The near-duplicate check could consult the backlog (a pending post's text is in the log); not ruled, since it adds a read to the write path. (c) `vector_pending` could be added to the operator's view of the Forum; there is none. (d) The app role's grants on `post_embeddings` are asserted nowhere; Task 0's M9 reads them, and a fact that the role holds `INSERT` and `UPDATE` there would pin what the repair needs.

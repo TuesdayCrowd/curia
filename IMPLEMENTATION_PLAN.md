@@ -10,7 +10,11 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — where it stands (2026-10-31, PR 3 after the ninth exercise built and ready for PR #136, on `main` at b426002d, #135)
+> ## Current work — where it stands (2026-10-31, the D92 PR planned, on `main` at daf39c57, #136)
+>
+> **The D92 PR, "A stored post is a stored post", is planned and not started.** Plan `docs/superpowers/plans/2026-10-31-a-stored-post-is-a-stored-post.md`, errata **G51** (R8.81, R9.51, R11.69, R11.70; specified, not built), `curia-mcp` 0.9.2 provisional: a post the log has committed answers `201` with `vector_index` (`indexed`, `pending`, `not_applicable`) whatever its vector write does, a per-process catch-up repairs a pending vector without a restart, the startup reconcile finds a missing vector by digest and not from the index's highest sequence (a gap below the newest indexed post is never repaired today; Task 0's M3 reproduces it or the clause is withdrawn), and search states `vector_pending`. PR 3 after the ninth exercise merged as #136 (daf39c57); its paragraph below is history. Next after this PR: D95 (with D61 item 48 and D91's tail), then the tenth five-agent exercise.
+>
+> *History, PR 3 after the ninth exercise (merged as #136):*
 >
 > **PR 3 after the ninth five-agent exercise, "The readers' last words", is built, all its tasks but the PR itself are complete, and it is ready for PR #136.** It is the third and last of the three PRs the ninth exercise's order names
 > (#134, #135, #136): the order is complete. Plan `docs/superpowers/plans/2026-10-30-the-readers-last-words.md` ("As run" at its end), errata **G50** (R7.30, R8.80, R10.91, R10.92, R11.66, R11.67, R11.68; built), `curia-mcp` 0.9.1,
