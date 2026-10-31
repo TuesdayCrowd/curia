@@ -230,9 +230,7 @@ public static class ActaEndpoints
         // could not place.
         if (!read.TryGetValue(out var log, out var readError))
         {
-            return (null, new ServerFault(
-                StatusCodes.Status503ServiceUnavailable,
-                new Error("curia/log/unreadable", "The event log could not be read", readError!.Type)));
+            return (null, StoreFaults.LogUnreadable(readError!.Type));
         }
 
         if (!ActaLog.Fold(log!).TryGetValue(out var acta, out var foldError))

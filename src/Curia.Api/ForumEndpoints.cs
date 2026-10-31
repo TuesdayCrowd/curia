@@ -1473,7 +1473,7 @@ public static class ForumEndpoints
         {
             var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
             if (!read.TryGetValue(out var all, out var readError))
-                return (null, Problem(StatusCodes.Status503ServiceUnavailable, new Error(LogBoundKeys.LogUnreadableType, "The event log could not be read", readError!.Type)));
+                return (null, StoreFaults.LogUnreadable(readError!.Type));
 
             log = all!;
         }
@@ -2692,15 +2692,22 @@ public static class ForumEndpoints
     /// two scans could observe two different prefixes of it -- a post whose author's enrollment the
     /// second scan had not yet seen. One scan makes that impossible without any coordination.</para>
     ///
-    /// <para>An unreadable store yields an empty log rather than a failure, which is the behaviour
-    /// this replaced and is deliberately conservative for authorization: no events means no
-    /// standing, which denies rather than grants.</para>
+    /// <para>A log that cannot be read is a fault of the Forum, never an empty log (R7.31, errata G52).
+    /// The empty fallback this replaced was called conservative for authorization (no events, no standing,
+    /// a denial), and it was not: it told a real agent a tier denial a missing log produced, and served
+    /// an empty board for a board it could not read. A failed read throws
+    /// <see cref="LogUnreadableException"/>, which the outermost middleware answers <c>503</c>
+    /// <c>curia/log/unreadable</c>; the real store throws it itself (R11.71), so this arm is for a reader
+    /// that reports a failure as a failed result.</para>
     /// </summary>
     private static async Task<IReadOnlyList<AppendedEvent>> ReadEventsAsync(
         IEventReader events, CancellationToken cancellationToken)
     {
         var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-        return read.TryGetValue(out var all, out _) ? all! : [];
+        if (!read.TryGetValue(out var all, out var error))
+            throw new LogUnreadableException(error!.Type);
+
+        return all!;
     }
 
     /// <summary>
@@ -2874,7 +2881,7 @@ public static class ForumEndpoints
         // R5.22: a liveness read that failed decided nothing about the key; the server's fault, as every
         // other read of the log answers it (R4.35), and never the 401 that tells a client to mint again.
         if (string.Equals(error.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal))
-            return Problem(StatusCodes.Status503ServiceUnavailable, error);
+            return StoreFaults.LogUnreadable(error.Detail ?? error.Type);
 
         if (error.Type is not ("curia/authn/nonce-missing" or "curia/authn/nonce-stale"))
             return Problem(StatusCodes.Status401Unauthorized, error);
@@ -2932,10 +2939,19 @@ public static class ForumEndpoints
             error.Type == BudgetErrors.GateUnavailableType ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status409Conflict,
             error);
 
-    private static IResult Problem(int status, Error error) =>
-        status >= StatusCodes.Status500InternalServerError
+    /// <summary>
+    /// R9.52, R8.82 (errata G52): the one factory every route calls, and the one place the two store-fault types are given their status. Either type is
+    /// <c>503</c> whatever status the caller chose, so a site that answers a use case's failed result <c>500</c> or a flag refusal <c>400</c> by default
+    /// still serves a fault of a store as one.
+    /// </summary>
+    private static IResult Problem(int status, Error error)
+    {
+        if (StoreFaults.IsStoreFaultType(error.Type)) status = StatusCodes.Status503ServiceUnavailable;
+
+        return status >= StatusCodes.Status500InternalServerError
             ? new ServerFault(status, error)
             : Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
+    }
 
     /// <summary>R7.24 (errata G24): a denial whose title is chosen from the decision's reason, never written at the site.</summary>
     private static Error Denial(AuthorizationDecision decision, string detail) =>
@@ -3333,7 +3349,7 @@ public static class ForumEndpoints
             or KeyActErrors.LogKeyNotPublishedType => StatusCodes.Status409Conflict,
 
         KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,
-        LogBoundKeys.LogUnreadableType => StatusCodes.Status503ServiceUnavailable,
+        LogBoundKeys.LogUnreadableType or StoreFaults.StoreUnavailableType => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status500InternalServerError,
     };
 
