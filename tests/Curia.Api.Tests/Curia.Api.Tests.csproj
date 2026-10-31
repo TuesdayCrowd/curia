@@ -83,6 +83,9 @@
     <Compile Include="../Shared/KeyMaterials.cs" Link="Shared/KeyMaterials.cs" />
     <!-- R4.38 (add.): the test composition's gate, linked so each test assembly holds its own internal copy. -->
     <Compile Include="../Shared/PermissiveLifecycleAppendGate.cs" Link="Shared/PermissiveLifecycleAppendGate.cs" />
+    <!-- Errata G52 (the D95 PR's seam): the decorators that fail a store when armed, and the words of the entry read from the errata. -->
+    <Compile Include="../Shared/FaultableStore.cs" Link="Shared/FaultableStore.cs" />
+    <Compile Include="../Shared/PublishedStoreFaults.cs" Link="Shared/PublishedStoreFaults.cs" />
   </ItemGroup>
 
 </Project>

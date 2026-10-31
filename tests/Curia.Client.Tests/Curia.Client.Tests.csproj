@@ -57,6 +57,8 @@
     -->
     <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable11.cs" Link="Shared/PublishedTable11.cs" />
     <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable10.cs" Link="Shared/PublishedTable10.cs" />
+    <!-- Errata G52 (the D95 PR): the words of the entry, read from the errata at test time. -->
+    <Compile Include="../Shared/PublishedStoreFaults.cs" Link="Shared/PublishedStoreFaults.cs" />
   </ItemGroup>
 
 </Project>

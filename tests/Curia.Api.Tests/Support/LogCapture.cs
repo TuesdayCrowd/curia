@@ -7,7 +7,7 @@ using Xunit;
 namespace Curia.Api.Tests;
 
 /// <summary>One log event a host wrote: its id and name, its logger's category, its formatted message, and its structured values.</summary>
-internal sealed record LoggedEvent(int EventId, string Category, string Message, IReadOnlyList<KeyValuePair<string, object?>> Values, string? Name = null)
+internal sealed record LoggedEvent(int EventId, string Category, string Message, IReadOnlyList<KeyValuePair<string, object?>> Values, string? Name = null, Exception? Exception = null)
 {
     /// <summary>The structured value named <paramref name="name"/>, as text, or null when the event has none.</summary>
     internal string? Value(string name) =>
@@ -86,7 +86,7 @@ internal sealed class LogCapture : ILoggerProvider
         {
             ArgumentNullException.ThrowIfNull(formatter);
             var values = state is IReadOnlyList<KeyValuePair<string, object?>> list ? [.. list] : (IReadOnlyList<KeyValuePair<string, object?>>)[];
-            capture.Add(new LoggedEvent(eventId.Id, category, formatter(state, exception), values, eventId.Name));
+            capture.Add(new LoggedEvent(eventId.Id, category, formatter(state, exception), values, eventId.Name, exception));
         }
     }
 }
