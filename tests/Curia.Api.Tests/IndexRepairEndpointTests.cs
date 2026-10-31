@@ -181,6 +181,6 @@ public sealed class IndexRepairEndpointTests(AgentWriteGateForumFixture forum) :
         var caughtUp = logged.All.Count(e => e.Name == PublishedIndexLag.CaughtUpEvent());
         Said(
             $"1 catch-up service; a timer armed; at the failure plus 4 s 0 rows; at the failure plus 6 s 1 row; 1 {PublishedIndexLag.CaughtUpEvent()} event",
-            $"{services} catch-up service{(services == 1 ? string.Empty : "s")}; {(armed ? "a timer armed" : "no timer armed")}; at the failure plus 4 s {rowsAtFour} rows; at the failure plus 6 s {rowsAtSix} row; {caughtUp} {PublishedIndexLag.CaughtUpEvent()} events");
+            $"{services} catch-up service{(services == 1 ? string.Empty : "s")}; {(armed ? "a timer armed" : "no timer armed")}; at the failure plus 4 s {rowsAtFour} rows; at the failure plus 6 s {rowsAtSix} row; {caughtUp} {PublishedIndexLag.CaughtUpEvent()} event{(caughtUp == 1 ? string.Empty : "s")}");
     }
 }

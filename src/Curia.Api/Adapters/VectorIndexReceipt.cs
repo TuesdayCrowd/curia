@@ -24,4 +24,12 @@ internal static partial class VectorIndexLog
     [LoggerMessage(EventId = 2, EventName = "VectorIndexPending", Level = LogLevel.Warning,
         Message = "The log holds post {PostId} and its vector is not stored; it is pending and will be retried from the log ({FaultType}: {FaultDetail})")]
     internal static partial void Pending(ILogger logger, string postId, string faultType, string faultDetail);
+
+    [LoggerMessage(EventId = 3, EventName = "VectorIndexCaughtUp", Level = LogLevel.Information,
+        Message = "The catch-up stored the vector of {Digest}, a post that was pending")]
+    internal static partial void CaughtUp(ILogger logger, string digest);
+
+    [LoggerMessage(EventId = 4, EventName = "VectorIndexCatchUpFailed", Level = LogLevel.Error,
+        Message = "A catch-up pass failed and the loop continues: {FaultType}: {FaultDetail}")]
+    internal static partial void PassFailed(ILogger logger, string faultType, string faultDetail);
 }

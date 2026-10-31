@@ -42,6 +42,12 @@ public sealed class CommittedIndexInfrastructureTests(PostgresDatabaseFixture fi
 
     private static readonly DateTimeOffset Start = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
 
+    /// <summary>
+    /// The upper edge of PIL34's and PIL36's windows is the bound plus this (controller's ruling 2 of the build brief): a loaded CI machine delays a real
+    /// database wait, and the lower edge (PIL36: the bound less 0.2 s) is what keeps a step that returned early red.
+    /// </summary>
+    private static readonly TimeSpan CiLoad = TimeSpan.FromSeconds(5);
+
     private static void Said(string expected, string actual)
     {
         if (!string.Equals(expected, actual, StringComparison.Ordinal))
@@ -229,14 +235,14 @@ public sealed class CommittedIndexInfrastructureTests(PostgresDatabaseFixture fi
         try
         {
             var outcome = await rig.Committed.IndexAsync(post, Ct);
-            what = $"returned {outcome.State} after {(timer.Elapsed < bound ? "less than the bound" : "the bound or longer")}, naming {outcome.FaultType}";
+            what = $"returned {outcome.State} {(timer.Elapsed < bound + CiLoad ? "within the window" : "outside the window")}, naming {outcome.FaultType}";
         }
         catch (Exception ex)
         {
-            what = $"threw {ex.GetType().Name} after {(timer.Elapsed < bound ? "less than the bound" : "the bound or longer")}";
+            what = $"threw {ex.GetType().Name} {(timer.Elapsed < bound + CiLoad ? "within the window" : "outside the window")}";
         }
 
-        Said("returned Pending after less than the bound, naming NpgsqlException", what.Replace("Npgsql.NpgsqlException", "NpgsqlException", StringComparison.Ordinal));
+        Said("returned Pending within the window, naming NpgsqlException", what.Replace("Npgsql.NpgsqlException", "NpgsqlException", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -250,7 +256,6 @@ public sealed class CommittedIndexInfrastructureTests(PostgresDatabaseFixture fi
         await using var rig = await NewRigAsync(null);
         var post = await AppendAsync(rig);
         var role = AppRole();
-        var failedAt = DateTimeOffset.UtcNow;
 
         string observed;
         await using (var admin = await fixture.AdminDataSource.OpenConnectionAsync(Ct))
@@ -273,7 +278,8 @@ public sealed class CommittedIndexInfrastructureTests(PostgresDatabaseFixture fi
             }
         }
 
-        var pass = await rig.CatchUp.RunOnceAsync(rig.Store, failedAt + wait, Ct);
+        // The failure's instant is the committed indexer's clock reading inside the call, so the retry's instant is taken after it (the first draft took it before the revoke, a few milliseconds early).
+        var pass = await rig.CatchUp.RunOnceAsync(rig.Store, DateTimeOffset.UtcNow + wait, Ct);
         Said(
             "Pending with 1 held and 0 rows; after the grant is restored one pass stores 1 and the table holds 1 row",
             $"{observed}; after the grant is restored one pass stores {pass.StoredDigests.Count} and the table holds {await RowsAsync(rig, post.Digest)} row");
@@ -300,7 +306,7 @@ public sealed class CommittedIndexInfrastructureTests(PostgresDatabaseFixture fi
         {
             var outcome = await rig.Committed.IndexAsync(post, Ct);
             var seconds = timer.Elapsed.TotalSeconds;
-            var inWindow = seconds >= bound.TotalSeconds - 0.2 && seconds <= bound.TotalSeconds + 2.0;
+            var inWindow = seconds >= bound.TotalSeconds - 0.2 && seconds <= bound.TotalSeconds + CiLoad.TotalSeconds;
             what = $"{outcome.State} {(inWindow ? "at the bound" : $"after {seconds:0.0} s, which is outside the bound's window")}";
         }
         catch (Exception ex)

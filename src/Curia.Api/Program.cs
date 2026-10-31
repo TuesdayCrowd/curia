@@ -174,7 +174,11 @@ public sealed class Program
             sp.GetRequiredService<EmbeddingIndexer>(),
             sp.GetRequiredService<IndexBacklog>(),
             sp.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(sp => new EmbeddingCatchUp(
+            sp.GetRequiredService<EmbeddingIndexer>(),
+            sp.GetRequiredService<IndexBacklog>()));
         builder.Services.AddHostedService<EmbeddingReconcileService>();
+        builder.Services.AddHostedService<EmbeddingCatchUpService>();
         builder.Services.AddHostedService<LifecycleEntryScan>();
 
         // R10.2's floors: the published table with configuration laid over it, and R8.21's dedupe

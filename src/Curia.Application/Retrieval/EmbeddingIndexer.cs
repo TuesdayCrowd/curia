@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Domain;
@@ -12,9 +13,9 @@ namespace Curia.Application.Retrieval;
 /// <para>Two paths, one computation. <see cref="IndexAsync"/> runs at the end of a submission,
 /// after PERSIST, so the vector channel sees a post the moment the lexical channel does
 /// (R6.22's spirit: served and searchable are the same instant). <see cref="ReconcileAsync"/>
-/// runs at startup and indexes every discussion post the index has not seen, from the model's
-/// high-water mark forward -- which is R11.10's "a model change is a reindex": a new model id
-/// has a high-water mark of zero and the whole log is replayed into it.</para>
+/// runs at startup and indexes every discussion post whose digest the index does not hold under the
+/// model -- which is R11.10's "a model change is a reindex": a new model id holds nothing and the
+/// whole log is replayed into it. It does not start after the index's highest sequence (R11.69).</para>
 ///
 /// <para>Non-discussion posts (votes, verification reports) are not indexed, for the reason
 /// <see cref="SearchProjector"/> does not search them; they are skipped, never failed.</para>
@@ -54,40 +55,55 @@ public sealed class EmbeddingIndexer
     }
 
     /// <summary>
-    /// Indexes every discussion post after the model's high-water mark. Returns how many were
-    /// indexed. Withheld posts are indexed too: the index is keyed by digest and the serving path
-    /// filters, so a later un-withholding needs no reindex.
+    /// Indexes every discussion post whose digest the index does not hold under the model (R11.69), not the posts after the index's highest sequence: a post
+    /// whose write failed and was followed by one that succeeded is below that mark for ever. Returns how many were indexed. A post the model cannot place
+    /// (<c>NoFeatures</c>, D24) is skipped, never failed, and so is looked at again at every start. Withheld posts are indexed too: the index is keyed by
+    /// digest and the serving path filters, so a later un-withholding needs no reindex. A model change is R11.10's reindex: a new model id holds no digests.
     /// </summary>
     public async Task<Result<long>> ReconcileAsync(IEventReader events, CancellationToken cancellationToken = default)
     {
+        var stored = new Collection<string>();
+        var reconciled = await ReconcileByAbsenceAsync(events, stored, cancellationToken).ConfigureAwait(false);
+        return reconciled.Map(_ => (long)stored.Count);
+    }
+
+    /// <summary>
+    /// <see cref="ReconcileAsync"/>, appending to <paramref name="stored"/> the digest of each vector it stored (the catch-up reports them, R11.69).
+    /// </summary>
+    public async Task<Result<bool>> ReconcileByAbsenceAsync(IEventReader events, Collection<string> stored, CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(stored);
 
-        var mark = await _index.MaxSequenceAsync(Model, cancellationToken).ConfigureAwait(false);
-        if (!mark.TryGetValue(out var after, out var markError))
-            return Result<long>.Fail(markError!);
+        var held = await _index.IndexedDigestsAsync(Model, cancellationToken).ConfigureAwait(false);
+        if (!held.TryGetValue(out var digests, out var heldError))
+            return Result<bool>.Fail(heldError!);
 
-        if (!EventSequence.From(after).TryGetValue(out var from, out var fromError))
-            return Result<long>.Fail(fromError!);
+        var present = new HashSet<string>(digests!, StringComparer.Ordinal);
+        if (!EventSequence.From(0).TryGetValue(out var from, out var fromError))
+            return Result<bool>.Fail(fromError!);
 
-        var indexed = 0L;
         while (true)
         {
             var page = await events.ReadForwardAsync(from, EventReaderExtensions.PageSize, cancellationToken).ConfigureAwait(false);
             if (!page.TryGetValue(out var batch, out var readError))
-                return Result<long>.Fail(readError!);
+                return Result<bool>.Fail(readError!);
 
             foreach (var appended in batch!)
             {
-                if (SearchProjector.TryRead(appended) is not { } post) continue;
+                if (SearchProjector.TryRead(appended) is not { } post || present.Contains(post.Digest)) continue;
 
                 var result = await IndexAsync(post, cancellationToken).ConfigureAwait(false);
                 if (!result.TryGetValue(out var vector, out var indexError))
-                    return Result<long>.Fail(indexError!);
-                if (vector is not null) indexed++;
+                    return Result<bool>.Fail(indexError!);
+                if (vector is null) continue;
+
+                present.Add(post.Digest);
+                stored.Add(post.Digest);
             }
 
             if (batch.Count < EventReaderExtensions.PageSize)
-                return Result<long>.Ok(indexed);
+                return Result<bool>.Ok(true);
 
             from = batch[^1].Seq;
         }
