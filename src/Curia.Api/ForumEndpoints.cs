@@ -453,7 +453,10 @@ public sealed record SearchResponse(
     /// <summary>§9.2's constants, published: RRF's k, each channel's candidate depth, and the least cosine (basis points) a vector neighbour needs to be a candidate.</summary>
     [property: JsonPropertyName("k")] int K,
     [property: JsonPropertyName("candidate_depth")] int CandidateDepth,
-    [property: JsonPropertyName("min_cosine_bp")] int MinimumCosineBp);
+    [property: JsonPropertyName("min_cosine_bp")] int MinimumCosineBp,
+
+    /// <summary>R9.51 (errata G51): how many committed posts this Forum process holds as pending in the vector index (R11.69); always present, a lower bound across a deployment, and no hit is marked.</summary>
+    [property: JsonPropertyName("vector_pending")] int VectorPending);
 
 /// <summary>
 /// R8.18 / R8.19's 409, errata G10: an RFC 9457 problem carrying the canonical thread, its
@@ -2178,6 +2181,7 @@ public static class ForumEndpoints
         IEventReader events,
         IPolicyDecisionPoint pdp,
         HybridSearch search,
+        IndexBacklog backlog,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -2331,7 +2335,9 @@ public static class ForumEndpoints
             page.CorpusBound,
             page.K,
             page.CandidateDepth,
-            Bp(page.MinimumCosine)));
+            Bp(page.MinimumCosine),
+            // R9.51: the serving process's backlog, stated whatever the query, the filters and the cursor, and not part of a cursor's binding (R9.35).
+            backlog.Count));
     }
 
     /// <summary>R8.36's terms this build does not compute, named as absent with the reason (errata G10).</summary>
