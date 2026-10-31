@@ -244,4 +244,30 @@ public sealed class EmbeddingCatchUpTests
         var actual = $"{failed.Count} failed retr{(failed.Count == 1 ? "y" : "ies")}, naming {string.Join(' ', failed.Select(f => f.PostId))} and {string.Join(' ', failed.Select(f => Short(f.Digest)))} and the type {string.Join(' ', failed.Select(f => f.FaultType))}";
         Said(expected, failed.Count == 1 && failed[0].PostId == post.PostId && failed[0].Digest == post.Digest && failed[0].FaultType == "curia/retrieval/index-unavailable" ? expected : actual);
     }
+
+    /// <summary>
+    /// PIL42 (the falsification fix, FPIL11's second form). A vector step that throws is pending and enters the backlog like a returned error: one entry held,
+    /// and once the fault clears the retry at the first wait stores the digest, with no restart.
+    /// </summary>
+    [Fact]
+    public async Task R11_69_PIL42_AStepThatThrowsLeavesAnEntryAndTheRetryStoresThePost()
+    {
+        var wait = PublishedIndexLag.FirstWait();
+        var h = new IndexRepairHarness();
+        var post = await h.AppendAsync(Ct);
+        h.Index.ThrowAll = true;
+        var failedAt = h.Now;
+        var outcome = await h.Committed.IndexAsync(post, Ct);
+        var held = h.Backlog.Count;
+        h.Index.Heal();
+
+        var due = await h.CatchUp.RunOnceAsync(h.Store, failedAt + wait, Ct);
+        var afterDue = await h.IndexedAsync(Ct);
+
+        var expected = $"Pending and 1 held; at the wait the index holds {Short(post.Digest)} (1) and 0 are held";
+        var actual = $"{outcome.State} and {held} held; at the wait the index holds {string.Join(' ', afterDue.Select(Short))} ({afterDue.Length}) and {h.Backlog.Count} are held";
+        Said(
+            expected,
+            outcome.State == CommittedIndexState.Pending && held == 1 && afterDue.SequenceEqual([post.Digest]) && due.StoredDigests.Count == 1 && h.Backlog.Count == 0 ? expected : actual);
+    }
 }

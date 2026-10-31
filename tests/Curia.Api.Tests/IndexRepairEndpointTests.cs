@@ -183,6 +183,65 @@ public sealed class IndexRepairEndpointTests(AgentWriteGateForumFixture forum) :
     }
 
     /// <summary>
+    /// PIL43 (the falsification fix, FPIL21's second form). R11.69's "each retry beginning no later than 1 second after it falls due": a post whose vector failed at
+    /// an instant off any five-second grid (the failure plus 2.3 s from the host's start) is not stored before it falls due (the first wait after the failure)
+    /// and is stored by one second past it.
+    /// </summary>
+    [Fact]
+    public async Task R11_69_PIL43_ARetryBeginsNoLaterThanTheTickAfterItFallsDue()
+    {
+        var wait = PublishedIndexLag.FirstWait();
+        var tick = PublishedIndexLag.Tick();
+        var clock = TimerClockHost.At(forum);
+        await using var host = TimerClockHost.Of(forum, clock);
+        using var client = host.CreateClient();
+        var index = AgentWriteGateForumFixture.IndexOf(host.Services);
+        var fresh = await IndexLag.FreshAsync(forum, "question", Ct);
+        var armed = await IndexLag.EventuallyAsync(() => clock.Armed >= 1, TimeSpan.FromSeconds(10), Ct);
+
+        for (var i = 0; i < 2; i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(150, Ct);
+        }
+
+        clock.Advance(TimeSpan.FromMilliseconds(300));
+        await Task.Delay(150, Ct);
+        var failedAt = clock.GetUtcNow();
+        index.FailUpserts = true;
+        await Probe.SendViaAsync(forum, client, fresh.Actor, fresh.Wire, null, Ct);
+        index.FailUpserts = false;
+        var digest = (await IndexLag.DigestsOfAsync(forum, fresh.Actor.Agent.AgentId)).FirstOrDefault();
+
+        var rowsBefore = -1L;
+        var rowsAfter = 0L;
+        var stepsToDue = (int)((wait.TotalMilliseconds - 100) / 100);
+        for (var step = 1; step <= stepsToDue; step++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+            await Task.Delay(30, Ct);
+        }
+
+        if (digest is not null) rowsBefore = await IndexLag.RowsAsync(forum, digest);
+        var target = failedAt + wait + tick;
+        while (clock.GetUtcNow() < target)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(100));
+            await Task.Delay(30, Ct);
+        }
+
+        for (var i = 0; i < 40 && digest is not null && rowsAfter == 0; i++)
+        {
+            rowsAfter = await IndexLag.RowsAsync(forum, digest);
+            if (rowsAfter == 0) await Task.Delay(50, Ct);
+        }
+
+        Said(
+            "a timer armed; 0 rows before the retry falls due; 1 row by one tick after it",
+            $"{(armed ? "a timer armed" : "no timer armed")}; {rowsBefore} rows before the retry falls due; {rowsAfter} row by one tick after it");
+    }
+
+    /// <summary>
     /// PIL41 (the review fix, M2). The service logs a failed retry: with the index failing through the first retry (after a timer is armed and the clock advanced
     /// past the first wait), the host logged <c>VectorIndexRetryFailed</c>, naming the post and its digest, and no captured event holds the text the post carried.
     /// </summary>

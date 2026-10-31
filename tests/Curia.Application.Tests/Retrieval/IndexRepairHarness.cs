@@ -21,6 +21,9 @@ internal sealed class FlakyIndex(IVectorIndex inner) : IVectorIndex
 
     internal bool FailAll { get; set; }
 
+    /// <summary>When set, an upsert throws instead of returning a result (the exception arm of errata G51's step).</summary>
+    internal bool ThrowAll { get; set; }
+
     internal void Fail(params string[] digests)
     {
         lock (_gate) foreach (var d in digests) _failing.Add(d);
@@ -29,6 +32,7 @@ internal sealed class FlakyIndex(IVectorIndex inner) : IVectorIndex
     internal void Heal()
     {
         FailAll = false;
+        ThrowAll = false;
         lock (_gate) _failing.Clear();
     }
 
@@ -49,6 +53,8 @@ internal sealed class FlakyIndex(IVectorIndex inner) : IVectorIndex
             _attempted.Add(digest);
             fails = FailAll || _failing.Contains(digest);
         }
+
+        if (ThrowAll) throw new InvalidOperationException("The vector index threw");
 
         return fails
             ? Task.FromResult(Result<IndexedVector>.Fail(new Error("curia/retrieval/index-unavailable", "The vector index failed")))

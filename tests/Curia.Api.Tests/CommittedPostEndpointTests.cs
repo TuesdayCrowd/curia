@@ -348,6 +348,30 @@ public sealed class CommittedPostEndpointTests(AgentWriteGateForumFixture forum)
     }
 
     /// <summary>
+    /// PIL44 (the falsification fix, FPIL2's second form). The <c>201</c> after PERSIST carries a <c>Location</c> header equal to the post's URL, for a post whose
+    /// vector is stored and for one whose vector is pending, as it did before the step existed.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task R8_81_PIL44_TheCreatedAnswerCarriesTheLocationOfThePost(bool indexFails)
+    {
+        forum.ResetSeams();
+        var fresh = await IndexLag.FreshAsync(forum, "question", Ct);
+        var token = await fresh.Actor.Dpop.GetTokenAsync(forum.Client, Probe.TokenEndpoint, forum.Now, Ct);
+
+        forum.Index.FailUpserts = indexFails;
+        using var response = await fresh.Actor.Dpop.PostAsync(forum.Client, Probe.PostsUrl, token, fresh.Wire, forum.Now, Ct);
+        forum.Index.FailUpserts = false;
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        var postId = (await IndexLag.PostIdsOfAsync(forum, fresh.Actor.Agent.AgentId)).FirstOrDefault() ?? "none";
+
+        Said(
+            $"{indexFails}: 201; Location /v1/posts/{postId}",
+            $"{indexFails}: {(int)response.StatusCode}; Location {response.Headers.Location?.OriginalString ?? "absent"}{(response.IsSuccessStatusCode ? string.Empty : " " + body)}");
+    }
+
+    /// <summary>
     /// PIL39 (the review fix, M5). An exception from the vector step whose message quotes the post is pending and logged by type, and no captured event holds the
     /// text the exception carried.
     /// </summary>
