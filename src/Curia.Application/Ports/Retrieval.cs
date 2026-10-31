@@ -44,9 +44,9 @@ public interface IVectorIndex
     Task<Result<long>> CountAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The highest <c>seq</c> indexed under <paramref name="model"/>, or 0 when none: the log is
-    /// append-only and appends are serialized (R6.47), so everything after it is exactly what a
-    /// reconcile still has to index.
+    /// The highest <c>seq</c> indexed under <paramref name="model"/>, or 0 when none. It is <b>not</b> the point after which the log is unindexed (R11.69,
+    /// errata G51): a post whose vector failed and which a later post followed is below it for ever, so the reconcile reads <see cref="IndexedDigestsAsync"/>
+    /// and no longer this. Nothing reads it; it stays until a later cleanup removes it with its fact.
     /// </summary>
     Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
 
