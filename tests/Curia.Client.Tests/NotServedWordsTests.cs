@@ -196,7 +196,9 @@ public sealed class NotServedWordsTests : IDisposable
         var problems = new List<string>();
         var count = Count(line, pointer);
         if (count != 1) problems.Add($"Expected: R10.89's clause (\"{pointer}\") once Actual: {count} times in {Excerpt(line)}");
-        if (!line.Contains("(not served)", StringComparison.Ordinal)) problems.Add($"the list's bare (not served) is gone: {Excerpt(line)}");
+        var (_, bare, clause) = PublishedReadersLastWords.DigestOnlyMarks();
+        if (!line.Contains(bare, StringComparison.Ordinal)) problems.Add($"the list's bare {bare} is gone: {Excerpt(line)}");
+        if (!line.Contains(clause, StringComparison.Ordinal)) problems.Add($"Expected: recheck's published clause \"{clause}\" Actual: {Excerpt(line)}");
         var shared = Supersession.Revisions(Listed(true)).Text;
         if (!shared.Contains(PublishedReadersLastWords.PointerTail(), StringComparison.Ordinal)) problems.Add($"Expected: the shared form carries the pointer Actual: {shared}");
         Assert.True(problems.Count == 0, string.Join("; ", problems));
@@ -316,7 +318,7 @@ public sealed class NotServedWordsTests : IDisposable
     public void R11_68_RLW39_TheHelpOfVerifyAdvisesTheHostThatBatches()
     {
         var help = PublishedReadersLastWords.Folded(Help.For("verify") ?? string.Empty);
-        var missing = PublishedReadersLastWords.BatchClauses().Where(c => !help.Contains(PublishedReadersLastWords.Folded(c), StringComparison.Ordinal)).ToArray();
+        var missing = PublishedReadersLastWords.BatchClauses().Append(PublishedReadersLastWords.BatchSentence()).Where(c => !help.Contains(PublishedReadersLastWords.Folded(c), StringComparison.Ordinal)).ToArray();
         Assert.True(missing.Length == 0, $"Expected: `curia help verify` to carry {string.Join(" and ", missing.Select(m => $"\"{m}\""))}");
     }
 

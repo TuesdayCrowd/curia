@@ -175,7 +175,8 @@ public sealed class ReadRevisionLinesTests : IDisposable
             if (block.Contains(PublishedReadersLastWords.PlacementClause(), StringComparison.Ordinal) || block.Contains(PublishedReadersLastWords.NoteTool(), StringComparison.Ordinal)) problems.Add($"{name}: a post that is not a revision carries the note: {block}");
         }
 
-        if (!empty.Contains("served no posts", StringComparison.Ordinal)) problems.Add($"a thread that served nothing does not say so: {empty}");
+        var servedNoPosts = PublishedReadersLastWords.ServedNoPosts();
+        if (!PublishedReadersLastWords.Says(empty, servedNoPosts)) problems.Add($"a thread that served nothing does not say \"{servedNoPosts}\": {empty}");
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 
@@ -209,7 +210,8 @@ public sealed class ReadRevisionLinesTests : IDisposable
         problems.AddRange(NoteProblems(verified, prev).Select(p => "verified: " + p));
         foreach (var literal in new[] { DisplayLiteral.Of(prev), DisplayLiteral.Of(forgedPrev) })
             if (unverified.Contains(literal, StringComparison.Ordinal)) problems.Add($"unverified: the note names a prev read from a document that did not verify ({literal}): {unverified}");
-        if (!unverified.Contains("verif", StringComparison.OrdinalIgnoreCase)) problems.Add($"unverified: Expected: the note says the post did not verify Actual: {unverified}");
+        var notVerified = PublishedReadersLastWords.PlacementNote().NotVerified;
+        if (!PublishedReadersLastWords.Says(unverified, notVerified)) problems.Add($"unverified: Expected: {notVerified} Actual: {unverified}");
         if (hostile.Split('\n').Any(l => l.StartsWith("budget  posting 99", StringComparison.Ordinal))) problems.Add("a forged prev started a line of its own");
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }

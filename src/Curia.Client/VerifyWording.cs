@@ -9,7 +9,7 @@ public static class VerifyWording
 {
     /// <summary>The three clauses of R11.68, in its order.</summary>
     public const string BatchSentence =
-        "When verifications are sent together, verifications sent together are each true of their own call and may differ in what they say of the retained head "
+        "Note that verifications sent together are each true of their own call and may differ in what they say of the retained head "
         + "by which call stored it first, a verification sent in the same batch as the read it is about is fetched afresh, and a host that wants one verdict "
         + "reads first, waits for the answer and pins expectedDigest.";
 }

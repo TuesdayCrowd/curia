@@ -32,7 +32,7 @@ public sealed partial class ReadersLastWordsPinsTests
     public void R11_68_RLW39_TheDescriptionOfVerifyAdvisesTheHostThatBatches()
     {
         var description = PublishedReadersLastWords.Folded(DescriptionOf("curia_verify"));
-        var missing = PublishedReadersLastWords.BatchClauses().Where(c => !description.Contains(PublishedReadersLastWords.Folded(c), StringComparison.Ordinal)).ToArray();
+        var missing = PublishedReadersLastWords.BatchClauses().Append(PublishedReadersLastWords.BatchSentence()).Where(c => !description.Contains(PublishedReadersLastWords.Folded(c), StringComparison.Ordinal)).ToArray();
         Assert.True(missing.Length == 0, $"Expected: curia_verify's description to carry {string.Join(" and ", missing.Select(m => $"\"{m}\""))}");
     }
 

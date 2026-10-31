@@ -47,10 +47,11 @@ public sealed class OwnResourceFoundClientTests
             if (advice == neutral) problems.Add($"Expected: advice for {reason} Actual: the neutral \"{advice}\"");
         }
 
+        var (publishedFound, publishedShared) = PublishedReadersLastWords.OwnResourceAdvice();
         var foundAdvice = AdviceFor(found);
-        if (!foundAdvice.Contains("exist", StringComparison.Ordinal) || foundAdvice.Contains("not exist", StringComparison.Ordinal))
-            problems.Add($"{found}: Expected: advice that says the resource exists and not that it does not Actual: \"{foundAdvice}\"");
-        if (!AdviceFor(only).Contains("not exist", StringComparison.Ordinal)) problems.Add($"{only}: the advice lost its clause: \"{AdviceFor(only)}\"");
+        if (PublishedReadersLastWords.Folded(foundAdvice) != publishedFound)
+            problems.Add($"{found}: Expected: the published advice \"{publishedFound}\" Actual: \"{foundAdvice}\"");
+        if (PublishedReadersLastWords.Folded(AdviceFor(only)) != publishedShared) problems.Add($"{only}: Expected: the published advice \"{publishedShared}\" Actual: \"{AdviceFor(only)}\"");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
@@ -70,8 +71,9 @@ public sealed class OwnResourceFoundClientTests
         if (denied.Exit != 4) problems.Add($"403: Expected: exit 4 Actual: exit {denied.Exit} {denied.Stderr.Trim()}");
         if (!denied.Stderr.Contains(found, StringComparison.Ordinal) || !denied.Stderr.Contains(title, StringComparison.Ordinal)) problems.Add($"403: the Forum's reason and title are not printed: {denied.Stderr.Trim()}");
         var advice = denied.Stderr[(denied.Stderr.IndexOf("). ", StringComparison.Ordinal) + 3)..];
-        if (denied.Stderr.Contains("). ", StringComparison.Ordinal) && (advice.Contains("not exist", StringComparison.Ordinal) || advice.Contains("Retrying will not change this", StringComparison.Ordinal)))
-            problems.Add($"403: Expected: the new reason's own advice Actual: \"{advice.Trim()}\"");
+        var publishedFound = PublishedReadersLastWords.OwnResourceAdvice().Found;
+        if (!denied.Stderr.Contains("). ", StringComparison.Ordinal) || !PublishedReadersLastWords.Folded(advice).Contains(publishedFound, StringComparison.Ordinal))
+            problems.Add($"403: Expected: the published advice \"{publishedFound}\" Actual: \"{advice.Trim()}\"");
 
         forum.Answer = (_, _) => (404, """{"type":"curia/post/not-found","title":"No such post","detail":null}""");
         var missing = await home.RunAsync("flags", Post, "--agent", "alice", "--forum", forum.Address.ToString());

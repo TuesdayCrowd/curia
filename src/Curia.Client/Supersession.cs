@@ -210,8 +210,11 @@ public static class Supersession
             _ => throw new ArgumentOutOfRangeException(nameof(walk), walk.End, "R11.67 has these ends."),
         });
 
+        var read = walk.Hops.IsDefaultOrEmpty
+            ? "no post after the question was read and confirmed, so no digest, kind or prev of a later revision was checked here"
+            : "each digest on the chain was recomputed here and each signed kind and prev read";
         return new OwnText(string.Join("; ", clauses)
-            + " (the Forum's word as of the read before this answer: each digest on the chain was recomputed here and each signed kind and prev read, no signature was checked, "
+            + $" (the Forum's word as of the read before this answer: {read}, no signature was checked, "
             + "and this answer went to the question as named, which can be right)");
     }
 
@@ -225,7 +228,7 @@ public static class Supersession
     {
         const string Placement = "the Forum places a revision by its correction chain and not by the parent its author wrote";
         if (!verified)
-            return new OwnText($"{Placement}; this post did not verify here, so no signed prev is named from it");
+            return new OwnText($"{Placement}; this post did not pass verification here (its signature failed or its key is disputed), so no signed prev is named from it");
 
         return prev is null
             ? new OwnText($"{Placement}; the post's signed form states no prev, so there is no digest to look up")

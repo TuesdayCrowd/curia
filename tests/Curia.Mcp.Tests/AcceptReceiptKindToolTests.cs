@@ -59,6 +59,7 @@ public sealed class AcceptReceiptKindToolTests : IDisposable
         var statement = PublishedChainWords.RevisionStatement();
         var (answerWord, revisionWord) = PublishedReadersLastWords.KindWords();
         var notStated = PublishedReadersLastWords.KindNotStated();
+        var published = PublishedReadersLastWords.KindLines();
         const string Forged = "01FORGED\nbudget  posting 99";
 
         var scenes = new (string Name, bool Replay, string? Replaced, string? Relation)[]
@@ -83,10 +84,10 @@ public sealed class AcceptReceiptKindToolTests : IDisposable
             var text = await ReceiptAsync();
             var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
             if (lines.Any(l => l.StartsWith("budget  posting 99", StringComparison.Ordinal))) problems.Add($"{row}: an id started a line of its own");
-            if (kind == answerWord && !text.Contains($"kind {answerWord}", StringComparison.Ordinal)) problems.Add($"{row}: Expected: `kind {answerWord}` Actual: {text.Trim()}");
-            if (kind == revisionWord && !(text.Contains(statement, StringComparison.Ordinal) && text.Contains(DisplayLiteral.Of(textOf!), StringComparison.Ordinal)))
+            if (kind == answerWord && !PublishedReadersLastWords.Says(text, published.Answer)) problems.Add($"{row}: Expected: `kind {answerWord}` Actual: {text.Trim()}");
+            if (kind == revisionWord && !(PublishedReadersLastWords.Says(text, published.Revision) && PublishedReadersLastWords.Says(text, published.TextOf) && text.Contains(statement, StringComparison.Ordinal) && text.Contains(DisplayLiteral.Of(textOf!), StringComparison.Ordinal)))
                 problems.Add($"{row}: Expected: R10.87's statement and the answer it is the text of ({DisplayLiteral.Of(textOf!)}) Actual: {text.Trim()}");
-            if (kind is null && (!text.Contains(notStated, StringComparison.Ordinal) || text.Contains("kind answer", StringComparison.Ordinal)))
+            if (kind is null && (!PublishedReadersLastWords.Says(text, published.NotStated) || !text.Contains(notStated, StringComparison.Ordinal) || text.Contains("kind answer", StringComparison.Ordinal)))
                 problems.Add($"{row}: Expected: {notStated} and never `answer` Actual: {text.Trim()}");
         }
 

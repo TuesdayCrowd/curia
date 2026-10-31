@@ -94,6 +94,8 @@ public sealed class QuestionChainTests : IDisposable
         var bound = PublishedReadersLastWords.WalkBound();
         var (notWalked, _, forked) = PublishedReadersLastWords.WalkWords();
         var definition = PublishedReadersLastWords.DefinitionSentence();
+        var (chainEnd, latestPhrase) = PublishedReadersLastWords.ChainEnd();
+        var publishedStops = PublishedReadersLastWords.Stops();
         var problems = new List<string>();
         var stopLines = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -108,7 +110,7 @@ public sealed class QuestionChainTests : IDisposable
             if (depth is >= 1 and <= 8)
             {
                 foreach (var hop in hops.Skip(1)) if (!words.Contains(Id(hop.Id), StringComparison.Ordinal)) problems.Add($"depth {depth}: {hop.Id} is not named: {words}");
-                if (!words.Contains("latest", StringComparison.Ordinal)) problems.Add($"depth {depth}: no latest revision is stated: {words}");
+                if (!PublishedReadersLastWords.Says(words, chainEnd)) problems.Add($"depth {depth}: Expected: {chainEnd} Actual: {words}");
                 if (words.Contains(notWalked, StringComparison.Ordinal)) problems.Add($"depth {depth}: says {notWalked} of a chain it walked whole");
             }
 
@@ -128,6 +130,7 @@ public sealed class QuestionChainTests : IDisposable
         Serve(fork, new() { [1] = Listing(branchA, branchB), [2] = [], [3] = [] });
         var (forkReads, forkWords) = await WalkAsync(fork[0]);
         if (forkReads != 1) problems.Add($"a fork at the second hop: Expected: 1 read (the first hop) Actual: {forkReads}");
+        if (forkWords.Contains(latestPhrase, StringComparison.Ordinal)) problems.Add($"a fork at the second hop names a latest revision with the published phrase \"{latestPhrase}\": {forkWords}");
         if (!forkWords.Contains(forked, StringComparison.Ordinal) || !forkWords.Contains(Id(branchA.Id), StringComparison.Ordinal) || !forkWords.Contains(Id(branchB.Id), StringComparison.Ordinal))
             problems.Add($"a fork at the second hop: Expected: FORKED naming both branches Actual: {forkWords}");
 
@@ -135,7 +138,7 @@ public sealed class QuestionChainTests : IDisposable
         var unserved = Chain(1);
         Serve(unserved, new() { [0] = [new Successor(unserved[1].Signed.PrefixedDigest, null)] });
         var (unservedReads, unservedWords) = await WalkAsync(unserved[0]);
-        if (unservedReads != 0 || !unservedWords.Contains(definition, StringComparison.Ordinal) || unservedWords.Contains("latest", StringComparison.Ordinal))
+        if (unservedReads != 0 || !unservedWords.Contains(definition, StringComparison.Ordinal) || unservedWords.Contains(latestPhrase, StringComparison.Ordinal) || !publishedStops.Any(stop => PublishedReadersLastWords.Says(unservedWords, stop)))
             problems.Add($"a successor with no post id: Expected: 0 reads, R10.91's words, no latest Actual: {unservedReads} reads, {unservedWords}");
 
         // Each stop that is a post that is not the one named, a cycle and a failed read. Every scenario is served and walked in its turn: the stub keeps one
@@ -186,7 +189,8 @@ public sealed class QuestionChainTests : IDisposable
             if (words.Length == 0) problems.Add($"{name}: Expected: a stop in fixed words Actual: nothing");
             if (words.Contains("AUTHORED-BODY", StringComparison.Ordinal) || words.Contains(new string('f', 64), StringComparison.Ordinal) || words.Contains(new string('9', 64), StringComparison.Ordinal))
                 problems.Add($"{name}: the stop names a value the Forum or an author wrote: {words}");
-            if (words.Contains("latest", StringComparison.Ordinal)) problems.Add($"{name}: states a latest revision past a stop: {words}");
+            if (words.Contains(latestPhrase, StringComparison.Ordinal)) problems.Add($"{name}: states a latest revision past a stop with the published phrase \"{latestPhrase}\": {words}");
+            if (!publishedStops.Any(stop => PublishedReadersLastWords.Says(words, stop))) problems.Add($"{name}: says none of the published stops: {words}");
             stopLines[name] = words;
         }
 
@@ -204,6 +208,8 @@ public sealed class QuestionChainTests : IDisposable
     {
         var (_, _, forked) = PublishedReadersLastWords.WalkWords();
         var none = PublishedReadersLastWords.NoneFollowed();
+        var (chainEnd, latestPhrase) = PublishedReadersLastWords.ChainEnd();
+        var forkLine = PublishedReadersLastWords.ForkLine();
 
         var hops = new List<Hop> { Question() };
         var a = Revision(1, hops[0]);
@@ -221,8 +227,71 @@ public sealed class QuestionChainTests : IDisposable
         if (!words.Contains(forked, StringComparison.Ordinal)) problems.Add($"Expected: FORKED Actual: {words}");
         if (!words.Contains(Id(a.Id), StringComparison.Ordinal) || !words.Contains(Id(b.Id), StringComparison.Ordinal)) problems.Add($"Expected: both branches named Actual: {words}");
         if (!words.Contains(none, StringComparison.Ordinal)) problems.Add($"Expected: the none-followed sentence \"{none}\" Actual: {words}");
-        if (words.Contains("is the latest", StringComparison.Ordinal)) problems.Add($"a fork names a latest revision: {words}");
-        if (!singleWords.Contains("latest", StringComparison.Ordinal) || singleWords.Contains(none, StringComparison.Ordinal)) problems.Add($"the control: a single-successor chain states its latest and follows it: {singleWords}");
+        if (words.Contains(latestPhrase, StringComparison.Ordinal)) problems.Add($"a fork names a latest revision with the published phrase \"{latestPhrase}\": {words}");
+        if (!PublishedReadersLastWords.Says(words, forkLine)) problems.Add($"Expected: the published fork line {forkLine} Actual: {words}");
+        if (!PublishedReadersLastWords.Says(singleWords, chainEnd) || singleWords.Contains(none, StringComparison.Ordinal)) problems.Add($"the control: a single-successor chain states its latest and follows it: {singleWords}");
+        Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
+    }
+
+    /// <summary>
+    /// R11.67 (review I2). The receipt's closing parenthesis says what the walk read: where it stopped before any post after the question was read and confirmed
+    /// (a fork at the question, a successor the Forum does not serve, a read that failed at the first hop, a first successor that does not hash to its digest)
+    /// it is the published "none was" form, and never the form that says each digest on the chain was recomputed; where one hop was confirmed it is the other.
+    /// </summary>
+    [Fact]
+    public async Task R11_67_I2_TheClosingParenthesisSaysWhatTheWalkRead()
+    {
+        var (read, none) = PublishedReadersLastWords.Closings();
+        var problems = new List<string>();
+
+        var scenarios = new (string Name, Func<List<Hop>> Serve, bool Confirmed)[]
+        {
+            ("a fork at the question", () =>
+            {
+                var hops = new List<Hop> { Question() };
+                var a = Revision(1, hops[0]);
+                var b = Revision(2, hops[0]);
+                hops.AddRange([a, b]);
+                Serve(hops, new() { [0] = Listing(a, b), [1] = [], [2] = [] });
+                return hops;
+            }, false),
+            ("a first successor the Forum does not serve", () =>
+            {
+                var hops = Chain(1);
+                Serve(hops, new() { [0] = [new Successor(hops[1].Signed.PrefixedDigest, null)] });
+                return hops;
+            }, false),
+            ("a read that failed at the first hop", () =>
+            {
+                var hops = Chain(1);
+                Serve(hops);
+                _log.RefusedPosts[hops[1].Id] = (System.Net.HttpStatusCode.ServiceUnavailable, "curia/stub/unavailable");
+                return hops;
+            }, false),
+            ("a first successor that does not hash to its digest", () =>
+            {
+                var hops = Chain(1);
+                Serve(hops, new() { [0] = [new Successor("sha256:" + new string('f', 64), hops[1].Id)] });
+                return hops;
+            }, false),
+            ("one hop confirmed, then the latest", () =>
+            {
+                var hops = Chain(1);
+                Serve(hops);
+                return hops;
+            }, true),
+        };
+
+        foreach (var (name, serve, confirmed) in scenarios)
+        {
+            _log.RefusedPosts.Clear();
+            var hops = serve();
+            var (_, words) = await WalkAsync(hops[0]);
+            var (expected, other) = confirmed ? (read, none) : (none, read);
+            if (!PublishedReadersLastWords.Says(words, expected)) problems.Add($"{name}: Expected: {expected} Actual: {words}");
+            if (PublishedReadersLastWords.Says(words, other)) problems.Add($"{name}: says the other closing: {words}");
+        }
+
         Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
     }
 }

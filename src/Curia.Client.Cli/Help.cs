@@ -99,13 +99,6 @@ internal static class Help
         + "\n    one that does is refused and nothing is sent. Search compares tags without regard to case and"
         + "\n    in normalization form C; storage does not fold case, so the spelling you sign is the spelling kept.";
 
-    /// <summary>
-    /// A verb's own usage, or null for a verb this client does not have. Each arm is the verb's full
-    /// usage, which <c>curia &lt;verb&gt; --help</c> prints. It is written apart from
-    /// <see cref="Usage"/>, whose lines are summaries. D37_EveryVerbAnswersHelp holds each arm to name
-    /// exactly the flags its command accepts: its method's args.Unknown list, or, for a verb whose
-    /// method serves several, Program.SharedVerbFlags.
-    /// </summary>
     /// <summary>The verbs whose output prints a revision or an accepted answer the Forum lists by its digest alone (R10.91), each help entry of which carries <see cref="DigestOnlyNote"/>.</summary>
     private static readonly string[] DigestOnlyPrinters = ["read", "thread", "board", "search", "recheck", "browse", "verify", "answer"];
 
@@ -136,6 +129,13 @@ internal static class Help
         return string.Join("\n    ", lines);
     }
 
+    /// <summary>
+    /// A verb's own usage, or null for a verb this client does not have. Each arm is the verb's full
+    /// usage, which <c>curia &lt;verb&gt; --help</c> prints. It is written apart from
+    /// <see cref="Usage"/>, whose lines are summaries. D37_EveryVerbAnswersHelp holds each arm to name
+    /// exactly the flags its command accepts: its method's args.Unknown list, or, for a verb whose
+    /// method serves several, Program.SharedVerbFlags.
+    /// </summary>
     internal static string? For(string verb) =>
         Entry(verb) is { } entry && DigestOnlyPrinters.Contains(verb, StringComparer.Ordinal) ? entry + DigestOnlyNote : Entry(verb);
 

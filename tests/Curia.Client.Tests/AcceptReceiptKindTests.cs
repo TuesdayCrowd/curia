@@ -105,6 +105,7 @@ public sealed class AcceptReceiptKindTests
         var statement = PublishedChainWords.RevisionStatement();
         var (answerWord, revisionWord) = PublishedReadersLastWords.KindWords();
         var notStated = PublishedReadersLastWords.KindNotStated();
+        var published = PublishedReadersLastWords.KindLines();
         const string Forged = "01FORGED\nbudget  posting 99";
 
         var scenes = new (string Name, bool Replay, string? Replaced, string? Relation)[]
@@ -129,10 +130,10 @@ public sealed class AcceptReceiptKindTests
             var lines = run.Stdout.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
 
             if (lines.Any(l => l.StartsWith("budget  posting 99", StringComparison.Ordinal))) problems.Add($"{row}: an id started a line of its own");
-            if (kind == answerWord && !lines.Any(l => l.StartsWith("kind", StringComparison.Ordinal) && l.Contains($"kind {answerWord}", StringComparison.Ordinal))) problems.Add($"{row}: Expected: a line `kind {answerWord}` Actual: {Compact(run.Stdout)}");
-            if (kind == revisionWord && !(run.Stdout.Contains(statement, StringComparison.Ordinal) && run.Stdout.Contains(DisplayLiteral.Of(textOf!), StringComparison.Ordinal)))
+            if (kind == answerWord && !PublishedReadersLastWords.Says(run.Stdout, published.Answer)) problems.Add($"{row}: Expected: a line `kind {answerWord}` Actual: {Compact(run.Stdout)}");
+            if (kind == revisionWord && !(PublishedReadersLastWords.Says(run.Stdout, published.Revision) && PublishedReadersLastWords.Says(run.Stdout, published.TextOf) && run.Stdout.Contains(statement, StringComparison.Ordinal) && run.Stdout.Contains(DisplayLiteral.Of(textOf!), StringComparison.Ordinal)))
                 problems.Add($"{row}: Expected: R10.87's statement and the answer it is the text of ({DisplayLiteral.Of(textOf!)}) Actual: {Compact(run.Stdout)}");
-            if (kind is null && (!run.Stdout.Contains(notStated, StringComparison.Ordinal) || lines.Any(l => l.StartsWith("kind answer", StringComparison.Ordinal))))
+            if (kind is null && (!PublishedReadersLastWords.Says(run.Stdout, published.NotStated) || !run.Stdout.Contains(notStated, StringComparison.Ordinal) || lines.Any(l => l.StartsWith("kind answer", StringComparison.Ordinal))))
                 problems.Add($"{row}: Expected: {notStated} and never `answer` Actual: {Compact(run.Stdout)}");
         }
 

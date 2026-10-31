@@ -299,6 +299,7 @@ public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum
 
         var forked = PublishedReadersLastWords.WalkWords().Forked;
         var none = PublishedReadersLastWords.NoneFollowed();
+        var latestPhrase = PublishedReadersLastWords.ChainEnd().Phrase;
         var tool = QuestionLines(ReadersLastWordsScene.Flatten(await answerer.Tools.AnswerAsync(question.Id, $"It is a goldfinch {Guid.NewGuid():N}.", null, Ct)));
         var cli = await scene.CuriaAsync(CliAnswer(cliAnswerer, board, question.Id, scene.Address));
         var singleLine = QuestionLines(ReadersLastWordsScene.Flatten(await answerer.Tools.AnswerAsync(single[0].Id, $"It is a wren {Guid.NewGuid():N}.", null, Ct)));
@@ -311,7 +312,7 @@ public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum
             if (!line.Contains(forked, StringComparison.Ordinal)) problems.Add($"{who}: Expected: FORKED Actual: {line}");
             if (!line.Contains(Id(first.Id), StringComparison.Ordinal) || !line.Contains(Id(second.Id), StringComparison.Ordinal)) problems.Add($"{who}: both branches are not named: {line}");
             if (!line.Contains(none, StringComparison.Ordinal)) problems.Add($"{who}: Expected: the none-followed sentence \"{none}\" Actual: {line}");
-            if (line.Contains("is the latest", StringComparison.Ordinal)) problems.Add($"{who}: a fork names a latest revision: {line}");
+            if (PublishedReadersLastWords.Folded(line).Contains(latestPhrase, StringComparison.Ordinal)) problems.Add($"{who}: a fork names a latest revision with the published phrase \"{latestPhrase}\": {line}");
         }
 
         if (singleLine.Length != 1 || !singleLine[0].Contains(Latest, StringComparison.Ordinal) || singleLine[0].Contains(none, StringComparison.Ordinal)) problems.Add($"the control: a single-successor chain states its latest and follows it: {string.Join(" | ", singleLine)}");

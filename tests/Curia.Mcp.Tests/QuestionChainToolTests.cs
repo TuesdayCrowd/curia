@@ -59,6 +59,7 @@ public sealed class QuestionChainToolTests : IDisposable
     {
         var (_, _, forked) = PublishedReadersLastWords.WalkWords();
         var none = PublishedReadersLastWords.NoneFollowed();
+        var latestPhrase = PublishedReadersLastWords.ChainEnd().Phrase;
 
         var fork = await QuestionLineAsync([new Successor(FirstDigest, FirstId), new Successor(SecondDigest, SecondId)]);
 
@@ -66,7 +67,7 @@ public sealed class QuestionChainToolTests : IDisposable
         if (!fork.Contains(forked, StringComparison.Ordinal)) problems.Add($"Expected: FORKED Actual: {fork}");
         if (!fork.Contains(FirstId, StringComparison.Ordinal) || !fork.Contains(SecondId, StringComparison.Ordinal)) problems.Add($"Expected: both branches named Actual: {fork}");
         if (!fork.Contains(none, StringComparison.Ordinal)) problems.Add($"Expected: the none-followed sentence \"{none}\" Actual: {fork}");
-        if (fork.Contains("is the latest", StringComparison.Ordinal)) problems.Add($"a fork names a latest revision: {fork}");
+        if (PublishedReadersLastWords.Folded(fork).Contains(latestPhrase, StringComparison.Ordinal)) problems.Add($"a fork names a latest revision with the published phrase \"{latestPhrase}\": {fork}");
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 

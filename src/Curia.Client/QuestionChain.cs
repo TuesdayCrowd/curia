@@ -60,8 +60,12 @@ public static class QuestionChain
     /// <summary>R11.67's bound: at most this many posts are read after the question (the number R11.55's refusal path uses).</summary>
     public const int WalkBound = 8;
 
-    /// <summary><see cref="WalkBound"/> as the walk's words say it.</summary>
-    internal const string WalkBoundWords = "eight";
+    /// <summary><see cref="WalkBound"/> as the walk's words say it, derived from it so the two cannot drift.</summary>
+    internal static string WalkBoundWords => WalkBound switch
+    {
+        1 => "one", 2 => "two", 3 => "three", 4 => "four", 5 => "five", 6 => "six", 7 => "seven", 8 => "eight", 9 => "nine", 10 => "ten",
+        _ => WalkBound.ToString(System.Globalization.CultureInfo.InvariantCulture),
+    };
 
     /// <summary>
     /// Follows <paramref name="question"/>'s <c>superseded_by</c> down through <paramref name="client"/>: nothing for an empty or absent list; for one successor

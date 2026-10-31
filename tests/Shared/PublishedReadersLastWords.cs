@@ -68,7 +68,14 @@ internal static partial class PublishedReadersLastWords
     // ----- R10.91 -----
 
     /// <summary>R10.91's definition of a digest-only entry, as decision 3 of the entry writes it: the span after "The words are written once".</summary>
-    internal static string DefinitionSentence() => One(DefinitionPhrase(), G50(), "G50's definition of a digest-only entry");
+    internal static string DefinitionSentence()
+    {
+        // Read from R10.91's words paragraph (the mark without its parentheses) and held equal to decision 3's own statement of it.
+        var mark = DigestOnlyMarks().Full;
+        var sentence = mark[1..^1];
+        var decision = One(DefinitionPhrase(), G50(), "G50's definition of a digest-only entry");
+        return sentence == decision ? sentence : throw new InvalidOperationException($"{Errata}: R10.91's mark \"{sentence}\" and decision 3's \"{decision}\" differ");
+    }
 
     /// <summary>The tail of the definition that points at <c>recheck</c>, as <c>recheck</c>'s own clause (R10.89) says it: "recheck of that digest says whether it is withheld".</summary>
     internal static string PointerTail()
@@ -80,7 +87,11 @@ internal static partial class PublishedReadersLastWords
     }
 
     /// <summary>The same pointer in <c>recheck</c>'s own clause (R10.89: "of that digest"), for counting how often a line says it.</summary>
-    internal static string PointerTailOfThatDigest() => PointerTail().Replace("of its digest", "of that digest", StringComparison.Ordinal);
+    internal static string PointerTailOfThatDigest()
+    {
+        var clause = DigestOnlyMarks().Clause;
+        return clause[(clause.IndexOf("; ", StringComparison.Ordinal) + 2)..];
+    }
 
     /// <summary>The words R10.91 forbids a reader to say of a digest-only entry: the span <c>withheld</c> used as a claim. The probes look for "is withheld" outside the pointer.</summary>
     internal static string ForbiddenClaim() => "is withheld";
@@ -177,6 +188,95 @@ internal static partial class PublishedReadersLastWords
         return [match[0].Groups[1].Value, match[0].Groups[2].Value, match[0].Groups[3].Value];
     }
 
+    // ----- the published words (errata G50, "Published words") -----
+
+    /// <summary>
+    /// The whole "words" paragraph of <paramref name="requirement"/> (for example <c>R11.67</c>): from <c>**R11.67 words.**</c> to the next bold paragraph
+    /// or heading, bullets included, backticks kept, whitespace folded. Throws where the paragraph is absent.
+    /// </summary>
+    internal static string WordsParagraph(string requirement)
+    {
+        var text = ErrataText();
+        var anchor = $"**{requirement} words.**";
+        var start = text.IndexOf(anchor, StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException($"{Errata} has no paragraph that begins \"{anchor}\"");
+        var end = text.IndexOf("\n\n**R", start + anchor.Length, StringComparison.Ordinal);
+        var heading = text.IndexOf("\n### ", start + anchor.Length, StringComparison.Ordinal);
+        if (end < 0 || (heading >= 0 && heading < end)) end = heading;
+        return Whitespace().Replace(text[start..(end < 0 ? text.Length : end)], " ");
+    }
+
+    /// <summary>The code spans of <paramref name="requirement"/>'s words paragraph that begin with <paramref name="prefix"/>; exactly one is expected by <see cref="OneSpan"/>.</summary>
+    internal static string OneSpan(string requirement, string prefix) =>
+        One([.. Spans(WordsParagraph(requirement)).Where(t => t.StartsWith(prefix, StringComparison.Ordinal)).Distinct(StringComparer.Ordinal)], $"{requirement}'s words span beginning \"{prefix}\"");
+
+    /// <summary>
+    /// True where <paramref name="line"/> (whitespace folded) holds <paramref name="published"/>, a span that may carry <c>&lt;id&gt;</c> or <c>&lt;digest&gt;</c> placeholders,
+    /// each standing for any run of text.
+    /// </summary>
+    internal static bool Says(string line, string published)
+    {
+        var parts = Placeholder().Split(published).Select(Regex.Escape);
+        return new Regex(string.Join(".+?", parts), RegexOptions.CultureInvariant).IsMatch(Whitespace().Replace(line, " "));
+    }
+
+    /// <summary>R7.30's two advices: the one after <c>own-resource-found</c> and the one for the shared reason.</summary>
+    internal static (string Found, string Shared) OwnResourceAdvice() =>
+        (OneSpan("R7.30", "This act is open only to the agent that owns the resource it names. The resource exists"),
+            OneSpan("R7.30", "This act is open only to the agent that owns the resource it names, and"));
+
+    /// <summary>R10.91's two marks: the full one and the bare one <c>recheck</c> keeps, and <c>recheck</c>'s clause.</summary>
+    internal static (string Full, string Bare, string Clause) DigestOnlyMarks() =>
+        (OneSpan("R10.91", "(not served; recheck of its digest"), OneSpan("R10.91", "(not served)"), OneSpan("R10.91", "not served; recheck of that digest"));
+
+    /// <summary>R10.92's three kind lines (answer, revision lead, NOT STATED) and the revision's trailing text-of clause.</summary>
+    internal static (string Answer, string Revision, string NotStated, string TextOf, string TextOfNotStated) KindLines() =>
+        (OneSpan("R10.92", "kind answer"), OneSpan("R10.92", "kind revision"), OneSpan("R10.92", "kind NOT STATED"),
+            OneSpan("R10.92", "; the answer it is the text of: post"), OneSpan("R10.92", "; the answer it is the text of: NOT STATED"));
+
+    /// <summary>R11.66's cause where the Forum answered and served no posts.</summary>
+    internal static string ServedNoPosts() => OneSpan("R11.66", "the Forum served no posts");
+
+    /// <summary>R11.66's note head and its three endings (verified with a prev, verified without, not verified).</summary>
+    internal static (string Head, string WithPrev, string NoPrev, string NotVerified) PlacementNote() =>
+        (OneSpan("R11.66", "the Forum places a revision"), OneSpan("R11.66", "the post's signed prev states"), OneSpan("R11.66", "the post's signed form states no prev"),
+            OneSpan("R11.66", "this post did not pass verification"));
+
+    /// <summary>R11.67's chain end: <c>the latest revision the Forum reports is post "&lt;id&gt;"</c>, and the phrase that alone names a latest revision.</summary>
+    internal static (string End, string Phrase) ChainEnd()
+    {
+        var end = OneSpan("R11.67", "the latest revision the Forum reports is post");
+        return (end, end[..end.IndexOf(" is post", StringComparison.Ordinal)]);
+    }
+
+    /// <summary>R11.67's fork line.</summary>
+    internal static string ForkLine() => OneSpan("R11.67", "FORKED:");
+
+    /// <summary>R11.67's stop clauses, in the order the paragraph lists them; the bound's is <see cref="BoundStop"/>.</summary>
+    internal static string[] Stops()
+    {
+        string[] prefixes =
+        [
+            "the walk ended there:", "post \"<id>\" served no word", "the walk stopped there: the post served for the next revision does not hash",
+            "the walk stopped there: the post served for the next revision is not signed", "the walk stopped there: the signed prev", "the walk stopped there: the next revision named",
+            "the walk stopped there: the next revision could not be read",
+        ];
+        return [.. prefixes.Select(p => OneSpan("R11.67", p))];
+    }
+
+    /// <summary>R11.67's line where the bound is spent, the only one that says <c>NOT WALKED</c>.</summary>
+    internal static string BoundStop() => OneSpan("R11.67", "NOT WALKED past post");
+
+    /// <summary>R11.67's CLI line where the read of <c>--parent</c> failed.</summary>
+    internal static string QuestionNotChecked() => OneSpan("R11.67", "NOT CHECKED (");
+
+    /// <summary>R11.67's receipt closing parenthesis: where the walk confirmed a post, and where it confirmed none.</summary>
+    internal static (string Read, string None) Closings() =>
+        (OneSpan("R11.67", "(the Forum's word as of the read before this answer: each digest"), OneSpan("R11.67", "(the Forum's word as of the read before this answer: no post"));
+
+    /// <summary>R11.68's sentence, as the description and the help carry it.</summary>
+    internal static string BatchSentence() => OneSpan("R11.68", "Note that verifications sent together");
+
     // ----- text helpers -----
 
     /// <summary><paramref name="text"/> with backticks removed and whitespace folded to single spaces, for comparing a published clause with a description's line breaks.</summary>
@@ -225,6 +325,9 @@ internal static partial class PublishedReadersLastWords
         if (found.Length != 1) throw new InvalidOperationException($"{Errata} holds {found.Length} of {what} ({string.Join(", ", found)}); expected one");
         return found[0];
     }
+
+    [GeneratedRegex(@"<(?:id|digest)>", RegexOptions.CultureInvariant)]
+    private static partial Regex Placeholder();
 
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex Whitespace();
