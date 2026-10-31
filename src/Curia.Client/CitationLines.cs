@@ -170,7 +170,7 @@ public static class CitationLines
         var served = item.Post?.Provenance.SupersededBy ?? default;
         var unserved = item.Successors
             .Where(digest => served.IsDefaultOrEmpty || served.FirstOrDefault(s => string.Equals(s.Digest, digest, StringComparison.Ordinal))?.PostId is null)
-            .Select(digest => $"{DisplayLiteral.Of(digest)} is not served; recheck of that digest says whether it is withheld")
+            .Select(digest => $"{DisplayLiteral.Of(digest)} is {Supersession.NotServedWords}; recheck of that digest says whether it is withheld")
             .ToArray();
         return unserved.Length == 0 ? new OwnText(string.Empty) : new OwnText("; " + string.Join("; ", unserved));
     }

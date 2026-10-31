@@ -12,4 +12,17 @@ public static class AcceptWording
 
     /// <summary>What an acceptance names: the text of the id given, and not the answer's later or earlier texts.</summary>
     public const string NamesTheText = "the acceptance names the text of the id you give";
+
+    /// <summary>
+    /// R10.92's receipt line for the post accepted (errata G50; PR 3's behaviour-preserving seam): declared, returning no words and called by nothing.
+    /// Task 3 makes it the one author of the line both <c>curia resolve</c> and <c>curia_resolve</c> print, composed from R10.87's sentence.
+    /// </summary>
+    /// <param name="kind">The receipt's <c>post_kind</c>, or null where the Forum served none.</param>
+    /// <param name="postId">The receipt's <c>post_id</c>.</param>
+    /// <param name="textOf">The receipt's <c>text_of</c>, or null where the Forum served none.</param>
+    public static OwnText ReceiptKind(string? kind, string postId, string? textOf)
+    {
+        ArgumentNullException.ThrowIfNull(postId);
+        return new OwnText(string.Empty);
+    }
 }

@@ -240,7 +240,7 @@ internal sealed partial class ForumTools(
         var noun = member.Kind ?? "post";
         var named = member.PostId is { } id
             ? $"{noun}={DisplayLiteral.Of(id)}"
-            : $"the {noun} with digest {DisplayLiteral.Of(member.Digest!)} (not served)";
+            : $"the {noun} with digest {DisplayLiteral.Of(member.Digest!)} {Supersession.NotServedMark}";
         var kindNote = member.Kind is null
             ? " (kind NOT STATED: the Forum served the accepted post without saying whether it is an answer or a revision)"
             : string.Empty;

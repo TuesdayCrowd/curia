@@ -67,7 +67,11 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
     /// resource is yours is not a route to an action the table never granted your tier.</para>
     /// </summary>
     /// <param name="satisfied">Whether the caller established what the parenthetical requires.</param>
-    public AuthorizationDecision Discharge(bool satisfied)
+    /// <param name="resourceKnownToExist">
+    /// Errata G50, R7.30: whether the route has established that the resource exists, so that a denial may say so. <b>Behaviour-preserving seam of PR 3's Task 0:</b>
+    /// declared and read by nothing; every denial is still <c>table-10/own-resource-only</c>.
+    /// </param>
+    public AuthorizationDecision Discharge(bool satisfied, bool resourceKnownToExist = false)
     {
         if (!IsPermitted) return this;
 

@@ -31,6 +31,7 @@
       second thing to keep in step, and the first member to drift would be the marker whose
       absence is the assertion.
     -->
+    <Compile Include="../Shared/PublishedReadersLastWords.cs" Link="Shared/PublishedReadersLastWords.cs" />
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
     <Compile Include="../Shared/PublishedRecheck.cs" Link="Shared/PublishedRecheck.cs" />
     <Compile Include="../Shared/PublishedReadersWords.cs" Link="Shared/PublishedReadersWords.cs" />

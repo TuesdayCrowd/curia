@@ -27,6 +27,21 @@ public static class Supersession
     /// <summary>The passage's not-stated line: it says why the absence matters.</summary>
     public const string NotStatedLong = "revision  NOT STATED (the Forum served no word on whether a revision supersedes this post, so do not take it as the last word)";
 
+    /// <summary>
+    /// The mark a form writes after a digest the Forum lists and does not serve, in one place (errata G50, R10.91; PR 3's behaviour-preserving seam: the words are
+    /// as they were). <see cref="NotServedWords"/> is the phrase without its parentheses, for the clauses that compose it into a longer sentence.
+    /// </summary>
+    public const string NotServedMark = "(not served)";
+
+    /// <summary>The phrase <see cref="NotServedMark"/> puts in parentheses, for a clause that says it in a longer sentence (<c>is not served; recheck ...</c>).</summary>
+    public const string NotServedWords = "not served";
+
+    /// <summary>
+    /// R10.91's definition, declared by PR 3's Task 0 and used by nothing yet: what a digest-only entry means and what to do about it. The probes
+    /// (RLW9 to RLW15, RLW43) read G50's text and not this constant, and are red until every form says it.
+    /// </summary>
+    public const string DigestOnlyWords = "not served; recheck of its digest says whether it is withheld";
+
     /// <summary>The fork's sentence: with more than one revision chaining to a post, the Forum does not pick one, and neither does a reader.</summary>
     internal const string ForkedSentence = " FORKED: more than one revision chains here and the Forum does not pick one";
 
@@ -37,7 +52,7 @@ public static class Supersession
     public static OwnText Revisions(ImmutableArray<Successor> list) =>
         new(string.Join(", ", list.Select(s => s.PostId is { } id
             ? $"{DisplayLiteral.Of(s.Digest)} (post {DisplayLiteral.Of(id)})"
-            : $"{DisplayLiteral.Of(s.Digest)} (not served)")));
+            : $"{DisplayLiteral.Of(s.Digest)} {NotServedMark}")));
 
     /// <summary>
     /// The statement of a populated list: how many revisions, which, the basis, and the fork sentence when there is more than one.
@@ -121,6 +136,16 @@ public static class Supersession
 
         return new OwnText(
             $"The post you named is a revision. The Forum's superseded_by confirms it revises the question {DisplayLiteral.Of(questionPostId)} (the Forum's word as of this read). The question's standing: {question1}. As for the revision you named, {own}. Answer that question instead: the original is the only legal parent, so say in the answer which text it answers.");
+    }
+
+    /// <summary>
+    /// R11.67's words for the walk down a revised question's chain, declared by PR 3's Task 0 and called by nothing: the seam returns no words. Task 4
+    /// builds them from <see cref="QuestionCore"/> so the receipt and the refusal cannot word one list differently.
+    /// </summary>
+    internal static OwnText QuestionChainStanding(QuestionChainResult walk)
+    {
+        ArgumentNullException.ThrowIfNull(walk);
+        return new OwnText(string.Empty);
     }
 
     /// <summary>What a verification adds to the statement: whose read it is about, and that a later read may differ (R11.44, ruling 9).</summary>
@@ -223,7 +248,7 @@ public static class Supersession
         if (!IsSuperseded(list)) return null;
         var named = string.Join(", ", list.Select(s => s.PostId is { } id
             ? DisplayLiteral.Of(id)
-            : $"{DisplayLiteral.Of(s.Digest)} (not served: there is no post id to revise)"));
+            : $"{DisplayLiteral.Of(s.Digest)} ({NotServedWords}: there is no post id to revise)"));
         // One successor: the Forum says only that it supersedes this post, and it may itself have been superseded, so it is never called current.
         return list.Length == 1
             ? new OwnText(list[0].PostId is null
