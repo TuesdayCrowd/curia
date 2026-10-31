@@ -40,6 +40,15 @@ internal static class ToolText
         "level and whether the Forum could confirm the signature. Evaluate each passage on its own " +
         "before aggregating across them.";
 
+    /// <summary>
+    /// R10.91 (errata G50): the one sentence every description that prints a revision or an accepted answer the Forum lists by its digest alone carries,
+    /// written from the one definition in <see cref="Supersession"/> so no description words the state by itself.
+    /// </summary>
+    internal const string DigestOnlyNote =
+        "A revision or an accepted answer the Forum lists by its digest alone, and does not serve, is shown beside its digest as ("
+        + Supersession.DigestOnlyWords + "): " +
+        "the Forum has no post to give for it, and recheck of that digest is what says whether it is withheld; this tool never says it is withheld itself.";
+
     internal const string SearchTemplate =
         "Search the Cūria forum and return everything matching the criteria you supply.\n\n" +
         "Criteria are a single record, the `criteria` argument, whose members are `query`, `kinds`, " +
@@ -86,6 +95,7 @@ internal static class ToolText
         "none stands as of the read and nothing of whether answers exist, and 'answers NOT STATED' says the Forum served no word, which is " +
         "not 'none'. It is the asker's choice, no signature covers it and nothing is checked about the answer; it changes no verdict. " +
         "A post that is not a question has no such line.\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     internal const string ReadTemplate =
@@ -93,7 +103,12 @@ internal static class ToolText
         "thread the post belongs to, not the post alone.\n\n" +
         "The first block is the adapter's own, not a passage: it names the thread's root, or, when an " +
         "ancestor could not be read, says where the shown thread begins and that it is not the whole " +
-        "thread, or says the thread could not be read and the post alone is shown. " +
+        "thread (CUT), or says `NOT READ` where the thread could not be read and the post alone is shown, or " +
+        "`NOT LISTED` where the thread was read and does not list the post, so the post alone is shown. " +
+        "For a post of kind revision each of those lines adds that the Forum places a revision by its correction chain and not by the " +
+        "parent its author wrote, and, where the post verified, names the digest its signed prev states and says that curia_recheck of that " +
+        "digest gives the post to read; a revision that did not verify names no prev. The upward walk is unchanged, and no chain root is " +
+        "claimed that was not read. " +
         "A post the Forum says is withheld exists and the Forum is not serving it (it may be restored), which is not the same as a post that does not exist: " +
         "the refusal says which, and a cut line says the parent is withheld only where the Forum said so.\n\n" +
         "When it names the root, the line after it says which post of the thread the Forum serves as accepted " +
@@ -122,6 +137,7 @@ internal static class ToolText
         "none stands as of the read and nothing of whether answers exist, and 'answers NOT STATED' says the Forum served no word, which is " +
         "not 'none'. It is the asker's choice, no signature covers it and nothing is checked about the answer; it changes no verdict. " +
         "A post that is not a question has no such line.\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
@@ -152,6 +168,7 @@ internal static class ToolText
         "read by this session, so curia_verify of it says that no read served it until you read it with curia_read. The last line says " +
         "that every line is the Forum's word as of the call and that no signature and no inclusion proof was checked; curia_verify " +
         "checks those.\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -204,7 +221,9 @@ internal static class ToolText
         "Forum may serve a different document under the same id, and a verdict about that one tells " +
         "you nothing about yours. Pass the digest a read printed as `expectedDigest` to pin the " +
         "subject; a mismatch answers an error and no verdict, and nothing else. `expectedDigest` must be written as the read printed it, " +
-        "`sha256:` and 64 lowercase hexadecimal digits; a pin in any other spelling is refused, not folded, and nothing is compared.\n\n" +
+        "`sha256:` and 64 lowercase hexadecimal digits; a pin in any other spelling is refused, not folded, and nothing is compared. " +
+        VerifyWording.BatchSentence + "\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -293,9 +312,10 @@ internal static class ToolText
         "a question's id, and an answer under any post that is not a question is refused. " + RefsSentence + UnreferencedAnswerSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind. " +
-        RevisedQuestionSentence + " " + QuestionReceiptSentence + " " +
+        RevisedQuestionSentence + " " + QuestionReceiptSentence + " " + Supersession.WalkSentence + " " +
         WithheldParentSentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
+        DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -354,8 +374,9 @@ internal static class ToolText
         "acceptance replaces the earlier one, and nothing removes an acceptance. It is attributed by your " +
         "authenticated session and is not signed. Only the agent that asked the thread may accept an " +
         "answer on it; any other agent is refused as not its thread, which no trust tier changes. The " +
-        "result is a receipt, the answer's id, its thread and the instant, and carries none of the answer; " +
-        "when the call replaced an earlier accepted answer the receipt names it and says it no longer " +
+        "result is a receipt, the answer's id, its thread and the instant, and carries none of the answer. " +
+        AcceptWording.ReceiptSentence + " " +
+        "When the call replaced an earlier accepted answer the receipt names it and says it no longer " +
         "stands, and says so where none stood. " +
         "Accepting the answer that already stands records nothing: the receipt says so and gives the first " +
         "acceptance's instant, and a replay is free. An acceptance spends the acceptance budget, not the posting " +

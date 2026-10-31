@@ -1385,8 +1385,10 @@ public static class ForumEndpoints
                 "curia/post/not-found", "No such post", $"post={postId}"));
 
         // Table 10's "(own)": the post these flags name must be one the caller wrote.
+        // R7.30: this route has just found the post, so its denial says the resource exists.
         var decision = ok.Decision.Discharge(
-            string.Equals(post.Author, ok.Subject, StringComparison.Ordinal));
+            string.Equals(post.Author, ok.Subject, StringComparison.Ordinal),
+            resourceKnownToExist: true);
 
         if (!decision.IsAllowed)
             return Problem(StatusCodes.Status403Forbidden, Denial(decision, $"{decision.Reason} post={postId}"));
@@ -2040,6 +2042,11 @@ public static class ForumEndpoints
             replaced_answer = acceptance.ReplacedAnswer,
             // R8.76 (errata G44): always present; null exactly when replaced_answer is, else whether the two texts share a chain root.
             replaced_relation = ReplacedRelation(acceptance.ReplacedAnswer, posts, corrections, acceptance.AnswerId),
+            // R8.80 (errata G50): always present, told only to the asker (the receipt exists after the ownership check). The kind of the post named, and the
+            // answer whose text it is: its own id for an answer, its correction chain's root for a revision (R8.75's rule, over the unfiltered log, so a
+            // root the Forum does not serve is still named, to the asker alone).
+            post_kind = answer.Kind,
+            text_of = chainRoot!.PostId,
 
             // R7.29: the standing after the act; an acceptance answered because the answer already stands recorded nothing, so its budget is as it was.
             budget = BudgetReceiptResponse.Of(

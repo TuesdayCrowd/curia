@@ -30,6 +30,9 @@
   </ItemGroup>
   <ItemGroup>
     <!-- R4.38 (add.): the test composition's gate, linked so each test assembly holds its own internal copy. -->
+    <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
+    <Compile Include="../Shared/PublishedChainWords.cs" Link="Shared/PublishedChainWords.cs" />
+    <Compile Include="../Shared/PublishedReadersLastWords.cs" Link="Shared/PublishedReadersLastWords.cs" />
     <Compile Include="../Shared/PermissiveLifecycleAppendGate.cs" Link="Shared/PermissiveLifecycleAppendGate.cs" />
   </ItemGroup>
 </Project>

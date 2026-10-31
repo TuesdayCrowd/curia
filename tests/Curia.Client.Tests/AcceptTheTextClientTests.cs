@@ -133,9 +133,9 @@ public sealed class AcceptTheTextClientTests
     {
         var line = PassageLine(new AcceptedAnswerMember(Digest, null, [], "revision"));
 
-        Assert.Contains($"the revision with digest {DisplayLiteral.Of(Digest)} (not served)", line, StringComparison.Ordinal);
+        Assert.Contains($"the revision with digest {DisplayLiteral.Of(Digest)} ({PublishedReadersLastWords.DefinitionSentence()})", line, StringComparison.Ordinal);
         Assert.Equal(
-            $"answers  accepted: the answer with digest {DisplayLiteral.Of(Digest)} (not served), chosen by the thread's asker {Basis}",
+            $"answers  accepted: the answer with digest {DisplayLiteral.Of(Digest)} ({PublishedReadersLastWords.DefinitionSentence()}), chosen by the thread's asker {Basis}",
             PassageLine(new AcceptedAnswerMember(Digest, null, [], "answer")));
     }
 
@@ -215,7 +215,7 @@ public sealed class AcceptTheTextClientTests
         var phrases = PublishedReadersWords.R1085Phrases();
         var (notStated, moved, another) = (phrases[1], phrases[2], phrases[3]);
 
-        var replay = await ReceiptTextAsync(new AcceptanceReceipt(Thread, AnswerId, At, true, AcceptanceReplaced.None, AcceptanceRelation.None, new BudgetReceipt("acceptance", 10, 3, 7)));
+        var replay = await ReceiptTextAsync(new AcceptanceReceipt(Thread, AnswerId, At, true, AcceptanceReplaced.None, AcceptanceRelation.None, new BudgetReceipt("acceptance", 10, 3, 7), "answer", AnswerId));
         Assert.DoesNotContain(moved, replay, StringComparison.Ordinal);
         Assert.DoesNotContain(another, replay, StringComparison.Ordinal);
         Assert.DoesNotContain(notStated, replay, StringComparison.Ordinal);

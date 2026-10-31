@@ -112,14 +112,17 @@ public sealed class AcceptanceReplacedOutputTests
         var replay = await LinesOfAsync(new AcceptanceReceipt(Thread, Answer, At, true, AcceptanceReplaced.None));
 
         // Errata G49: a receipt also prints its budget line; this one carries none, so the line says NOT STATED (and no replaced line is among them).
+        // Errata G50 (R10.92): and the kind line, which for a receipt carrying neither member is kind NOT STATED.
         Assert.Equal(
             [
                 $"accepted  {DisplayLiteral.Of(Answer)}   (already the accepted answer; nothing was recorded)",
                 $"thread    {DisplayLiteral.Of(Thread)}   first accepted at {DisplayLiteral.Of(At)}",
                 replay[2],
+                replay[3],
             ],
             replay);
-        Assert.StartsWith("budget  NOT STATED", replay[2], StringComparison.Ordinal);
+        Assert.StartsWith("kind NOT STATED", replay[2], StringComparison.Ordinal);
+        Assert.StartsWith("budget  NOT STATED", replay[3], StringComparison.Ordinal);
     }
 
     /// <summary>Control: a recording call keeps the two lines R8.68 left it, whatever the member says, so the new line is an addition.</summary>

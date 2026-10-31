@@ -209,9 +209,21 @@ internal sealed partial class ForumTools
         };
 
         // R11.55: an answer's receipt states the question's standing at this read; a refusal under a revision may be given a pointer.
+        // R11.67 (errata G50): where the question is served as superseded, the receipt follows its chain down, before anything is signed. The walk is
+        // advisory, bounded and the Forum's word, and no failure of it stops the answer; a parent that is not a question is the Forum's to refuse and is not walked.
+        OwnText? question = null;
+        if (kind is PostKind.Answer)
+        {
+            var walked = PostKinds.TryParse(post.Kind, out var parentKind0) && parentKind0 is PostKind.Question
+                ? await QuestionChain.WalkAsync(_forum, post, cancellationToken).ConfigureAwait(false)
+                : null;
+            var chain = walked is null ? default(OwnText?) : Supersession.QuestionChainStanding(walked);
+            question = chain is { Text.Length: > 0 } stated ? stated : Supersession.QuestionStanding(post.Provenance.SupersededBy);
+        }
+
         return await SubmitAsync(
                 writer, draft, resource, ActionKind.Create, cancellationToken,
-                question: kind is PostKind.Answer ? Supersession.QuestionStanding(post.Provenance.SupersededBy) : null,
+                question: question,
                 revisionParent: kind is PostKind.Answer && PostKinds.TryParse(post.Kind, out var parentKind) && parentKind is PostKind.Revision ? post : null)
             .ConfigureAwait(false);
     }
@@ -292,6 +304,7 @@ internal sealed partial class ForumTools
                 .Line("ACCEPTED (already the accepted answer; nothing was recorded)")
                 .Line($"answer      {receipt.PostId}")
                 .Line($"thread      {receipt.ThreadRoot}")
+                .Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}")
                 .Line($"first accepted at {receipt.AcceptedAt}")
                 .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")
                 .Blank()
@@ -304,6 +317,7 @@ internal sealed partial class ForumTools
                         .Line("ACCEPTED")
                         .Line($"answer      {receipt.PostId}")
                         .Line($"thread      {receipt.ThreadRoot}")
+                        .Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}")
                         .Line($"accepted_at {receipt.AcceptedAt}"),
                     receipt.Replaced, receipt.ReplacedRelation)
                 .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")

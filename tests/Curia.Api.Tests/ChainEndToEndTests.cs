@@ -184,7 +184,8 @@ public sealed partial class ChainEndToEndTests(KestrelForumFixture forum) : ICla
     }
 
     /// <summary>
-    /// CHN20. <c>curia_read</c> of LP1 (a <c>parent</c> that lies) is honest: a <c>NOT READ</c> line saying the thread served did not include the post, the post
+    /// CHN20 (its object changed by errata G50, R11.66: the line used to be <c>NOT READ</c> and "did not include", which said "could not be read" of a thread that
+    /// read fine). <c>curia_read</c> of LP1 (a <c>parent</c> that lies) is honest: a <c>NOT LISTED</c> line saying the thread was read and does not list the post, the post
     /// alone, and no <c>thread root=</c>; of LP2 (a <c>parent</c> naming no post) the existing <c>CUT</c> line; of an honest revision <c>thread root=</c> Q5 with
     /// every member the Forum's own listing holds.
     /// </summary>
@@ -204,7 +205,7 @@ public sealed partial class ChainEndToEndTests(KestrelForumFixture forum) : ICla
         var members = (await forum.Client.GetFromJsonAsync<JsonElement>($"{Address}/v1/threads/{scene.Q5}", Ct)).EnumerateArray().Select(p => p.GetProperty("post_id").GetString()!).ToArray();
 
         var problems = new List<string>();
-        if (!lying.Blocks[0].Contains("NOT READ", StringComparison.Ordinal) || !lying.Blocks[0].Contains("did not include the post", StringComparison.Ordinal)) problems.Add($"LP1: the first block does not say NOT READ and why: {lying.Blocks[0]}");
+        if (!lying.Blocks[0].Contains("NOT LISTED", StringComparison.Ordinal) || !lying.Blocks[0].Contains("does not list the post", StringComparison.Ordinal)) problems.Add($"LP1: the first block does not say NOT LISTED and why: {lying.Blocks[0]}");
         if (lying.Blocks[0].Contains("thread root=", StringComparison.Ordinal)) problems.Add($"LP1: a thread is presented as the post's: {lying.Blocks[0]}");
         if (lying.Blocks.Count != 2) problems.Add($"LP1: {lying.Blocks.Count - 1} passage(s), not the post alone");
         if (!cut.Blocks[0].Contains("CUT", StringComparison.Ordinal)) problems.Add($"LP2: no CUT line: {cut.Blocks[0]}");
@@ -256,8 +257,9 @@ public sealed partial class ChainEndToEndTests(KestrelForumFixture forum) : ICla
         if (!underR1.Contains(Lit(r2Id), StringComparison.Ordinal) || underR1.Contains(latest, StringComparison.Ordinal)) problems.Add("the refusal under r1 does not name r2 as superseding it, or says r1 is the latest");
         if (underR2.Contains(hedge, StringComparison.Ordinal) || underR1.Contains(hedge, StringComparison.Ordinal)) problems.Add("a refusal carries the hedge");
         var receiptLine = toQ.Split('\n').FirstOrDefault(l => l.StartsWith("question    ", StringComparison.Ordinal)) ?? string.Empty;
-        if (!receiptLine.Contains(Lit(r1Id), StringComparison.Ordinal) || receiptLine.Contains(Lit(r2Id), StringComparison.Ordinal) || !receiptLine.Contains("this answer went to the question as named", StringComparison.Ordinal))
-            problems.Add($"the answer sent to Q does not keep the receipt's question line (r1 only): {receiptLine}");
+        // Errata G50 (R11.67) changes this fact's object: the receipt used to name one hop (r1 only), which was the defect; it now walks down and names both.
+        if (!receiptLine.Contains(Lit(r1Id), StringComparison.Ordinal) || !receiptLine.Contains(Lit(r2Id), StringComparison.Ordinal) || !receiptLine.Contains("this answer went to the question as named", StringComparison.Ordinal))
+            problems.Add($"the answer sent to Q does not state the receipt's question line naming both hops (r1 and r2): {receiptLine}");
         foreach (var (name, lines) in new[] { ("a read of r2", readR2), ("a read of Q", readQ) })
         {
             var accepted = Array.FindIndex(lines, l => l.StartsWith("accepted ", StringComparison.Ordinal));

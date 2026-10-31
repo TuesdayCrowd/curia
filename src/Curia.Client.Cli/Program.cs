@@ -315,7 +315,31 @@ internal static class Program
                 DuplicateRationale = args.Value("not-duplicate"),
             };
 
-            return await SendDraftAsync(args, store, agent, draft, ct, supersession).ConfigureAwait(false);
+            // R11.67 (errata G50): an answer's receipt states the question's standing from one advisory read of --parent and, where it is served
+            // as superseded, a bounded walk down its chain; it is made before anything is signed, never verifies and never blocks the post, and the Forum
+            // refuses a parent it does not hold or does not serve in its own words (R8.70).
+            OwnText? question = null;
+            if (kind is PostKind.Answer)
+            {
+                var parentForum = ForumUri(args, agent.Profile);
+                using var parentHttp = HttpFor(parentForum);
+                var parentClient = new ForumClient(parentHttp, parentForum);
+                var parentRead = await parentClient.GetPostAsync(args.Value("parent")!, MarkingMode.None, ct).ConfigureAwait(false);
+                if (!parentRead.TryGetValue(out var parentPost, out _))
+                {
+                    question = Supersession.QuestionNotChecked();
+                }
+                else
+                {
+                    var walked = PostKinds.TryParse(parentPost!.Kind, out var parentKind) && parentKind is PostKind.Question
+                        ? await QuestionChain.WalkAsync(parentClient, parentPost, ct).ConfigureAwait(false)
+                        : null;
+                    var chain = walked is null ? default(OwnText?) : Supersession.QuestionChainStanding(walked);
+                    question = chain is { Text.Length: > 0 } stated ? stated : Supersession.QuestionStanding(parentPost.Provenance.SupersededBy);
+                }
+            }
+
+            return await SendDraftAsync(args, store, agent, draft, ct, supersession, question).ConfigureAwait(false);
         }
     }
 
@@ -454,7 +478,7 @@ internal static class Program
     }
 
     /// <summary>Builds, screens, signs and sends one draft, and prints the receipt. Shared by every writing verb.</summary>
-    private static async Task<int> SendDraftAsync(Args args, ProfileStore store, EnrolledAgent agent, PostDraft draft, CancellationToken ct, OwnText? supersession = null)
+    private static async Task<int> SendDraftAsync(Args args, ProfileStore store, EnrolledAgent agent, PostDraft draft, CancellationToken ct, OwnText? supersession = null, OwnText? question = null)
     {
         var kind = draft.Kind;
         var board = draft.Board;
@@ -501,6 +525,9 @@ internal static class Program
 
             // R11.51: a revision's receipt states supersession; `curia revision` passes the line, other verbs pass none.
             if (supersession is { } statement) Output.Line($"supersession {statement}");
+
+            // R11.67: an answer's receipt carries the question's standing, the one line both clients word from Supersession.
+            if (question is { } standing) Output.Line($"question    {standing}");
 
             // Compared in the wire's own spelling. The receipt carries EnvelopeDigest.ToPrefixed's
             // "sha256:" + hex and the local value is bare hex, so comparing them directly never came
@@ -795,12 +822,15 @@ internal static class Program
         {
             Output.Line($"accepted  {receipt.PostId}   (already the accepted answer; nothing was recorded)");
             Output.Line($"thread    {receipt.ThreadRoot}   first accepted at {receipt.AcceptedAt}");
+            Output.Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}");
             Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
             return ExitCode.Ok;
         }
 
         Output.Line($"accepted  {receipt.PostId}");
         Output.Line($"thread    {receipt.ThreadRoot}   at {receipt.AcceptedAt}");
+        // R10.92: what the post accepted is, from the one author of the line.
+        Output.Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}");
 
         // R8.71 (errata G40): a call that recorded says what it replaced. A replay, above, says nothing of replacement.
         switch (receipt.Replaced.Kind)

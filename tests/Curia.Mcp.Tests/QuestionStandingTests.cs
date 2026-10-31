@@ -184,9 +184,10 @@ public sealed class QuestionStandingTests : IDisposable
             var line = receipt.Text.Split('\n').Single(l => l.StartsWith("question    ", StringComparison.Ordinal));
             Assert.Contains(Tail, line, StringComparison.Ordinal);
 
-            // The core is the receipt's line up to the clause that is about this answer and the read before it.
+            // The core is the receipt's line up to the first clause after the list it words: the walk down the chain adds its own (R11.67, errata G50:
+            // "; the latest revision the Forum reports is ..."), and then the clause that is about this answer and the read before it.
             var body = line["question    ".Length..];
-            var tailAt = body.LastIndexOf(" (the Forum's word", StringComparison.Ordinal);
+            var tailAt = body.IndexOf("; ", StringComparison.Ordinal) is var clause and > 0 ? clause : body.LastIndexOf(" (the Forum's word", StringComparison.Ordinal);
             Assert.True(tailAt > 0, $"the receipt's question line has no tail clause: {line}");
             var core = body[..tailAt];
             Assert.StartsWith("SUPERSEDED", core, StringComparison.Ordinal);
@@ -373,7 +374,7 @@ public sealed class QuestionStandingTests : IDisposable
         ServeThread(r1.Id, r1);
         var cut = await FirstBlockAsync(r1.Id);
 
-        // Unread: the thread route serves nothing that holds the post.
+        // Not listed: the thread route serves a thread that does not hold the post (errata G50, R11.66: NOT LISTED, where it used to say NOT READ).
         var q2 = Question("V");
         var r3 = Revise(q2, "V", 1);
         _log.ServePost(q2.Id, q2.Draft, q2.Signed, [r3.AsSuccessor()]);
@@ -382,7 +383,7 @@ public sealed class QuestionStandingTests : IDisposable
         var unread = await FirstBlockAsync(r3.Id);
 
         Assert.Contains("CUT", cut, StringComparison.Ordinal);
-        Assert.Contains("NOT READ", unread, StringComparison.Ordinal);
+        Assert.Contains("NOT LISTED", unread, StringComparison.Ordinal);
         Assert.DoesNotContain(Lines(cut), l => l.StartsWith("revision", StringComparison.Ordinal));
         Assert.DoesNotContain(Lines(unread), l => l.StartsWith("revision", StringComparison.Ordinal));
     }

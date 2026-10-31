@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Net;
-using System.Net.Sockets;
 using System.Text.RegularExpressions;
 using Curia.Api.Tests.Fuzz;
 using Curia.Client;
@@ -291,105 +289,5 @@ public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : I
         string[] states = ["current", "superseded", "withheld", "unknown", "malformed", "disputed", "FAILED"];
         Assert.DoesNotContain(rechecked.Stdout.Split('\n'), l => states.Any(w => l.StartsWith(w, StringComparison.Ordinal)));
         Assert.Contains("batch-too-large", rechecked.Stderr, StringComparison.Ordinal);
-    }
-
-    /// <summary>A loopback forwarder that counts the batch requests it relays: the oracle for "one request was sent".</summary>
-    private sealed class CountingProxy : IDisposable
-    {
-        private readonly HttpListener _listener = new();
-        private readonly HttpClient _upstream = new();
-        private readonly Uri _target;
-        private readonly CancellationTokenSource _stop = new();
-        private int _batchRequests;
-        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _gets = new();
-
-        private CountingProxy(Uri target, int port)
-        {
-            _target = target;
-            Address = $"http://{IPAddress.Loopback}:{port}";
-            _listener.Prefixes.Add(Address + "/");
-            _listener.Start();
-            _ = Task.Run(ServeAsync);
-        }
-
-        internal string Address { get; }
-
-        internal int BatchRequests => Volatile.Read(ref _batchRequests);
-
-        /// <summary>How many <c>GET /v1/posts/{id}</c> requests for <paramref name="postId"/> the proxy relayed.</summary>
-        internal int ReadsOf(string postId) => _gets.Count(path => string.Equals(path, "/v1/posts/" + Uri.EscapeDataString(postId), StringComparison.Ordinal));
-
-        internal static CountingProxy In(Uri target)
-        {
-            return new CountingProxy(target, FreePort());
-        }
-
-        private static int FreePort()
-        {
-            using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            probe.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-            return ((IPEndPoint)probe.LocalEndPoint!).Port;
-        }
-
-        [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "A relay failure ends that exchange only; the test's own assertions then see the missing answer.")]
-        private async Task ServeAsync()
-        {
-            while (!_stop.IsCancellationRequested)
-            {
-                HttpListenerContext context;
-                try
-                {
-                    context = await _listener.GetContextAsync();
-                }
-                catch (Exception e) when (e is HttpListenerException or ObjectDisposedException or InvalidOperationException)
-                {
-                    return;
-                }
-
-                try
-                {
-                    var request = context.Request;
-                    if (string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal)) _gets.Enqueue(request.Url!.AbsolutePath);
-                    if (string.Equals(request.HttpMethod, "POST", StringComparison.Ordinal)
-                        && string.Equals(request.Url!.AbsolutePath, "/v1/posts/batch", StringComparison.Ordinal))
-                        Interlocked.Increment(ref _batchRequests);
-
-                    using var forwarded = new HttpRequestMessage(new HttpMethod(request.HttpMethod), new Uri(_target, request.Url!.PathAndQuery));
-                    foreach (var name in new[] { "Authorization", "DPoP", "If-None-Match" })
-                        if (request.Headers[name] is { } value) forwarded.Headers.TryAddWithoutValidation(name, value);
-                    forwarded.Headers.Host = request.UserHostName; // a DPoP proof is signed over the URL the client used, so the Forum must rebuild that one
-                    using var body = new MemoryStream();
-                    await request.InputStream.CopyToAsync(body);
-                    if (body.Length > 0)
-                    {
-                        forwarded.Content = new ByteArrayContent(body.ToArray());
-                        if (request.ContentType is { } type) forwarded.Content.Headers.TryAddWithoutValidation("Content-Type", type);
-                    }
-
-                    using var answer = await _upstream.SendAsync(forwarded);
-                    var bytes = await answer.Content.ReadAsByteArrayAsync();
-                    context.Response.StatusCode = (int)answer.StatusCode;
-                    context.Response.ContentType = answer.Content.Headers.ContentType?.ToString();
-                    context.Response.ContentLength64 = bytes.Length;
-                    await context.Response.OutputStream.WriteAsync(bytes);
-                }
-                catch (Exception e) when (e is HttpRequestException or HttpListenerException or IOException or InvalidOperationException)
-                {
-                    context.Response.StatusCode = 502;
-                }
-                finally
-                {
-                    context.Response.Close();
-                }
-            }
-        }
-
-        public void Dispose()
-        {
-            _stop.Cancel();
-            _listener.Close();
-            _upstream.Dispose();
-            _stop.Dispose();
-        }
     }
 }

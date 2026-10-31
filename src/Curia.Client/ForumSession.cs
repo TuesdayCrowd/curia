@@ -294,7 +294,7 @@ public sealed class ForumSession
     /// R7.18's <c>flag</c>/<c>list</c>, both sets. With no <paramref name="postId"/> this asks for
     /// the flags this agent raised; with one, for the flags raised against that post — which the
     /// Forum serves only to the post's author, and refuses with
-    /// <c>table-10/own-resource-only</c> otherwise.
+    /// <c>table-10/own-resource-found</c> otherwise (R7.30: the Forum has found the post).
     ///
     /// <para>R10.44 fixes what comes back: a post, a kind and an instant. Never a rationale, and
     /// never the agent that raised it — so a client cannot build the accuser graph even by

@@ -145,7 +145,7 @@ public sealed class FloorKindsTests : IDisposable
     [Fact]
     public void R11_63_CHN51_TheVersionIsTheOneTheErrataNames()
     {
-        var published = PublishedBudgetReadout.Version();
+        var published = PublishedReadersLastWords.Version();
         Assert.True(string.Equals(published, ToolCatalogue.Version, StringComparison.Ordinal), $"Expected: \"{published}\" Actual: \"{ToolCatalogue.Version}\"");
     }
 }

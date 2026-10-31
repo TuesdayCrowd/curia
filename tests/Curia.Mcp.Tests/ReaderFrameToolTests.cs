@@ -390,7 +390,11 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
         Assert.Contains(Curia.Canon.Json.DisplayLiteral.Of(StubLog.PostId), cut, StringComparison.Ordinal);
     }
 
-    /// <summary>R11.38: a thread the Forum serves without the requested post is not claimed as its thread.</summary>
+    /// <summary>
+    /// R11.38: a thread the Forum serves without the requested post is not claimed as its thread. Errata G50 (R11.66) changes this fact's object: it pinned
+    /// <c>NOT READ</c> and "did not include" for a thread that was read, which said "could not be read" of a thread that read fine; the line is now
+    /// <c>NOT LISTED</c>, and the first block still claims no thread.
+    /// </summary>
     [Fact]
     public async Task R11_38_AThreadThatDoesNotIncludeThePostIsNotClaimed()
     {
@@ -399,8 +403,9 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
         var text = await ReadAsync(log);
 
         var first = text.Split('\n')[0];
-        Assert.StartsWith("NOT READ", first, StringComparison.Ordinal);
-        Assert.Contains("did not include", first, StringComparison.Ordinal);
+        Assert.StartsWith("NOT LISTED", first, StringComparison.Ordinal);
+        Assert.Contains("was read and does not list the post", first, StringComparison.Ordinal);
+        Assert.DoesNotContain("could not be read", first, StringComparison.Ordinal);
         Assert.DoesNotContain(text.Split('\n'), l => l.StartsWith("thread", StringComparison.Ordinal));
     }
 

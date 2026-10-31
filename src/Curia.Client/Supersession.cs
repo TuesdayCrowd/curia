@@ -27,17 +27,47 @@ public static class Supersession
     /// <summary>The passage's not-stated line: it says why the absence matters.</summary>
     public const string NotStatedLong = "revision  NOT STATED (the Forum served no word on whether a revision supersedes this post, so do not take it as the last word)";
 
+    /// <summary>
+    /// The bare mark <c>recheck</c>'s own list carries after a digest the Forum lists and does not serve (errata G50, R10.91: <c>recheck</c> states the pointer once, in its
+    /// own clause, <see cref="RecheckClauseWords"/>); every other form writes <see cref="DigestOnlyMark"/>. <see cref="NotServedWords"/> is the phrase without its
+    /// parentheses, for the refusal's arm that says there is no post id to revise.
+    /// </summary>
+    public const string NotServedMark = "(not served)";
+
+    /// <summary>The phrase <see cref="NotServedMark"/> puts in parentheses, for a clause that says it in a longer sentence (<c>is not served; recheck ...</c>).</summary>
+    public const string NotServedWords = "not served";
+
+    /// <summary>
+    /// R10.91's definition, written once: what a post the Forum lists by its digest alone and does not serve means, and what to do about it. Every form that
+    /// prints such an entry, and every description and help that says <c>not served</c>, takes its words from here. A reader never says <c>withheld</c> itself:
+    /// <c>recheck</c>, which asks the Forum, is the one that can say more.
+    /// </summary>
+    public const string DigestOnlyWords = "not served; recheck of its digest says whether it is withheld";
+
+    /// <summary><see cref="DigestOnlyWords"/> in parentheses, the mark a form writes after a digest-only entry (R10.91).</summary>
+    public const string DigestOnlyMark = "(" + DigestOnlyWords + ")";
+
+    /// <summary>
+    /// <c>recheck</c>'s own statement of the pointer (R10.89's clause, which names the digest it sits beside as <c>that digest</c>): the same words as
+    /// <see cref="DigestOnlyWords"/>, so the two cannot drift apart, with the pronoun R10.89 uses.
+    /// </summary>
+    internal static string RecheckClauseWords => DigestOnlyWords.Replace("of its digest", "of that digest", StringComparison.Ordinal);
+
     /// <summary>The fork's sentence: with more than one revision chaining to a post, the Forum does not pick one, and neither does a reader.</summary>
     internal const string ForkedSentence = " FORKED: more than one revision chains here and the Forum does not pick one";
 
     /// <summary>True when the Forum served a non-empty list.</summary>
     public static bool IsSuperseded(ImmutableArray<Successor> list) => !list.IsDefaultOrEmpty;
 
-    /// <summary>The revisions, each digest and the post that holds it (or that it is not served), as display literals.</summary>
-    public static OwnText Revisions(ImmutableArray<Successor> list) =>
+    /// <summary>
+    /// The revisions, each digest and the post that holds it (or, for a digest the Forum lists and does not serve, R10.91's definition beside it), as
+    /// display literals. <paramref name="pointToRecheck"/> is false only for the form that states the pointer itself in the same line
+    /// (<c>recheck</c>, R10.89): it then carries the bare <see cref="NotServedMark"/> and says the rest once, from the same words.
+    /// </summary>
+    public static OwnText Revisions(ImmutableArray<Successor> list, bool pointToRecheck = true) =>
         new(string.Join(", ", list.Select(s => s.PostId is { } id
             ? $"{DisplayLiteral.Of(s.Digest)} (post {DisplayLiteral.Of(id)})"
-            : $"{DisplayLiteral.Of(s.Digest)} (not served)")));
+            : $"{DisplayLiteral.Of(s.Digest)} {(pointToRecheck ? DigestOnlyMark : NotServedMark)}")));
 
     /// <summary>
     /// The statement of a populated list: how many revisions, which, the basis, and the fork sentence when there is more than one.
@@ -123,6 +153,95 @@ public static class Supersession
             $"The post you named is a revision. The Forum's superseded_by confirms it revises the question {DisplayLiteral.Of(questionPostId)} (the Forum's word as of this read). The question's standing: {question1}. As for the revision you named, {own}. Answer that question instead: the original is the only legal parent, so say in the answer which text it answers.");
     }
 
+    /// <summary>
+    /// The sentence a description and a help carry about the walk down a revised question's chain (R11.67), so neither words it alone. It is the one place
+    /// besides <see cref="QuestionChainStanding"/> that writes the walk's own words.
+    /// </summary>
+    public const string WalkSentence =
+        "Where the question is served as superseded, the receipt follows the chain of revisions down by the Forum's superseded_by, before anything is signed, "
+        + "reading at most eight posts after the question, and states the latest revision the Forum reports, naming each hop; a fork is stated as FORKED, with "
+        + "the statement that none was followed and no latest revision named; a revision the Forum lists by its digest alone ends the walk; a post that is not "
+        + "the one named, a read that fails and a post already read end it in fixed words; and a bound spent with a revision still listed is NOT WALKED, naming "
+        + "the last post reached. The walk is the Forum's word as of the read: each digest is recomputed here and no signature is checked, and no failure of it "
+        + "stops the answer. A question that is not superseded costs no read.";
+
+    /// <summary>
+    /// R11.67's <c>question</c> line of an answer's receipt for a question the walk found superseded: the question's own standing from
+    /// <see cref="QuestionCore"/> (so the receipt and the refusal cannot word one list differently, R11.62), each hop the walk read and confirmed (its own list),
+    /// and why the walk stopped, in fixed words that name no value the Forum or an author wrote beyond the ids and digests it listed. Empty for a question
+    /// that is not superseded: the caller then says <see cref="QuestionStanding"/>. A fork is FORKED with the statement that none was followed and no latest
+    /// revision named; no stop other than the one that reaches the end names a latest revision.
+    /// </summary>
+    public static OwnText QuestionChainStanding(QuestionChainResult walk)
+    {
+        ArgumentNullException.ThrowIfNull(walk);
+        if (walk.End is QuestionChainEnd.NotSuperseded) return new OwnText(string.Empty);
+
+        // A digest the Forum listed that the post it served does not hash to is named nowhere: it is the one value the walk has shown to be wrong.
+        var clauses = new List<string>
+        {
+            walk.End is QuestionChainEnd.DigestDiffers && walk.Hops.IsDefaultOrEmpty
+                ? "the Forum's superseded_by lists a revision of the question"
+                : QuestionCore(walk.QuestionList).Text,
+        };
+        for (var i = 0; i < walk.Hops.Length; i++)
+        {
+            var isLast = i == walk.Hops.Length - 1;
+            var listIsStated = !isLast || walk.End is QuestionChainEnd.Forked or QuestionChainEnd.NotServed
+                or QuestionChainEnd.KindNotRevision or QuestionChainEnd.PrevNotPrevious or QuestionChainEnd.AlreadyRead or QuestionChainEnd.ReadFailed;
+            if (listIsStated)
+                clauses.Add($"post {DisplayLiteral.Of(walk.Hops[i].PostId)} is itself superseded by {Revisions(walk.Hops[i].SupersededBy).Text}");
+        }
+
+        var last = walk.Hops.IsDefaultOrEmpty ? null : DisplayLiteral.Of(walk.Hops[^1].PostId);
+        clauses.Add(walk.End switch
+        {
+            QuestionChainEnd.Latest => $"the latest revision the Forum reports is post {last}",
+            QuestionChainEnd.Forked => "FORKED: more than one revision chains here and the Forum does not pick one; none was followed, so no latest revision is named",
+            QuestionChainEnd.NotServed => "the walk ended there: the Forum does not serve that revision, so no later revision is read and no head is claimed past it",
+            QuestionChainEnd.ListNotStated => $"post {last} served no word on whether a revision supersedes it (NOT STATED), so no head is claimed past it",
+            QuestionChainEnd.DigestDiffers => "the walk stopped there: the post served for the next revision does not hash to the digest the Forum listed, so it was not followed and no head is claimed",
+            QuestionChainEnd.KindNotRevision => "the walk stopped there: the post served for the next revision is not signed as a revision, so it was not followed and no head is claimed",
+            QuestionChainEnd.PrevNotPrevious => "the walk stopped there: the signed prev of the post served for the next revision is not the digest of the post before it, so it was not followed and no head is claimed",
+            QuestionChainEnd.AlreadyRead => "the walk stopped there: the next revision named is a post this walk had already read, so no head is claimed",
+            QuestionChainEnd.ReadFailed => "the walk stopped there: the next revision could not be read, so no head is claimed",
+            QuestionChainEnd.BoundSpent => $"NOT WALKED past post {last}: a revision is still listed there and the walk reads at most {QuestionChain.WalkBoundWords} posts after the question, so read on from that post",
+            QuestionChainEnd.NotSuperseded => throw new InvalidOperationException("A question that is not superseded was returned above."),
+            _ => throw new ArgumentOutOfRangeException(nameof(walk), walk.End, "R11.67 has these ends."),
+        });
+
+        var read = walk.Hops.IsDefaultOrEmpty
+            ? "no post after the question was read and confirmed, so no digest, kind or prev of a later revision was checked here"
+            : "each digest on the chain was recomputed here and each signed kind and prev read";
+        return new OwnText(string.Join("; ", clauses)
+            + $" (the Forum's word as of the read before this answer: {read}, no signature was checked, "
+            + "and this answer went to the question as named, which can be right)");
+    }
+
+    /// <summary>
+    /// R11.66's note on a revision's failure lines (<c>NOT READ</c>, <c>NOT LISTED</c> and <c>CUT</c>): the Forum places a revision by its correction chain and
+    /// not by the <c>parent</c> its author wrote (R9.48), the digest the post's signed <c>prev</c> states, and that <c>curia_recheck</c> of that digest gives the
+    /// post to read. The <c>prev</c> is named only where the post's own passage <paramref name="verified"/>, and is a display literal; for a post that did not
+    /// verify the note says so and names none. No chain root is claimed: the reader says what it knows and where the rest is.
+    /// </summary>
+    public static OwnText RevisionPlacementNote(string? prev, bool verified)
+    {
+        const string Placement = "the Forum places a revision by its correction chain and not by the parent its author wrote";
+        if (!verified)
+            return new OwnText($"{Placement}; this post did not pass verification here (its signature failed or its key is disputed), so no signed prev is named from it");
+
+        return prev is null
+            ? new OwnText($"{Placement}; the post's signed form states no prev, so there is no digest to look up")
+            : new OwnText($"{Placement}; the post's signed prev states the digest {DisplayLiteral.Of(prev)}, and curia_recheck of that digest gives the post to read");
+    }
+
+    /// <summary>
+    /// R11.67's <c>question</c> line of <c>curia answer</c> where the one read of <c>--parent</c> failed: advisory, so the answer was sent all the same and
+    /// the Forum, which refuses a parent it does not hold or does not serve in its own words (R8.70), is the judge of the parent.
+    /// </summary>
+    public static OwnText QuestionNotChecked() =>
+        new("NOT CHECKED (the read of the question before this answer failed, so the Forum's word on whether a revision supersedes it is not known; the answer was sent to the question as named)");
+
     /// <summary>What a verification adds to the statement: whose read it is about, and that a later read may differ (R11.44, ruling 9).</summary>
     private const string AsOfTheRead = " (the Forum's word as of the read this verification is about; read the post again for now)";
 
@@ -173,7 +292,7 @@ public static class Supersession
 
         var heads = new List<string>();
         var notStated = new List<string>();
-        var outside = new List<string>();
+        var outside = new List<Successor>();
         var visited = new HashSet<string>(StringComparer.Ordinal) { root.PostId };
 
         void Follow(ProvenancePost node)
@@ -183,7 +302,7 @@ public static class Supersession
                 var member = members.IsDefault ? null : members.FirstOrDefault(m => string.Equals(m.Digest, successor.Digest, StringComparison.Ordinal));
                 if (member is null)
                 {
-                    outside.Add(successor.Digest);
+                    outside.Add(successor);
                     continue;
                 }
 
@@ -205,7 +324,9 @@ public static class Supersession
             _ => $"the text that stands is not one text, the chain is FORKED: the heads this thread holds are {string.Join(", ", heads.Select(h => "post " + DisplayLiteral.Of(h)))}, and the Forum picks none",
         });
         if (outside.Count > 0)
-            parts.Add($"{string.Join(", ", outside.Select(DisplayLiteral.Of))} leads outside what this thread holds, so no head is claimed for it");
+            // R10.91: a successor with no post id is a digest-only entry and is said in the definition's words; one with a post id is served, in a
+            // thread this one does not hold, and keeps its own words.
+            parts.Add($"{string.Join(", ", outside.Select(s => s.PostId is null ? $"{DisplayLiteral.Of(s.Digest)} {DigestOnlyMark}" : DisplayLiteral.Of(s.Digest)))} leads outside what this thread holds, so no head is claimed for it");
         if (notStated.Count > 0)
             parts.Add($"{string.Join(", ", notStated.Select(n => "post " + DisplayLiteral.Of(n)))}: revision NOT STATED, so no head is claimed past it");
 
@@ -223,7 +344,7 @@ public static class Supersession
         if (!IsSuperseded(list)) return null;
         var named = string.Join(", ", list.Select(s => s.PostId is { } id
             ? DisplayLiteral.Of(id)
-            : $"{DisplayLiteral.Of(s.Digest)} (not served: there is no post id to revise)"));
+            : $"{DisplayLiteral.Of(s.Digest)} ({NotServedWords}: there is no post id to revise)"));
         // One successor: the Forum says only that it supersedes this post, and it may itself have been superseded, so it is never called current.
         return list.Length == 1
             ? new OwnText(list[0].PostId is null

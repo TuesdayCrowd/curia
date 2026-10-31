@@ -172,13 +172,34 @@ internal sealed partial class ForumTools(
         var members = thread.TryGetValue(out var served, out var failure) ? served! : default;
         var threadRead = !members.IsDefaultOrEmpty && members.Any(m => string.Equals(m.PostId, post.PostId, StringComparison.Ordinal));
 
+        var posts = threadRead ? members : [post];
+        var passages = await PassagesAsync(posts, cancellationToken).ConfigureAwait(false);
+
+        // R11.66 (errata G50): for a post of kind revision each failure line and the CUT line add where the Forum places a revision, made from the post's own
+        // passage: its signed prev is named only where that passage verified, so the note is built after the passages and never from a document that did not.
+        OwnText? placement = null;
+        if (string.Equals(post.Kind, "revision", StringComparison.Ordinal))
+        {
+            var own = passages.First(p => string.Equals(p.Post.PostId, post.PostId, StringComparison.Ordinal));
+            placement = Supersession.RevisionPlacementNote(own.Outcome is CheckOutcome.Verified ? own.Envelope?.Prev : null, own.Outcome is CheckOutcome.Verified);
+        }
+
+        var note = placement is { } placed ? new OwnText("; " + placed.Text) : new OwnText(string.Empty);
+
         var frame = new FrameBuilder();
         if (!threadRead)
         {
-            var why = !thread.IsOk ? failure!.Summary
-                : members.IsDefaultOrEmpty ? "the Forum served no posts for it"
-                : "the thread the Forum served did not include the post";
-            frame.Line($"NOT READ the thread beginning at {top.PostId} could not be read, so the post alone is shown: {why}");
+            // R11.66: two causes, two words. A thread the Forum could not be asked for or served nothing for was not read; one it served, which does not list
+            // the post, was read, and is not the post's thread.
+            if (!thread.IsOk || members.IsDefaultOrEmpty)
+            {
+                var why = !thread.IsOk ? failure!.Summary : "the Forum served no posts for it";
+                frame.Line($"NOT READ the thread beginning at {top.PostId} could not be read, so the post alone is shown: {why}{note}");
+            }
+            else
+            {
+                frame.Line($"NOT LISTED the thread beginning at {top.PostId} was read and does not list the post, so the post alone is shown{note}");
+            }
         }
         else if (unreadableParent is null && !repeats && cutAt is null)
         {
@@ -195,17 +216,15 @@ internal sealed partial class ForumTools(
         }
 
         if (unreadableParent is not null)
-            frame.Line($"CUT the parent {unreadableParent} of post {top.PostId} {(parentWithheld ? "is withheld" : "could not be read")}, so the thread shown begins at {top.PostId} and is not the whole thread");
+            frame.Line($"CUT the parent {unreadableParent} of post {top.PostId} {(parentWithheld ? "is withheld" : "could not be read")}, so the thread shown begins at {top.PostId} and is not the whole thread{note}");
         else if (repeats)
-            frame.Line($"CUT the parent chain repeats at a post already read, so it has no root; the thread shown begins at {top.PostId} and is not the whole thread");
+            frame.Line($"CUT the parent chain repeats at a post already read, so it has no root; the thread shown begins at {top.PostId} and is not the whole thread{note}");
         else if (cutAt is not null)
-            frame.Line($"CUT the upward walk stopped after {MaxAncestorSteps} steps without reaching a root, so the thread shown begins at {top.PostId}, whose parent {cutAt} was not followed");
+            frame.Line($"CUT the upward walk stopped after {MaxAncestorSteps} steps without reaching a root, so the thread shown begins at {top.PostId}, whose parent {cutAt} was not followed{note}");
 
         var preamble = frame.ToString();
 
-        var posts = threadRead ? members : [post];
-
-        return Rendered(await PassagesAsync(posts, cancellationToken).ConfigureAwait(false), preamble);
+        return Rendered(passages, preamble);
     }
 
     /// <summary>
@@ -240,7 +259,7 @@ internal sealed partial class ForumTools(
         var noun = member.Kind ?? "post";
         var named = member.PostId is { } id
             ? $"{noun}={DisplayLiteral.Of(id)}"
-            : $"the {noun} with digest {DisplayLiteral.Of(member.Digest!)} (not served)";
+            : $"the {noun} with digest {DisplayLiteral.Of(member.Digest!)} {Supersession.DigestOnlyMark}";
         var kindNote = member.Kind is null
             ? " (kind NOT STATED: the Forum served the accepted post without saying whether it is an answer or a revision)"
             : string.Empty;

@@ -103,7 +103,7 @@ public sealed class AnswerStandingToolTests : IDisposable
                 Assert.Contains($"accepted post={DisplayLiteral.Of(StubLog.AnswerPostId)}", firstBlock, StringComparison.Ordinal);
                 break;
             case StubAcceptedAnswer.StandingUnserved:
-                Assert.Contains($"accepted the post with digest {DisplayLiteral.Of(_log.Answer.PrefixedDigest)} (not served)", firstBlock, StringComparison.Ordinal);
+                Assert.Contains($"accepted the post with digest {DisplayLiteral.Of(_log.Answer.PrefixedDigest)} ({PublishedReadersLastWords.DefinitionSentence()})", firstBlock, StringComparison.Ordinal);
                 break;
             case StubAcceptedAnswer.None:
                 Assert.Contains("accepted none (the Forum served no post of this thread as accepted)", firstBlock, StringComparison.Ordinal);

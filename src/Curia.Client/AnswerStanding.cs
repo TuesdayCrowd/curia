@@ -50,7 +50,7 @@ public static class AnswerStanding
         var unknownKind = member.Kind is null;
         var named = member.PostId is { } id
             ? $"post {DisplayLiteral.Of(id)}"
-            : $"the {(isRevision ? "revision" : unknownKind ? "post" : "answer")} with digest {DisplayLiteral.Of(member.Digest!)} (not served)";
+            : $"the {(isRevision ? "revision" : unknownKind ? "post" : "answer")} with digest {DisplayLiteral.Of(member.Digest!)} {Supersession.DigestOnlyMark}";
         var kindTag = member.PostId is null
             ? string.Empty
             : isRevision ? " (a revision)" : unknownKind ? " (kind NOT STATED: the Forum served the accepted post without saying whether it is an answer or a revision)" : string.Empty;

@@ -211,6 +211,7 @@ public sealed class HelpTextTests
 
     [Theory]
     [InlineData("table-10/own-resource-only tier=T0")]
+    [InlineData("table-10/own-resource-found tier=T0")]
     [InlineData("table-10/own-thread-only tier=T0")]
     public void D37_AnOwnershipRefusalIsNotToldToWait(string detail)
     {
