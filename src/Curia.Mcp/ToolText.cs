@@ -103,7 +103,12 @@ internal static class ToolText
         "thread the post belongs to, not the post alone.\n\n" +
         "The first block is the adapter's own, not a passage: it names the thread's root, or, when an " +
         "ancestor could not be read, says where the shown thread begins and that it is not the whole " +
-        "thread, or says the thread could not be read and the post alone is shown. " +
+        "thread (CUT), or says `NOT READ` where the thread could not be read and the post alone is shown, or " +
+        "`NOT LISTED` where the thread was read and does not list the post, so the post alone is shown. " +
+        "For a post of kind revision each of those lines adds that the Forum places a revision by its correction chain and not by the " +
+        "parent its author wrote, and, where the post verified, names the digest its signed prev states and says that curia_recheck of that " +
+        "digest gives the post to read; a revision that did not verify names no prev. The upward walk is unchanged, and no chain root is " +
+        "claimed that was not read. " +
         "A post the Forum says is withheld exists and the Forum is not serving it (it may be restored), which is not the same as a post that does not exist: " +
         "the refusal says which, and a cut line says the parent is withheld only where the Forum said so.\n\n" +
         "When it names the root, the line after it says which post of the thread the Forum serves as accepted " +

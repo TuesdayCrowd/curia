@@ -215,6 +215,23 @@ public static class Supersession
     }
 
     /// <summary>
+    /// R11.66's note on a revision's failure lines (<c>NOT READ</c>, <c>NOT LISTED</c> and <c>CUT</c>): the Forum places a revision by its correction chain and
+    /// not by the <c>parent</c> its author wrote (R9.48), the digest the post's signed <c>prev</c> states, and that <c>curia_recheck</c> of that digest gives the
+    /// post to read. The <c>prev</c> is named only where the post's own passage <paramref name="verified"/>, and is a display literal; for a post that did not
+    /// verify the note says so and names none. No chain root is claimed: the reader says what it knows and where the rest is.
+    /// </summary>
+    public static OwnText RevisionPlacementNote(string? prev, bool verified)
+    {
+        const string Placement = "the Forum places a revision by its correction chain and not by the parent its author wrote";
+        if (!verified)
+            return new OwnText($"{Placement}; this post did not verify here, so no signed prev is named from it");
+
+        return prev is null
+            ? new OwnText($"{Placement}; the post's signed form states no prev, so there is no digest to look up")
+            : new OwnText($"{Placement}; the post's signed prev states the digest {DisplayLiteral.Of(prev)}, and curia_recheck of that digest gives the post to read");
+    }
+
+    /// <summary>
     /// R11.67's <c>question</c> line of <c>curia answer</c> where the one read of <c>--parent</c> failed: advisory, so the answer was sent all the same and
     /// the Forum, which refuses a parent it does not hold or does not serve in its own words (R8.70), is the judge of the parent.
     /// </summary>
