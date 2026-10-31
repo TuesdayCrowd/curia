@@ -127,12 +127,13 @@ public static class TokenEndpoint
             .ValidateAsync(assertion, context, cancellationToken)
             .ConfigureAwait(false);
 
-        // A log that could not be read decides nothing about the key (R4.35): the server's fault, as
-        // the read of the log below answers it, and never invalid_client.
+        // A log that could not be read decides nothing about the key (R4.35): a fault of a store the
+        // Forum owns, answered as RFC 6749's temporarily_unavailable (R5.23, errata G52) and never
+        // invalid_client. server_error stays the Forum's own fault (below), not a store's.
         if (!validated.TryGetValue(out var claims, out var error))
         {
             return string.Equals(error!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
-                ? new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, error)
+                ? new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, error)
                 : new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, error);
         }
 
@@ -147,7 +148,7 @@ public static class TokenEndpoint
         // each agent re-announced itself.
         var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var log, out var readError))
-            return new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, readError);
+            return new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, readError);
 
         var standings = AgentStandingProjector.Fold(log!);
         if (!standings.ContainsKey(claims!.Sub))
