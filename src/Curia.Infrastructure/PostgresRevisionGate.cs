@@ -78,7 +78,7 @@ public sealed class PostgresRevisionGate : IRevisionGate
             transaction = null;
             return Result<IAsyncDisposable>.Ok(hold);
         }
-        catch (Exception e) when (e is not OperationCanceledException && PostgresStoreFaults.Is(e))
+        catch (Exception e) when (PostgresStoreFaults.IsStoreFault(e, cancellationToken))
         {
             // NpgsqlException covers PostgresException and a pool timeout, whose inner exception is a
             // TimeoutException. The message is not carried: a driver message can quote what it read.

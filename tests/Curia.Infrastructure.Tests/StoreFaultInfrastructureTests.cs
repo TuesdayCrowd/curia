@@ -263,6 +263,47 @@ public sealed class StoreFaultInfrastructureTests(PostgresDatabaseFixture fixtur
         Assert.True(outcome == BudgetErrors.GateUnavailableType, $"expected {BudgetErrors.GateUnavailableType}, actual {outcome}");
     }
 
+    private sealed class CancellingClock(CancellationTokenSource caller) : TimeProvider
+    {
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            caller.Cancel();
+            throw new InvalidOperationException("the timer failed", new NpgsqlException("connection lost", new TimeoutException("the operation has timed out")));
+        }
+    }
+
+    /// <summary>
+    /// ULG48. A driver fault that arrives because the caller cancelled is not the store's: the write gate does not answer it <c>gate-unavailable</c> (as the event
+    /// store does not answer it unreadable); the fault propagates with the connection and the turn given back, and the request is gone.
+    /// </summary>
+    [Fact]
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "The fact reports whatever escaped the gate.")]
+    public async Task R11_71_ULG48_ADriverFaultRaisedByTheCallersCancellationIsNotGateUnavailable()
+    {
+        using var caller = new CancellationTokenSource();
+        var gate = new PostgresAgentWriteGate(fixture.AppRoleDataSource, new CancellingClock(caller), TimeSpan.FromSeconds(5), 16, "gate_" + Guid.NewGuid().ToString("N"));
+        string outcome;
+        try
+        {
+            var result = await gate.EnterAsync(Typed.Agent("https://agents.example/ulg48"), caller.Token);
+            if (result.TryGetValue(out var hold, out var error))
+            {
+                await hold!.DisposeAsync();
+                outcome = "entered";
+            }
+            else
+            {
+                outcome = error!.Type;
+            }
+        }
+        catch (Exception) when (!Ct.IsCancellationRequested)
+        {
+            outcome = "propagated";
+        }
+
+        Assert.True(outcome == "propagated", $"expected the fault to propagate for a cancelled caller, actual {outcome}");
+    }
+
     /// <summary>
     /// ULG13, the revision gate and the flag raiser's gate. The same fault arrives through the driver's own logging path: a logger that throws a wrapped driver
     /// fault once. If the driver does not let a logger's exception out of its code, the fact says so and is not a probe of the gate (reported by Task 0b).

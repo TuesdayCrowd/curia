@@ -131,8 +131,7 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
 
     private async Task<Reply> TokenAsync(SceneActor actor, string assertion, string proof)
     {
-        var (status, body) = await DpopClient.RequestTokenWithProofAsync(forum.Client, actor.Agent.AgentId, assertion, proof, Ct);
-        return new Reply((int)status, null, body, null);
+        return await DpopClient.RequestTokenReplyAsync(forum.Client, actor.Agent.AgentId, assertion, proof, Ct);
     }
 
     private static bool Unavailable(Reply reply) => FaultSweep.IsOAuthError(reply, PublishedStoreFaults.TokenStatus, PublishedStoreFaults.TokenCode);
@@ -158,6 +157,7 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
         if (!Unavailable(reply)) problems.Add($"expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {reply.Says}");
         else if (!reply.Body.Contains(PublishedStoreFaults.TokenDescription, StringComparison.Ordinal)) problems.Add($"the description is not the published one: {reply.Says}");
         if (reply.Body.Contains("access_token", StringComparison.Ordinal)) problems.Add("a token was minted");
+        if (reply.HasHeader("Retry-After")) problems.Add("the answer carries a Retry-After header (R9.52: none is sent)");
 
         Assert.True(problems.Count == 0, string.Join('\n', problems));
         await forum.AssertRestoredAsync(Ct);

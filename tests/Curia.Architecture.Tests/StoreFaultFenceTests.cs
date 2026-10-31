@@ -77,6 +77,31 @@ public sealed partial class StoreFaultFenceTests
         Assert.True(found.Count == 0, string.Join('\n', found));
     }
 
+    /// <summary>
+    /// ULG47. The type and the title of the log's 503 are written once in production: <c>LogBoundKeys</c> holds the literals; the Api's factory and every other
+    /// place in <c>Curia.Api</c>, <c>Curia.Application</c> and <c>Curia.Infrastructure</c> read them from there (the client's <c>StoreWording</c> is another
+    /// assembly's reading of the same published word and is not scanned).
+    /// </summary>
+    [Fact]
+    public void R9_52_ULG47_TheLogUnreadableTypeAndTitleAreWrittenOnceInProduction()
+    {
+        string[] literals = ["\"curia/log/unreadable\"", "\"The event log could not be read\""];
+        var found = new List<string>();
+        foreach (var root in new[] { "src/Curia.Api", "src/Curia.Application", "src/Curia.Infrastructure" })
+        {
+            foreach (var (relative, lines) in Sources(root))
+            {
+                if (Path.GetFileName(relative) == "LogBoundKeys.cs") continue;
+                for (var i = 0; i < lines.Length; i++)
+                    foreach (var literal in literals)
+                        if (lines[i].Contains(literal, StringComparison.Ordinal) && !lines[i].TrimStart().StartsWith("//", StringComparison.Ordinal))
+                            found.Add($"{relative}:{i + 1} writes {literal}");
+            }
+        }
+
+        Assert.True(found.Count == 0, string.Join('\n', found));
+    }
+
     [GeneratedRegex(@"catch\s*\(\s*(?:Npgsql\.)?(?:NpgsqlException|TimeoutException)\b", RegexOptions.CultureInvariant)]
     private static partial Regex DriverCatch();
 

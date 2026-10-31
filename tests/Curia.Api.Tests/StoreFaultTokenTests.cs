@@ -45,8 +45,8 @@ public sealed class StoreFaultTokenTests(FaultableForumFixture forum) : IClassFi
         Reply reply;
         try
         {
-            var (status, body) = await actor.Dpop.RequestTokenAsync(forum.Client, Probe.TokenEndpoint, forum.Now, actor.Agent.AgentId, Ct);
-            reply = new Reply((int)status, null, body, null);
+            reply = await DpopClient.RequestTokenReplyAsync(
+                forum.Client, actor.Agent.AgentId, actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now), Ct);
         }
         catch (Exception e) when (!Ct.IsCancellationRequested)
         {
@@ -65,7 +65,41 @@ public sealed class StoreFaultTokenTests(FaultableForumFixture forum) : IClassFi
         if (!reply.Body.Contains(PublishedStoreFaults.TokenDescription, StringComparison.Ordinal))
             problems.Add($"the answer does not carry the published description \"{PublishedStoreFaults.TokenDescription}\"");
         if (reply.Body.Contains("access_token", StringComparison.Ordinal)) problems.Add("a token was minted");
+        if (reply.HasHeader("Retry-After")) problems.Add("the answer carries a Retry-After header (R9.52: none is sent)");
 
         Assert.True(problems.Count == 0, $"the {store} fault: " + string.Join("; ", problems));
+    }
+
+    /// <summary>
+    /// ULG43 (R5.23's second sentence). An exception nothing names, thrown from a store the token endpoint reads, is the Forum's own fault: <c>500</c>
+    /// <c>server_error</c> with the published description, no <c>detail</c>, none of the exception's text and no <c>Retry-After</c>; it is not
+    /// <c>temporarily_unavailable</c>. (The posture that will not fold is the other own fault and cannot be built here, above.)
+    /// </summary>
+    [Fact]
+    public async Task R5_23_ULG43_AnExceptionNothingNamesAtTheTokenEndpointIsServerError()
+    {
+        const string Sentinel = "an-unclassified-bug-text";
+        var actor = await AcceptedAnswerScene.EnrolAsync(forum, "token-own", Ct);
+        forum.Store.Arm(EventStoreFault.ThrowReads, () => StoreFaultKinds.Unclassified(Sentinel));
+        Reply reply;
+        try
+        {
+            reply = await DpopClient.RequestTokenReplyAsync(
+                forum.Client, actor.Agent.AgentId, actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now), Ct);
+        }
+        finally
+        {
+            forum.Store.Disarm();
+        }
+
+        var problems = new List<string>();
+        if (!FaultSweep.IsOAuthError(reply, 500, PublishedStoreFaults.TokenOwnFaultCode))
+            problems.Add($"expected 500 {PublishedStoreFaults.TokenOwnFaultCode}, actual {reply.Says}");
+        if (!reply.Body.Contains(PublishedStoreFaults.TokenOwnFaultDescription, StringComparison.Ordinal))
+            problems.Add($"the answer does not carry the published description \"{PublishedStoreFaults.TokenOwnFaultDescription}\"");
+        if (reply.Body.Contains(Sentinel, StringComparison.Ordinal)) problems.Add("the body carries the exception's text");
+        if (reply.HasHeader("Retry-After")) problems.Add("the answer carries a Retry-After header");
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 }

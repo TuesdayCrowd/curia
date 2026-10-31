@@ -39,6 +39,45 @@ public sealed class FaultedStoreSweepTests(FaultableForumFixture forum) : IClass
         _ => throw new ArgumentOutOfRangeException(nameof(expect), expect, null),
     };
 
+    /// <summary>What each store the ULG3 sweep faults is not reached by, each with its reason (hand-written, so a new route that reads the store is judged by default).</summary>
+    private static (Func<SweptReply, bool> Matches, string Reason)[] NotReached(string store)
+    {
+        static Func<SweptReply, bool> Routes(params string[] routes) => s => routes.Contains(s.Route, StringComparer.Ordinal);
+
+        static bool Acta(SweptReply s) => s.Route.StartsWith("GET /v1/log/", StringComparison.Ordinal);
+
+        string[] anonymousReads =
+        [
+            "GET /v1/posts/{postId}", "GET /v1/threads/{rootPostId}", "GET /v1/boards/{board}/posts", "GET /v1/search", "POST /v1/posts/batch",
+        ];
+        string[] tokenReads = ["GET /v1/inbox", "GET /v1/flags", "GET /v1/budget", "GET /v1/posts/{postId}/flags"];
+
+        var table = new List<(Func<SweptReply, bool> Matches, string Reason)>
+        {
+            (FaultSweep.ReadsNoStore, "it reads no store (FaultSweep.ReadsNoLog gives each its reason)"),
+            (Acta, "the Acta's own reads are public: no token, no DPoP proof, and the key set they verify under is the log's"),
+            (Routes(anonymousReads), "an anonymous read serves from the log: it carries no token and no proof, and reads no Registrar key"),
+        };
+
+        switch (store)
+        {
+            case "nonce":
+                table.Add((Routes(["GET /v1/jwks", .. tokenReads, "POST /oauth/token", "POST /v1/agents"]),
+                    "a DPoP nonce is asked of a write; a read, the token endpoint (it checks the proof, not a nonce) and enrolment (anonymous) are not asked one"));
+                break;
+            case "replay":
+                table.Add((Routes("GET /v1/jwks", "POST /v1/agents"), "the key set is a public read and enrolment is anonymous: neither carries a proof or an assertion to remember"));
+                break;
+            default:
+                table.Add((Routes(tokenReads), "a token-bearing read is authorised by the token and the log; it resolves no Registrar key"));
+                table.Add((Routes("POST /v1/posts/{postId}/flags", "POST /v1/posts/{postId}/accept"),
+                    "a flag and an acceptance carry no signed envelope, so no author key is resolved: the token and the log authorise them"));
+                break;
+        }
+
+        return [.. table];
+    }
+
     private async Task<IReadOnlyList<SweptReply>> SweepAsync(Action arm, CancellationToken ct)
     {
         using var context = await FuzzContext.SeedAsync(forum, ct);
@@ -48,6 +87,7 @@ public sealed class FaultedStoreSweepTests(FaultableForumFixture forum) : IClass
     private static void Judged(IReadOnlyList<SweptReply> swept, Func<SweptReply, Expect> expect, IEnumerable<string> tableProblems)
     {
         var problems = tableProblems.ToList();
+        problems.AddRange(FaultSweep.RetryAfterProblems(swept));
         problems.AddRange(swept.Where(s => !Meets(s, expect(s))).Select(s => $"expected {Describe(expect(s))}, actual {s.Says}"));
         Assert.True(swept.Count > 0, "the sweep sent nothing");
         Assert.True(problems.Count == 0, $"{problems.Count} of {swept.Count} exemplars:\n" + FaultSweep.Lines(problems));
@@ -142,15 +182,27 @@ public sealed class FaultedStoreSweepTests(FaultableForumFixture forum) : IClass
         using var context = await FuzzContext.SeedAsync(forum, ct);
         var swept = await FaultSweep.RunAsync(forum, context, _ => true, arm, disarm, ct);
 
-        var faulted = swept.Where(s => s.Reply.Threw is not null || s.Reply.Status >= 500).ToList();
-        var problems = faulted
-            .Where(s => !(FaultSweep.IsToken(s)
-                ? Meets(s, Expect.TokenUnavailable)
-                : Meets(s, Expect.StoreUnavailable)))
-            .Select(s => $"expected {Describe(FaultSweep.IsToken(s) ? Expect.TokenUnavailable : Expect.StoreUnavailable)}, actual {s.Says}")
-            .ToList();
-        if (faulted.Count == 0) problems.Add($"the {store} fault reached no route: every exemplar was answered without a 5xx");
+        // Every exemplar is judged as ULG1 judges it, not only the replies that threw or were 5xx: a fault of this store that a handler turned into a 401, a 403,
+        // a 404 or an empty 200 is the failure R7.31 forbids, and it must be seen. An exemplar answers the 503 of this fault unless the table says why this store
+        // is not reached on its path (then it must not be a 5xx at all).
+        var notReached = NotReached(store);
+        var problems = FaultSweep.RetryAfterProblems(swept).ToList();
+        var reached = 0;
+        foreach (var s in swept)
+        {
+            if (notReached.Where(r => r.Matches(s)).Select(r => r.Reason).FirstOrDefault() is { } reason)
+            {
+                if (s.Reply.Threw is not null || s.Reply.Status >= 500) problems.Add($"{s.Name}: listed as not reaching the {store} store ({reason}) but answered {s.Reply.Says}");
+                continue;
+            }
 
-        Assert.True(problems.Count == 0, $"{problems.Count} of {faulted.Count} faulted exemplars (of {swept.Count}):\n" + FaultSweep.Lines(problems));
+            var expect = FaultSweep.IsToken(s) ? Expect.TokenUnavailable : Expect.StoreUnavailable;
+            if (Meets(s, expect)) reached++;
+            else problems.Add($"expected {Describe(expect)}, actual {s.Says}");
+        }
+
+        if (reached == 0) problems.Add($"the {store} fault reached no route: every exemplar was answered without its 503");
+
+        Assert.True(problems.Count == 0, $"{problems.Count} problems over {swept.Count} exemplars:\n" + FaultSweep.Lines(problems));
     }
 }

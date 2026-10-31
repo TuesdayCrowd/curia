@@ -60,6 +60,9 @@ internal static partial class PublishedStoreFaults
     /// <summary>The Forum's own fault at the token endpoint: the code kept ("The code kept for the Forum's own fault is `server_error`").</summary>
     internal static string TokenOwnFaultCode => One(Group(OwnFaultCodePhrase(), WordsParagraph("R5.23"), "R5.23's kept code"));
 
+    /// <summary>The description kept with it: the span after "The code kept for the Forum's own fault is `server_error`, status `500`, description".</summary>
+    internal static string TokenOwnFaultDescription => One(Group(OwnFaultDescriptionPhrase(), WordsParagraph("R5.23"), "R5.23's kept description"));
+
     // ----- the unclassified fault (R11.71 words) -----
 
     /// <summary>The type for an exception nothing names.</summary>
@@ -128,7 +131,7 @@ internal static partial class PublishedStoreFaults
 
     /// <summary>The paragraph of the errata's text, whitespace folded, for a scan that must not find a published sentence copied by hand.</summary>
     internal static string[] AllSentences() =>
-        [LogUnreadableSentence, StoreUnavailableSentence, TokenSentence, TokenDescription, LogUnreadableTitle, StoreUnavailableTitle, FaultTitle];
+        [LogUnreadableSentence, StoreUnavailableSentence, TokenSentence, TokenDescription, TokenOwnFaultDescription, LogUnreadableTitle, StoreUnavailableTitle, FaultTitle];
 
     private static (string Type, string Title) Pair(int index)
     {
@@ -200,6 +203,9 @@ internal static partial class PublishedStoreFaults
 
     [GeneratedRegex(@"The code kept for the Forum's own fault is `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex OwnFaultCodePhrase();
+
+    [GeneratedRegex(@"The code kept for the Forum's own fault is `[^`]+`, status `\d+`, description `([^`]+)`", RegexOptions.CultureInvariant)]
+    private static partial Regex OwnFaultDescriptionPhrase();
 
     [GeneratedRegex(@"The type for an unclassified exception is `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex FaultTypePhrase();

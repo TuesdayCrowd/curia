@@ -89,6 +89,10 @@ internal static class FaultSweep
     /// <summary>True for a row whose route reads no store (the table above).</summary>
     internal static bool ReadsNoStore(SweptReply swept) => ReadsNoLog.Any(r => r.Route == swept.Route);
 
+    /// <summary>R9.52, G52's falsification list: no <c>Retry-After</c> is sent. One line for each swept <c>5xx</c> that carries the header.</summary>
+    internal static IEnumerable<string> RetryAfterProblems(IEnumerable<SweptReply> swept) =>
+        swept.Where(s => s.Reply.Status >= 500 && s.Reply.HasHeader("Retry-After")).Select(s => $"{s.Name}: a {s.Reply.Status} answer carries a Retry-After header (R9.52: none is sent)");
+
     /// <summary>A reply is the problem document of <paramref name="type"/> at <paramref name="status"/>: its type, a title, a null <c>detail</c>, served as JSON.</summary>
     internal static bool IsProblem(Reply reply, int status, string type) =>
         reply.Threw is null && reply.Status == status && reply.IsProblemWithNullDetail && reply.Type == type;

@@ -294,6 +294,86 @@ public sealed partial class StoreFaultEdgeTests(FaultableForumFixture forum) : I
         Assert.True(problems.Count == 0, string.Join('\n', problems));
     }
 
+    private static async Task<string> BodyOfAsync(DefaultHttpContext context)
+    {
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body, leaveOpen: true);
+        return await reader.ReadToEndAsync(Ct);
+    }
+
+    /// <summary>
+    /// ULG44 (R5.23's second sentence, at the edge). Over a fake context at <c>/oauth/token</c>, an exception nothing names is <c>500</c> RFC 6749's
+    /// <c>server_error</c> with the published description and no <c>detail</c>, and a classified one is <c>503</c> <c>temporarily_unavailable</c>: the two are not
+    /// the same answer.
+    /// </summary>
+    [Fact]
+    public async Task R5_23_ULG44_AnUnclassifiedExceptionAtTheTokenRouteIsServerErrorAndAClassifiedOneIsNot()
+    {
+        var own = ContextWith(new PostgresStoreFaults(), started: false, Ct);
+        own.Request.Path = "/oauth/token";
+        await new StoreFaultsMiddleware(_ => throw new InvalidOperationException("a bug")).InvokeAsync(own);
+        var ownBody = await BodyOfAsync(own);
+
+        var store = ContextWith(new PostgresStoreFaults(), started: false, Ct);
+        store.Request.Path = "/oauth/token";
+        await new StoreFaultsMiddleware(_ => throw new NpgsqlException("down", new TimeoutException())).InvokeAsync(store);
+        var storeBody = await BodyOfAsync(store);
+
+        var problems = new List<string>();
+        if (own.Response.StatusCode != 500) problems.Add($"an unclassified exception: expected 500, actual {own.Response.StatusCode} {ownBody}");
+        if (!ownBody.Contains($"\"error\":\"{PublishedStoreFaults.TokenOwnFaultCode}\"", StringComparison.Ordinal)) problems.Add($"an unclassified exception: expected the code {PublishedStoreFaults.TokenOwnFaultCode}, actual {ownBody}");
+        if (!ownBody.Contains(PublishedStoreFaults.TokenOwnFaultDescription, StringComparison.Ordinal)) problems.Add($"an unclassified exception: the published description is missing from {ownBody}");
+        if (ownBody.Contains("detail", StringComparison.Ordinal) || ownBody.Contains("a bug", StringComparison.Ordinal)) problems.Add($"an unclassified exception: the body carries a detail or the exception's text: {ownBody}");
+        if (store.Response.StatusCode != PublishedStoreFaults.TokenStatus || !storeBody.Contains($"\"error\":\"{PublishedStoreFaults.TokenCode}\"", StringComparison.Ordinal))
+            problems.Add($"a classified fault: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {store.Response.StatusCode} {storeBody}");
+
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
+    }
+
+    /// <summary>
+    /// ULG45. The token route is decided as routing decides it: <c>/OAuth/Token</c> and <c>/oauth/token/</c> reach the endpoint, so a fault there is RFC 6749's
+    /// object, while a path that merely resembles it (<c>/v1/oauth/token</c>) is a problem document.
+    /// </summary>
+    [Theory]
+    [InlineData("/oauth/token", true)]
+    [InlineData("/OAuth/Token", true)]
+    [InlineData("/oauth/token/", true)]
+    [InlineData("/v1/oauth/token", false)]
+    public async Task R5_23_ULG45_TheTokenRouteIsDecidedAsRoutingDecidesIt(string path, bool oauth)
+    {
+        var context = ContextWith(new PostgresStoreFaults(), started: false, Ct);
+        context.Request.Path = path;
+        await new StoreFaultsMiddleware(_ => throw new NpgsqlException("down", new TimeoutException())).InvokeAsync(context);
+        var body = await BodyOfAsync(context);
+
+        var isOAuth = body.Contains("\"error\"", StringComparison.Ordinal) && !body.Contains("\"type\"", StringComparison.Ordinal);
+        Assert.True(isOAuth == oauth, $"{path}: expected {(oauth ? "RFC 6749's object" : "a problem document")}, actual {context.Response.StatusCode} {body}");
+    }
+
+    /// <summary>
+    /// ULG46. The answer is the fault's alone: a handler that set a <c>Location</c>, a <c>Cache-Control</c> and a status before it threw (the response had not
+    /// started) leaves none of them on the <c>503</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_71_ULG46_WhatAHandlerSetBeforeItThrewIsNotOnTheFaultsAnswer()
+    {
+        var context = ContextWith(new PostgresStoreFaults(), started: false, Ct);
+        await new StoreFaultsMiddleware(c =>
+        {
+            c.Response.StatusCode = StatusCodes.Status201Created;
+            c.Response.Headers.Location = "/v1/posts/01ABC";
+            c.Response.Headers.CacheControl = "public, max-age=600";
+            throw new NpgsqlException("down", new TimeoutException());
+        }).InvokeAsync(context);
+
+        var problems = new List<string>();
+        if (context.Response.StatusCode != PublishedStoreFaults.UnavailableStatus) problems.Add($"expected {PublishedStoreFaults.UnavailableStatus}, actual {context.Response.StatusCode}");
+        foreach (var header in new[] { "Location", "Cache-Control" })
+            if (context.Response.Headers.TryGetValue(header, out var value)) problems.Add($"the answer still carries {header}: {value}");
+
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
+    }
+
     private static string Chain(Exception? exception)
     {
         var text = new StringBuilder();

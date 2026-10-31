@@ -69,8 +69,11 @@ public class FaultableForumFixture : ForumFixture
 /// What a request was answered with, or what the host threw out of it (an in-process client may see either): the status, the content type, the body and,
 /// for a body that is a problem document, its members. <see cref="Says"/> is what a failing assertion prints.
 /// </summary>
-internal sealed record Reply(int Status, string? ContentType, string Body, string? Threw)
+internal sealed record Reply(int Status, string? ContentType, string Body, string? Threw, IReadOnlyList<string>? HeaderNames = null)
 {
+    /// <summary>True where the answer carried a header of this name (response and content headers; a reply built without them carries none).</summary>
+    internal bool HasHeader(string name) => HeaderNames?.Contains(name, StringComparer.OrdinalIgnoreCase) == true;
+
     /// <summary>The problem type, or the empty string.</summary>
     internal string Type => Member("type") ?? string.Empty;
 
@@ -131,7 +134,9 @@ internal sealed record Reply(int Status, string? ContentType, string Body, strin
         {
             using var response = await client.SendAsync(request, ct);
             var body = await response.Content.ReadAsStringAsync(ct);
-            return new Reply((int)response.StatusCode, response.Content.Headers.ContentType?.MediaType, body, null);
+            return new Reply(
+                (int)response.StatusCode, response.Content.Headers.ContentType?.MediaType, body, null,
+                response.Headers.Select(h => h.Key).Concat(response.Content.Headers.Select(h => h.Key)).ToList());
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
         {

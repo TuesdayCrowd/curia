@@ -1,4 +1,5 @@
 using Curia.Api.Issuer;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Domain.Primitives;
 
@@ -12,7 +13,7 @@ namespace Curia.Api;
 internal static class StoreFaults
 {
     /// <summary>The log could not be read; nothing was recorded.</summary>
-    internal const string LogUnreadableType = "curia/log/unreadable";
+    internal const string LogUnreadableType = LogBoundKeys.LogUnreadableType;
 
     /// <summary>Any other store could not complete the request; a write may or may not have been recorded.</summary>
     internal const string StoreUnavailableType = "curia/store/unavailable";
@@ -31,7 +32,7 @@ internal static class StoreFaults
         string.Equals(type, LogUnreadableType, StringComparison.Ordinal) || string.Equals(type, StoreUnavailableType, StringComparison.Ordinal);
 
     internal static IResult LogUnreadable(string cause) =>
-        new ServerFault(StatusCodes.Status503ServiceUnavailable, new Error(LogUnreadableType, "The event log could not be read", cause));
+        new ServerFault(StatusCodes.Status503ServiceUnavailable, new Error(LogUnreadableType, LogBoundKeys.LogUnreadableTitle, cause));
 
     internal static IResult Unavailable(string cause) =>
         new ServerFault(StatusCodes.Status503ServiceUnavailable, new Error(StoreUnavailableType, "The Forum's store could not complete the request", cause));
@@ -80,7 +81,7 @@ public sealed partial class StoreFaultsMiddleware(RequestDelegate next)
         var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger<StoreFaultsMiddleware>();
         var unreadable = LogUnreadableIn(exception);
         var store = unreadable is not null || context.RequestServices.GetRequiredService<IStoreFaultClassifier>().IsUnavailable(exception);
-        var isToken = context.Request.Path.Equals(TokenPath, StringComparison.Ordinal);
+        var isToken = IsTokenRoute(context.Request.Path);
 
         IResult answer;
         if (store)
@@ -100,8 +101,14 @@ public sealed partial class StoreFaultsMiddleware(RequestDelegate next)
                 : StoreFaults.Fault(cause);
         }
 
+        // Nothing a handler set before it threw (a Location, a Cache-Control, a nonce) belongs on the fault's answer: the response has not started, so it is cleared.
+        context.Response.Clear();
         await answer.ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>The token route as routing reads it: case-insensitive, and a trailing slash is the same route.</summary>
+    private static bool IsTokenRoute(PathString path) =>
+        string.Equals(path.Value?.TrimEnd('/'), TokenPath, StringComparison.OrdinalIgnoreCase);
 
     private static LogUnreadableException? LogUnreadableIn(Exception exception)
     {
