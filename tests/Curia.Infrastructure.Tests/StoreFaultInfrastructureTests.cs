@@ -202,8 +202,18 @@ public sealed class StoreFaultInfrastructureTests(PostgresDatabaseFixture fixtur
     private sealed class ThrowingOnceLoggerFactory : ILoggerFactory
     {
         private int _armed;
+        private Action? _onFire;
 
         internal void Arm() => Volatile.Write(ref _armed, 1);
+
+        /// <summary>Arms the logger to run <paramref name="onFire"/> (the caller going away) at the moment it throws.</summary>
+        internal void Arm(Action onFire)
+        {
+            _onFire = onFire;
+            Arm();
+        }
+
+        private void Fire() => _onFire?.Invoke();
 
         public void AddProvider(ILoggerProvider provider)
         {
@@ -225,7 +235,10 @@ public sealed class StoreFaultInfrastructureTests(PostgresDatabaseFixture fixtur
             public void Log<TState>(LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
             {
                 if (Interlocked.Exchange(ref owner._armed, 0) == 1)
+                {
+                    owner.Fire();
                     throw new InvalidOperationException("the logger failed", new NpgsqlException("connection lost", new TimeoutException("the operation has timed out")));
+                }
             }
         }
     }
@@ -346,6 +359,44 @@ public sealed class StoreFaultInfrastructureTests(PostgresDatabaseFixture fixtur
         }
 
         Assert.True(outcome == expected, $"expected {expected}, actual {outcome}");
+    }
+
+    /// <summary>
+    /// ULG52, ULG48's shape for the revision gate and the flag raiser's gate. A driver fault that arrives because the caller cancelled (the driver's own logger
+    /// raises it, and the caller's token is cancelled at that moment) is not the store's: the gate does not answer it unavailable; the fault propagates with the
+    /// connection given back, and the request is gone.
+    /// </summary>
+    [Theory]
+    [InlineData("revision")]
+    [InlineData("flag")]
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "The fact reports whatever escaped the gate.")]
+    public async Task R11_71_ULG52_ADriverFaultRaisedByTheCallersCancellationIsNotAnUnavailableGate(string which)
+    {
+        using var caller = new CancellationTokenSource();
+        using var loggers = new ThrowingOnceLoggerFactory();
+        var builder = new NpgsqlDataSourceBuilder(fixture.AppRoleConnectionString);
+        builder.UseLoggerFactory(loggers);
+        var source = builder.Build();
+        _cleanup.Add(source);
+        await using (var warm = await source.OpenConnectionAsync(Ct)) { }
+
+        var digest = "sha256:" + new string('b', 64);
+        var schema = "gate_" + Guid.NewGuid().ToString("N");
+        string outcome;
+        try
+        {
+            loggers.Arm(caller.Cancel);
+            var result = which == "revision"
+                ? await new PostgresRevisionGate(source, schema).TryEnterAsync(digest, caller.Token)
+                : await new PostgresFlagRaiserGate(source, schema).TryEnterAsync(digest, caller.Token);
+            outcome = Outcome(result);
+        }
+        catch (Exception) when (!Ct.IsCancellationRequested)
+        {
+            outcome = "propagated";
+        }
+
+        Assert.True(outcome == "propagated", $"expected the fault to propagate for a cancelled caller, actual {outcome}");
     }
 
     // ----- ULG42: the private flag store -----

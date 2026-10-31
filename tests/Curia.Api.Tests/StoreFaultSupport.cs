@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
 using Curia.Application.Credentials;
@@ -5,6 +6,8 @@ using Curia.Application.Ports;
 using Curia.AuthN.Ports;
 using Curia.Infrastructure;
 using Curia.Tests.Shared;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -30,6 +33,42 @@ public class FaultableForumFixture : ForumFixture
     /// <summary>Everything the host logs, with each event's exception.</summary>
     internal LogCapture Log { get; } = new();
 
+    /// <summary>The header a fact puts on a request to learn when the host has finished with it (<see cref="Completion"/>).</summary>
+    internal const string ProbeHeader = "X-Completion-Probe";
+
+    private readonly ConcurrentDictionary<string, TaskCompletionSource> _completions = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Completes when the host has finished with the request that carried <see cref="ProbeHeader"/> <paramref name="probe"/>: every middleware has returned or
+    /// thrown, so whatever the Forum was going to log for it is logged. A signal from the host itself, never a delay.
+    /// </summary>
+    internal Task Completion(string probe) => Completed(probe).Task;
+
+    private TaskCompletionSource Completed(string probe) =>
+        _completions.GetOrAdd(probe, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+
+    /// <summary>The outermost middleware of the host: it does nothing but say when a probed request is over.</summary>
+    private sealed class CompletionFilter(FaultableForumFixture owner) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) =>
+            app =>
+            {
+                app.Use(async (context, inner) =>
+                {
+                    try
+                    {
+                        await inner();
+                    }
+                    finally
+                    {
+                        if (context.Request.Headers.TryGetValue(ProbeHeader, out var probe) && probe.ToString() is { Length: > 0 } id)
+                            owner.Completed(id).TrySetResult();
+                    }
+                });
+                next(app);
+            };
+    }
+
     private static ServiceDescriptor Registered<T>(IServiceCollection services)
     {
         var registered = services.Last(d => d.ServiceType == typeof(T));
@@ -42,6 +81,7 @@ public class FaultableForumFixture : ForumFixture
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<ILoggerProvider>(Log);
+        services.AddSingleton<IStartupFilter>(new CompletionFilter(this));
 
         var store = Registered<IEventStore>(services);
         services.Remove(store);

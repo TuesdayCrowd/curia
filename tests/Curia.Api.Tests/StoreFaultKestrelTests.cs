@@ -17,9 +17,10 @@ public sealed class StoreFaultKestrelTests(FaultableKestrelFixture forum) : ICla
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<Reply> GetAsync(string path, CancellationToken token)
+    private async Task<Reply> GetAsync(string path, CancellationToken token, string? probe = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        if (probe is not null) request.Headers.Add(FaultableForumFixture.ProbeHeader, probe);
         return await Reply.SendAsync(forum.Client, request, token);
     }
 
@@ -55,7 +56,9 @@ public sealed class StoreFaultKestrelTests(FaultableKestrelFixture forum) : ICla
 
     /// <summary>
     /// ULG39. The cancellation is the caller's: a request the client aborts mid-read is not logged as a store fault and is not answered. The positive is in the
-    /// same fact: the same read with a fault served logs exactly one <c>StoreFault</c> event, so a Forum that logs nothing at all is red.
+    /// same fact: the same read with a fault served logs exactly one <c>StoreFault</c> event, so a Forum that logs nothing at all is red. The limb reads the
+    /// log only after the host itself has finished with the aborted request (the host's own completion signal, bounded), so a Forum that logs after the store
+    /// has thrown is seen, whatever the order the two threads run in; no event of the middleware's, and no server-fault line, may be among them.
     /// </summary>
     [Fact]
     public async Task R11_71_ULG39_ARequestTheClientAbortsMidReadIsNotAStoreFault()
@@ -85,10 +88,12 @@ public sealed class StoreFaultKestrelTests(FaultableKestrelFixture forum) : ICla
         forum.Store.Arm(EventStoreFault.HangUntilCancelled);
         try
         {
-            var sending = GetAsync("/v1/boards/some-board/posts", abort.Token);
+            var probe = Guid.NewGuid().ToString("N");
+            var sending = GetAsync("/v1/boards/some-board/posts", abort.Token, probe);
             await forum.Store.HangStarted.WaitAsync(TimeSpan.FromSeconds(30), Ct);
             await abort.CancelAsync();
             await forum.Store.HangEnded.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+            await forum.Completion(probe).WaitAsync(TimeSpan.FromSeconds(30), Ct);
             try
             {
                 _ = await sending;
@@ -103,8 +108,11 @@ public sealed class StoreFaultKestrelTests(FaultableKestrelFixture forum) : ICla
             forum.Store.Disarm();
         }
 
-        var abortedFaults = forum.Log.Since(mark).Count(e => e.EventId == PublishedStoreFaults.EventId);
-        if (abortedFaults != 0) problems.Add($"a StoreFault event was logged for a cancelled request ({abortedFaults})");
+        var abortedFaults = forum.Log.Since(mark)
+            .Where(e => e.EventId == PublishedStoreFaults.EventId || e.EventId == PublishedStoreFaults.ServerFaultEventId || e.Category.EndsWith(nameof(StoreFaultsMiddleware), StringComparison.Ordinal))
+            .ToList();
+        if (abortedFaults.Count != 0)
+            problems.Add($"{abortedFaults.Count} fault event(s) were logged for a cancelled request: {string.Join(", ", abortedFaults.Select(e => $"{e.EventId} {e.Name}"))}");
 
         Assert.True(problems.Count == 0, string.Join('\n', problems));
     }

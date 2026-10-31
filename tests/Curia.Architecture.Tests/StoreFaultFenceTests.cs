@@ -80,7 +80,9 @@ public sealed partial class StoreFaultFenceTests
     /// <summary>
     /// ULG47. The type and the title of the log's 503 are written once in production: <c>LogBoundKeys</c> holds the literals; the Api's factory and every other
     /// place in <c>Curia.Api</c>, <c>Curia.Application</c> and <c>Curia.Infrastructure</c> read them from there (the client's <c>StoreWording</c> is another
-    /// assembly's reading of the same published word and is not scanned).
+    /// assembly's reading of the same published word and is not scanned). The three client sentences are written once too: whole, in no source file of <c>src</c>
+    /// (<c>StoreWording</c> composes each from a prefix it shares and its own words), and each one's own words in no file but <c>StoreWording.cs</c>, so a sentence
+    /// restated as a literal in the client or in another assembly is red.
     /// </summary>
     [Fact]
     public void R9_52_ULG47_TheLogUnreadableTypeAndTitleAreWrittenOnceInProduction()
@@ -96,6 +98,27 @@ public sealed partial class StoreFaultFenceTests
                     foreach (var literal in literals)
                         if (lines[i].Contains(literal, StringComparison.Ordinal) && !lines[i].TrimStart().StartsWith("//", StringComparison.Ordinal))
                             found.Add($"{relative}:{i + 1} writes {literal}");
+            }
+        }
+
+        string[] sentences = [PublishedStoreFaults.LogUnreadableSentence, PublishedStoreFaults.StoreUnavailableSentence, PublishedStoreFaults.TokenSentence];
+        var shared = sentences[0];
+        foreach (var sentence in sentences)
+        {
+            var length = 0;
+            while (length < shared.Length && length < sentence.Length && shared[length] == sentence[length]) length++;
+            shared = shared[..length];
+        }
+
+        Assert.True(shared.Length > 0 && sentences.All(s => s.Length - shared.Length > 20), "the three published sentences share no prefix, or one has too few words of its own to scan for");
+        foreach (var (relative, lines) in Sources("src"))
+        {
+            var text = string.Join('\n', lines);
+            foreach (var sentence in sentences)
+            {
+                var own = sentence[shared.Length..];
+                if (text.Contains(sentence, StringComparison.Ordinal)) found.Add($"{relative} writes a published sentence whole: \"{own[..Math.Min(40, own.Length)]}...\"");
+                else if (Path.GetFileName(relative) != "StoreWording.cs" && text.Contains(own, StringComparison.Ordinal)) found.Add($"{relative} restates a published sentence's own words: \"{own[..Math.Min(40, own.Length)]}...\"");
             }
         }
 

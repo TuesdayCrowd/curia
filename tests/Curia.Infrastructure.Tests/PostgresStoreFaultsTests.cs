@@ -55,6 +55,28 @@ public sealed class PostgresStoreFaultsTests(PostgresDatabaseFixture fixture)
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 
+    /// <summary>
+    /// ULG54, the predicate. A fault two, four and the published depth levels down is a store fault (so a walk that stops after the first wrapper is red), and one
+    /// level past the published depth is not (so a walk that never stops is). The depth is read from the errata.
+    /// </summary>
+    [Fact]
+    public async Task R11_71_ULG54_AFaultTwoFourAndEightLevelsDownIsFoundAndOneBeyondThePublishedDepthIsNot()
+    {
+        var depth = PublishedStoreFaults.Depth;
+        Assert.True(depth >= 4, $"the published depth is {depth}");
+        var real = await RealPostgresExceptionAsync();
+
+        var problems = new List<string>();
+        foreach (var fault in new Exception[] { Driver(), real, new TimeoutException("bare timeout") })
+        {
+            foreach (var levels in new[] { 2, 4, depth })
+                if (!PostgresStoreFaults.Is(Wrapped(fault, levels))) problems.Add($"{fault.GetType().Name} {levels} deep is not found");
+            if (PostgresStoreFaults.Is(Wrapped(fault, depth + 1))) problems.Add($"{fault.GetType().Name} {depth + 1} deep is found, past the published depth");
+        }
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
     [Fact]
     public void R11_71_ULG12_ABugAndTheCallersCancellationAreNotStoreFaults()
     {

@@ -374,6 +374,140 @@ public sealed partial class StoreFaultEdgeTests(FaultableForumFixture forum) : I
         Assert.True(problems.Count == 0, string.Join('\n', problems));
     }
 
+    /// <summary>
+    /// ULG49. Each <c>503</c> problem carries the title the errata publishes for its type, as the factory builds it (over a fake context: a log the store would not
+    /// read, and a fault of any other store) and as a route serves it (an anonymous read with the log unreadable): a Forum that serves each type under the other's
+    /// title says the wrong thing about what failed, and the type alone would not show it.
+    /// </summary>
+    [Theory]
+    [InlineData("log")]
+    [InlineData("store")]
+    public async Task R8_82_ULG49_EachStoreFaultProblemCarriesThePublishedTitleOfItsType(string which)
+    {
+        var (type, title) = which == "log"
+            ? (PublishedStoreFaults.LogUnreadableType, PublishedStoreFaults.LogUnreadableTitle)
+            : (PublishedStoreFaults.StoreUnavailableType, PublishedStoreFaults.StoreUnavailableTitle);
+        Exception fault = which == "log"
+            ? new LogUnreadableException("armed", new NpgsqlException("down", new TimeoutException()))
+            : new NpgsqlException("down", new TimeoutException());
+        var context = ContextWith(new PostgresStoreFaults(), started: false, Ct);
+        await new StoreFaultsMiddleware(_ => throw fault).InvokeAsync(context);
+        var served = new Reply(context.Response.StatusCode, context.Response.ContentType?.Split(';')[0], await BodyOfAsync(context), null);
+
+        var problems = new List<string>();
+        if (!FaultSweep.IsProblem(served, PublishedStoreFaults.UnavailableStatus, type)) problems.Add($"the factory: expected {PublishedStoreFaults.UnavailableStatus} {type}, actual {served.Says}");
+        else if (served.Title != title) problems.Add($"the factory: {type} is titled \"{served.Title}\", not \"{title}\"");
+
+        if (which == "log")
+        {
+            forum.Store.Arm(EventStoreFault.ThrowUnreadable);
+            Reply route;
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/boards/some-board/posts");
+                route = await Reply.SendAsync(forum.Client, request, Ct);
+            }
+            finally
+            {
+                forum.Store.Disarm();
+            }
+
+            if (!FaultSweep.IsProblem(route, PublishedStoreFaults.UnavailableStatus, type)) problems.Add($"a route: expected {PublishedStoreFaults.UnavailableStatus} {type}, actual {route.Says}");
+            else if (route.Title != title) problems.Add($"a route: {type} is titled \"{route.Title}\", not \"{title}\"");
+        }
+
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
+    }
+
+    /// <summary>A classifier that names every exception a store fault: a Forum whose middleware answered a request Kestrel rejected would answer it <c>503</c>.</summary>
+    private sealed class EveryExceptionIsAStoreFault : IStoreFaultClassifier
+    {
+        public bool IsUnavailable(Exception exception) => true;
+    }
+
+    /// <summary>
+    /// ULG50. A request the server itself rejected (<see cref="BadHttpRequestException"/>: an oversized or malformed body) is the caller's, whatever the store is
+    /// doing: the middleware writes nothing and throws the original, so the host answers it as it answers it on a healthy store (<c>400</c>, <c>413</c>) and not
+    /// <c>503</c> or <c>500</c>. The classifier names every exception a store fault, so only the exclusion of this type keeps the answer from being a <c>503</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(400)]
+    [InlineData(413)]
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "The fact records whatever escapes the middleware.")]
+    public async Task R11_71_ULG50_ARequestTheServerRejectedIsNotAnsweredAsAStoreFaultWhileTheStoreIsFaulted(int status)
+    {
+        var rejected = new BadHttpRequestException("the body is not what the request declared", status);
+        var context = ContextWith(new EveryExceptionIsAStoreFault(), started: false, Ct);
+        Exception? escaped = null;
+        try
+        {
+            await new StoreFaultsMiddleware(_ => throw rejected).InvokeAsync(context);
+        }
+        catch (Exception e)
+        {
+            escaped = e;
+        }
+
+        var problems = new List<string>();
+        if (!ReferenceEquals(escaped, rejected)) problems.Add($"expected the rejection to reach the host unchanged, actual {escaped?.GetType().Name ?? "an answer"}");
+        if (context.Response.StatusCode != StatusCodes.Status200OK) problems.Add($"the middleware wrote the status {context.Response.StatusCode} for a request the server rejected with {status}");
+        if (context.Response.Body.Length != 0) problems.Add($"the middleware wrote {context.Response.Body.Length} bytes for a request the server rejected");
+
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
+    }
+
+    /// <summary>
+    /// ULG53 (red in FULG1's third form). The store-fault middleware is the first the Forum composes, and nothing registered before it: a middleware composed
+    /// ahead of it (the status-code pages, the charset guard, anything a later change adds) is a place a fault of a store raised there is not answered by the
+    /// one rule. Read from <c>Program.cs</c>, between the host's build and its return: the first <c>app.Use...</c> or endpoint registration is <c>UseStoreFaults</c>,
+    /// and it is there once.
+    /// </summary>
+    [Fact]
+    public void R11_71_ULG53_TheStoreFaultMiddlewareIsTheFirstTheForumComposes()
+    {
+        var text = File.ReadAllText(RepositoryFile("src/Curia.Api/Program.cs"));
+        var start = text.IndexOf("builder.Build();", StringComparison.Ordinal);
+        var end = text.IndexOf("return app;", start < 0 ? 0 : start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start, "Program.cs has no build-to-return region the fact can read");
+
+        var composed = text[start..end]
+            .Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => !l.StartsWith("//", StringComparison.Ordinal) && (l.StartsWith("app.Use", StringComparison.Ordinal) || l.StartsWith("app.Map", StringComparison.Ordinal) || l.Contains(".Map(app)", StringComparison.Ordinal)))
+            .ToList();
+
+        var problems = new List<string>();
+        if (composed.Count == 0) problems.Add("no middleware or endpoint is composed in the region");
+        else if (!composed[0].StartsWith("app.UseStoreFaults(", StringComparison.Ordinal)) problems.Add($"the first thing composed is \"{composed[0]}\", not UseStoreFaults");
+        if (composed.Count(l => l.StartsWith("app.UseStoreFaults(", StringComparison.Ordinal)) != 1) problems.Add("UseStoreFaults is not composed exactly once");
+
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
+    }
+
+    /// <summary>
+    /// ULG54. A driver fault is found where a layer wrapped it: two, four and the published number of exceptions deep is a store fault the middleware answers
+    /// <c>503</c> <c>curia/store/unavailable</c>; one deeper than the published depth is not (<c>500</c>). The depth is read from the errata.
+    /// </summary>
+    [Fact]
+    public async Task R11_71_ULG54_AFaultWrappedToThePublishedDepthIsAStoreFaultAndOneDeeperIsNot()
+    {
+        var depth = PublishedStoreFaults.Depth;
+        Assert.True(depth >= 4, $"the published depth is {depth}");
+
+        var problems = new List<string>();
+        foreach (var (levels, expected) in new[] { (2, 503), (4, 503), (depth, 503), (depth + 1, 500) })
+        {
+            Exception wrapped = new NpgsqlException("down", new TimeoutException());
+            for (var i = 0; i < levels; i++) wrapped = i % 2 == 0 ? new InvalidOperationException("wrapper " + i, wrapped) : new AggregateException("aggregate " + i, wrapped);
+            var context = ContextWith(new PostgresStoreFaults(), started: false, Ct);
+            var thrown = wrapped;
+            await new StoreFaultsMiddleware(_ => throw thrown).InvokeAsync(context);
+            if (context.Response.StatusCode != expected) problems.Add($"a driver fault {levels} deep: expected {expected}, actual {context.Response.StatusCode} {await BodyOfAsync(context)}");
+        }
+
+        Assert.True(problems.Count == 0, string.Join('\n', problems));
+    }
+
     private static string Chain(Exception? exception)
     {
         var text = new StringBuilder();
