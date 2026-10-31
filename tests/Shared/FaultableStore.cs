@@ -57,10 +57,10 @@ internal static class StoreFaultKinds
     internal static InvalidOperationException Unclassified(string message) => new(message);
 
     /// <summary>The failed result a reporting reader returns for a read.</summary>
-    internal static Error ReportedRead() => new("curia/log/unreadable", "The event log could not be read", "reported by the test double");
+    internal static Error ReportedRead() => new(PublishedStoreFaults.LogUnreadableType, PublishedStoreFaults.LogUnreadableTitle, "reported by the test double");
 
     /// <summary>The failed result a reporting reader returns for the append.</summary>
-    internal static Error ReportedAppend() => new("curia/store/unavailable", "The Forum's store could not complete the request", "reported by the test double");
+    internal static Error ReportedAppend() => new(PublishedStoreFaults.StoreUnavailableType, PublishedStoreFaults.StoreUnavailableTitle, "reported by the test double");
 }
 
 /// <summary>

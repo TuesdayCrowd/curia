@@ -27,6 +27,21 @@ public sealed class RoleForumFixture : ForumFixture
     private const string PolicyName = "n12_poison_policy";
     private const string FunctionName = "n12_poison_check";
 
+    /// <summary>
+    /// The host listens on a real socket (Kestrel), because a store fault in Production is the body-less <c>500</c> a client sees on the wire, which an in-process
+    /// host does not give (it rethrows the exception to its caller). DPoP proofs are signed over <c>http://localhost</c>, which the Forum compares with the request's
+    /// own host, so every request carries <c>Host: localhost</c> (see <see cref="ConfigureClient"/>).
+    /// </summary>
+    public RoleForumFixture() => UseKestrel(0);
+
+    /// <summary>Sets <c>Host: localhost</c> on every request of every client, so the <c>htu</c> a proof is signed over is the address the Forum rebuilds.</summary>
+    protected override void ConfigureClient(HttpClient client)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        base.ConfigureClient(client);
+        client.DefaultRequestHeaders.Host = "localhost";
+    }
+
     protected override string HostConnectionString =>
         new NpgsqlConnectionStringBuilder(ConnectionString) { Username = RoleName, Password = RolePassword }.ConnectionString;
 

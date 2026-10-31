@@ -17,13 +17,15 @@ namespace Curia.Api.Tests;
 /// </summary>
 public class FaultableForumFixture : ForumFixture
 {
-    internal FaultableEventStore Store { get; private set; } = null!;
+    // Resolved from the host, which this builds (and on Kestrel starts) when it is first asked: a decorator is the host's singleton and is never
+    // kept in a field that is empty until a request has been made.
+    internal FaultableEventStore Store => (FaultableEventStore)Services.GetRequiredService<IEventStore>();
 
-    internal FaultableNonceStore Nonces { get; private set; } = null!;
+    internal FaultableNonceStore Nonces => (FaultableNonceStore)Services.GetRequiredService<IDpopNonceStore>();
 
-    internal FaultableReplayCache Replay { get; private set; } = null!;
+    internal FaultableReplayCache Replay => (FaultableReplayCache)Services.GetRequiredService<IReplayCache>();
 
-    internal FaultableKeyStore Keys { get; private set; } = null!;
+    internal FaultableKeyStore Keys => Services.GetRequiredService<FaultableKeyStore>();
 
     /// <summary>Everything the host logs, with each event's exception.</summary>
     internal LogCapture Log { get; } = new();
@@ -43,20 +45,20 @@ public class FaultableForumFixture : ForumFixture
 
         var store = Registered<IEventStore>(services);
         services.Remove(store);
-        services.AddSingleton<IEventStore>(sp => Store = new FaultableEventStore((IEventStore)store.ImplementationFactory!(sp)));
+        services.AddSingleton<IEventStore>(sp => new FaultableEventStore((IEventStore)store.ImplementationFactory!(sp)));
 
         var nonces = Registered<IDpopNonceStore>(services);
         services.Remove(nonces);
-        services.AddSingleton<IDpopNonceStore>(sp => Nonces = new FaultableNonceStore((IDpopNonceStore)nonces.ImplementationFactory!(sp)));
+        services.AddSingleton<IDpopNonceStore>(sp => new FaultableNonceStore((IDpopNonceStore)nonces.ImplementationFactory!(sp)));
 
         var replay = Registered<IReplayCache>(services);
         services.Remove(replay);
-        services.AddSingleton<IReplayCache>(sp => Replay = new FaultableReplayCache((IReplayCache)replay.ImplementationFactory!(sp)));
+        services.AddSingleton<IReplayCache>(sp => new FaultableReplayCache((IReplayCache)replay.ImplementationFactory!(sp)));
 
         // One key store behind both of its ports and the log-bound rule that reads it, as Program.Build composes them.
         services.Remove(Registered<IAuthorKeyRegistry>(services));
         services.Remove(Registered<LogBoundKeys>(services));
-        services.AddSingleton(sp => Keys = new FaultableKeyStore(sp.GetRequiredService<PostgresAgentKeyStore>(), sp.GetRequiredService<PostgresAgentKeyStore>()));
+        services.AddSingleton(sp => new FaultableKeyStore(sp.GetRequiredService<PostgresAgentKeyStore>(), sp.GetRequiredService<PostgresAgentKeyStore>()));
         services.AddSingleton<IAuthorKeyRegistry>(sp => sp.GetRequiredService<FaultableKeyStore>());
         services.AddSingleton(sp => new LogBoundKeys(
             sp.GetRequiredService<FaultableKeyStore>(), sp.GetRequiredService<FaultableKeyStore>(), sp.GetRequiredService<IEventReader>()));

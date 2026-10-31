@@ -1100,6 +1100,9 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal StubIngestRefusal? RefusesSubmissionsAs { get; set; }
 
+    /// <summary>Errata G52 (R5.23): the body the token endpoint answers <c>503</c> with, or null (the default) for a token.</summary>
+    internal string? TokenRefusalJson { get; set; }
+
     /// <summary>R8.77 and R8.78: the post id a <see cref="RefusesSubmissionsAs"/> refusal names (the successor, or the earlier copy).</summary>
     internal string RefusalNamedPostId { get; set; } = SubmittedPostId;
 
@@ -1770,6 +1773,7 @@ internal sealed class StubLog : IDisposable
 
             if (path == "/oauth/token")
             {
+                if (log.TokenRefusalJson is { } refusedToken) return (HttpStatusCode.ServiceUnavailable, refusedToken, null);
                 log.TokenSubject = FormValue(body, "client_id");
                 return (HttpStatusCode.OK, StubLog.TokenJson(), null);
             }
@@ -1852,6 +1856,11 @@ internal sealed class StubLog : IDisposable
                             $$"""{"type":"curia/ingest/already-recorded","title":"This post is already recorded","detail":{{JsonString("post=" + named)}}}""", null),
                         StubIngestRefusal.AgentInFlight => BudgetGateRefusal(ingestRefusal),
                         StubIngestRefusal.GateUnavailable => BudgetGateRefusal(ingestRefusal),
+                        // Errata G52 (R8.82, R9.52): a fault of a store, as the entry words its two types (read from the entry, not from the Forum's code).
+                        StubIngestRefusal.LogUnreadable => (HttpStatusCode.ServiceUnavailable,
+                            $$"""{"type":"{{Curia.Tests.Shared.PublishedStoreFaults.LogUnreadableType}}","title":"{{Curia.Tests.Shared.PublishedStoreFaults.LogUnreadableTitle}}","detail":null}""", null),
+                        StubIngestRefusal.StoreUnavailable => (HttpStatusCode.ServiceUnavailable,
+                            $$"""{"type":"{{Curia.Tests.Shared.PublishedStoreFaults.StoreUnavailableType}}","title":"{{Curia.Tests.Shared.PublishedStoreFaults.StoreUnavailableTitle}}","detail":null}""", null),
                         _ => throw new InvalidOperationException("an unknown StubIngestRefusal"),
                     };
                 }
@@ -2177,4 +2186,10 @@ internal enum StubIngestRefusal
 
     /// <summary><c>409 curia/ingest/already-recorded</c>, detail <c>post=&lt;post id&gt;</c>.</summary>
     AlreadyRecorded,
+
+    /// <summary><c>503 curia/log/unreadable</c> (errata G52): a read of the event log failed; nothing was recorded.</summary>
+    LogUnreadable,
+
+    /// <summary><c>503 curia/store/unavailable</c> (errata G52): any other store failed; a write may or may not have been recorded.</summary>
+    StoreUnavailable,
 }

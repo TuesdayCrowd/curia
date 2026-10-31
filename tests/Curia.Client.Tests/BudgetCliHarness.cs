@@ -38,6 +38,9 @@ internal sealed class ListenerForum : IDisposable
     /// <summary>The status and body for a method and path that is not the token endpoint.</summary>
     internal Func<string, string, (int Status, string Body)> Answer { get; set; } = (_, _) => (404, """{"type":"curia/request/no-route","title":"No route","detail":null}""");
 
+    /// <summary>The status and body for the token endpoint when a fact needs it to refuse; null (the default) is a token.</summary>
+    internal Func<(int Status, string Body)>? Token { get; set; }
+
     internal IReadOnlyList<string> Calls(string request) => [.. Requests.Where(r => r == request)];
 
     private async Task ServeAsync()
@@ -57,7 +60,7 @@ internal sealed class ListenerForum : IDisposable
             var request = $"{context.Request.HttpMethod} {context.Request.Url!.AbsolutePath}";
             Requests.Enqueue(request);
             var (status, body) = context.Request.Url.AbsolutePath == "/oauth/token"
-                ? (200, """{"access_token":"stub-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""")
+                ? Token?.Invoke() ?? (200, """{"access_token":"stub-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""")
                 : Answer(context.Request.HttpMethod, context.Request.Url.AbsolutePath);
             var bytes = Encoding.UTF8.GetBytes(body);
             context.Response.StatusCode = status;
