@@ -306,7 +306,7 @@ internal static class ToolText
         "a question's id, and an answer under any post that is not a question is refused. " + RefsSentence + UnreferencedAnswerSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind. " +
-        RevisedQuestionSentence + " " + QuestionReceiptSentence + " " +
+        RevisedQuestionSentence + " " + QuestionReceiptSentence + " " + Supersession.WalkSentence + " " +
         WithheldParentSentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         DigestOnlyNote + "\n\n" +

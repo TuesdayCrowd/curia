@@ -138,23 +138,49 @@ public sealed class QuestionChainTests : IDisposable
         if (unservedReads != 0 || !unservedWords.Contains(definition, StringComparison.Ordinal) || unservedWords.Contains("latest", StringComparison.Ordinal))
             problems.Add($"a successor with no post id: Expected: 0 reads, R10.91's words, no latest Actual: {unservedReads} reads, {unservedWords}");
 
-        // Each stop that is a post that is not the one named, a cycle and a failed read.
-        var wrongDigest = Chain(1);
-        Serve(wrongDigest, new() { [0] = [new Successor("sha256:" + new string('f', 64), wrongDigest[1].Id)] });
-        var notRevision = new List<Hop> { Question() };
-        notRevision.Add(Revision(1, notRevision[0], PostKind.Answer));
-        Serve(notRevision);
-        var wrongPrev = new List<Hop> { Question() };
-        wrongPrev.Add(Revision(1, wrongPrev[0], prev: "sha256:" + new string('9', 64)));
-        Serve(wrongPrev);
-        var cycle = Chain(1);
-        Serve(cycle, new() { [1] = Listing(cycle[1]) });
-        var failing = Chain(1);
-        Serve(failing);
-        _log.RefusedPosts[failing[1].Id] = (System.Net.HttpStatusCode.ServiceUnavailable, "curia/stub/unavailable");
-
-        foreach (var (name, hops) in new[] { ("a digest that is not the one named", wrongDigest), ("a signed kind that is not revision", notRevision), ("a signed prev that is not the previous digest", wrongPrev), ("a post already read", cycle), ("a read that fails", failing) })
+        // Each stop that is a post that is not the one named, a cycle and a failed read. Every scenario is served and walked in its turn: the stub keeps one
+        // document per post id, and these scenarios reuse the same ids with different content, so building them all first would walk the last one five times.
+        var scenarios = new (string Name, Func<List<Hop>> Serve)[]
         {
+            ("a digest that is not the one named", () =>
+            {
+                var hops = Chain(1);
+                Serve(hops, new() { [0] = [new Successor("sha256:" + new string('f', 64), hops[1].Id)] });
+                return hops;
+            }),
+            ("a signed kind that is not revision", () =>
+            {
+                var hops = new List<Hop> { Question() };
+                hops.Add(Revision(1, hops[0], PostKind.Answer));
+                Serve(hops);
+                return hops;
+            }),
+            ("a signed prev that is not the previous digest", () =>
+            {
+                var hops = new List<Hop> { Question() };
+                hops.Add(Revision(1, hops[0], prev: "sha256:" + new string('9', 64)));
+                Serve(hops);
+                return hops;
+            }),
+            ("a post already read", () =>
+            {
+                var hops = Chain(1);
+                Serve(hops, new() { [1] = Listing(hops[1]) });
+                return hops;
+            }),
+            ("a read that fails", () =>
+            {
+                var hops = Chain(1);
+                Serve(hops);
+                _log.RefusedPosts[hops[1].Id] = (System.Net.HttpStatusCode.ServiceUnavailable, "curia/stub/unavailable");
+                return hops;
+            }),
+        };
+
+        foreach (var (name, serve) in scenarios)
+        {
+            _log.RefusedPosts.Clear();
+            var hops = serve();
             var (reads, words) = await WalkAsync(hops[0]);
             if (reads is < 1 or > 2) problems.Add($"{name}: Expected: the one read of the hop Actual: {reads}");
             if (words.Length == 0) problems.Add($"{name}: Expected: a stop in fixed words Actual: nothing");

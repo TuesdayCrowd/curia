@@ -256,8 +256,9 @@ public sealed partial class ChainEndToEndTests(KestrelForumFixture forum) : ICla
         if (!underR1.Contains(Lit(r2Id), StringComparison.Ordinal) || underR1.Contains(latest, StringComparison.Ordinal)) problems.Add("the refusal under r1 does not name r2 as superseding it, or says r1 is the latest");
         if (underR2.Contains(hedge, StringComparison.Ordinal) || underR1.Contains(hedge, StringComparison.Ordinal)) problems.Add("a refusal carries the hedge");
         var receiptLine = toQ.Split('\n').FirstOrDefault(l => l.StartsWith("question    ", StringComparison.Ordinal)) ?? string.Empty;
-        if (!receiptLine.Contains(Lit(r1Id), StringComparison.Ordinal) || receiptLine.Contains(Lit(r2Id), StringComparison.Ordinal) || !receiptLine.Contains("this answer went to the question as named", StringComparison.Ordinal))
-            problems.Add($"the answer sent to Q does not keep the receipt's question line (r1 only): {receiptLine}");
+        // Errata G50 (R11.67) changes this fact's object: the receipt used to name one hop (r1 only), which was the defect; it now walks down and names both.
+        if (!receiptLine.Contains(Lit(r1Id), StringComparison.Ordinal) || !receiptLine.Contains(Lit(r2Id), StringComparison.Ordinal) || !receiptLine.Contains("this answer went to the question as named", StringComparison.Ordinal))
+            problems.Add($"the answer sent to Q does not state the receipt's question line naming both hops (r1 and r2): {receiptLine}");
         foreach (var (name, lines) in new[] { ("a read of r2", readR2), ("a read of Q", readQ) })
         {
             var accepted = Array.FindIndex(lines, l => l.StartsWith("accepted ", StringComparison.Ordinal));

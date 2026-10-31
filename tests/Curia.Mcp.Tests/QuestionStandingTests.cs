@@ -184,9 +184,10 @@ public sealed class QuestionStandingTests : IDisposable
             var line = receipt.Text.Split('\n').Single(l => l.StartsWith("question    ", StringComparison.Ordinal));
             Assert.Contains(Tail, line, StringComparison.Ordinal);
 
-            // The core is the receipt's line up to the clause that is about this answer and the read before it.
+            // The core is the receipt's line up to the first clause after the list it words: the walk down the chain adds its own (R11.67, errata G50:
+            // "; the latest revision the Forum reports is ..."), and then the clause that is about this answer and the read before it.
             var body = line["question    ".Length..];
-            var tailAt = body.LastIndexOf(" (the Forum's word", StringComparison.Ordinal);
+            var tailAt = body.IndexOf("; ", StringComparison.Ordinal) is var clause and > 0 ? clause : body.LastIndexOf(" (the Forum's word", StringComparison.Ordinal);
             Assert.True(tailAt > 0, $"the receipt's question line has no tail clause: {line}");
             var core = body[..tailAt];
             Assert.StartsWith("SUPERSEDED", core, StringComparison.Ordinal);
