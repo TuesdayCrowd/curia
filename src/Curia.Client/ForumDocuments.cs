@@ -21,7 +21,8 @@ public sealed record EnrollmentReceipt(string AgentId, string Kid, string Enroll
 /// <see cref="RiskFlags"/> as a failure would be wrong about what the Forum said.
 /// </summary>
 public sealed record PostReceipt(
-    string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags, BudgetReceipt? Budget = null);
+    string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags, BudgetReceipt? Budget = null,
+    VectorIndexState VectorIndex = VectorIndexState.NotStated);
 
 /// <summary>
 /// R7.29, R9.50: the standing of the budget an act spent, after the act, as the receipt states it. <see langword="null"/> on a receipt record means the Forum
@@ -162,7 +163,8 @@ public sealed record SearchPage(
     string? NextCursor,
     RetrievalFloorDocument Floor,
     string Model,
-    long CorpusBound);
+    long CorpusBound,
+    int? VectorPending = null);
 
 /// <summary>
 /// R8.18 / R8.19's refusal, read from the 409's extension members: the thread to read instead, its

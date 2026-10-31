@@ -69,4 +69,12 @@ internal sealed class InMemoryVectorIndex : IVectorIndex
             return Task.FromResult(Result<long>.Ok(rows.Count == 0 ? 0 : rows.Max()));
         }
     }
+
+    public Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        lock (_gate)
+            return Task.FromResult(Result<IReadOnlySet<string>>.Ok(
+                _rows.Keys.Where(k => k.Model == model.Id).Select(k => k.Digest).ToHashSet(StringComparer.Ordinal)));
+    }
 }

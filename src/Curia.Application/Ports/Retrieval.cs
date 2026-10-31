@@ -49,4 +49,10 @@ public interface IVectorIndex
     /// reconcile still has to index.
     /// </summary>
     Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The digest of every post the index holds a vector for under <paramref name="model"/> (R11.69): what a reconcile compares the log against,
+    /// so that a post is found missing by the absence of its digest and not by a position in the log.
+    /// </summary>
+    Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
 }

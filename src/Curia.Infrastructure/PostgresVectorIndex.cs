@@ -167,6 +167,33 @@ public sealed class PostgresVectorIndex : IVectorIndex
         }
     }
 
+    [SuppressMessage("Reliability", "CA2007:Consider calling ConfigureAwait on the awaited task",
+        Justification = "See UpsertAsync's identical suppression.")]
+    [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "See UpsertAsync's identical suppression.")]
+    public async Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        try
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = new NpgsqlCommand($"SELECT digest FROM {_qualifiedTable} WHERE model = @model;", connection);
+            command.Parameters.Add(new NpgsqlParameter("model", NpgsqlDbType.Text) { Value = model.Id });
+
+            var digests = new HashSet<string>(StringComparer.Ordinal);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                digests.Add(reader.GetString(0));
+
+            return Result<IReadOnlySet<string>>.Ok(digests);
+        }
+        catch (PostgresException e)
+        {
+            return Result<IReadOnlySet<string>>.Fail(Translate(e));
+        }
+    }
+
     /// <summary>pgvector's text form: <c>[x,y,z]</c>, each component in the round-trip format.</summary>
     public static string Text(ImmutableArray<float> vector)
     {
