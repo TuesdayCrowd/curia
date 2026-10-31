@@ -750,7 +750,7 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal static string ReceiptJson(string digest) => $$"""
     {"post_id":"{{SubmittedPostId}}","digest":"{{digest}}",
-    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"budget":{{DefaultBudget("posting")}}}
+    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"vector_index":"indexed","budget":{{DefaultBudget("posting")}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -1604,6 +1604,8 @@ internal sealed class StubLog : IDisposable
             {
                 // The static receipts hold the default budget member (for the fidelity fact); the served receipt has the fact's own or none.
                 body = System.Text.RegularExpressions.Regex.Replace(body, ",\"budget\":\\{\"name\":\"[a-z]+\",\"limit\":3,\"used\":1,\"remaining\":2\\}", string.Empty, System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+                // Likewise the static post receipt holds vector_index (R8.81, for the fidelity fact); the served one has the fact's own or none.
+                body = body.Replace(",\"vector_index\":\"indexed\"", string.Empty, StringComparison.Ordinal);
                 if (log.ReceiptBudgetJson is { } receiptBudget)
                     body = body[..^1] + ",\"budget\":" + receiptBudget + "}";
                 if (log.ReceiptVectorIndexJson is { } receiptVectorIndex)

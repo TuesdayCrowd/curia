@@ -39,7 +39,7 @@ public sealed class IndexWordsTests
     }
 
     private static string ReceiptWith(string? vectorIndexJson) =>
-        StubLog.ReceiptJson("sha256:" + new string('a', 64))[..^1] + (vectorIndexJson is null ? string.Empty : ",\"vector_index\":" + vectorIndexJson) + "}";
+        StubLog.ReceiptJson("sha256:" + new string('a', 64)).Replace(",\"vector_index\":\"indexed\"", string.Empty, StringComparison.Ordinal)[..^1] + (vectorIndexJson is null ? string.Empty : ",\"vector_index\":" + vectorIndexJson) + "}";
 
     private static string Described(Result<PostReceipt> read) =>
         read.TryGetValue(out var receipt, out var error) ? $"read as {receipt!.VectorIndex}" : $"malformed ({error!.Type})";

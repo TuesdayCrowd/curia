@@ -224,28 +224,30 @@ public sealed class CommittedPostEndpointTests(AgentWriteGateForumFixture forum)
     [Fact]
     public async Task R8_81_PIL7_ARepeatOfAPendingPostIsRefusedAndAReSignedOneIsASecondPost()
     {
-        forum.ResetSeams();
+        // A host of its own, on a clock that never advances here: its backlog starts empty and no catch-up of another fact's can drain it, so the count is absolute.
+        var clock = TimerClockHost.At(forum);
+        await using var host = TimerClockHost.Of(forum, clock);
+        using var client = host.CreateClient();
+        var index = AgentWriteGateForumFixture.IndexOf(host.Services);
         var board = Probe.Board();
         var actor = await AcceptedAnswerScene.EnrolAsync(forum, "lag-repeat", Ct);
         var id = actor.Agent.AgentId;
         var (body, title) = (Probe.Unrelated(), "About " + Probe.Unrelated());
         var wire = actor.Agent.SignQuestion(board, body, title, forum.Now);
 
-        // The host's backlog is shared with the facts that ran before this one (the fixture's clock stands still, so their entries are never due): the count is read as a change.
-        using var baseline = await IndexLag.SearchAsync(forum.Client, $"board={board}", Ct);
-        forum.Index.FailUpserts = true;
-        var first = await Probe.SendAsync(forum, actor, wire, null, Ct);
-        forum.Index.FailUpserts = false;
+        index.FailUpserts = true;
+        var first = await Probe.SendViaAsync(forum, client, actor, wire, null, Ct);
+        index.FailUpserts = false;
         var firstId = (await IndexLag.PostIdsOfAsync(forum, id)).FirstOrDefault() ?? "none";
-        var repeat = await Probe.SendAsync(forum, actor, wire, null, Ct);
+        var repeat = await Probe.SendViaAsync(forum, client, actor, wire, null, Ct);
         var storedAfterRepeat = (await IndexLag.DigestsOfAsync(forum, id)).Length;
-        var reSigned = await Probe.SendAsync(forum, actor, actor.Agent.SignQuestion(board, body, title, forum.Now), null, Ct);
+        var reSigned = await Probe.SendViaAsync(forum, client, actor, actor.Agent.SignQuestion(board, body, title, forum.Now), null, Ct);
         var storedAfterReSign = (await IndexLag.DigestsOfAsync(forum, id)).Length;
-        using var search = await IndexLag.SearchAsync(forum.Client, $"board={board}", Ct);
+        using var search = await IndexLag.SearchAsync(client, $"board={board}", Ct);
 
         Said(
             $"first 201 {Pending}; repeat 409 curia/ingest/already-recorded post={firstId}; stored 1; re-signed 201 {Indexed} (stored 2); pending 1",
-            $"first {IndexLag.Says(first)}; repeat {repeat.Says}{(repeat.Detail is { } detail ? " " + detail : string.Empty)}; stored {storedAfterRepeat}; re-signed {IndexLag.Says(reSigned)} (stored {storedAfterReSign}); pending {(int.TryParse(IndexLag.Pending(search), out var after) && int.TryParse(IndexLag.Pending(baseline), out var was) ? after - was : IndexLag.Pending(search))}");
+            $"first {IndexLag.Says(first)}; repeat {repeat.Says}{(repeat.Detail is { } detail ? " " + detail : string.Empty)}; stored {storedAfterRepeat}; re-signed {IndexLag.Says(reSigned)} (stored {storedAfterReSign}); pending {IndexLag.Pending(search)}");
     }
 
     /// <summary>
