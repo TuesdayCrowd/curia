@@ -949,7 +949,7 @@ public static class ForumEndpoints
 
         await using (held!.ConfigureAwait(false))
         {
-            // ReadEventsAsync answers an empty log when the store cannot be read, which for this check would mean "no successor" and allow.
+            // Read here and not through ReadEventsAsync, so that a failed read is this route's own 503 with its slug: an empty log would mean "no successor" and allow.
             var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
             if (!read.TryGetValue(out var fresh, out var readError))
                 return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
@@ -1466,8 +1466,9 @@ public static class ForumEndpoints
 
         var subject = authenticated!.Claims.Sub;
 
-        // R9.50 (errata G49, ruling 19): a route that must never state a count from a log it could not read reads it itself. ReadEventsAsync's empty log
-        // makes the posture Pending and the tier Anonymous, which would tell a real agent a tier denial a missing log produced.
+        // R9.50 (errata G49, ruling 19): a route that must never state a count from a log it could not read reads it itself, so a failed read is its own 503
+        // with the slug. (Until errata G52 this was the only way: ReadEventsAsync's empty log made the posture Pending and the tier Anonymous, which told a real
+        // agent a tier denial a missing log produced; ReadEventsAsync now throws and the middleware answers the same 503.)
         IReadOnlyList<AppendedEvent> log;
         if (unreadableLogIsAFault)
         {
