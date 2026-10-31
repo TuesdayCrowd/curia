@@ -121,6 +121,25 @@ internal static partial class PublishedBudgetReadout
         };
     }
 
+    /// <summary>
+    /// The limits (T0, T1, T2 in order) the text fails to state in their published context (SEB56, closing FSEB65): the whole run <c>L0/L1/L2</c>, or each
+    /// limit as a whole number followed, with no digit or slash between, by its own tier word within thirty characters. A standalone number elsewhere in
+    /// the text (an <c>R10.x</c>, a count of something else) therefore states nothing, and changing one number of a set leaves that tier named missing.
+    /// </summary>
+    internal static string[] LimitsMissingInContext(string text, int[] limits)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(limits);
+
+        var run = string.Join('/', limits.Select(l => l.ToString(CultureInfo.InvariantCulture)));
+        if (Regex.IsMatch(text, $@"(?<![\d/]){Regex.Escape(run)}(?![\d/])", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2))) return [];
+
+        return [.. limits.Select((l, tier) => (Limit: l, Tier: tier))
+            .Where(x => !Regex.IsMatch(
+                text, $@"(?<![\d/.]){x.Limit}(?![\d/])[^\d/]{{0,30}}?\bT{x.Tier}\b", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)))
+            .Select(x => $"{x.Limit} (T{x.Tier})")];
+    }
+
     private static string[] ErrataLines() => File.ReadAllLines(Find(Errata));
 
     private static string Find(string name)

@@ -396,8 +396,7 @@ public sealed class BudgetReadoutEndpointTests(ForumFixture forum) : IClassFixtu
     /// SEB28's route half (ruling 17: the T3 leg is pure-only, and one more limit applies here). The tier is live: the same agent reads <c>T0</c> and T0's
     /// limits, then after promotion (owner attested, three questions, the clock past the tenure) <c>T1</c> and T1's limits. <b>Deviation from the plan:</b>
     /// "with no new token" cannot be written: the tenure is 48 hours of the fixture's clock and a token lives 300 s, so the promotion expires the token; the
-    /// second read uses a fresh token, and the claim that the tier is the log's and not the token's (FSEB56) is held by SEB28's pure leg and is not
-    /// distinguishable at this route.
+    /// second read uses a fresh token. That the tier is the log's and not the token's (FSEB56) is SEB69's, which promotes the agent within one token's life.
     /// </summary>
     [Fact]
     public async Task R7_7_SEB28_TheTierIsLiveAcrossAPromotion()
@@ -416,6 +415,55 @@ public sealed class BudgetReadoutEndpointTests(ForumFixture forum) : IClassFixtu
             $"{before.Body.GetProperty("tier").GetString()} posting limit {before.Entry("posting").GetProperty("limit").GetInt32()} then {after.Body.GetProperty("tier").GetString()} posting limit {after.Entry("posting").GetProperty("limit").GetInt32()}");
         Assert.Equal("T0", before.Body.GetProperty("tier").GetString());
         Assert.Equal("T1", after.Body.GetProperty("tier").GetString());
+    }
+
+    /// <summary>
+    /// SEB69 (closes FSEB56's gap: SEB28 cannot tell the log's tier from the token's, since a promotion outlives the token). One token is minted at T0 and
+    /// kept; within its life the agent is promoted (the owner attested, three questions, and the enrolment and key binding back-dated past the tenure by
+    /// admin SQL, with the key's <c>valid_from</c> moved with them); the readout with that same token states <c>T1</c> and T1's three limits, never the
+    /// <c>tier</c> claim the token carries.
+    /// </summary>
+    [Fact]
+    [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities", Justification = "The statements are constants in this method; every value is bound.")]
+    public async Task R7_7_SEB69_TheTierIsTheLogsAndNotTheTokens()
+    {
+        var actor = await AcceptedAnswerScene.EnrolAsync(forum, "promoted-live", Ct);
+        var board = Probe.Board();
+        var token = await actor.Dpop.GetTokenAsync(forum.Client, BudgetReadouts.TokenEndpoint, forum.Now, Ct);
+        var before = await BudgetReadouts.GetAsync(forum, actor, token: token);
+        Assert.True(before.Status == HttpStatusCode.OK && before.Body.GetProperty("tier").GetString() == "T0", $"Expected: 200 tier T0 Actual: {before.Says}");
+
+        await forum.AttestOwnerAsync(actor.Agent.AgentId, Ct, owner: "owner:promoted-live-" + Probe.Suffix());
+        for (var i = 0; i < 3; i++) await Probe.AskAsync(forum, actor, board, Ct);
+
+        var past = TimeSpan.FromHours(Curia.Domain.Authorization.TierPolicy.T1MinimumHours + 1);
+        await using (var admin = new NpgsqlConnection(forum.ConnectionString))
+        {
+            await admin.OpenAsync(Ct);
+            await using var events = new NpgsqlCommand(
+                "UPDATE events SET server_ts = server_ts - @by WHERE aggregate_id = @a AND event_type IN ('agent.enrolled', 'agent.key-bound');", admin);
+            events.Parameters.AddWithValue("by", past);
+            events.Parameters.AddWithValue("a", actor.Agent.AgentId);
+            Assert.True(await events.ExecuteNonQueryAsync(Ct) >= 1, "Expected: the enrolment events back-dated");
+
+            await using var keys = new NpgsqlCommand("UPDATE agent_keys SET valid_from = valid_from - @by WHERE agent_id = @a;", admin);
+            keys.Parameters.AddWithValue("by", past);
+            keys.Parameters.AddWithValue("a", actor.Agent.AgentId);
+            Assert.True(await keys.ExecuteNonQueryAsync(Ct) >= 1, "Expected: the key's validity back-dated");
+        }
+
+        var after = await BudgetReadouts.GetAsync(forum, actor, token: token);
+        Assert.True(after.Status == HttpStatusCode.OK, $"Expected: 200 with the T0 token still valid Actual: {after.Says}");
+        var problems = new List<string>();
+        if (after.Body.GetProperty("tier").GetString() != "T1") problems.Add($"tier: Expected: T1 Actual: {after.Body.GetProperty("tier").GetString()}");
+        foreach (var budget in BudgetReadouts.Budgets)
+        {
+            var want = BudgetReadouts.LimitOf("T1", budget);
+            var got = after.Entry(budget).GetProperty("limit").GetInt32();
+            if (got != want) problems.Add($"{budget} limit: Expected: {want} Actual: {got}");
+        }
+
+        Clean(problems);
     }
 
     /// <summary>

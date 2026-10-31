@@ -254,8 +254,7 @@ public sealed class BudgetToolTests : IDisposable
         Assert.True(missing.Length == 0, $"Expected: the description to say {string.Join(" | ", missing)} Actual: \"{tool.Description}\"");
     }
 
-    private static string[] Lacks(string text, int[] limits) =>
-        [.. limits.Where(l => !Regex.IsMatch(text, $@"(?<!\d){l}(?!\d)", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2))).Select(l => l.ToString(CultureInfo.InvariantCulture))];
+    private static string[] Lacks(string text, int[] limits) => PublishedBudgetReadout.LimitsMissingInContext(text, limits);
 
     /// <summary>
     /// SEB56, the adapter half (a control: green on the seam tree; red under FSEB65). The words each budget refusal relays carry the limits Table 11, R7.26

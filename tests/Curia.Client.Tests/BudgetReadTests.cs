@@ -208,9 +208,7 @@ public sealed class BudgetReadTests : IDisposable
 
     private static readonly string[] Tokens = ["T0", "T1", "T2"];
 
-    /// <summary>Whether all three limits appear as whole numbers in the text.</summary>
-    private static string[] Lacks(string text, int[] limits) =>
-        [.. limits.Where(l => !Regex.IsMatch(text, $@"(?<!\d){l}(?!\d)", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2))).Select(l => l.ToString(System.Globalization.CultureInfo.InvariantCulture))];
+    private static string[] Lacks(string text, int[] limits) => PublishedBudgetReadout.LimitsMissingInContext(text, limits);
 
     /// <summary>
     /// SEB56 (a control: green on the seam tree; red under FSEB64 to FSEB66). The prose limits are the published ones: the summary of each of the three budget
