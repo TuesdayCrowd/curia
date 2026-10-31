@@ -78,15 +78,10 @@ public sealed class PostgresRevisionGate : IRevisionGate
             transaction = null;
             return Result<IAsyncDisposable>.Ok(hold);
         }
-        catch (NpgsqlException)
+        catch (Exception e) when (e is not OperationCanceledException && PostgresStoreFaults.Is(e))
         {
             // NpgsqlException covers PostgresException and a pool timeout, whose inner exception is a
             // TimeoutException. The message is not carried: a driver message can quote what it read.
-            await ReleaseAsync(connection, transaction).ConfigureAwait(false);
-            return Result<IAsyncDisposable>.Fail(IngestErrors.RevisionGateUnavailable());
-        }
-        catch (TimeoutException)
-        {
             await ReleaseAsync(connection, transaction).ConfigureAwait(false);
             return Result<IAsyncDisposable>.Fail(IngestErrors.RevisionGateUnavailable());
         }
@@ -139,13 +134,9 @@ public sealed class PostgresRevisionGate : IRevisionGate
             {
                 await ReleaseAsync(connection, transaction).ConfigureAwait(false);
             }
-            catch (NpgsqlException)
+            catch (Exception e) when (e is not OperationCanceledException && PostgresStoreFaults.Is(e))
             {
                 // A broken session: its transaction-scoped lock was released when it broke (above).
-            }
-            catch (TimeoutException)
-            {
-                // As above.
             }
         }
     }

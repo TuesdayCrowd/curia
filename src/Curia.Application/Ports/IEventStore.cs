@@ -40,6 +40,10 @@ namespace Curia.Application.Ports;
 /// does not have, and the test suite reports agreement. An adapter satisfies this promise with
 /// <c>Curia.Canon.Canonical.CanonicalJson.InCanonicalMemberOrder</c>, which shares §3.2.3's
 /// ordering with the canonicalizer's own writer -- never by sorting members itself.</para>
+///
+/// <para><b>A fault of the store is thrown, not reported (R11.71, errata G52).</b> A read that cannot reach or ask the store throws
+/// <see cref="LogUnreadableException"/>, the driver's exception inside; it never returns a failed <see cref="Result{T}"/>, which a caller can read as an
+/// empty log and so as a denial. A failed result from a read is a domain refusal and nothing else.</para>
 /// </summary>
 public interface IEventReader
 {

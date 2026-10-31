@@ -26,4 +26,37 @@ public sealed class PostgresStoreFaults : IStoreFaultClassifier
 
         return false;
     }
+
+    /// <summary>
+    /// The cause the log and a typed refusal carry: the type name of the driver's fault found in <paramref name="exception"/> and, for a
+    /// <see cref="PostgresException"/>, its SQLSTATE. Never a message, which a driver can fill with what it read.
+    /// </summary>
+    public static string Cause(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        var found = exception;
+        var current = exception;
+        for (var depth = 0; current is not null && depth <= MaxDepth; depth++, current = current.InnerException)
+        {
+            if (current is NpgsqlException or TimeoutException)
+            {
+                found = current;
+                if (current is PostgresException) break;
+            }
+        }
+
+        return found is PostgresException postgres
+            ? $"{nameof(PostgresException)} sqlstate={postgres.SqlState}"
+            : found.GetType().Name;
+    }
+
+    /// <summary>R11.71: the event store's throw for a fault of the store behind it, the driver's exception inside.</summary>
+    internal static LogUnreadableException Unreadable(Exception exception) => new(Cause(exception), exception);
+
+    /// <summary>
+    /// True where <paramref name="exception"/> is a store fault that is the store's and not the caller's: a cancellation of the caller's own token is never
+    /// one, whatever the driver wrapped inside the <see cref="OperationCanceledException"/> it raised.
+    /// </summary>
+    internal static bool IsStoreFault(Exception exception, CancellationToken caller) =>
+        exception is not OperationCanceledException && !caller.IsCancellationRequested && Is(exception);
 }

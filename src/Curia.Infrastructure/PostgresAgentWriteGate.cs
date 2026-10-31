@@ -120,13 +120,9 @@ public sealed class PostgresAgentWriteGate : IAgentWriteGate
             // Only the pause between tries is bounded by the deadline: the agent's other write still holds the lock.
             return await RefuseAsync(connection, transaction, turn, BudgetErrors.AgentInFlight()).ConfigureAwait(false);
         }
-        catch (NpgsqlException)
+        catch (Exception e) when (e is not OperationCanceledException && PostgresStoreFaults.Is(e))
         {
             // NpgsqlException covers PostgresException and a pool timeout. The message is not carried: a driver message can quote what it read.
-            return await RefuseAsync(connection, transaction, turn, BudgetErrors.GateUnavailable()).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
             return await RefuseAsync(connection, transaction, turn, BudgetErrors.GateUnavailable()).ConfigureAwait(false);
         }
         catch
@@ -170,13 +166,9 @@ public sealed class PostgresAgentWriteGate : IAgentWriteGate
                 if (connection is not null) await connection.DisposeAsync().ConfigureAwait(false);
             }
         }
-        catch (NpgsqlException)
+        catch (Exception e) when (e is not OperationCanceledException && PostgresStoreFaults.Is(e))
         {
             // A broken session: its transaction-scoped lock was released when it broke.
-        }
-        catch (TimeoutException)
-        {
-            // As above.
         }
         finally
         {
