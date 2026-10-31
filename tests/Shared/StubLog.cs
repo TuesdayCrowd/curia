@@ -779,15 +779,21 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>
     /// PR 3 (errata G50, R8.80): the raw JSON values of the receipt's <c>post_kind</c> and <c>text_of</c> as the accept route serves them: null omits the member (an
-    /// older Forum), otherwise the raw JSON value (<c>"answer"</c>, <c>"revision"</c>, or one a fact serves to be refused). Both null by default, so a fact that
-    /// does not set them keeps the receipt it always had.
+    /// older Forum), otherwise the raw JSON value (<c>"answer"</c>, <c>"revision"</c>, or one a fact serves to be refused). By default the stub serves what the Forum
+    /// does for the accepted answer (an answer, the text of itself); a fact sets null to serve the receipt as an older Forum did.
     /// </summary>
-    internal string? AcceptancePostKindJson { get; set; }
+    internal string? AcceptancePostKindJson { get; set; } = DefaultPostKindJson;
 
     /// <summary>PR 3 (errata G50, R8.80): see <see cref="AcceptancePostKindJson"/>.</summary>
-    internal string? AcceptanceTextOfJson { get; set; }
+    internal string? AcceptanceTextOfJson { get; set; } = DefaultTextOfJson;
 
-    internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null, string? postKindJson = null, string? textOfJson = null) => $$"""
+    /// <summary>What the Forum's receipt carries for an answer accepted as itself (R8.80): its kind, and the answer whose text it is.</summary>
+    internal const string DefaultPostKindJson = "\"answer\"";
+
+    /// <summary>See <see cref="DefaultPostKindJson"/>: the accepted answer's own id.</summary>
+    internal const string DefaultTextOfJson = "\"" + AcceptedPostId + "\"";
+
+    internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null, string? postKindJson = DefaultPostKindJson, string? textOfJson = DefaultTextOfJson) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
     "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}{{(replacedRelationJson is null ? string.Empty : ",\"replaced_relation\":" + replacedRelationJson)}}{{(postKindJson is null ? string.Empty : ",\"post_kind\":" + postKindJson)}}{{(textOfJson is null ? string.Empty : ",\"text_of\":" + textOfJson)}},"budget":{{DefaultBudget("acceptance")}}}
     """.ReplaceLineEndings(string.Empty);

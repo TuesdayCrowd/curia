@@ -53,7 +53,9 @@ public sealed record AcceptanceReceipt(
     bool AlreadyAccepted = false,
     AcceptanceReplaced Replaced = default,
     AcceptanceRelation ReplacedRelation = default,
-    BudgetReceipt? Budget = null);
+    BudgetReceipt? Budget = null,
+    string? PostKind = null,
+    string? TextOf = null);
 
 /// <summary>
 /// What <c>replaced_relation</c> told a reader (R8.76, errata G44).
@@ -427,7 +429,7 @@ internal static class ForumDocuments
         ClientJson.String(o, "thread_root") is { } root
         && ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "accepted_at") is { } at
-            ? ReadAlreadyAccepted(o).Bind(replay => ReadReplaced(o).Bind(replaced => ReadRelation(o).Bind(relation => ReadReceiptBudget(o).Map(budget => new AcceptanceReceipt(root, id, at, replay, replaced, relation, budget)))))
+            ? ReadAlreadyAccepted(o).Bind(replay => ReadReplaced(o).Bind(replaced => ReadRelation(o).Bind(relation => ReadReceiptBudget(o).Bind(budget => ReadReceiptKind(o, id).Map(kind => new AcceptanceReceipt(root, id, at, replay, replaced, relation, budget, kind.PostKind, kind.TextOf))))))
             : Result<AcceptanceReceipt>.Fail(ClientErrors.ResponseMalformed("acceptance receipt"));
 
     /// <summary>
@@ -442,6 +444,28 @@ internal static class ForumDocuments
             JsonValue.String { Value.Length: > 0 } id => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.Of(id.Value)),
             _ => Result<AcceptanceReplaced>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: replaced_answer is neither null nor a post id (R8.71)")),
         };
+
+    /// <summary>
+    /// R8.80 (errata G50): <c>post_kind</c> and <c>text_of</c> come as a pair or not at all. Neither is an older Forum (the reader says <c>kind NOT STATED</c>, never
+    /// <c>answer</c>); a kind that is neither <c>answer</c> nor <c>revision</c>, a member that is not a non-empty string, one without the other, an answer whose
+    /// <c>text_of</c> is not its own <c>post_id</c> and a revision whose is, are a malformed receipt, not a value the client picks.
+    /// </summary>
+    private static Result<(string? PostKind, string? TextOf)> ReadReceiptKind(JsonValue.Object o, string postId)
+    {
+        static Result<(string?, string?)> Malformed(string why) =>
+            Result<(string?, string?)>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: " + why + " (R8.80)"));
+
+        var kind = ClientJson.Member(o, "post_kind");
+        var textOf = ClientJson.Member(o, "text_of");
+        if (kind is null && textOf is null) return Result<(string?, string?)>.Ok((null, null));
+        if (kind is null || textOf is null) return Malformed("post_kind and text_of come together");
+        if (kind is not JsonValue.String { Value: var k } || (k != "answer" && k != "revision")) return Malformed("post_kind is neither \"answer\" nor \"revision\"");
+        if (textOf is not JsonValue.String { Value.Length: > 0 } t) return Malformed("text_of is not a post id");
+        var isOwn = string.Equals(t.Value, postId, StringComparison.Ordinal);
+        if (k == "answer" && !isOwn) return Malformed("an answer is the text of itself, and text_of says otherwise");
+        if (k == "revision" && isOwn) return Malformed("a revision is the text of another post, and text_of names the revision itself");
+        return Result<(string?, string?)>.Ok((k, t.Value));
+    }
 
     /// <summary>
     /// R8.76: <c>replaced_relation</c> is absent (a Forum that said nothing: not stated), <c>null</c> (none), <c>same-chain</c> or <c>other-answer</c>.

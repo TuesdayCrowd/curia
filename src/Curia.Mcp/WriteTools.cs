@@ -292,6 +292,7 @@ internal sealed partial class ForumTools
                 .Line("ACCEPTED (already the accepted answer; nothing was recorded)")
                 .Line($"answer      {receipt.PostId}")
                 .Line($"thread      {receipt.ThreadRoot}")
+                .Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}")
                 .Line($"first accepted at {receipt.AcceptedAt}")
                 .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")
                 .Blank()
@@ -304,6 +305,7 @@ internal sealed partial class ForumTools
                         .Line("ACCEPTED")
                         .Line($"answer      {receipt.PostId}")
                         .Line($"thread      {receipt.ThreadRoot}")
+                        .Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}")
                         .Line($"accepted_at {receipt.AcceptedAt}"),
                     receipt.Replaced, receipt.ReplacedRelation)
                 .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")

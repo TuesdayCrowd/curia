@@ -795,12 +795,15 @@ internal static class Program
         {
             Output.Line($"accepted  {receipt.PostId}   (already the accepted answer; nothing was recorded)");
             Output.Line($"thread    {receipt.ThreadRoot}   first accepted at {receipt.AcceptedAt}");
+            Output.Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}");
             Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
             return ExitCode.Ok;
         }
 
         Output.Line($"accepted  {receipt.PostId}");
         Output.Line($"thread    {receipt.ThreadRoot}   at {receipt.AcceptedAt}");
+        // R10.92: what the post accepted is, from the one author of the line.
+        Output.Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}");
 
         // R8.71 (errata G40): a call that recorded says what it replaced. A replay, above, says nothing of replacement.
         switch (receipt.Replaced.Kind)

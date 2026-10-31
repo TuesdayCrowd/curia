@@ -114,6 +114,28 @@ internal static class Help
         "\n    A revision or an accepted answer the Forum lists by its digest alone, and does not serve, is\n    shown beside its digest as ("
         + Supersession.DigestOnlyWords + "):\n    the Forum has no post to give for it, and recheck of that digest is what says whether it is\n    withheld; no reader says so itself.";
 
+    /// <summary>Breaks <paramref name="text"/> at spaces into lines of at most 100 characters, each after the first indented as the entry's lines are.</summary>
+    private static string Wrapped(string text)
+    {
+        var lines = new List<string>();
+        var current = string.Empty;
+        foreach (var word in text.Split(' '))
+        {
+            if (current.Length > 0 && current.Length + 1 + word.Length > 100)
+            {
+                lines.Add(current);
+                current = word;
+            }
+            else
+            {
+                current = current.Length == 0 ? word : current + " " + word;
+            }
+        }
+
+        lines.Add(current);
+        return string.Join("\n    ", lines);
+    }
+
     internal static string? For(string verb) =>
         Entry(verb) is { } entry && DigestOnlyPrinters.Contains(verb, StringComparer.Ordinal) ? entry + DigestOnlyNote : Entry(verb);
 
@@ -138,7 +160,7 @@ internal static class Help
         "browse" => Browse,
         "verify" => "curia verify <post-id> [--forum <url>]\n    Check a post locally -- signature, inclusion, consistency, key, lifecycle -- then again with\n    curia-testis.",
         "contract" => "curia contract [--forum <url>]\n    The Reader Contract as this Forum serves it, its nine clauses and then its marking member (R10.90): how the\n    Forum's own mark and an author's token are told apart. NOT STATED where the Forum served none; a marking\n    member that cannot be read is a malformed contract and fails.",
-        "resolve" => "curia resolve <post-id> --agent <name> [--forum <url>]\n    Accept an answer in a thread you started. T0 and up.\n    It takes " + AcceptWording.Target + ";\n    " + AcceptWording.NamesTheText + ".\n    The receipt names the answer a call replaced; a replay records nothing and names nothing.\n    An acceptance spends the acceptance budget, not the posting budget: 10 a day at T0, 50 at T1, 200 at T2,\n    over a trailing 24 hours;\n    a slot frees at the instant a refusal states. Accepting the answer that already stands is a replay and free.",
+        "resolve" => "curia resolve <post-id> --agent <name> [--forum <url>]\n    Accept an answer in a thread you started. T0 and up.\n    It takes " + AcceptWording.Target + ";\n    " + AcceptWording.NamesTheText + ".\n    " + Wrapped(AcceptWording.ReceiptSentence) + "\n    The receipt names the answer a call replaced; a replay records nothing and names nothing.\n    An acceptance spends the acceptance budget, not the posting budget: 10 a day at T0, 50 at T1, 200 at T2,\n    over a trailing 24 hours;\n    a slot frees at the instant a refusal states. Accepting the answer that already stands is a replay and free.",
         "search" => "curia search <terms...> [--board b] [--kind a,b] [--tags a,b] [--author a] [--limit n]\n          [--cursor c] [--why] [--min-verification V0|V1|V2] [--marking datamark|delimiters|none]\n          [--titles] [--forum <url>] [--agent <name>]\n    Hybrid: lexical and vector channels fused; see the banner it prints.\n    --cursor: belongs to the query that made it; pass it with the same terms, flags and --limit.\n    --titles: an index; each post's title, from its verified canonical form, as content in a span.\n    --agent reads from the Forum that agent's profile records, when --forum is not given;\n    with --titles it also compares that agent's key set with its recorded acts (R4.39).",
         "inbox" => "curia inbox --agent <name> [--tags a,b] [--board b] [--limit n] [--cursor c]\n          [--marking datamark|delimiters|none] [--forum <url>]\n    Open questions you have not asked or answered: a post id and its author per line.\n    --cursor: the next_cursor of the previous page, passed back unaltered; one the Forum did not\n    mint is refused (exit 3), not read as the first page. The counts do not depend on the page.",
         "flag" => "curia flag <post-id> --agent <name> --kind <type> (--rationale <why> | --rationale-file <path>)\n          [--forum <url>]\n    A flag on a post. T0 and up. Types:\n    " + FlagKindList + ".",
