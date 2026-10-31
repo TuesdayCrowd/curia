@@ -308,7 +308,7 @@ public sealed class CommittedPostEndpointTests(AgentWriteGateForumFixture forum)
 
         Said(
             $"201 {Pending}; 1 {PublishedIndexLag.PendingEvent()} event, naming the post id and the error type; 0 events holding the text",
-            $"{IndexLag.Says(sent)}; {pendingEvents.Length} {PublishedIndexLag.PendingEvent()} events, {(pendingEvents.Length == named && named > 0 ? "naming" : "not naming")} the post id and the error type; {holdingText} events holding the text");
+            $"{IndexLag.Says(sent)}; {pendingEvents.Length} {PublishedIndexLag.PendingEvent()} event{(pendingEvents.Length == 1 ? string.Empty : "s")}, {(pendingEvents.Length == named && named > 0 ? "naming" : "not naming")} the post id and the error type; {holdingText} events holding the text");
     }
 
     /// <summary>

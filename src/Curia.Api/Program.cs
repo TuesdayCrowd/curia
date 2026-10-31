@@ -168,6 +168,12 @@ public sealed class Program
         builder.Services.AddSingleton(sp => new EmbeddingIndexer(
             sp.GetRequiredService<ITextEmbedder>(),
             sp.GetRequiredService<IVectorIndex>()));
+        // R8.81, R11.69 (errata G51): the post committed and not indexed is held by digest, post id and sequence, and retried from the log while the Forum is up.
+        builder.Services.AddSingleton<IndexBacklog>();
+        builder.Services.AddSingleton(sp => new CommittedPostIndexer(
+            sp.GetRequiredService<EmbeddingIndexer>(),
+            sp.GetRequiredService<IndexBacklog>(),
+            sp.GetRequiredService<TimeProvider>()));
         builder.Services.AddHostedService<EmbeddingReconcileService>();
         builder.Services.AddHostedService<LifecycleEntryScan>();
 

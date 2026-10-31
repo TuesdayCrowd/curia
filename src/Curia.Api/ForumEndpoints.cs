@@ -65,6 +65,7 @@ public sealed record PostAcceptedResponse(
     [property: JsonPropertyName("digest")] string Digest,
     [property: JsonPropertyName("server_ts")] string ServerTimestamp,
     [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags,
+    [property: JsonPropertyName("vector_index")] string VectorIndex,
     [property: JsonPropertyName("budget")] BudgetReceiptResponse Budget);
 
 /// <summary>
@@ -762,7 +763,9 @@ public static class ForumEndpoints
         IEventReader events,
         IRevisionGate revisionGate,
         IAgentWriteGate agentGate,
-        EmbeddingIndexer indexer,
+        CommittedPostIndexer committed,
+        IHostApplicationLifetime lifetime,
+        ILoggerFactory loggerFactory,
         DuplicateCheck dedupe,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
@@ -823,6 +826,9 @@ public static class ForumEndpoints
 
         await using var heldTurn = hold!.ConfigureAwait(false);
 
+        // R8.81: the step after PERSIST is the host's to finish, not the caller's: only the host stopping reaches it.
+        var indexer = new IndexStep(committed, loggerFactory.CreateLogger("Curia.Api.VectorIndex"), lifetime.ApplicationStopping);
+
         // R6.56: VERIFY through PERSIST is one act against the author's stream, repeated while the stream
         // moves under it (IngestAttempts), and answered 503 contended after three. The attempt answers
         // null when its append lost that race and every other outcome as the response it is.
@@ -854,7 +860,7 @@ public static class ForumEndpoints
         IPolicyDecisionPoint pdp,
         IEventReader events,
         IRevisionGate revisionGate,
-        EmbeddingIndexer indexer,
+        IndexStep indexer,
         DuplicateCheck dedupe,
         HttpRequest http,
         TimeProvider clock,
@@ -985,7 +991,7 @@ public static class ForumEndpoints
         IReadOnlyList<AppendedEvent> log,
         IIngestPipeline pipeline,
         IEventReader events,
-        EmbeddingIndexer indexer,
+        IndexStep indexer,
         DuplicateCheck dedupe,
         HttpRequest http,
         Func<DateTimeOffset, BudgetEntry> budgetAfter,
@@ -1060,18 +1066,19 @@ public static class ForumEndpoints
                 : Problem(StatusCodes.Status500InternalServerError, persistError);
         }
 
-        // The vector channel sees the post in the same request the lexical channel does. The
-        // index and the log are the same database, so a failure here is the database failing
-        // after it just succeeded -- reported, not swallowed; the startup reconcile closes any gap
-        // a crash between the two writes leaves (R11.10).
+        // R8.81 (errata G51): the log holds the post, so the answer is 201 whatever the vector index does next. The step is total, the caller's
+        // disconnection does not reach it and it is bounded; a post whose vector is not stored is pending, is logged (never with its text, R11.33)
+        // and is retried from the log by the catch-up without a restart (R11.69). The reconcile at start is by absence of the digest.
+        var vectorIndex = VectorIndexWire.NotApplicable;
         if (PostKinds.IsDiscussion(v.Envelope.Kind))
         {
-            var indexed = await indexer.IndexAsync(
+            var outcome = await indexer.Committed.IndexAsync(
                 new SearchablePost(post!.PostId, post.Digest, v.Envelope.Board, v.Envelope.Kind, v.Envelope.Title,
                     v.Envelope.Body, v.Envelope.Tags, v.AuthorAgentId.Value, post.Sequence),
-                cancellationToken).ConfigureAwait(false);
-            if (!indexed.TryGetValue(out _, out var indexError))
-                return Problem(StatusCodes.Status500InternalServerError, indexError!);
+                indexer.Shutdown).ConfigureAwait(false);
+            vectorIndex = VectorIndexWire.Of(outcome.State);
+            if (outcome.State == CommittedIndexState.Pending)
+                VectorIndexLog.Pending(indexer.Log, post.PostId, outcome.FaultType ?? string.Empty, outcome.FaultDetail ?? string.Empty);
         }
 
         return Results.Created($"/v1/posts/{post!.PostId}", new PostAcceptedResponse(
@@ -1079,8 +1086,12 @@ public static class ForumEndpoints
             post.Digest,
             post.ServerTimestamp.ToString(),
             [.. s!.Annotations.Flags.Select(f => f.Category.ToString())],
+            vectorIndex,
             BudgetReceiptResponse.Of(budgetAfter(post.ServerTimestamp.Value))));
     }
+
+    /// <summary>The step after PERSIST and what it needs from the request: the indexer, a logger and the host's stopping token (R8.81).</summary>
+    private sealed record IndexStep(CommittedPostIndexer Committed, ILogger Log, CancellationToken Shutdown);
 
     /// <summary>
     /// R10.35: "Any credentialed agent MAY flag content." Table 10's <c>flag</c>/<c>raise</c> row is
