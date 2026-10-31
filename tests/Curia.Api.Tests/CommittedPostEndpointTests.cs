@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using Curia.Domain.Content;
 using Curia.Tests.Shared;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using Xunit;
 
@@ -344,5 +345,81 @@ public sealed class CommittedPostEndpointTests(AgentWriteGateForumFixture forum)
             $"the failed index answered 201 {Pending} with the post stored (1), the gate entered once and nothing held; the next request 201 (and the third 201); the request beyond the limit of {limit} 403 {posting}",
             $"the failed index answered {IndexLag.Says(failed)} with the post {(stored == 1 ? "stored (1)" : $"counted {stored}")}, the gate entered {AgentWriteGateEndpointTests.Times(entries)} and {(held == 0 ? "nothing held" : held + " held")}; "
             + $"the next request {BudgetBursts.Kind(next)} (and the third {BudgetBursts.Kind(third)}); the request beyond the limit of {limit} {BudgetBursts.Kind(fourth)}");
+    }
+
+    /// <summary>
+    /// PIL39 (the review fix, M5). An exception from the vector step whose message quotes the post is pending and logged by type, and no captured event holds the
+    /// text the exception carried.
+    /// </summary>
+    [Fact]
+    public async Task R8_81_PIL39_AnExceptionThatQuotesThePostIsNeverLoggedByItsMessage()
+    {
+        using var logged = new LogCapture();
+        var clock = TimerClockHost.At(forum);
+        await using var host = TimerClockHost.Of(forum, clock, logged);
+        using var client = host.CreateClient();
+        var index = AgentWriteGateForumFixture.IndexOf(host.Services);
+        var canary = "CANARY" + Guid.NewGuid().ToString("N");
+        var actor = await AcceptedAnswerScene.EnrolAsync(forum, "lag-quote", Ct);
+        var wire = actor.Agent.SignQuestion(Probe.Board(), Probe.Unrelated(), "About " + Probe.Unrelated(), forum.Now);
+
+        index.ThrowWith = () => new InvalidOperationException("the index refused: " + canary);
+        var mark = logged.Mark();
+        var sent = await Probe.SendViaAsync(forum, client, actor, wire, null, Ct);
+        index.ThrowWith = null;
+
+        var events = logged.Since(mark);
+        var pendingEvents = events.Count(e => e.Name == PublishedIndexLag.PendingEvent());
+        var holdingText = events.Count(e => e.Message.Contains(canary, StringComparison.Ordinal) || e.Values.Any(v => v.Value?.ToString()?.Contains(canary, StringComparison.Ordinal) == true));
+
+        Said(
+            $"201 {Pending}; 1 {PublishedIndexLag.PendingEvent()} event; 0 events holding the exception's message",
+            $"{IndexLag.Says(sent)}; {pendingEvents} {PublishedIndexLag.PendingEvent()} event{(pendingEvents == 1 ? string.Empty : "s")}; {holdingText} events holding the exception's message");
+    }
+
+    /// <summary>A logger provider whose logger throws for the pending-post event and for no other, as a sink that has failed would.</summary>
+    private sealed class ThrowingOnPendingProvider : ILoggerProvider
+    {
+        public ILogger CreateLogger(string categoryName) => new ThrowingLogger();
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class ThrowingLogger : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (string.Equals(eventId.Name, PublishedIndexLag.PendingEvent(), StringComparison.Ordinal))
+                    throw new InvalidOperationException("the log sink failed");
+            }
+        }
+    }
+
+    /// <summary>
+    /// PIL40 (the review fix, M5). A log call that throws after the post is committed does not change the answer: <c>201</c> <c>pending</c>, the post stored once.
+    /// </summary>
+    [Fact]
+    public async Task R8_81_PIL40_AFailingLogSinkCannotTurnACommittedPostsAnswerIntoAFailure()
+    {
+        await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(new ThrowingOnPendingProvider())));
+        using var client = host.CreateClient();
+        var index = AgentWriteGateForumFixture.IndexOf(host.Services);
+        var actor = await AcceptedAnswerScene.EnrolAsync(forum, "lag-sink", Ct);
+        var wire = actor.Agent.SignQuestion(Probe.Board(), Probe.Unrelated(), "About " + Probe.Unrelated(), forum.Now);
+
+        index.FailUpserts = true;
+        var sent = await Probe.SendViaAsync(forum, client, actor, wire, null, Ct);
+        index.FailUpserts = false;
+        var stored = (await IndexLag.DigestsOfAsync(forum, actor.Agent.AgentId)).Length;
+
+        Said(
+            $"201 {Pending} with the post stored once",
+            $"{IndexLag.Says(sent)} with the post stored {(stored == 1 ? "once" : stored + " times")}");
     }
 }

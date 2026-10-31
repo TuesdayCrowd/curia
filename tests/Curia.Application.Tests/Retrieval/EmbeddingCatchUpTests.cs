@@ -177,4 +177,71 @@ public sealed class EmbeddingCatchUpTests
             $"the log holds {logBefore.Count} events with highest sequence {logBefore.MaxSeq} after the pass, as before it",
             $"the log holds {logAfter.Count} events with highest sequence {logAfter.MaxSeq} after the pass, as before it");
     }
+
+    /// <summary>
+    /// PIL37 (the review fix, M1). A by-absence pass that keeps failing is attempted on the entry's schedule, not at every tick: the first pass runs at once, the
+    /// next the first wait later, then twice that, to the cap, and stays at the cap. Measured by the upserts the index is asked for, one post being unindexed and
+    /// the backlog flagged as overflowed; the pass is run at every second of the schedule.
+    /// </summary>
+    [Fact]
+    public async Task R11_69_PIL37_AFailingByAbsencePassIsAttemptedOnTheDoublingScheduleAndNotAtEveryTick()
+    {
+        var first = PublishedIndexLag.FirstWait();
+        var cap = PublishedIndexLag.WaitCap();
+        var h = new IndexRepairHarness();
+        await h.AppendAsync(Ct);
+        h.Index.FailAll = true;
+        h.Backlog.MarkOverflowed();
+        var start = h.Now;
+
+        var expectedWaits = new List<TimeSpan>();
+        for (var wait = first; expectedWaits.Count < 9; wait = TimeSpan.FromTicks(Math.Min(wait.Ticks * 2, cap.Ticks)))
+            expectedWaits.Add(wait);
+
+        var firstPass = h.Index.Attempted.Length;
+        await h.CatchUp.RunOnceAsync(h.Store, start, Ct);
+        var attemptedAtStart = h.Index.Attempted.Length - firstPass;
+
+        var expected = new List<string> { "at once: 1 attempt" };
+        var observed = new List<string> { $"at once: {attemptedAtStart} attempt{(attemptedAtStart == 1 ? string.Empty : "s")}" };
+        var instant = start;
+        foreach (var wait in expectedWaits)
+        {
+            var due = instant + wait;
+            var before = h.Index.Attempted.Length;
+            for (var at = instant + TimeSpan.FromSeconds(1); at < due; at += TimeSpan.FromSeconds(1))
+                await h.CatchUp.RunOnceAsync(h.Store, at, Ct);
+            var tooEarly = h.Index.Attempted.Length - before;
+            await h.CatchUp.RunOnceAsync(h.Store, due, Ct);
+            var atDue = h.Index.Attempted.Length - before - tooEarly;
+
+            expected.Add($"{wait.TotalSeconds:0}s: 0 early, 1 on time");
+            observed.Add($"{wait.TotalSeconds:0}s: {tooEarly} early, {atDue} on time");
+            instant = due;
+        }
+
+        Said(string.Join("; ", expected), string.Join("; ", observed));
+    }
+
+    /// <summary>
+    /// PIL38 (the review fix, M2). A retry that fails is reported in the result, by post id, digest and the fault's type, and never by any text the post carried:
+    /// the hosted service logs what the result holds.
+    /// </summary>
+    [Fact]
+    public async Task R11_69_PIL38_AFailedRetryIsReportedByPostDigestAndTypeAndNeverByText()
+    {
+        var wait = PublishedIndexLag.FirstWait();
+        var h = new IndexRepairHarness();
+        var post = await h.AppendAsync(Ct);
+        h.Index.FailAll = true;
+        var failedAt = h.Now;
+        await h.Committed.IndexAsync(post, Ct);
+
+        var result = await h.CatchUp.RunOnceAsync(h.Store, failedAt + wait, Ct);
+
+        var expected = $"1 failed retry, naming {post.PostId} and {Short(post.Digest)} and the type curia/retrieval/index-unavailable";
+        var failed = result.FailedRetries;
+        var actual = $"{failed.Count} failed retr{(failed.Count == 1 ? "y" : "ies")}, naming {string.Join(' ', failed.Select(f => f.PostId))} and {string.Join(' ', failed.Select(f => Short(f.Digest)))} and the type {string.Join(' ', failed.Select(f => f.FaultType))}";
+        Said(expected, failed.Count == 1 && failed[0].PostId == post.PostId && failed[0].Digest == post.Digest && failed[0].FaultType == "curia/retrieval/index-unavailable" ? expected : actual);
+    }
 }

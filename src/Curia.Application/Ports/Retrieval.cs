@@ -44,13 +44,6 @@ public interface IVectorIndex
     Task<Result<long>> CountAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The highest <c>seq</c> indexed under <paramref name="model"/>, or 0 when none. It is <b>not</b> the point after which the log is unindexed (R11.69,
-    /// errata G51): a post whose vector failed and which a later post followed is below it for ever, so the reconcile reads <see cref="IndexedDigestsAsync"/>
-    /// and no longer this. Nothing reads it; it stays until a later cleanup removes it with its fact.
-    /// </summary>
-    Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// The digest of every post the index holds a vector for under <paramref name="model"/> (R11.69): what a reconcile compares the log against,
     /// so that a post is found missing by the absence of its digest and not by a position in the log.
     /// </summary>

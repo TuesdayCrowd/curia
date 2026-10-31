@@ -1081,7 +1081,17 @@ public static class ForumEndpoints
                 indexer.Shutdown).ConfigureAwait(false);
             vectorIndex = VectorIndexWire.Of(outcome.State);
             if (outcome.State == CommittedIndexState.Pending)
-                VectorIndexLog.Pending(indexer.Log, post.PostId, outcome.FaultType ?? string.Empty, outcome.FaultDetail ?? string.Empty);
+            {
+                try
+                {
+                    VectorIndexLog.Pending(indexer.Log, post.PostId, outcome.FaultType ?? string.Empty, outcome.FaultDetail ?? string.Empty);
+                }
+#pragma warning disable CA1031 // R8.81: the post is committed, so a log sink that fails cannot change the answer; the post is in the backlog whether or not it was logged.
+                catch (Exception)
+#pragma warning restore CA1031
+                {
+                }
+            }
         }
 
         return Results.Created($"/v1/posts/{post!.PostId}", new PostAcceptedResponse(

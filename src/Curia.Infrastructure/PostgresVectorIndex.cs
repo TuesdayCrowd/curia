@@ -149,28 +149,6 @@ public sealed class PostgresVectorIndex : IVectorIndex
         Justification = "See UpsertAsync's identical suppression.")]
     [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities",
         Justification = "See UpsertAsync's identical suppression.")]
-    public async Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(model);
-
-        try
-        {
-            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            await using var command = new NpgsqlCommand($"SELECT coalesce(max(seq), 0) FROM {_qualifiedTable} WHERE model = @model;", connection);
-            command.Parameters.Add(new NpgsqlParameter("model", NpgsqlDbType.Text) { Value = model.Id });
-            var max = (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
-            return Result<long>.Ok(max);
-        }
-        catch (PostgresException e)
-        {
-            return Result<long>.Fail(Translate(e));
-        }
-    }
-
-    [SuppressMessage("Reliability", "CA2007:Consider calling ConfigureAwait on the awaited task",
-        Justification = "See UpsertAsync's identical suppression.")]
-    [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities",
-        Justification = "See UpsertAsync's identical suppression.")]
     public async Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(model);

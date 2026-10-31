@@ -60,16 +60,6 @@ internal sealed class InMemoryVectorIndex : IVectorIndex
             return Task.FromResult(Result<long>.Ok((long)_rows.Keys.Count(k => k.Model == model.Id)));
     }
 
-    public Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(model);
-        lock (_gate)
-        {
-            var rows = _rows.Where(r => r.Key.Model == model.Id).Select(r => r.Value.Sequence).ToList();
-            return Task.FromResult(Result<long>.Ok(rows.Count == 0 ? 0 : rows.Max()));
-        }
-    }
-
     public Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(model);

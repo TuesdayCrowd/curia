@@ -105,21 +105,6 @@ public abstract class VectorIndexPortContractTests
         Assert.Equal(1, Require(await index.CountAsync(ModelA, ct)));
     }
 
-    [Fact]
-    public async Task R11_10_TheHighWaterMarkIsTheHighestIndexedSequencePerModel()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var index = CreateIndex();
-
-        Assert.Equal(0, Require(await index.MaxSequenceAsync(ModelA, ct)));
-        Require(await index.UpsertAsync("sha256:" + new string('1', 64), "p1", 12, Unit(ModelA, 1, 0, 0), ct));
-        Require(await index.UpsertAsync("sha256:" + new string('2', 64), "p2", 7, Unit(ModelA, 0, 1, 0), ct));
-        Require(await index.UpsertAsync("sha256:" + new string('3', 64), "p3", 40, Unit(ModelB, 0, 1, 0), ct));
-
-        Assert.Equal(12, Require(await index.MaxSequenceAsync(ModelA, ct)));
-        Assert.Equal(40, Require(await index.MaxSequenceAsync(ModelB, ct)));
-    }
-
     /// <summary>
     /// PIL21 (errata G51, R11.69). The digests the index holds under the model asked for, and none under another: the set a reconcile compares the log
     /// against. Held for the in-memory adapter here and for pgvector from <c>Curia.Infrastructure.Tests</c>, so the two cannot agree by accident. A control on

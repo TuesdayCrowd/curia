@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Curia.Canon.Json;
 using Curia.Client.Cli;
+using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
@@ -202,17 +203,32 @@ public sealed class IndexWordsTests
         Said(string.Join(" | ", expected.Select(Fold)), string.Join(" | ", actual.Select(Fold)));
     }
 
-    /// <summary>PIL30, the CLI's half. The help of each verb that sends a post (<c>ask</c>, <c>comment</c>, <c>answer</c>, <c>revision</c>) and of <c>search</c> carries the entry's sentence.</summary>
+    /// <summary>
+    /// PIL30, the CLI's half. The help of each verb that sends a post of a discussion kind, and of <c>search</c>, carries the entry's sentence. The verbs are
+    /// derived from the dispatch in <c>Program.cs</c> (each verb that calls <c>PostAsync</c> with a kind <c>PostKinds.IsDiscussion</c> holds), not listed, so a
+    /// post verb added later without the sentence is red.
+    /// </summary>
     [Fact]
     public void R11_70_PIL30_TheHelpOfTheVerbsThatSendAPostAndOfSearchCarriesTheSentence()
     {
-        var sentence = PublishedIndexLag.Sentence();
-        var verbs = new[] { "ask", "comment", "answer", "revision", "search" };
-        var missing = verbs.Where(v => !Fold(Help.For(v) ?? string.Empty).Contains(sentence, StringComparison.Ordinal)).ToArray();
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Curia.sln"))) dir = dir.Parent;
+        var program = File.ReadAllText(Path.Combine(dir?.FullName ?? throw new InvalidOperationException("Curia.sln not found"), "src", "Curia.Client.Cli", "Program.cs"));
 
-        Said("the sentence is in the help of 5 verbs (ask comment answer revision search)", missing.Length == 0
-            ? "the sentence is in the help of 5 verbs (ask comment answer revision search)"
-            : $"the sentence is absent from the help of {missing.Length} verbs ({string.Join(' ', missing)})");
+        var sends = System.Text.RegularExpressions.Regex.Matches(program, "\"(?<verb>[a-z]+)\" => await PostAsync\\(\"[a-z]+\", PostKind\\.(?<kind>[A-Za-z]+)")
+            .Select(m => (Verb: m.Groups["verb"].Value, Kind: Enum.Parse<PostKind>(m.Groups["kind"].Value)))
+            .Where(x => PostKinds.IsDiscussion(x.Kind))
+            .Select(x => x.Verb)
+            .ToArray();
+        var verbs = sends.Append("search").Order(StringComparer.Ordinal).ToArray();
+
+        var sentence = PublishedIndexLag.Sentence();
+        var missing = verbs.Where(v => !Fold(Help.For(v) ?? string.Empty).Contains(sentence, StringComparison.Ordinal)).ToArray();
+        var expected = $"the sentence is in the help of 6 verbs ({string.Join(' ', verbs)})";
+
+        Said(expected, verbs.Length == 6 && missing.Length == 0
+            ? expected
+            : $"{verbs.Length} verbs send a post or search ({string.Join(' ', verbs)}); the sentence is absent from the help of {missing.Length} ({string.Join(' ', missing)})");
     }
 
     /// <summary>PIL27, the source half. No source file outside <c>IndexWording.cs</c> writes the receipt's words: the phrase <c>by meaning</c> is written once, in the definition both clients call.</summary>

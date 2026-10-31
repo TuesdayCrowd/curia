@@ -101,8 +101,6 @@ public sealed class IndexRepairEndpointTests(AgentWriteGateForumFixture forum) :
 
         public Task<Result<long>> CountAsync(EmbeddingModel model, CancellationToken cancellationToken = default) => Task.FromResult(Result<long>.Fail(Fault()));
 
-        public Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default) => Task.FromResult(Result<long>.Fail(Fault()));
-
         public Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default) =>
             Task.FromResult(Result<IReadOnlySet<string>>.Fail(Fault()));
     }
@@ -182,5 +180,43 @@ public sealed class IndexRepairEndpointTests(AgentWriteGateForumFixture forum) :
         Said(
             $"1 catch-up service; a timer armed; at the failure plus 4 s 0 rows; at the failure plus 6 s 1 row; 1 {PublishedIndexLag.CaughtUpEvent()} event",
             $"{services} catch-up service{(services == 1 ? string.Empty : "s")}; {(armed ? "a timer armed" : "no timer armed")}; at the failure plus 4 s {rowsAtFour} rows; at the failure plus 6 s {rowsAtSix} row; {caughtUp} {PublishedIndexLag.CaughtUpEvent()} event{(caughtUp == 1 ? string.Empty : "s")}");
+    }
+
+    /// <summary>
+    /// PIL41 (the review fix, M2). The service logs a failed retry: with the index failing through the first retry (after a timer is armed and the clock advanced
+    /// past the first wait), the host logged <c>VectorIndexRetryFailed</c>, naming the post and its digest, and no captured event holds the text the post carried.
+    /// </summary>
+    [Fact]
+    public async Task R11_69_PIL41_TheServiceLogsAFailedRetryByPostAndDigestAndNeverByText()
+    {
+        using var logged = new LogCapture();
+        var clock = TimerClockHost.At(forum);
+        await using var host = TimerClockHost.Of(forum, clock, logged);
+        using var client = host.CreateClient();
+        var index = AgentWriteGateForumFixture.IndexOf(host.Services);
+        var canary = "CANARY" + Guid.NewGuid().ToString("N");
+        var actor = await AcceptedAnswerScene.EnrolAsync(forum, "lag-retry-log", Ct);
+        var wire = actor.Agent.SignQuestion(Probe.Board(), canary + " " + Probe.Unrelated(), canary + " title", forum.Now);
+
+        index.FailUpserts = true;
+        await Probe.SendViaAsync(forum, client, actor, wire, null, Ct);
+        var postId = (await IndexLag.PostIdsOfAsync(forum, actor.Agent.AgentId)).FirstOrDefault() ?? "none";
+        var digest = (await IndexLag.DigestsOfAsync(forum, actor.Agent.AgentId)).FirstOrDefault() ?? "none";
+        await IndexLag.EventuallyAsync(() => clock.Armed >= 1, TimeSpan.FromSeconds(10), Ct);
+        for (var second = 1; second <= 6; second++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(150, Ct);
+        }
+
+        var retried = await IndexLag.EventuallyAsync(() => logged.All.Any(e => e.Name == "VectorIndexRetryFailed"), TimeSpan.FromSeconds(10), Ct);
+        index.FailUpserts = false;
+        var events = logged.All.Where(e => e.Name == "VectorIndexRetryFailed").ToArray();
+        var named = events.Count(e => e.Message.Contains(postId, StringComparison.Ordinal) && e.Message.Contains(digest, StringComparison.Ordinal));
+        var holdingText = logged.All.Count(e => e.Message.Contains(canary, StringComparison.Ordinal));
+
+        Said(
+            "at least 1 VectorIndexRetryFailed event, every one naming the post and its digest; 0 events holding the text",
+            $"{(retried ? "at least 1" : "0")} VectorIndexRetryFailed event, {(events.Length == named && named > 0 ? "every one" : "not every one")} naming the post and its digest; {holdingText} events holding the text");
     }
 }

@@ -10,7 +10,7 @@ public enum CommittedIndexState
     NotApplicable,
 }
 
-/// <summary>The state of one committed post's vector and, for a pending one, the type and detail of the fault (never any text the post carried).</summary>
+/// <summary>The state of one committed post's vector and, for a pending one, the type of the fault and its fixed detail (never an exception's message, which can quote the post).</summary>
 public sealed record IndexOutcome(CommittedIndexState State, string? FaultType = null, string? FaultDetail = null);
 
 /// <summary>
@@ -55,7 +55,7 @@ public sealed class CommittedPostIndexer
                     return new IndexOutcome(vector is null ? CommittedIndexState.NotApplicable : CommittedIndexState.Indexed);
 
                 faultType = error!.Type;
-                faultDetail = error.Detail ?? error.Title;
+                faultDetail = error.Title;
             }
             catch (OperationCanceledException) when (bound.IsCancellationRequested)
             {
@@ -68,7 +68,7 @@ public sealed class CommittedPostIndexer
 #pragma warning restore CA1031
         {
             faultType = ex.GetType().FullName ?? ex.GetType().Name;
-            faultDetail = ex.Message;
+            faultDetail = "the vector step threw an exception";
         }
 
         var now = _clock.GetUtcNow();
