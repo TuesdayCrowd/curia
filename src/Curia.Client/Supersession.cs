@@ -28,8 +28,9 @@ public static class Supersession
     public const string NotStatedLong = "revision  NOT STATED (the Forum served no word on whether a revision supersedes this post, so do not take it as the last word)";
 
     /// <summary>
-    /// The mark a form writes after a digest the Forum lists and does not serve, in one place (errata G50, R10.91; PR 3's behaviour-preserving seam: the words are
-    /// as they were). <see cref="NotServedWords"/> is the phrase without its parentheses, for the clauses that compose it into a longer sentence.
+    /// The bare mark <c>recheck</c>'s own list carries after a digest the Forum lists and does not serve (errata G50, R10.91: <c>recheck</c> states the pointer once, in its
+    /// own clause, <see cref="RecheckClauseWords"/>); every other form writes <see cref="DigestOnlyMark"/>. <see cref="NotServedWords"/> is the phrase without its
+    /// parentheses, for the refusal's arm that says there is no post id to revise.
     /// </summary>
     public const string NotServedMark = "(not served)";
 
