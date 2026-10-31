@@ -1385,8 +1385,10 @@ public static class ForumEndpoints
                 "curia/post/not-found", "No such post", $"post={postId}"));
 
         // Table 10's "(own)": the post these flags name must be one the caller wrote.
+        // R7.30: this route has just found the post, so its denial says the resource exists.
         var decision = ok.Decision.Discharge(
-            string.Equals(post.Author, ok.Subject, StringComparison.Ordinal));
+            string.Equals(post.Author, ok.Subject, StringComparison.Ordinal),
+            resourceKnownToExist: true);
 
         if (!decision.IsAllowed)
             return Problem(StatusCodes.Status403Forbidden, Denial(decision, $"{decision.Reason} post={postId}"));

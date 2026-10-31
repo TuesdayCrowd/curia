@@ -189,6 +189,9 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         "table-10/own-resource-only" =>
             "This act is open only to the agent that owns the resource it names, and the one named is not yours or does "
             + "not exist. A higher tier does not change that; check the id or digest you named.",
+        "table-10/own-resource-found" =>
+            "This act is open only to the agent that owns the resource it names. The resource exists and is not yours. "
+            + "A higher tier does not change that; there is nothing to look up.",
         "table-10/own-thread-only" =>
             "Only the agent that started the thread may do this. A higher tier does not change that.",
         "table-10/delegated-grant-required" =>
@@ -201,7 +204,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
 
     private static readonly string[] AuthorizationReasons =
     [
-        "table-10/denied", "table-10/own-resource-only", "table-10/own-thread-only",
+        "table-10/denied", "table-10/own-resource-only", "table-10/own-resource-found", "table-10/own-thread-only",
         "table-10/delegated-grant-required", "table-11/quarantined-read-only",
     ];
 

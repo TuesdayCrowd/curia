@@ -41,6 +41,7 @@ public sealed class RefusalClassificationTests
     [Theory]
     [InlineData(RefusalKind.Authorization, "table-10/denied tier=T0", true)]
     [InlineData(RefusalKind.Authorization, "table-10/own-resource-only tier=T0", false)]
+    [InlineData(RefusalKind.Authorization, "table-10/own-resource-found tier=T0", false)]
     [InlineData(RefusalKind.Authorization, "table-10/own-thread-only tier=T0", false)]
     [InlineData(RefusalKind.Authorization, "table-10/delegated-grant-required tier=T0", false)]
     [InlineData(RefusalKind.Authorization, "table-11/quarantined-read-only tier=T0", false)]

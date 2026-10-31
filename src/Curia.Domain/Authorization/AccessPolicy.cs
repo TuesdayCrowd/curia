@@ -68,8 +68,8 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
     /// </summary>
     /// <param name="satisfied">Whether the caller established what the parenthetical requires.</param>
     /// <param name="resourceKnownToExist">
-    /// Errata G50, R7.30: whether the route has established that the resource exists, so that a denial may say so. <b>Behaviour-preserving seam of PR 3's Task 0:</b>
-    /// declared and read by nothing; every denial is still <c>table-10/own-resource-only</c>.
+    /// Errata G50, R7.30: whether the route has established that the resource exists, so that a denial of <c>(own)</c> may say so
+    /// (<c>table-10/own-resource-found</c>). The default is the hedge: a route that has not looked keeps <c>table-10/own-resource-only</c>.
     /// </param>
     public AuthorizationDecision Discharge(bool satisfied, bool resourceKnownToExist = false)
     {
@@ -77,7 +77,7 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
 
         return satisfied
             ? this with { Qualifier = GrantQualifier.None }
-            : new AuthorizationDecision(DecisionEffect.Deny, ReasonFor(Qualifier), GrantQualifier.None);
+            : new AuthorizationDecision(DecisionEffect.Deny, ReasonFor(Qualifier, resourceKnownToExist), GrantQualifier.None);
     }
 
     /// <summary>
@@ -85,9 +85,9 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
     /// alone cannot tell an operator that the caller was the wrong <i>agent</i> rather than the wrong
     /// tier, and those want very different operational responses.
     /// </summary>
-    private static string ReasonFor(GrantQualifier qualifier) => qualifier switch
+    private static string ReasonFor(GrantQualifier qualifier, bool resourceKnownToExist) => qualifier switch
     {
-        GrantQualifier.OwnResourceOnly => "table-10/own-resource-only",
+        GrantQualifier.OwnResourceOnly => resourceKnownToExist ? AccessPolicy.OwnResourceFoundReason : "table-10/own-resource-only",
         GrantQualifier.OwnThreadOnly => "table-10/own-thread-only",
         GrantQualifier.Delegated => "table-10/delegated-grant-required",
         GrantQualifier.None => "table-10/permitted",
@@ -216,11 +216,15 @@ public static class AccessPolicy
     /// <summary>R7.24 (errata G24): the title of a denial whose reason names no cause this table knows. Never the tier's.</summary>
     public const string NeutralDenialTitle = "Not permitted";
 
+    /// <summary>R7.30: the reason of an <c>(own)</c> denial by a route that has established that the resource exists. Issued by a route, never by <c>Decide</c>.</summary>
+    internal const string OwnResourceFoundReason = "table-10/own-resource-found";
+
     private static readonly FrozenDictionary<string, string> DenialTitles =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["table-10/denied"] = "Not permitted at this trust tier",
             ["table-10/own-resource-only"] = "Not permitted: this is not your resource, or it does not exist",
+            [OwnResourceFoundReason] = "Not permitted: this resource exists and is not yours",
             ["table-10/own-thread-only"] = "Not permitted: only the agent that started the thread may do this",
             ["table-10/delegated-grant-required"] = "Not permitted without a delegated grant",
             ["table-11/rate-budget-exhausted"] = "Not permitted: today's posting budget is spent",
@@ -229,7 +233,7 @@ public static class AccessPolicy
             ["table-11/quarantined-read-only"] = "Not permitted: this credential is quarantined and may only read and retire its key",
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
-    /// <summary>The reasons a denial can carry, in no order: the keys of the title table, so a reason added to the PDP without a title fails its completeness fact.</summary>
+    /// <summary>The reasons a denial can carry, in no order (the PDP's eight and R7.30's): the keys of the title table, so a reason added to the PDP without a title fails its completeness fact.</summary>
     public static IReadOnlyCollection<string> DenialReasons => DenialTitles.Keys;
 
     /// <summary>R7.24: the title of a denial, chosen from its reason and from nothing else. An unknown or absent reason is neutral.</summary>

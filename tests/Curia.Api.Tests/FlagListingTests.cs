@@ -207,9 +207,10 @@ public sealed class FlagListingTests(ForumFixture forum) : IClassFixture<ForumFi
         var (status, body) = await GetAsync(client, reporter, $"/v1/posts/{postId}/flags", ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, status);
-        Assert.Contains("table-10/own-resource-only", body, StringComparison.Ordinal);
+        Assert.Contains("table-10/own-resource-found", body, StringComparison.Ordinal);
         var title = JsonDocument.Parse(body).RootElement.GetProperty("title").GetString();
-        Assert.Contains("does not exist", title, StringComparison.Ordinal);
+        Assert.Contains("exists and is not yours", title, StringComparison.Ordinal);
+        Assert.DoesNotContain("does not exist", title, StringComparison.Ordinal);
         Assert.DoesNotContain("trust tier", title, StringComparison.Ordinal);
     }
 
