@@ -180,7 +180,7 @@ public sealed class IndexWordsToolTests : IDisposable
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Curia.sln"))) dir = dir.Parent;
         var readme = File.ReadAllText(Path.Combine(dir?.FullName ?? throw new InvalidOperationException("Curia.sln not found"), "README.md"));
-        var version = PublishedReadersLastWords.G51Version();
+        var version = PublishedReadersLastWords.Version();
 
         var expected = $"the parser reads {version}; the catalogue reports {version}; the README says `curia-mcp` is {version} and `curia-mcp` {version}.";
         var actual = $"the parser reads {PublishedReadersLastWords.Version()}; the catalogue reports {ToolCatalogue.Version}; the README says "

@@ -465,6 +465,9 @@ internal sealed partial class ForumTools
 
         // R7.29, R11.65: the standing of the budget this act spent, after it, as the Forum stated it (budget NOT STATED where it sent none).
         text.Line($"{BudgetLines.ReceiptLine(receipt.Budget)}");
+
+        // R11.70: whether the post's vector is stored, in the one set of words both clients print; `pending` is a stored post and not an error.
+        text.Line($"{new OwnText(IndexWording.ReceiptLine(receipt.VectorIndex))}");
         text.Line($"author      {writer.Agent.Profile.AgentId}   (signed with kid {writer.Agent.Signer.Kid})");
 
         // D61 item 14 (R11.40, errata G33): a revision signs the members the caller gave and inherits nothing, so the

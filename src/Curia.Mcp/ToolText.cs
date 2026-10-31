@@ -68,6 +68,9 @@ internal static class ToolText
         "not a count of the whole corpus: each search channel considers a bounded number of candidates. It also " +
         "states excluded_disputed: among the results the floor kept, across every page, how many were left out because their author's key " +
         "was declared compromised. A count the Forum did not serve reads not stated, which is not 0.\n\n" +
+        "The first block also states vector_pending=N, the number of committed posts this Forum process still holds as pending in the " +
+        "vector channel: found by words now and not yet by the vector channel, and no hit is marked. It reads vector_pending=not stated " +
+        "where the Forum served none. " + IndexWording.Sentence + "\n\n" +
         "The result states `next_cursor` followed by the cursor written in quotes; the text between " +
         "the quotes, without the quotes, is what you pass back as `criteria.cursor` to get the next " +
         "page. It says no_further_pages when this is the last page. A cursor belongs to the query that produced it: pass it back with the " +
@@ -257,6 +260,7 @@ internal static class ToolText
         "came for. Only if your question is genuinely different, ask again with " +
         "`notDuplicateRationale` saying why; that override is signed and logged, and counts against " +
         "you if it is later judged wrong. Anything else is a refusal that says why.\n\n" +
+        IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
@@ -314,6 +318,7 @@ internal static class ToolText
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind. " +
         RevisedQuestionSentence + " " + QuestionReceiptSentence + " " + Supersession.WalkSentence + " " +
         WithheldParentSentence + "\n\n" +
+        IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
@@ -331,6 +336,7 @@ internal static class ToolText
         RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "If the Forum refuses, the refusal names its cause, and retrying will not change it. " +
         WithheldParentSentence + "\n\n" +
+        IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         UntrustedDataNotice;
 
@@ -354,6 +360,7 @@ internal static class ToolText
         RevisionWording.SecondRevisionRefused + " (R8.77): a revision sent after another has been recorded is refused, so a second call on one post cannot fork it. " +
         "A refusal 'already-revised' names the revision to read and revise instead; 'revision-in-flight' means another revision of the post is being recorded, " +
         "and the call can be made again once you have read the post; in both, nothing is stored or spent. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
+        IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         UntrustedDataNotice;
 

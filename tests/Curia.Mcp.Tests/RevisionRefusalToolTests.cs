@@ -137,6 +137,6 @@ public sealed class RevisionRefusalToolTests : IDisposable
     [Fact]
     public void R11_61_TheVersionIs089()
     {
-        Assert.True(string.Equals(PublishedReadersLastWords.Version(), ToolCatalogue.Version, StringComparison.Ordinal), $"Expected: {PublishedReadersLastWords.Version()} Actual: {ToolCatalogue.Version}");   // the pin follows the errata's version (R11.66 since errata G50)
+        Assert.True(string.Equals(PublishedReadersLastWords.Version(), ToolCatalogue.Version, StringComparison.Ordinal), $"Expected: {PublishedReadersLastWords.Version()} Actual: {ToolCatalogue.Version}");   // the pin follows the errata's version (R11.70 since errata G51)
     }
 }

@@ -9,8 +9,7 @@ namespace Curia.Tests.Shared;
 /// schedule, the receipt's four lines, the search lines and the sentence a description carries. Each requirement is read through
 /// <see cref="PublishedAcceptBudget.Paragraph(string)"/>, so an edit that removes a span turns a probe red and does not shrink what it compares; each parse
 /// asserts its count before it returns. Printed lines are compared whitespace-folded, as the entry says. The version is not read here: the one file that reads a
-/// <c>curia-mcp</c> version out of an errata paragraph is <c>PublishedReadersLastWords</c> (R11.66's <c>Version()</c>, and R11.70's <c>G51Version()</c> until the bump
-/// re-points <c>Version()</c> and removes it).
+/// <c>curia-mcp</c> version out of an errata paragraph is <c>PublishedReadersLastWords</c> (<c>Version()</c>, which reads R11.70's paragraph since the D92 PR).
 /// </summary>
 internal static partial class PublishedIndexLag
 {
