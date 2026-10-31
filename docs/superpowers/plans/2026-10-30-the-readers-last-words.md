@@ -401,4 +401,4 @@ Written at Task 11 from the ledger and the records of Tasks 0 to 10 (the records
 
 The PR is #136, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-10-31, on the docs commit): Release build 0 warnings; Api 1,216, Application 595, Architecture 80 (and 80 in Debug), AuthN 140, Canon.Sodium 32, Canon 329, Client 1,200, Domain.Primitives 64, Domain 878, Infrastructure 193, Mcp 736 (2 skipped), every one passed; locked restore, `cargo fmt`, clippy and `cargo test` clean; the differential comparison 0 divergence classes; spec checks clean and all four falsified.
