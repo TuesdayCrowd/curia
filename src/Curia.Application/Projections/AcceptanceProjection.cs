@@ -64,32 +64,32 @@ public static class AcceptanceProjector
     }
 
     /// <summary>
-    /// R7.26 (errata G46): how many acceptances <paramref name="agentId"/> recorded strictly after <paramref name="since"/>, counted from the
-    /// <c>answer.accepted</c> events' <c>accepted_by</c> and their <c>server_ts</c>. Pure: no clock. An event of another type, one with no string
-    /// <c>accepted_by</c> and one whose payload is not an object are counted for nobody. A replay appends no event (R8.68), so it is never counted.
+    /// R7.26 (errata G46): the stored instants of the acceptances <paramref name="agentId"/> recorded, from the <c>answer.accepted</c> events'
+    /// <c>accepted_by</c> and their <c>server_ts</c>. Pure: no clock. An event of another type, one with no string <c>accepted_by</c> and one whose payload
+    /// is not an object are counted for nobody. A replay appends no event (R8.68), so it has no instant. The count is
+    /// <see cref="Curia.Application.Budget.BudgetReadout.CountIn"/>'s, the one function that counts a budget.
     /// </summary>
-    public static int CountBy(IReadOnlyList<AppendedEvent> events, AgentId agentId, DateTimeOffset since)
+    public static IEnumerable<DateTimeOffset> InstantsBy(IReadOnlyList<AppendedEvent> events, AgentId agentId)
     {
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(agentId);
 
-        var count = 0;
+        var instants = new List<DateTimeOffset>();
 
         foreach (var appended in events)
         {
             if (appended.Event.Type.Value != AnswerAcceptedType) continue;
-            if (appended.ServerTimestamp.Value <= since) continue;
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
 
             foreach (var member in payload.Members)
                 if (member.Key == AcceptedByField && member.Value is JsonValue.String by && string.Equals(by.Value, agentId.Value, StringComparison.Ordinal))
                 {
-                    count++;
+                    instants.Add(appended.ServerTimestamp.Value);
                     break;
                 }
         }
 
-        return count;
+        return instants;
     }
 
     /// <summary>

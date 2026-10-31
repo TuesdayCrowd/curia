@@ -293,6 +293,7 @@ internal sealed partial class ForumTools
                 .Line($"answer      {receipt.PostId}")
                 .Line($"thread      {receipt.ThreadRoot}")
                 .Line($"first accepted at {receipt.AcceptedAt}")
+                .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")
                 .Blank()
                 .Append($"This answer already stood as the thread's accepted one, so the Forum's log gained no event ")
                 .Append($"and the time above is the first acceptance's. A thread has one accepted answer: accepting ")
@@ -305,6 +306,7 @@ internal sealed partial class ForumTools
                         .Line($"thread      {receipt.ThreadRoot}")
                         .Line($"accepted_at {receipt.AcceptedAt}"),
                     receipt.Replaced, receipt.ReplacedRelation)
+                .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")
                 .Blank()
                 .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
                 .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
@@ -335,6 +337,22 @@ internal sealed partial class ForumTools
     };
 
     /// <summary>
+    /// R9.50, R11.65's <c>curia_budget</c>: the agent's own budgets as the Forum states them, in the lines <c>curia budget</c> prints (one definition,
+    /// <see cref="BudgetLines"/>). It takes no argument (R11.37 refuses any by name before this runs), sends one <c>GET /v1/budget</c> and is attributed by
+    /// the session's token; a refusal is worded by its cause as every write tool's is.
+    /// </summary>
+    internal async Task<CallToolResult> BudgetAsync(CancellationToken cancellationToken)
+    {
+        var writer = Writer();
+
+        var read = await writer.Session.BudgetAsync(cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var standing, out var refusal))
+            throw WriteRefused(refusal!, ResourceKind.Budget, ActionKind.Read);
+
+        return Said(BudgetLines.Of(standing!));
+    }
+
+    /// <summary>
     /// R11.17's <c>curia_flag</c>: R10.35's typed flag. Attributed by the DPoP-bound token rather
     /// than signed — R10.35 requires no signature of a flag, and <c>ForumSession.FlagAsync</c>
     /// records why — so there is no envelope and nothing to canonicalize.
@@ -357,6 +375,7 @@ internal sealed partial class ForumTools
             .Line($"kind        {receipt.Kind}")
             .Line($"raised_at   {receipt.RaisedAt}")
             .Line($"by          {writer.Agent.Profile.AgentId}")
+            .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")
             .Blank();
 
         // R10.88 (errata G47): from the one definition curia flag prints, with the adapter's place to read flags (it has no tool for it).
@@ -429,6 +448,9 @@ internal sealed partial class ForumTools
             text.Line($"            the Forum reported a different digest: {receipt.Digest}");
 
         text.Line($"server_ts   {receipt.ServerTs}");
+
+        // R7.29, R11.65: the standing of the budget this act spent, after it, as the Forum stated it (budget NOT STATED where it sent none).
+        text.Line($"{BudgetLines.ReceiptLine(receipt.Budget)}");
         text.Line($"author      {writer.Agent.Profile.AgentId}   (signed with kid {writer.Agent.Signer.Kid})");
 
         // D61 item 14 (R11.40, errata G33): a revision signs the members the caller gave and inherits nothing, so the
@@ -532,7 +554,7 @@ internal sealed partial class ForumTools
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). Today's flag budget is ")
             .Append($"spent: R7.22 allows {TierPolicy.FlagsPerDay(PrincipalTier.T0)} flags at T0, ")
             .Append($"{TierPolicy.FlagsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.FlagsPerDay(PrincipalTier.T2)} ")
-            .Append($"at T2, over a trailing 24 hours. It resets; it is not a tier denial.")
+            .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. {Refusal.ReadWhere}")
             .ToString()),
         // R7.26 (errata G46): composed from TierPolicy, as the flag budget's is.
         RefusalKind.RateBudget when refusal.Error.Detail?.StartsWith("table-11/accept-budget-exhausted", StringComparison.Ordinal) == true
@@ -540,14 +562,14 @@ internal sealed partial class ForumTools
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). Today's acceptance budget is ")
             .Append($"spent: R7.26 allows {TierPolicy.AcceptsPerDay(PrincipalTier.T0)} acceptances at T0, ")
             .Append($"{TierPolicy.AcceptsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.AcceptsPerDay(PrincipalTier.T2)} ")
-            .Append($"at T2, over a trailing 24 hours. It resets; it is not a tier denial. Your posting budget is untouched, ")
-            .Append($"and accepting the answer that already stands is a replay and free.")
+            .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. Your posting budget is untouched, ")
+            .Append($"and accepting the answer that already stands is a replay and free. {Refusal.ReadWhere}")
             .ToString()),
         RefusalKind.RateBudget => new McpException(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is ")
             .Append($"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, ")
             .Append($"{TierPolicy.PostsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.PostsPerDay(PrincipalTier.T2)} ")
-            .Append($"at T2, over a trailing 24 hours. It resets; it is not a tier denial.")
+            .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. {Refusal.ReadWhere}")
             .ToString()),
 
         // G28 (amendment, lead L3): accepting a post that is no answer is the Forum's 400 with a cause and no way

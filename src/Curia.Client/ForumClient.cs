@@ -424,8 +424,13 @@ public sealed class ForumClient
         }
     }
 
+    internal Task<ForumResult<T>> SendAsync<T>(
+        HttpRequestMessage request, Func<JsonValue, Result<T>> read, CancellationToken ct) =>
+        SendAsync(request, (_, value) => read(value), ct);
+
+    /// <summary>As above, for a reader that must also see the bytes the document was parsed from (R9.50: a number written as <c>2.0</c> parses to 2 and is not an integer on the wire).</summary>
     internal async Task<ForumResult<T>> SendAsync<T>(
-        HttpRequestMessage request, Func<JsonValue, Result<T>> read, CancellationToken ct)
+        HttpRequestMessage request, Func<byte[], JsonValue, Result<T>> read, CancellationToken ct)
     {
         HttpResponseMessage response;
         try
@@ -451,7 +456,11 @@ public sealed class ForumClient
     }
 
     internal static ForumResult<T> Interpret<T>(
-        HttpStatusCode status, byte[] bytes, Func<JsonValue, Result<T>> read)
+        HttpStatusCode status, byte[] bytes, Func<JsonValue, Result<T>> read) =>
+        Interpret(status, bytes, (_, value) => read(value));
+
+    internal static ForumResult<T> Interpret<T>(
+        HttpStatusCode status, byte[] bytes, Func<byte[], JsonValue, Result<T>> read)
     {
         var parsed = JsonReader.Parse(bytes, ClientJson.Limits);
 
@@ -461,7 +470,7 @@ public sealed class ForumClient
                 return ForumResult<T>.Refused(new Refusal(
                     RefusalKind.Malformed, (int)status, ClientErrors.ResponseMalformed(parseError!.Type)));
 
-            return read(value!).TryGetValue(out var document, out var readError)
+            return read(bytes, value!).TryGetValue(out var document, out var readError)
                 ? ForumResult<T>.Ok(document!)
                 : ForumResult<T>.Refused(new Refusal(RefusalKind.Malformed, (int)status, readError!));
         }
@@ -507,7 +516,7 @@ public sealed class ForumClient
             403 when error.Detail?.StartsWith("table-11/rate-budget-exhausted", StringComparison.Ordinal) == true
                 => RefusalKind.RateBudget,
 
-            // R7.22 (errata G18): the flag budget is a budget too -- it resets, and is not a tier denial.
+            // R7.22 (errata G18): the flag budget is a budget too -- a trailing window that frees a slot, and not a tier denial.
             403 when error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true
                 => RefusalKind.RateBudget,
 

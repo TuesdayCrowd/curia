@@ -38,6 +38,7 @@
     <Compile Include="../Shared/PublishedCliRules.cs" Link="Shared/PublishedCliRules.cs" />
     <Compile Include="../Shared/PublishedWithheldWords.cs" Link="Shared/PublishedWithheldWords.cs" />
     <Compile Include="../Shared/PublishedForkWords.cs" Link="Shared/PublishedForkWords.cs" />
+    <Compile Include="../Shared/PublishedBudgetReadout.cs" Link="Shared/PublishedBudgetReadout.cs" />
     <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
     <!-- Errata G48 (R7.27, R11.64): the gate's numbers, types and words, read from the errata. -->
     <Compile Include="../Shared/PublishedBudgetGate.cs" Link="Shared/PublishedBudgetGate.cs" />
@@ -51,6 +52,7 @@
       D37: the tier reminder is checked against Table 10 as the white paper publishes it, parsed by the
       same reader R7.12's denial facts use, so the help and the code are each held to the table.
     -->
+    <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable11.cs" Link="Shared/PublishedTable11.cs" />
     <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable10.cs" Link="Shared/PublishedTable10.cs" />
   </ItemGroup>
 

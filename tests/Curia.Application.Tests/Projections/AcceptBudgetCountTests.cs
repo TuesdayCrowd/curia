@@ -11,8 +11,8 @@ using Xunit;
 namespace Curia.Application.Tests.Projections;
 
 /// <summary>
-/// R7.26 (errata G46), TRW10: the acceptance budget's count, <see cref="AcceptanceProjector.CountBy"/>, is a pure function of the events: the
-/// <c>answer.accepted</c> events whose <c>accepted_by</c> is the agent and whose <c>server_ts</c> is strictly after the instant given. Every event here is
+/// R7.26 (errata G46), TRW10: the acceptance budget's count, <see cref="Curia.Application.Budget.BudgetReadout.AcceptsUsed"/>, is a pure function of the events: the
+/// <c>answer.accepted</c> events whose <c>accepted_by</c> is the agent and whose <c>server_ts</c> is strictly after the instant the window starts at (the seam moved the count into the one function that counts a budget; the cases are unchanged). Every event here is
 /// appended through the in-memory store at an instant the test sets, so <c>server_ts</c> is the store's and not the test's claim about it.
 /// </summary>
 [SuppressMessage(
@@ -29,6 +29,9 @@ public sealed class AcceptBudgetCountTests
 
     private static T Require<T>(Result<T> result) =>
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+
+    private static int Used(IReadOnlyList<AppendedEvent> log, string agent) =>
+        Curia.Application.Budget.BudgetReadout.AcceptsUsed(log, Id(agent), Since + Curia.Application.Budget.BudgetReadout.Window);
 
     private static AgentId Id(string value) => Require(AgentId.Parse(value));
 
@@ -81,6 +84,6 @@ public sealed class AcceptBudgetCountTests
 
         Assert.Equal(
             (2, 1, 0),
-            (AcceptanceProjector.CountBy(log, Id(AgentA), Since), AcceptanceProjector.CountBy(log, Id(AgentB), Since), AcceptanceProjector.CountBy(log, Id(AgentC), Since)));
+            (Used(log, AgentA), Used(log, AgentB), Used(log, AgentC)));
     }
 }

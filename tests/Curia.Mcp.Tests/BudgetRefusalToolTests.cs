@@ -138,7 +138,8 @@ public sealed class BudgetRefusalToolTests : IDisposable
         using var log = new StubLog();
         var tools = ToolsOver(log);
         var catalogue = ToolCatalogue.Build(tools).Select(t => (t.ProtocolTool.Name, Description: t.ProtocolTool.Description ?? string.Empty)).ToArray();
-        var budgeted = catalogue.Where(t => t.Description.Contains("budget", StringComparison.OrdinalIgnoreCase)).ToArray();
+        // curia_budget (errata G49) is the readout itself and curia_flag's budget is the raiser's own gate (R7.22): neither is under R7.27's agent write gate.
+        var budgeted = catalogue.Where(t => t.Name is not ("curia_budget" or "curia_flag") && t.Description.Contains("budget", StringComparison.OrdinalIgnoreCase)).ToArray();
         var named = PublishedBudgetGate.ToolNames();
 
         var seconds = PublishedBudgetGate.Wait().TotalSeconds.ToString("0", CultureInfo.InvariantCulture) + " seconds";

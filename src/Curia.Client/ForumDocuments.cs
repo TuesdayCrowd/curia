@@ -21,7 +21,13 @@ public sealed record EnrollmentReceipt(string AgentId, string Kid, string Enroll
 /// <see cref="RiskFlags"/> as a failure would be wrong about what the Forum said.
 /// </summary>
 public sealed record PostReceipt(
-    string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags);
+    string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags, BudgetReceipt? Budget = null);
+
+/// <summary>
+/// R7.29, R9.50: the standing of the budget an act spent, after the act, as the receipt states it. <see langword="null"/> on a receipt record means the Forum
+/// sent none (an older Forum), which is <c>NOT STATED</c> and never a zero. It carries no instant: a receipt states none (R7.29), and a client computes none.
+/// </summary>
+public sealed record BudgetReceipt(string Name, int? Limit, int Used, int? Remaining);
 
 /// <summary>
 /// An agent's inbox: open questions it could usefully answer, plus the account of what was removed
@@ -46,7 +52,8 @@ public sealed record AcceptanceReceipt(
     string AcceptedAt,
     bool AlreadyAccepted = false,
     AcceptanceReplaced Replaced = default,
-    AcceptanceRelation ReplacedRelation = default);
+    AcceptanceRelation ReplacedRelation = default,
+    BudgetReceipt? Budget = null);
 
 /// <summary>
 /// What <c>replaced_relation</c> told a reader (R8.76, errata G44).
@@ -190,7 +197,7 @@ public sealed record DuplicateRefusalDocument(
 /// <para>No rationale comes back, and none is expected: the Forum's projection deliberately does
 /// not carry one, so that nothing which serves can echo attacker-supplied text.</para>
 /// </summary>
-public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt, PostServed Served = PostServed.NotStated);
+public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt, PostServed Served = PostServed.NotStated, BudgetReceipt? Budget = null);
 
 /// <summary>
 /// Errata G47 (R9.49, R10.88): the Forum's word, in a flag's receipt, on whether the flagged post is served. Three states,
@@ -388,7 +395,7 @@ internal static class ForumDocuments
         ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "digest") is { } digest
         && ClientJson.String(o, "server_ts") is { } ts
-            ? Result<PostReceipt>.Ok(new PostReceipt(id, digest, ts, Strings(o, "risk_flags")))
+            ? ReadReceiptBudget(o).Map(budget => new PostReceipt(id, digest, ts, Strings(o, "risk_flags"), budget))
             : Result<PostReceipt>.Fail(ClientErrors.ResponseMalformed("post receipt"));
 
     internal static Result<InboxPage> ReadInbox(JsonValue value)
@@ -420,7 +427,7 @@ internal static class ForumDocuments
         ClientJson.String(o, "thread_root") is { } root
         && ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "accepted_at") is { } at
-            ? ReadAlreadyAccepted(o).Bind(replay => ReadReplaced(o).Bind(replaced => ReadRelation(o).Map(relation => new AcceptanceReceipt(root, id, at, replay, replaced, relation))))
+            ? ReadAlreadyAccepted(o).Bind(replay => ReadReplaced(o).Bind(replaced => ReadRelation(o).Bind(relation => ReadReceiptBudget(o).Map(budget => new AcceptanceReceipt(root, id, at, replay, replaced, relation, budget)))))
             : Result<AcceptanceReceipt>.Fail(ClientErrors.ResponseMalformed("acceptance receipt"));
 
     /// <summary>
@@ -689,9 +696,119 @@ internal static class ForumDocuments
             && ClientJson.String(o, "kind") is { } kind
             && ClientJson.String(o, "raised_at") is { } at
             && served is { } state
-                ? Result<FlagReceipt>.Ok(new FlagReceipt(id, kind, at, state))
+                ? ReadReceiptBudget(o).Map(budget => new FlagReceipt(id, kind, at, state, budget))
                 : Result<FlagReceipt>.Fail(ClientErrors.ResponseMalformed("flag receipt"));
     }
+
+    /// <summary>
+    /// R9.50's receipt <c>budget</c> member: absent is an older Forum (null: <c>NOT STATED</c>), and a present member must be an object whose
+    /// <c>name</c> is a string and whose numbers are non-negative whole numbers that agree (<c>remaining</c> the larger of 0 and <c>limit</c> less
+    /// <c>used</c>; a null <c>limit</c> with a null <c>remaining</c>). Anything else is a malformed receipt: a client that coerced a number it could not
+    /// read would tell its agent where it stands by guessing (R11.65). A member this reader does not know is tolerated.
+    /// </summary>
+    private static Result<BudgetReceipt?> ReadReceiptBudget(JsonValue.Object o)
+    {
+        if (ClientJson.Member(o, "budget") is not { } member) return Result<BudgetReceipt?>.Ok(null);
+
+        return member is JsonValue.Object budget
+            && ReadBudgetNumbers(budget) is { } numbers
+            && ClientJson.String(budget, "name") is { Length: > 0 } name
+                ? Result<BudgetReceipt?>.Ok(new BudgetReceipt(name, numbers.Limit, numbers.Used, numbers.Remaining))
+                : Result<BudgetReceipt?>.Fail(ClientErrors.ResponseMalformed("receipt: budget is not a budget (R9.50)"));
+    }
+
+    /// <summary>
+    /// The three numbers of a budget (R9.50), or null where any is not what the Forum publishes: <c>used</c> a non-negative whole number, <c>limit</c> and
+    /// <c>remaining</c> each a non-negative whole number or JSON null together, and <c>remaining</c> the larger of 0 and <c>limit</c> less <c>used</c>.
+    /// </summary>
+    private static (int? Limit, int Used, int? Remaining)? ReadBudgetNumbers(JsonValue.Object budget)
+    {
+        if (CountOf(budget, "used") is not { } used) return null;
+
+        var limit = ClientJson.Member(budget, "limit");
+        var remaining = ClientJson.Member(budget, "remaining");
+        if (limit is JsonValue.Null && remaining is JsonValue.Null) return (null, used, null);
+
+        if (CountOf(budget, "limit") is not { } l || CountOf(budget, "remaining") is not { } r) return null;
+
+        return r == Math.Max(0, l - used) ? (l, used, r) : null;
+    }
+
+    /// <summary>A member that is a non-negative whole number that fits an int, or null.</summary>
+    private static int? CountOf(JsonValue.Object parent, string name) =>
+        ClientJson.Member(parent, name) is JsonValue.Number && ClientJson.WholeNumber(parent, name) is { } n && n >= 0 && n <= int.MaxValue ? (int)n : null;
+
+    /// <summary>
+    /// R9.50's readout: <c>tier</c> and <c>credential</c> strings, <c>as_of</c> an instant, <c>window_seconds</c> a positive whole number and
+    /// <c>budgets</c> a list of entries, each with a known name used once (a duplicate or an unknown name is malformed) and numbers as
+    /// <see cref="ReadBudgetNumbers"/> reads them. A budget the response lacks is not a malformation and is not a zero: the lines say <c>NOT STATED</c>.
+    /// <c>next_slot_at</c> is an instant, JSON null, or absent (not stated); an unknown member is tolerated.
+    /// </summary>
+    internal static Result<BudgetStanding> ReadBudget(byte[] bytes, JsonValue value) =>
+        HasOnlyIntegerNumbers(bytes)
+            ? ReadBudgetValue(value)
+            : Result<BudgetStanding>.Fail(ClientErrors.ResponseMalformed("budget readout: a number is written with a fraction or an exponent, and R9.50's are integers"));
+
+    /// <summary>Whether every number token of the document is written as an integer (digits and a sign): a double that happens to be whole parses to the same value and is not one.</summary>
+    private static bool HasOnlyIntegerNumbers(byte[] bytes)
+    {
+        var reader = new System.Text.Json.Utf8JsonReader(bytes);
+        while (reader.Read())
+            if (reader.TokenType == System.Text.Json.JsonTokenType.Number && reader.ValueSpan.IndexOfAny((byte)'.', (byte)'e', (byte)'E') >= 0)
+                return false;
+
+        return true;
+    }
+
+    private static Result<BudgetStanding> ReadBudgetValue(JsonValue value)
+    {
+        const string What = "budget readout";
+        if (value is not JsonValue.Object o) return Result<BudgetStanding>.Fail(ClientErrors.ResponseMalformed($"{What} is not an object"));
+
+        var window = CountOf(o, "window_seconds");
+        if (ClientJson.String(o, "tier") is not { Length: > 0 } tier
+            || ClientJson.String(o, "credential") is not { Length: > 0 } credential
+            || ClientJson.String(o, "as_of") is not { } asOf || !IsInstant(asOf)
+            || window is not > 0
+            || ClientJson.Member(o, "budgets") is not JsonValue.Array list)
+            return Result<BudgetStanding>.Fail(ClientErrors.ResponseMalformed($"{What}: tier, credential, as_of, window_seconds or budgets is missing or not what R9.50 publishes"));
+
+        var entries = ImmutableArray.CreateBuilder<BudgetEntryStanding>(list.Items.Length);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in list.Items)
+        {
+            if (item is not JsonValue.Object entry
+                || ClientJson.String(entry, "name") is not { Length: > 0 } name
+                || ReadBudgetNumbers(entry) is not { } numbers
+                || ReadNextSlot(entry) is not { } next)
+                return Result<BudgetStanding>.Fail(ClientErrors.ResponseMalformed($"{What}: a budget entry is not what R9.50 publishes"));
+
+            if (!BudgetNames.Contains(name))
+                return Result<BudgetStanding>.Fail(ClientErrors.ResponseMalformed($"{What}: a budget named outside R9.50's three"));
+
+            if (!seen.Add(name))
+                return Result<BudgetStanding>.Fail(ClientErrors.ResponseMalformed($"{What}: a budget named twice"));
+
+            entries.Add(new BudgetEntryStanding(name, numbers.Limit, numbers.Used, numbers.Remaining, next));
+        }
+
+        return Result<BudgetStanding>.Ok(new BudgetStanding(tier, credential, asOf, window!.Value, entries.ToImmutable()));
+    }
+
+    /// <summary>The three names R9.50 publishes, in its order.</summary>
+    internal static readonly string[] BudgetNames = ["posting", "acceptance", "flag"];
+
+    private static NextSlot? ReadNextSlot(JsonValue.Object entry) =>
+        ClientJson.Member(entry, "next_slot_at") switch
+        {
+            null => new NextSlot(NextSlotKind.NotStated, null),
+            JsonValue.Null => new NextSlot(NextSlotKind.None, null),
+            JsonValue.String { Value: var at } when IsInstant(at) => new NextSlot(NextSlotKind.Instant, at),
+            _ => null,
+        };
+
+    private static bool IsInstant(string text) =>
+        DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out _);
 
     /// <summary>
     /// R10.44's listing. A served flag carries a post, a kind and an instant and nothing else, so

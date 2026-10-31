@@ -695,6 +695,27 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal string? AcceptanceReplacedRelationJson { get; set; }
 
+    /// <summary>
+    /// Errata G49 (R9.50): the raw JSON of the <c>budget</c> member the stub adds to the body of a <c>200</c> or <c>201</c> write receipt (a post, an acceptance, a
+    /// flag). Null adds none, as an older Forum.
+    /// </summary>
+    internal string? ReceiptBudgetJson { get; set; }
+
+    /// <summary>Errata G49 (R9.50): the body <c>GET /v1/budget</c> answers; null answers <see cref="ValidBudgetJson"/>.</summary>
+    internal string? BudgetBody { get; set; }
+
+    /// <summary>Errata G49 (R9.50): the status <c>GET /v1/budget</c> answers with (<c>200</c> by default).</summary>
+    internal HttpStatusCode BudgetStatus { get; set; } = HttpStatusCode.OK;
+
+    /// <summary>Errata G49: refuse every flag as the Forum refuses a spent flag budget (<c>403</c>, <c>curia/authz/denied</c>, the reason then <c>tier=T0</c>). Null by default.</summary>
+    internal string? RefusesFlagsAs { get; set; }
+
+    /// <summary>Errata G49 (R7.29): text appended to the detail of every budget or tier denial the stub serves (for example <c> next_slot_at=...</c>). Null appends none.</summary>
+    internal string? DenialDetailSuffix { get; set; }
+
+    /// <summary>A readout as R9.50 publishes it: three budgets in order, an active credential, the instants in the Forum's form.</summary>
+    internal const string ValidBudgetJson = """{"tier":"T0","credential":"active","as_of":"2026-10-30T12:00:00.0000000+00:00","window_seconds":86400,"budgets":[{"name":"posting","limit":3,"used":2,"remaining":1,"next_slot_at":"2026-10-31T10:00:00.0000000+00:00"},{"name":"acceptance","limit":10,"used":0,"remaining":10,"next_slot_at":null},{"name":"flag","limit":10,"used":10,"remaining":0,"next_slot_at":"2026-10-31T11:00:00.0000000+00:00"}]}""";
+
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
 
@@ -729,15 +750,22 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal static string ReceiptJson(string digest) => $$"""
     {"post_id":"{{SubmittedPostId}}","digest":"{{digest}}",
-    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[]}
+    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"budget":{{DefaultBudget("posting")}}}
     """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>
+    /// Errata G49 (R9.50): the <c>budget</c> member the Forum's receipts carry, as the static receipt documents hold it so that <c>StubFidelityTests</c> compares the
+    /// Forum's member set with the stub's whole. The stub's <em>served</em> receipt drops it unless <see cref="ReceiptBudgetJson"/> is set (the default is an older
+    /// Forum, which sent none), so a fact that does not set it keeps the receipt it always had.
+    /// </summary>
+    internal static string DefaultBudget(string name) => $$"""{"name":"{{name}}","limit":3,"used":1,"remaining":2}""";
 
     /// <summary>
     /// A flag's receipt as the stub serves it. <paramref name="servedJson"/> is the raw JSON value of the <c>post_served</c> member R9.49 gives it
     /// (<c>true</c>, <c>false</c>, <c>"yes"</c>, <c>null</c> ...); <see langword="null"/> serves the receipt without the member, as an older Forum does.
     /// </summary>
     internal static string FlagReceiptJson(string? servedJson = null) => $$"""
-    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"{{(servedJson is null ? string.Empty : ",\"post_served\":" + servedJson)}}}
+    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"{{(servedJson is null ? string.Empty : ",\"post_served\":" + servedJson)}},"budget":{{DefaultBudget("flag")}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -751,7 +779,7 @@ internal sealed class StubLog : IDisposable
 
     internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
-    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}{{(replacedRelationJson is null ? string.Empty : ",\"replaced_relation\":" + replacedRelationJson)}}}
+    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}{{(replacedRelationJson is null ? string.Empty : ",\"replaced_relation\":" + replacedRelationJson)}},"budget":{{DefaultBudget("acceptance")}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -1544,6 +1572,14 @@ internal sealed class StubLog : IDisposable
                     ? Written(log, path, request)
                     : Answered(Answer(log, path, query));
 
+            if (method == HttpMethod.Post && path != "/oauth/token" && path != "/v1/posts/batch" && (status is HttpStatusCode.OK or HttpStatusCode.Created) && body.EndsWith('}'))
+            {
+                // The static receipts hold the default budget member (for the fidelity fact); the served receipt has the fact's own or none.
+                body = System.Text.RegularExpressions.Regex.Replace(body, ",\"budget\":\\{\"name\":\"[a-z]+\",\"limit\":3,\"used\":1,\"remaining\":2\\}", string.Empty, System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+                if (log.ReceiptBudgetJson is { } receiptBudget)
+                    body = body[..^1] + ",\"budget\":" + receiptBudget + "}";
+            }
+
             if (path != "/oauth/token")
             {
                 if (log.HostileSuffix is { } suffix && log.RefusesEverythingWith is { } refused)
@@ -1747,7 +1783,7 @@ internal sealed class StubLog : IDisposable
                 if (log.DeniesSubmissionsForReason is { } reason)
                 {
                     return (HttpStatusCode.Forbidden, $$"""
-                        {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(reason)}}","detail":"{{reason}}"}
+                        {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(reason)}}","detail":"{{reason}}{{log.DenialDetailSuffix}}"}
                         """, null);
                 }
 
@@ -1826,7 +1862,7 @@ internal sealed class StubLog : IDisposable
             if (path.EndsWith("/accept", StringComparison.Ordinal) && log.RefusesAcceptancesAs is { } budgetReason)
             {
                 return (HttpStatusCode.Forbidden, $$"""
-                    {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(budgetReason)}}","detail":"{{budgetReason}} tier=T0"}
+                    {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(budgetReason)}}","detail":"{{budgetReason}} tier=T0{{log.DenialDetailSuffix}}"}
                     """, null);
             }
 
@@ -1836,6 +1872,13 @@ internal sealed class StubLog : IDisposable
             {
                 return (HttpStatusCode.Forbidden, $$"""
                     {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(acceptReason)}}","detail":"{{acceptReason}}"}
+                    """, null);
+            }
+
+            if (path.EndsWith("/flags", StringComparison.Ordinal) && log.RefusesFlagsAs is { } flagReason)
+            {
+                return (HttpStatusCode.Forbidden, $$"""
+                    {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(flagReason)}}","detail":"{{flagReason}} tier=T0{{log.DenialDetailSuffix}}"}
                     """, null);
             }
 
@@ -1923,6 +1966,8 @@ internal sealed class StubLog : IDisposable
 
         private static (HttpStatusCode Status, string Body) Answer(StubLog log, string path, string query)
         {
+            if (path == "/v1/budget") return (log.BudgetStatus, log.BudgetBody ?? ValidBudgetJson);
+
             if (path.StartsWith("/v1/jwks", StringComparison.Ordinal))
                 return (HttpStatusCode.OK, log.JwksJson());
 

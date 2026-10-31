@@ -78,6 +78,17 @@ public sealed class AcceptBudgetEndpointTests(ForumFixture forum) : IClassFixtur
     private static int Budget(int tier) => PublishedAcceptBudget.Numbers()[tier];
 
     /// <summary>Reads the refusal's type, title and the reason the detail begins with.</summary>
+    /// <summary>
+    /// The detail an acceptance refusal at T0 carries (errata G49, R7.29): the published reason, the tier and ` next_slot_at=` the oldest acceptance still
+    /// counted plus the window, the instant read from the events table (never from a response). The three whole-detail pins here asserted `reason tier=T0`
+    /// alone; each now asserts the three parts, the instant by SQL.
+    /// </summary>
+    private async Task<string> RefusedDetailAsync(string agentId)
+    {
+        var oldest = (await BudgetReadouts.InstantsAsync(forum, "acceptance", agentId)).Where(i => i > forum.Now - BudgetReadouts.Window).Order().First();
+        return $"{PublishedAcceptBudget.Reason()} tier=T0 {PublishedBudgetReadout.RefusalToken()}{BudgetReadouts.Form(oldest + BudgetReadouts.Window)}";
+    }
+
     private static (string Type, string Title, string Detail) Refusal(Reply reply) =>
         reply.Body.ValueKind is JsonValueKind.Object && reply.Body.TryGetProperty("type", out var type)
             ? (type.GetString()!, reply.Body.GetProperty("title").GetString()!, reply.Body.TryGetProperty("detail", out var d) ? d.GetString()! : string.Empty)
@@ -127,7 +138,7 @@ public sealed class AcceptBudgetEndpointTests(ForumFixture forum) : IClassFixtur
             $"Expected: Forbidden ({PublishedAcceptBudget.Reason()}) at the eleventh. Actual: {(int)eleventh.Status} {eleventh.Status}; {events.Length} answer.accepted events");
         var (type, title, detail) = Refusal(eleventh);
         Assert.Equal(
-            ("curia/authz/denied", $"{PublishedAcceptBudget.Reason()} tier=T0", Budget(0), scene.Answer2.PostId),
+            ("curia/authz/denied", await RefusedDetailAsync(scene.Asker.Agent.AgentId), Budget(0), scene.Answer2.PostId),
             (type, detail, events.Length, events[^1]));
         Assert.Contains("acceptance budget", title, StringComparison.Ordinal);
         Assert.Equal(scene.Answer2.PostId, tenth.Body.GetProperty("post_id").GetString());
@@ -172,7 +183,7 @@ public sealed class AcceptBudgetEndpointTests(ForumFixture forum) : IClassFixtur
             (earlier.Status, never.Status) == (HttpStatusCode.Forbidden, HttpStatusCode.Forbidden),
             $"Expected: Forbidden for a switch to an earlier answer and to a third. Actual: {(int)earlier.Status} and {(int)never.Status}");
         Assert.Equal(
-            (PublishedAcceptBudget.Reason() + " tier=T0", PublishedAcceptBudget.Reason() + " tier=T0", Budget(0)),
+            (await RefusedDetailAsync(scene.Asker.Agent.AgentId), await RefusedDetailAsync(scene.Asker.Agent.AgentId), Budget(0)),
             (Refusal(earlier).Detail, Refusal(never).Detail, (await AcceptedByAsync(scene.Asker.Agent.AgentId)).Length));
     }
 
@@ -207,6 +218,7 @@ public sealed class AcceptBudgetEndpointTests(ForumFixture forum) : IClassFixtur
         await SpendAsync(inside, Budget(0) - half, start: half);
 
         var refused = await AcceptRawAsync(inside.Asker, inside.Answer1.PostId);
+        var refusedDetail = await RefusedDetailAsync(inside.Asker.Agent.AgentId);   // read at the instant of the refusal, before the clock moves for the contrast
 
         var outside = await Scene.BuildAsync(forum, Ct);
         await SpendAsync(outside, Budget(0));
@@ -216,7 +228,7 @@ public sealed class AcceptBudgetEndpointTests(ForumFixture forum) : IClassFixtur
         Assert.True(
             (refused.Status, allowed.Status) == (HttpStatusCode.Forbidden, HttpStatusCode.Created),
             $"Expected: 403 for ten acceptances 13 and 0 hours old, 201 for ten 25 hours old. Actual: {(int)refused.Status} and {(int)allowed.Status}; {refused.Raw}");
-        Assert.Equal(PublishedAcceptBudget.Reason() + " tier=T0", Refusal(refused).Detail);
+        Assert.Equal(refusedDetail, Refusal(refused).Detail);
     }
 
     /// <summary>

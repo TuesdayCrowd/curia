@@ -38,7 +38,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.8.11";
+    internal const string Version = "0.9.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
@@ -50,6 +50,10 @@ internal static class ToolCatalogue
         if (!tools.CanWrite) yield break;
 
         foreach (var tool in WriteTools(tools)) yield return tool;
+
+        // R11.65: curia_budget is a read that needs the session's token, so it is registered with the write tools, in this one identity-gated group, and
+        // not because it writes: it is not among WriteToolNames, which the server instructions say "write in that agent's name".
+        foreach (var tool in IdentityReadTools(tools)) yield return tool;
     }
 
     /// <summary>
@@ -120,6 +124,23 @@ internal static class ToolCatalogue
                 OpenWorld = true,
             });
 
+    }
+
+    private static IEnumerable<McpServerTool> IdentityReadTools(ForumTools tools)
+    {
+        // R11.30 (rev.): `budget`/`read` (own), its own Table 10 row. Read-only and idempotent (a snapshot read twice is two snapshots), no argument.
+        yield return McpServerTool.Create(
+            tools.BudgetAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_budget",
+                Description = ToolText.Compose(
+                    ToolText.BudgetTemplate,
+                    TierSpan.For(ResourceKind.Budget, ActionKind.Read)),
+                ReadOnly = true,
+                Idempotent = true,
+                OpenWorld = true,
+            });
     }
 
     private static IEnumerable<McpServerTool> WriteTools(ForumTools tools)

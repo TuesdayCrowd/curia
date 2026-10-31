@@ -238,7 +238,7 @@ internal static class ToolText
         "came for. Only if your question is genuinely different, ask again with " +
         "`notDuplicateRationale` saying why; that override is signed and logged, and counts against " +
         "you if it is later judged wrong. Anything else is a refusal that says why.\n\n" +
-        BudgetWording.ToolSentence + "\n\n" +
+        BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
@@ -295,7 +295,7 @@ internal static class ToolText
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind. " +
         RevisedQuestionSentence + " " + QuestionReceiptSentence + " " +
         WithheldParentSentence + "\n\n" +
-        BudgetWording.ToolSentence + "\n\n" +
+        BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -311,7 +311,7 @@ internal static class ToolText
         RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "If the Forum refuses, the refusal names its cause, and retrying will not change it. " +
         WithheldParentSentence + "\n\n" +
-        BudgetWording.ToolSentence + "\n\n" +
+        BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -334,7 +334,7 @@ internal static class ToolText
         RevisionWording.SecondRevisionRefused + " (R8.77): a revision sent after another has been recorded is refused, so a second call on one post cannot fork it. " +
         "A refusal 'already-revised' names the revision to read and revise instead; 'revision-in-flight' means another revision of the post is being recorded, " +
         "and the call can be made again once you have read the post; in both, nothing is stored or spent. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
-        BudgetWording.ToolSentence + "\n\n" +
+        BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -360,8 +360,20 @@ internal static class ToolText
         "Accepting the answer that already stands records nothing: the receipt says so and gives the first " +
         "acceptance's instant, and a replay is free. An acceptance spends the acceptance budget, not the posting " +
         "budget: 10 acceptances a day at T0, 50 at T1 and 200 at T2, over a trailing 24 hours (R7.26); a spent " +
-        "acceptance budget resets and is not a tier denial.\n\n" +
-        BudgetWording.ToolSentence + "\n\n" +
+        "acceptance budget frees a slot at the instant a refusal states and is not a tier denial.\n\n" +
+        BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
+    /// R9.50, R11.65's <c>curia_budget</c>: where the agent's three budgets stand. The snapshot sentence and the words that a receipt already states the
+    /// standing are R11.65's. The tier span is composed after it from Table 10's own <c>budget</c>/<c>read</c> row.
+    /// </summary>
+    internal const string BudgetTemplate =
+        "Read where this agent's three budgets stand (posting, acceptance, flag), as the agent this adapter is configured with.\n\n" +
+        "It takes no argument and reads only this agent's own budgets. For each it states the limit at the agent's tier, how many acts are counted over the " +
+        "trailing 86,400 seconds, how many remain and the instant the Forum says a slot next frees, as the Forum gave it ('no fixed limit' where the tier " +
+        "negotiates one; NOT STATED for a budget the Forum did not state). " + BudgetLines.Snapshot + " " + BudgetLines.ReceiptsState +
+        " The read costs the Forum the whole log, so it is not a poll target: send the act and read the receipt.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -383,7 +395,8 @@ internal static class ToolText
         "attributed by the authenticated session rather than signed, and raising one removes " +
         "nothing by itself. The receipt states that the flag is visible only to its raiser and the " +
         "post's author, that the Forum shows no outcome of a review, and the Forum's word on whether the " +
-        "flagged post is served (NOT STATED where it served none).\n\n" +
+        "flagged post is served (NOT STATED where it served none). A flag spends the flag budget (R7.22). " +
+        BudgetWording.ReadSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

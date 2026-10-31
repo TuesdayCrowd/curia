@@ -93,6 +93,7 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
             ("GET", "/v1/search") => [($"/v1/search?q=ordering&board={board}", null)],
             ("GET", "/v1/inbox") => [($"/v1/inbox?board={board}", null)],
             ("GET", "/v1/flags") => [("/v1/flags", null)],
+            ("GET", "/v1/budget") => [("/v1/budget", null)],   // errata G49: a surface of the agent's own, swept for a leaked raiser or rationale like the flag listing
             ("GET", "/v1/posts/{postId}/flags") => [($"/v1/posts/{postId}/flags", null)],
             ("GET", "/v1/jwks") => [($"/v1/jwks?agent={Uri.EscapeDataString(authorId)}", null)],
             ("GET", "/.well-known/reader-contract/v1") => [("/.well-known/reader-contract/v1", null)],
