@@ -777,9 +777,19 @@ internal sealed class StubLog : IDisposable
     /// <summary>The flag receipt as this stub serves it, with <see cref="FlagReceiptServedJson"/> where set.</summary>
     internal string FlagReceiptBody() => FlagReceiptJson(FlagReceiptServedJson);
 
-    internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null) => $$"""
+    /// <summary>
+    /// PR 3 (errata G50, R8.80): the raw JSON values of the receipt's <c>post_kind</c> and <c>text_of</c> as the accept route serves them: null omits the member (an
+    /// older Forum), otherwise the raw JSON value (<c>"answer"</c>, <c>"revision"</c>, or one a fact serves to be refused). Both null by default, so a fact that
+    /// does not set them keeps the receipt it always had.
+    /// </summary>
+    internal string? AcceptancePostKindJson { get; set; }
+
+    /// <summary>PR 3 (errata G50, R8.80): see <see cref="AcceptancePostKindJson"/>.</summary>
+    internal string? AcceptanceTextOfJson { get; set; }
+
+    internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null, string? postKindJson = null, string? textOfJson = null) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
-    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}{{(replacedRelationJson is null ? string.Empty : ",\"replaced_relation\":" + replacedRelationJson)}},"budget":{{DefaultBudget("acceptance")}}}
+    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}{{(replacedRelationJson is null ? string.Empty : ",\"replaced_relation\":" + replacedRelationJson)}}{{(postKindJson is null ? string.Empty : ",\"post_kind\":" + postKindJson)}}{{(textOfJson is null ? string.Empty : ",\"text_of\":" + textOfJson)}},"budget":{{DefaultBudget("acceptance")}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -1884,7 +1894,7 @@ internal sealed class StubLog : IDisposable
 
             return path.EndsWith("/flags", StringComparison.Ordinal)
                 ? (HttpStatusCode.Created, log.FlagReceiptBody(), null)
-                : (HttpStatusCode.OK, StubLog.AcceptanceJson(log.AcceptanceAlreadyAccepted, log.AcceptanceReplacedAnswerJson, log.AcceptanceReplacedRelationJson), null);
+                : (HttpStatusCode.OK, StubLog.AcceptanceJson(log.AcceptanceAlreadyAccepted, log.AcceptanceReplacedAnswerJson, log.AcceptanceReplacedRelationJson, log.AcceptancePostKindJson, log.AcceptanceTextOfJson), null);
         }
 
         /// <summary><c>rotation</c> or <c>retirement</c> for a lifecycle route's path, or null for any other.</summary>
