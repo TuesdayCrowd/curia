@@ -1,3 +1,4 @@
+using Curia.Tests.Shared;
 using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
@@ -137,8 +138,9 @@ public sealed class TokenEndpointRefusalTests(ForumFixture forum) : IClassFixtur
         var (status, body) = await DpopClient.For(agent, agent.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
 
+        // Errata G52 (R5.23): a read that fails is a fault of a store, so 503 temporarily_unavailable with the published description (it was 500 server_error).
         Assert.Equal(
-            "500 {\"error\":\"server_error\",\"error_description\":\"The Forum could not issue a token\"}",
+            $"{PublishedStoreFaults.TokenStatus} {{\"error\":\"{PublishedStoreFaults.TokenCode}\",\"error_description\":\"{PublishedStoreFaults.TokenDescription}\"}}",
             $"{(int)status} {body}");
         var logged = log.Single(mark, 5000);
         Assert.Equal(WholeLogUnreadable.Refused.Type, logged.Value("Type"));
