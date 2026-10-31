@@ -480,4 +480,4 @@ D93 (Table 11's reads per minute enforced nowhere, readers slow writers; extende
 
 The PR is #135, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run on the finished code (the T9 fix's code; docs only after it), 2026-10-30, Release with 0 warnings, built first and run `--no-build`, each assembly's full log kept: Api 1197 of 1197 (40 m 45 s, the request fuzzer included, its ledger empty), Client 1182, Domain 876 (the gate filter), Mcp 720 and 2 skipped (the two tools with no required argument), Application 595, Canon 329, Infrastructure 193, AuthN 140, Domain.Primitives 64, Architecture 75 in Release and Debug, Canon.Sodium 32; the locked restore, `cargo fmt --check`, clippy and `cargo test --locked`, the differential gate (0 classes), `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red, and `conformance/` clean. The run began just before the docs commit, so CI is the run of record for the errata-parsing facts on the final text.
