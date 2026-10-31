@@ -369,22 +369,133 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     }
 }
 
-/// <summary>The host's <see cref="IVectorIndex"/> with its upserts failing on demand: the "index that fails after the append" path (BRB32, BRB60).</summary>
+/// <summary>
+/// The host's <see cref="IVectorIndex"/> with its upserts failing on demand: the "index that fails after the append" path (BRB32, BRB60). Errata G51's modes
+/// (the D92 PR, Task 0): fail the upserts of chosen digests (<see cref="FailDigests"/>), throw an exception where a result would be returned
+/// (<see cref="ThrowWith"/>), or hold inside the upsert until released (<see cref="HoldUpserts"/>), recording whether the caller's token was cancelled while it held.
+/// </summary>
 internal sealed class FailingVectorIndex(IVectorIndex inner) : IVectorIndex
 {
+    private readonly Lock _gate = new();
+    private readonly HashSet<string> _failDigests = [];
+    private TaskCompletionSource? _held;
+    private TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _upserts;
+    private int _cancelledWhileHeld;
+
     internal bool FailUpserts { get; set; }
 
-    public Task<Result<IndexedVector>> UpsertAsync(string digest, string postId, long sequence, Embedding embedding, CancellationToken cancellationToken = default) =>
-        FailUpserts
-            ? Task.FromResult(Result<IndexedVector>.Fail(new Error("curia/retrieval/index-unavailable", "The vector index failed after the append")))
-            : inner.UpsertAsync(digest, postId, sequence, embedding, cancellationToken);
+    /// <summary>When set, every nearest-neighbour read fails as a returned <c>Error</c> (the near-duplicate check's read, before the append).</summary>
+    internal bool FailNearest { get; set; }
+
+    /// <summary>When set, every upsert throws what this makes (a fault that is not a returned <c>Error</c>).</summary>
+    internal Func<Exception>? ThrowWith { get; set; }
+
+    /// <summary>How many upserts reached this decorator since the last <see cref="ResetModes"/>.</summary>
+    internal int Upserts => Volatile.Read(ref _upserts);
+
+    /// <summary>How many upserts saw their token cancelled while they were held.</summary>
+    internal int CancelledWhileHeld => Volatile.Read(ref _cancelledWhileHeld);
+
+    /// <summary>Fails the upsert of <paramref name="digest"/> and of no other.</summary>
+    internal void FailDigests(params string[] digests)
+    {
+        lock (_gate) foreach (var d in digests) _failDigests.Add(d);
+    }
+
+    /// <summary>Stops failing the upserts of <paramref name="digests"/>.</summary>
+    internal void HealDigests(params string[] digests)
+    {
+        lock (_gate) foreach (var d in digests) _failDigests.Remove(d);
+    }
+
+    /// <summary>The next upserts block inside the decorator until <see cref="ReleaseUpserts"/>; <see cref="WaitForHeldAsync"/> says when one has arrived.</summary>
+    internal void HoldUpserts()
+    {
+        lock (_gate)
+        {
+            _held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+    }
+
+    internal void ReleaseUpserts()
+    {
+        TaskCompletionSource? held;
+        lock (_gate)
+        {
+            held = _held;
+            _held = null;
+        }
+
+        held?.TrySetResult();
+    }
+
+    /// <summary>Whether an upsert has arrived and is held, within <paramref name="within"/>.</summary>
+    internal async Task<bool> WaitForHeldAsync(TimeSpan within)
+    {
+        Task entered;
+        lock (_gate) entered = _entered.Task;
+        return await Task.WhenAny(entered, Task.Delay(within)) == entered;
+    }
+
+    /// <summary>Every mode off and the counters at zero.</summary>
+    internal void ResetModes()
+    {
+        FailUpserts = false;
+        FailNearest = false;
+        ThrowWith = null;
+        ReleaseUpserts();
+        lock (_gate) _failDigests.Clear();
+        Volatile.Write(ref _upserts, 0);
+        Volatile.Write(ref _cancelledWhileHeld, 0);
+    }
+
+    public async Task<Result<IndexedVector>> UpsertAsync(string digest, string postId, long sequence, Embedding embedding, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _upserts);
+
+        TaskCompletionSource? held;
+        TaskCompletionSource entered;
+        lock (_gate)
+        {
+            held = _held;
+            entered = _entered;
+        }
+
+        if (held is not null)
+        {
+            entered.TrySetResult();
+            try
+            {
+                await held.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                Interlocked.Increment(ref _cancelledWhileHeld);
+                throw;
+            }
+
+            if (cancellationToken.IsCancellationRequested) Interlocked.Increment(ref _cancelledWhileHeld);
+        }
+
+        if (ThrowWith is { } make) throw make();
+
+        bool failsThisDigest;
+        lock (_gate) failsThisDigest = _failDigests.Contains(digest);
+        return FailUpserts || failsThisDigest
+            ? Result<IndexedVector>.Fail(new Error("curia/retrieval/index-unavailable", "The vector index failed after the append"))
+            : await inner.UpsertAsync(digest, postId, sequence, embedding, cancellationToken);
+    }
 
     public Task<Result<System.Collections.Immutable.ImmutableArray<VectorMatch>>> NearestAsync(Embedding query, int limit, CancellationToken cancellationToken = default) =>
-        inner.NearestAsync(query, limit, cancellationToken);
+        FailNearest
+            ? Task.FromResult(Result<System.Collections.Immutable.ImmutableArray<VectorMatch>>.Fail(new Error("curia/retrieval/index-unavailable", "The vector index failed before the append")))
+            : inner.NearestAsync(query, limit, cancellationToken);
 
     public Task<Result<long>> CountAsync(EmbeddingModel model, CancellationToken cancellationToken = default) => inner.CountAsync(model, cancellationToken);
 
-    public Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default) => inner.MaxSequenceAsync(model, cancellationToken);
+    public Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default) => inner.IndexedDigestsAsync(model, cancellationToken);
 }
 
 /// <summary>
@@ -424,7 +535,7 @@ public sealed class AgentWriteGateForumFixture : ForumFixture
     {
         StoreOf(services).Reset();
         GateOf(services).Reset();
-        IndexOf(services).FailUpserts = false;
+        IndexOf(services).ResetModes();
         SequenceOf(services).Clear();
         _ = services.GetRequiredService<IRevisionGate>();
     }
@@ -549,4 +660,25 @@ internal static class BudgetOracle
 public sealed class PassThroughGateForumFixture : ForumFixture
 {
     protected override void ConfigureStore(IServiceCollection services) => PassThroughAgentWriteGate.Install(services);
+}
+
+/// <summary>
+/// Errata G51's hosts that need a clock with timers (the D92 PR, ruling 15): <see cref="ManualTimeProvider"/> moves <c>GetUtcNow</c> only, so a bound made with
+/// <c>CreateCancellationTokenSource</c> or a loop on <c>Task.Delay(.., TimeProvider)</c> cannot see an advance (trap 68). A fact that needs one builds a host
+/// of its own with <see cref="TimerClockHost"/>, after its identities are made: the clock starts at the fixture clock's current instant, so the tier the
+/// stored events compute against it agrees.
+/// </summary>
+internal static class TimerClockHost
+{
+    /// <summary>A second host over the fixture's database whose <see cref="TimeProvider"/> is <paramref name="clock"/> and whose vector index is the fixture's decorator, wrapped afresh.</summary>
+    internal static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Of(AgentWriteGateForumFixture forum, Curia.Tests.Shared.TimerManualTimeProvider clock, LogCapture? log = null) =>
+        forum.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+            if (log is not null) services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(log);
+        }));
+
+    /// <summary>A timer-capable clock at the fixture clock's current instant.</summary>
+    internal static Curia.Tests.Shared.TimerManualTimeProvider At(ForumFixture forum) => new(forum.Now);
 }

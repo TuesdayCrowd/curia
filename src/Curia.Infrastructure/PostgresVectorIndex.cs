@@ -149,21 +149,26 @@ public sealed class PostgresVectorIndex : IVectorIndex
         Justification = "See UpsertAsync's identical suppression.")]
     [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities",
         Justification = "See UpsertAsync's identical suppression.")]
-    public async Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default)
+    public async Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(model);
 
         try
         {
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            await using var command = new NpgsqlCommand($"SELECT coalesce(max(seq), 0) FROM {_qualifiedTable} WHERE model = @model;", connection);
+            await using var command = new NpgsqlCommand($"SELECT digest FROM {_qualifiedTable} WHERE model = @model;", connection);
             command.Parameters.Add(new NpgsqlParameter("model", NpgsqlDbType.Text) { Value = model.Id });
-            var max = (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
-            return Result<long>.Ok(max);
+
+            var digests = new HashSet<string>(StringComparer.Ordinal);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                digests.Add(reader.GetString(0));
+
+            return Result<IReadOnlySet<string>>.Ok(digests);
         }
         catch (PostgresException e)
         {
-            return Result<long>.Fail(Translate(e));
+            return Result<IReadOnlySet<string>>.Fail(Translate(e));
         }
     }
 

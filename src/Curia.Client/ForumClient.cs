@@ -150,16 +150,16 @@ public sealed class ForumClient
     /// <c>&amp;</c> concatenated raw would silently become a second parameter, and the agent would
     /// be shown results for a query it never ran — with nothing in the response saying so.</para>
     /// </summary>
-    public Task<ForumResult<SearchPage>> SearchAsync(
+    public async Task<ForumResult<SearchPage>> SearchAsync(
         SearchRequest request, MarkingMode marking, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         if (UnfilterableTag(request.Tags) is { } unfilterable)
-            return Task.FromResult(ForumResult<SearchPage>.Local(ClientErrors.TagNotFilterable(unfilterable)));
+            return ForumResult<SearchPage>.Local(ClientErrors.TagNotFilterable(unfilterable));
 
-        if (RefuseUnstorable<SearchPage>(request.Board, "board") is { } badBoard) return Task.FromResult(badBoard);
-        if (RefuseUnstorable<SearchPage>(request.Author, "author") is { } badAuthor) return Task.FromResult(badAuthor);
+        if (RefuseUnstorable<SearchPage>(request.Board, "board") is { } badBoard) return badBoard;
+        if (RefuseUnstorable<SearchPage>(request.Author, "author") is { } badAuthor) return badAuthor;
 
         var parameters = new List<string>();
 
@@ -194,7 +194,10 @@ public sealed class ForumClient
         if (MarkingQuery(marking) is { Length: > 0 } m) parameters.Add(m.TrimStart('?'));
 
         var query = parameters.Count == 0 ? string.Empty : "?" + string.Join("&", parameters);
-        return GetAsync($"/v1/search{query}", ForumDocuments.ReadSearchPage, ct);
+
+        // The reader also sees the bytes: R9.51's count is an integer on the wire, and 1.0 parses to the same value as 1.
+        using var searchRequest = new HttpRequestMessage(HttpMethod.Get, $"/v1/search{query}");
+        return await SendAsync(searchRequest, ForumDocuments.ReadSearchPage, ct).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -65,6 +65,7 @@ public sealed record PostAcceptedResponse(
     [property: JsonPropertyName("digest")] string Digest,
     [property: JsonPropertyName("server_ts")] string ServerTimestamp,
     [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags,
+    [property: JsonPropertyName("vector_index")] string VectorIndex,
     [property: JsonPropertyName("budget")] BudgetReceiptResponse Budget);
 
 /// <summary>
@@ -452,7 +453,10 @@ public sealed record SearchResponse(
     /// <summary>§9.2's constants, published: RRF's k, each channel's candidate depth, and the least cosine (basis points) a vector neighbour needs to be a candidate.</summary>
     [property: JsonPropertyName("k")] int K,
     [property: JsonPropertyName("candidate_depth")] int CandidateDepth,
-    [property: JsonPropertyName("min_cosine_bp")] int MinimumCosineBp);
+    [property: JsonPropertyName("min_cosine_bp")] int MinimumCosineBp,
+
+    /// <summary>R9.51 (errata G51): how many committed posts this Forum process holds as pending in the vector index (R11.69); always present, a lower bound across a deployment, and no hit is marked.</summary>
+    [property: JsonPropertyName("vector_pending")] int VectorPending);
 
 /// <summary>
 /// R8.18 / R8.19's 409, errata G10: an RFC 9457 problem carrying the canonical thread, its
@@ -762,7 +766,9 @@ public static class ForumEndpoints
         IEventReader events,
         IRevisionGate revisionGate,
         IAgentWriteGate agentGate,
-        EmbeddingIndexer indexer,
+        CommittedPostIndexer committed,
+        IHostApplicationLifetime lifetime,
+        ILoggerFactory loggerFactory,
         DuplicateCheck dedupe,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
@@ -823,6 +829,9 @@ public static class ForumEndpoints
 
         await using var heldTurn = hold!.ConfigureAwait(false);
 
+        // R8.81: the step after PERSIST is the host's to finish, not the caller's: only the host stopping reaches it.
+        var indexer = new IndexStep(committed, loggerFactory.CreateLogger("Curia.Api.VectorIndex"), lifetime.ApplicationStopping);
+
         // R6.56: VERIFY through PERSIST is one act against the author's stream, repeated while the stream
         // moves under it (IngestAttempts), and answered 503 contended after three. The attempt answers
         // null when its append lost that race and every other outcome as the response it is.
@@ -854,7 +863,7 @@ public static class ForumEndpoints
         IPolicyDecisionPoint pdp,
         IEventReader events,
         IRevisionGate revisionGate,
-        EmbeddingIndexer indexer,
+        IndexStep indexer,
         DuplicateCheck dedupe,
         HttpRequest http,
         TimeProvider clock,
@@ -985,7 +994,7 @@ public static class ForumEndpoints
         IReadOnlyList<AppendedEvent> log,
         IIngestPipeline pipeline,
         IEventReader events,
-        EmbeddingIndexer indexer,
+        IndexStep indexer,
         DuplicateCheck dedupe,
         HttpRequest http,
         Func<DateTimeOffset, BudgetEntry> budgetAfter,
@@ -1060,18 +1069,29 @@ public static class ForumEndpoints
                 : Problem(StatusCodes.Status500InternalServerError, persistError);
         }
 
-        // The vector channel sees the post in the same request the lexical channel does. The
-        // index and the log are the same database, so a failure here is the database failing
-        // after it just succeeded -- reported, not swallowed; the startup reconcile closes any gap
-        // a crash between the two writes leaves (R11.10).
+        // R8.81 (errata G51): the log holds the post, so the answer is 201 whatever the vector index does next. The step is total, the caller's
+        // disconnection does not reach it and it is bounded; a post whose vector is not stored is pending, is logged (never with its text, R11.33)
+        // and is retried from the log by the catch-up without a restart (R11.69). The reconcile at start is by absence of the digest.
+        var vectorIndex = VectorIndexWire.NotApplicable;
         if (PostKinds.IsDiscussion(v.Envelope.Kind))
         {
-            var indexed = await indexer.IndexAsync(
+            var outcome = await indexer.Committed.IndexAsync(
                 new SearchablePost(post!.PostId, post.Digest, v.Envelope.Board, v.Envelope.Kind, v.Envelope.Title,
                     v.Envelope.Body, v.Envelope.Tags, v.AuthorAgentId.Value, post.Sequence),
-                cancellationToken).ConfigureAwait(false);
-            if (!indexed.TryGetValue(out _, out var indexError))
-                return Problem(StatusCodes.Status500InternalServerError, indexError!);
+                indexer.Shutdown).ConfigureAwait(false);
+            vectorIndex = VectorIndexWire.Of(outcome.State);
+            if (outcome.State == CommittedIndexState.Pending)
+            {
+                try
+                {
+                    VectorIndexLog.Pending(indexer.Log, post.PostId, outcome.FaultType ?? string.Empty, outcome.FaultDetail ?? string.Empty);
+                }
+#pragma warning disable CA1031 // R8.81: the post is committed, so a log sink that fails cannot change the answer; the post is in the backlog whether or not it was logged.
+                catch (Exception)
+#pragma warning restore CA1031
+                {
+                }
+            }
         }
 
         return Results.Created($"/v1/posts/{post!.PostId}", new PostAcceptedResponse(
@@ -1079,8 +1099,12 @@ public static class ForumEndpoints
             post.Digest,
             post.ServerTimestamp.ToString(),
             [.. s!.Annotations.Flags.Select(f => f.Category.ToString())],
+            vectorIndex,
             BudgetReceiptResponse.Of(budgetAfter(post.ServerTimestamp.Value))));
     }
+
+    /// <summary>The step after PERSIST and what it needs from the request: the indexer, a logger and the host's stopping token (R8.81).</summary>
+    private sealed record IndexStep(CommittedPostIndexer Committed, ILogger Log, CancellationToken Shutdown);
 
     /// <summary>
     /// R10.35: "Any credentialed agent MAY flag content." Table 10's <c>flag</c>/<c>raise</c> row is
@@ -2167,6 +2191,7 @@ public static class ForumEndpoints
         IEventReader events,
         IPolicyDecisionPoint pdp,
         HybridSearch search,
+        IndexBacklog backlog,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -2320,7 +2345,9 @@ public static class ForumEndpoints
             page.CorpusBound,
             page.K,
             page.CandidateDepth,
-            Bp(page.MinimumCosine)));
+            Bp(page.MinimumCosine),
+            // R9.51: the serving process's backlog, stated whatever the query, the filters and the cursor, and not part of a cursor's binding (R9.35).
+            backlog.Count));
     }
 
     /// <summary>R8.36's terms this build does not compute, named as absent with the reason (errata G10).</summary>

@@ -67,7 +67,7 @@ public sealed class ServerFaultTests(ForumFixture forum) : IClassFixture<ForumFi
         public Task<Result<long>> CountAsync(EmbeddingModel model, CancellationToken cancellationToken = default) =>
             inner.CountAsync(model, cancellationToken);
 
-        public Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default) =>
-            inner.MaxSequenceAsync(model, cancellationToken);
+        public Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default) =>
+            inner.IndexedDigestsAsync(model, cancellationToken);
     }
 }

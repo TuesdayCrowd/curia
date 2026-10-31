@@ -70,6 +70,9 @@
     <Compile Include="../Shared/PublishedChainWords.cs" Link="Shared/PublishedChainWords.cs" />
     <!-- Errata G48 (R7.27): the gate's numbers and types read from the errata, and Table 11's posting limits read from the white paper. -->
     <Compile Include="../Shared/PublishedBudgetGate.cs" Link="Shared/PublishedBudgetGate.cs" />
+    <!-- Errata G51 (R8.81, R9.51, R11.69, R11.70): the words of the stored-post entry, read from the errata; the timer-capable clock the bound and the catch-up facts run on (ruling 15). -->
+    <Compile Include="../Shared/PublishedIndexLag.cs" Link="Shared/PublishedIndexLag.cs" />
+    <Compile Include="../Shared/TimerManualTimeProvider.cs" Link="Shared/TimerManualTimeProvider.cs" />
     <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable11.cs" Link="Shared/PublishedTable11.cs" />
     <Compile Include="../Shared/McpProtocolSession.cs" Link="Shared/McpProtocolSession.cs" />
     <!-- GF9: the refusal documents a guarded Forum serves a lifecycle route; StubLog's guarded mode serves them, and Curia.Api.Tests holds them to the real Forum. -->

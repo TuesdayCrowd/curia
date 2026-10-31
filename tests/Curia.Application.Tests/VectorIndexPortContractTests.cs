@@ -105,19 +105,33 @@ public abstract class VectorIndexPortContractTests
         Assert.Equal(1, Require(await index.CountAsync(ModelA, ct)));
     }
 
+    /// <summary>
+    /// PIL21 (errata G51, R11.69). The digests the index holds under the model asked for, and none under another: the set a reconcile compares the log
+    /// against. Held for the in-memory adapter here and for pgvector from <c>Curia.Infrastructure.Tests</c>, so the two cannot agree by accident. A control on
+    /// the seam (the port method is a read that is already honest); FPIL33 makes it red.
+    /// </summary>
     [Fact]
-    public async Task R11_10_TheHighWaterMarkIsTheHighestIndexedSequencePerModel()
+    public async Task R11_69_PIL21_IndexedDigestsAreThoseOfTheModelAskedForAndNoOther()
     {
         var ct = TestContext.Current.CancellationToken;
         var index = CreateIndex();
+        var one = "sha256:" + new string('1', 64);
+        var two = "sha256:" + new string('2', 64);
+        var three = "sha256:" + new string('3', 64);
 
-        Assert.Equal(0, Require(await index.MaxSequenceAsync(ModelA, ct)));
-        Require(await index.UpsertAsync("sha256:" + new string('1', 64), "p1", 12, Unit(ModelA, 1, 0, 0), ct));
-        Require(await index.UpsertAsync("sha256:" + new string('2', 64), "p2", 7, Unit(ModelA, 0, 1, 0), ct));
-        Require(await index.UpsertAsync("sha256:" + new string('3', 64), "p3", 40, Unit(ModelB, 0, 1, 0), ct));
+        Require(await index.UpsertAsync(one, "p1", 1, Unit(ModelA, 1, 0, 0), ct));
+        Require(await index.UpsertAsync(two, "p2", 2, Unit(ModelA, 0, 1, 0), ct));
+        Require(await index.UpsertAsync(three, "p3", 3, Unit(ModelB, 0, 0, 1), ct));
+        Require(await index.UpsertAsync(one, "p1", 1, Unit(ModelA, 0, 0, 1), ct));
 
-        Assert.Equal(12, Require(await index.MaxSequenceAsync(ModelA, ct)));
-        Assert.Equal(40, Require(await index.MaxSequenceAsync(ModelB, ct)));
+        var forA = Require(await index.IndexedDigestsAsync(ModelA, ct)).Order(StringComparer.Ordinal).ToArray();
+        var forB = Require(await index.IndexedDigestsAsync(ModelB, ct)).Order(StringComparer.Ordinal).ToArray();
+        var forOther = Require(await index.IndexedDigestsAsync(new EmbeddingModel("contract-a", "2", 3), ct));
+
+        var expected = $"A: {one[7..13]} {two[7..13]}; B: {three[7..13]}; another model: none";
+        var actual = $"A: {string.Join(' ', forA.Select(d => d[7..13]))}; B: {string.Join(' ', forB.Select(d => d[7..13]))}; another model: {(forOther.Count == 0 ? "none" : forOther.Count + " digests")}";
+        if (!string.Equals(expected, actual, StringComparison.Ordinal))
+            throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }
 
     [Fact]

@@ -51,12 +51,12 @@ public sealed partial class ReadersLastWordsPinsTests
     }
 
     /// <summary>
-    /// RLW40. <c>ToolCatalogue.Version</c> is the version R11.66 names, parsed through <c>PublishedReadersLastWords.Version()</c>, and that is the one reader of a
+    /// RLW40. <c>ToolCatalogue.Version</c> is the version R11.70 names, parsed through <c>PublishedReadersLastWords.Version()</c>, and that is the one reader of a
     /// <c>curia-mcp</c> version out of an errata paragraph in <c>tests/</c>: the two that exist (<c>PublishedBudgetReadout</c>'s and <c>PublishedChainWords</c>'s) are
     /// replaced by it (ruling 23(b)).
     /// </summary>
     [Fact]
-    public void R11_66_RLW40_TheVersionIsTheOneR1166NamesAndHasOneReader()
+    public void R11_66_RLW40_TheVersionIsTheOneR1170NamesAndHasOneReader()
     {
         var named = PublishedReadersLastWords.Version();
         var problems = new List<string>();

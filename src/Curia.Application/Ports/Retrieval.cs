@@ -44,9 +44,8 @@ public interface IVectorIndex
     Task<Result<long>> CountAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The highest <c>seq</c> indexed under <paramref name="model"/>, or 0 when none: the log is
-    /// append-only and appends are serialized (R6.47), so everything after it is exactly what a
-    /// reconcile still has to index.
+    /// The digest of every post the index holds a vector for under <paramref name="model"/> (R11.69): what a reconcile compares the log against,
+    /// so that a post is found missing by the absence of its digest and not by a position in the log.
     /// </summary>
-    Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
+    Task<Result<IReadOnlySet<string>>> IndexedDigestsAsync(EmbeddingModel model, CancellationToken cancellationToken = default);
 }

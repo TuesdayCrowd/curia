@@ -905,8 +905,8 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
 
     /// <summary>
     /// BRB60. A committed post whose index fails releases the gate and counts: the table holds the post, nothing is held, the agent's next request is served without
-    /// waiting, and a request beyond the limit is refused as the budget. The present answer (500, curia/retrieval/index-unavailable) is pinned and EXPIRES: D92's
-    /// PR flips it to 201 with a member stating the index did not take the post.
+    /// waiting, and a request beyond the limit is refused as the budget. Flipped by the D92 PR (errata G51, R8.81): the post is committed, so the answer is 201
+    /// and the receipt's vector_index says pending; it was a pinned 500 curia/retrieval/index-unavailable.
     /// </summary>
     [Fact]
     public async Task R7_27_BRB60_ACommittedPostWhoseIndexFailsReleasesTheGateAndCounts()
@@ -932,19 +932,13 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var fourth = await Probe.SendAsync(forum, actor, BudgetBursts.Wire(actor.Agent, PostKind.Comment, board, parent.PostId, forum.Now), null, Ct);
         var (posting, _) = PublishedBudgetGate.BudgetReasons();
 
-        var expected = $"the failed index answered 500 {PublishedStatusQuo.IndexUnavailable} (expiring: D92 flips it) with the post stored (1), the gate entered once and nothing held; the next request 201 inside 2 s; the request beyond the limit of {limit} 403 {posting}";
-        var pinned = $"{failed.Status} {failed.Type}" == $"500 {PublishedStatusQuo.IndexUnavailable}" && storedAfterFailure == 1 && entries == 1 && held == 0
+        var pending = PublishedIndexLag.Values().Pending;
+        var expected = $"the failed index answered 201 {pending} with the post stored (1), the gate entered once and nothing held; the next request 201 inside 2 s; the request beyond the limit of {limit} 403 {posting}";
+        var pinned = IndexLag.Says(failed) == $"201 {pending}" && storedAfterFailure == 1 && entries == 1 && held == 0
             && BudgetBursts.Kind(next).StartsWith("201", StringComparison.Ordinal) && nextTime < TimeSpan.FromSeconds(2) && BudgetBursts.Kind(fourth) == $"403 {posting}";
         Said(
             expected,
-            pinned ? expected : $"the failed index answered {failed.Status} {failed.Type} (expiring: D92 flips it) with the post {(storedAfterFailure == 1 ? "stored (1)" : $"counted {storedAfterFailure}")}, the gate entered {Times(entries)} and {(held == 0 ? "nothing held" : held + " held")}; " +
+            pinned ? expected : $"the failed index answered {IndexLag.Says(failed)} with the post {(storedAfterFailure == 1 ? "stored (1)" : $"counted {storedAfterFailure}")}, the gate entered {Times(entries)} and {(held == 0 ? "nothing held" : held + " held")}; " +
             $"the next request {BudgetBursts.Kind(next)} in {Ms(nextTime)}; the request beyond the limit of {limit} {BudgetBursts.Kind(fourth)} (the third {BudgetBursts.Kind(third)})");
     }
-}
-
-/// <summary>Words the status quo pins that are not the errata's (they expire with the PR that flips them).</summary>
-internal static class PublishedStatusQuo
-{
-    /// <summary>The problem type a failed vector index is answered with today (D92: a post committed and answered 500).</summary>
-    internal const string IndexUnavailable = "curia/retrieval/index-unavailable";
 }

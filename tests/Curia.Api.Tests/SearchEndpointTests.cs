@@ -507,8 +507,8 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
-    /// Register D24, at startup: <c>EmbeddingReconcileService</c> replays every post past the vector
-    /// index's high-water mark, and one whose features cancel failed it, so the Forum refused to start
+    /// Register D24, at startup: <c>EmbeddingReconcileService</c> indexes every post whose digest the
+    /// vector index lacks (R11.69), and one whose features cancel failed it, so the Forum refused to start
     /// on every restart, since the log cannot drop the post. A restart is a second host over the same
     /// database, as <see cref="AgentStandingDurabilityTests"/> models it. This one starts, and serves
     /// the post.
@@ -523,7 +523,7 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
         var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
         // Its status is the fact above's to hold. Before D24 it was 500, after PERSIST, so the post is
-        // in the log and past the high-water mark either way, which is all this fact needs.
+        // in the log and without a vector either way, which is all this fact needs.
         using var posted = await dpop.PostAsync(
             client, PostsUrl, token, agent.SignQuestion(board, "j\u00E0", "dk", forum.Now, tags: []), forum.Now, ct);
 

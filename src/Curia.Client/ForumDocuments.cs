@@ -21,7 +21,8 @@ public sealed record EnrollmentReceipt(string AgentId, string Kid, string Enroll
 /// <see cref="RiskFlags"/> as a failure would be wrong about what the Forum said.
 /// </summary>
 public sealed record PostReceipt(
-    string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags, BudgetReceipt? Budget = null);
+    string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags, BudgetReceipt? Budget = null,
+    VectorIndexState VectorIndex = VectorIndexState.NotStated);
 
 /// <summary>
 /// R7.29, R9.50: the standing of the budget an act spent, after the act, as the receipt states it. <see langword="null"/> on a receipt record means the Forum
@@ -162,7 +163,8 @@ public sealed record SearchPage(
     string? NextCursor,
     RetrievalFloorDocument Floor,
     string Model,
-    long CorpusBound);
+    long CorpusBound,
+    int? VectorPending = null);
 
 /// <summary>
 /// R8.18 / R8.19's refusal, read from the 409's extension members: the thread to read instead, its
@@ -397,8 +399,23 @@ internal static class ForumDocuments
         ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "digest") is { } digest
         && ClientJson.String(o, "server_ts") is { } ts
-            ? ReadReceiptBudget(o).Map(budget => new PostReceipt(id, digest, ts, Strings(o, "risk_flags"), budget))
+            ? ReadReceiptBudget(o).Bind(budget => ReadVectorIndex(o).Map(vector => new PostReceipt(id, digest, ts, Strings(o, "risk_flags"), budget, vector)))
             : Result<PostReceipt>.Fail(ClientErrors.ResponseMalformed("post receipt"));
+
+    /// <summary>
+    /// R8.81's receipt member <c>vector_index</c>: absent is an older Forum (<see cref="VectorIndexState.NotStated"/>, never <c>indexed</c>), and a present
+    /// member must be one of the three spellings exactly. Any other string, a number, a boolean, null or an object is a malformed receipt (R11.70): a client
+    /// that took what it could not read for <c>indexed</c> would tell its agent the post is in the vector index on a guess.
+    /// </summary>
+    private static Result<VectorIndexState> ReadVectorIndex(JsonValue.Object o) =>
+        ClientJson.Member(o, "vector_index") switch
+        {
+            null => Result<VectorIndexState>.Ok(VectorIndexState.NotStated),
+            JsonValue.String { Value: "indexed" } => Result<VectorIndexState>.Ok(VectorIndexState.Indexed),
+            JsonValue.String { Value: "pending" } => Result<VectorIndexState>.Ok(VectorIndexState.Pending),
+            JsonValue.String { Value: "not_applicable" } => Result<VectorIndexState>.Ok(VectorIndexState.NotApplicable),
+            _ => Result<VectorIndexState>.Fail(ClientErrors.ResponseMalformed("post receipt: vector_index is not indexed, pending or not_applicable (R8.81)")),
+        };
 
     internal static Result<InboxPage> ReadInbox(JsonValue value)
     {
@@ -493,7 +510,7 @@ internal static class ForumDocuments
             _ => Result<bool>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: already_accepted is not a boolean (R8.68)")),
         };
 
-    internal static Result<SearchPage> ReadSearchPage(JsonValue value)
+    internal static Result<SearchPage> ReadSearchPage(byte[] bytes, JsonValue value)
     {
         if (value is not JsonValue.Object o)
             return Result<SearchPage>.Fail(ClientErrors.ResponseMalformed("search page is not an object"));
@@ -538,6 +555,9 @@ internal static class ForumDocuments
             || !KindList(floor, "not_applicable_to").TryGetValue(out var notApplicableTo, out listError))
             return Result<SearchPage>.Fail(listError!);
 
+        if (!ReadVectorPending(bytes, o).TryGetValue(out var pending, out var pendingError))
+            return Result<SearchPage>.Fail(pendingError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -554,7 +574,35 @@ internal static class ForumDocuments
                 clamp.Clamped,
                 clamp.RequestedStated),
             ClientJson.String(o, "model") ?? string.Empty,
-            (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));
+            (long)(ClientJson.Number(o, "corpus_bound") ?? 0),
+            pending));
+    }
+
+    /// <summary>
+    /// R9.51's <c>vector_pending</c>: absent is an older Forum (null: <c>NOT STATED</c>, never zero), and a present member must be a non-negative whole number
+    /// written as an integer (R6.33: <c>1.0</c> parses to 1 and is not one). Anything else is a malformed search page.
+    /// </summary>
+    private static Result<int?> ReadVectorPending(byte[] bytes, JsonValue.Object o)
+    {
+        if (ClientJson.Member(o, "vector_pending") is null) return Result<int?>.Ok(null);
+
+        return CountOf(o, "vector_pending") is { } n && TopLevelNumberIsInteger(bytes, "vector_pending")
+            ? Result<int?>.Ok(n)
+            : Result<int?>.Fail(ClientErrors.ResponseMalformed("search page: vector_pending is not a non-negative integer (R9.51)"));
+    }
+
+    /// <summary>Whether the number token written for the document's own member <paramref name="name"/> has no fraction or exponent.</summary>
+    private static bool TopLevelNumberIsInteger(byte[] bytes, string name)
+    {
+        var reader = new System.Text.Json.Utf8JsonReader(bytes);
+        while (reader.Read())
+        {
+            if (reader.TokenType != System.Text.Json.JsonTokenType.PropertyName || reader.CurrentDepth != 1 || !reader.ValueTextEquals(name)) continue;
+            if (!reader.Read() || reader.TokenType != System.Text.Json.JsonTokenType.Number) return false;
+            return reader.ValueSpan.IndexOfAny((byte)'.', (byte)'e', (byte)'E') < 0;
+        }
+
+        return false;
     }
 
     private static Result<ImmutableArray<string>> KindList(JsonValue.Object floor, string name)

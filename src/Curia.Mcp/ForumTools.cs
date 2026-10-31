@@ -552,7 +552,8 @@ internal sealed partial class ForumTools(
             .Append($"source={page.Floor.Source} applies_to={FloorKinds.Render(page.Floor.AppliesTo, ",")} not_applicable_to={FloorKinds.Render(page.Floor.NotApplicableTo, ",")} ")
             .Append($"{ClampWords(page.Floor)} ")
             .Append($"model={page.Model} results={page.Results.Length} ")
-            .Append($"excluded_by_floor={Count(page.Floor.ExcludedByFloor)} excluded_disputed={Count(page.Floor.ExcludedDisputed)}");
+            .Append($"excluded_by_floor={Count(page.Floor.ExcludedByFloor)} excluded_disputed={Count(page.Floor.ExcludedDisputed)} ")
+            .Append($"{new OwnText(IndexWording.ToolSearchLine(page.VectorPending))}");
 
         // R11.39: what the next call needs. The cursor is the Forum's, so it is a display literal; with none the
         // model is told it is on the last page, which a missing word could not say.

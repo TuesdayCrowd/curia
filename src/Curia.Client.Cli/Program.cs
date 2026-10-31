@@ -538,6 +538,9 @@ internal static class Program
             Output.Line($"server_ts {receipt.ServerTs}");
             Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
 
+            // R11.70: whether the post's vector is stored, in the one set of words both clients print. `pending` is exit 0: the post is stored and is not sent again.
+            Output.Line($"{new OwnText(IndexWording.ReceiptLine(receipt.VectorIndex))}");
+
             if (!receipt.RiskFlags.IsDefaultOrEmpty)
             {
                 Output.Line($"annotated {Literals(receipt.RiskFlags)}");
@@ -946,6 +949,7 @@ internal static class Program
         Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {FloorKinds.Render(page.Floor.AppliesTo, ", ")}; not to {FloorKinds.Render(page.Floor.NotApplicableTo, ", ")}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
         Output.Line($"clamp     {ClampWords(page.Floor)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");
+        Output.Line($"{new OwnText(IndexWording.SearchLine(page.VectorPending))}");
         Output.Blank();
 
         if (page.Results.IsDefaultOrEmpty)

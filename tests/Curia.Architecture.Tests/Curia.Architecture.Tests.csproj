@@ -34,5 +34,7 @@
     <Compile Include="../Shared/PublishedChainWords.cs" Link="Shared/PublishedChainWords.cs" />
     <Compile Include="../Shared/PublishedReadersLastWords.cs" Link="Shared/PublishedReadersLastWords.cs" />
     <Compile Include="../Shared/PermissiveLifecycleAppendGate.cs" Link="Shared/PermissiveLifecycleAppendGate.cs" />
+    <!-- Errata G51 (R8.81, R9.51, R11.69, R11.70): the entry's words, read from the errata (PIL32, PIL33). -->
+    <Compile Include="../Shared/PublishedIndexLag.cs" Link="Shared/PublishedIndexLag.cs" />
   </ItemGroup>
 </Project>
