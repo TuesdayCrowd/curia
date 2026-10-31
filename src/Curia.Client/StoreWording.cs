@@ -2,8 +2,8 @@ namespace Curia.Client;
 
 /// <summary>
 /// R11.72 (errata G52): the one definition of how <c>curia</c> and <c>curia-mcp</c> word a fault of the Forum's own store. The seam declares it: the three
-/// problem types and the token's OAuth code are the identifiers the Forum issues, and the sentences are not yet worded (Task 4 gives them the words
-/// <c>R11.72 words</c> publishes), so nothing here changes what a client prints.
+/// problem types and the token's OAuth code are the identifiers the Forum issues, and the sentences are the words <c>R11.72 words</c> publishes. Both
+/// clients print them through <c>Refusal.Summary</c>, so neither can word a type alone.
 /// </summary>
 public static class StoreWording
 {
@@ -19,13 +19,42 @@ public static class StoreWording
     /// <summary>RFC 6749's code the token endpoint answers a fault of a store with.</summary>
     public const string TemporarilyUnavailableCode = "temporarily_unavailable";
 
-    /// <summary>The sentence a refusal of <paramref name="type"/> carries after its title and type. Inert in the seam: empty.</summary>
+    private const string FaultOfTheForum = "a fault of the Forum, not of the request. ";
+
+    private const string LogUnreadableSentence = FaultOfTheForum + "Nothing was recorded: the request can be sent again later";
+
+    private const string StoreUnavailableSentence = FaultOfTheForum +
+        "If the request was a write it may or may not have been recorded: sending it again is safe, because the Forum refuses a repeat of an act it recorded and says so";
+
+    private const string TokenSentence = FaultOfTheForum + "Nothing was minted: a new request can be sent later";
+
+    /// <summary>
+    /// The sentence a refusal of <paramref name="type"/> carries after its title and type, or the empty string for a type that is not one of the three. The
+    /// token's is chosen by the code <c>temporarily_unavailable</c>, which the token endpoint's answer carries as its type.
+    /// </summary>
     public static string Sentence(string type)
     {
         ArgumentNullException.ThrowIfNull(type);
-        return string.Empty;
+        return type switch
+        {
+            LogUnreadableType => LogUnreadableSentence,
+            StoreUnavailableType => StoreUnavailableSentence,
+            TemporarilyUnavailableCode => TokenSentence,
+            _ => string.Empty,
+        };
     }
 
-    /// <summary>The sentence about repeating a write that the write tools' descriptions and the writing verbs' helps carry. Inert in the seam: empty.</summary>
-    public static string RepeatSentence => string.Empty;
+    /// <summary>
+    /// The sentence about repeating a write that the write tools' descriptions and the writing verbs' helps carry: the <c>curia/store/unavailable</c> sentence,
+    /// the one that says a repeat is safe.
+    /// </summary>
+    public const string RepeatSentence = StoreUnavailableSentence;
+
+    /// <summary>
+    /// What the six write tools' descriptions and the ten writing verbs' helps say of the two <c>503</c> types, in the published words: the one that says a
+    /// repeat is safe (<see cref="RepeatSentence"/>) and the one that says nothing was recorded.
+    /// </summary>
+    public const string WriteSentence =
+        "A 503 " + StoreUnavailableType + " means " + StoreUnavailableSentence + ". A 503 " + LogUnreadableType + " means " + LogUnreadableSentence + ". " +
+        "Neither is retried for you.";
 }

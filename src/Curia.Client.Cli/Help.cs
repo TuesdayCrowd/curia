@@ -137,7 +137,14 @@ internal static class Help
     /// method serves several, Program.SharedVerbFlags.
     /// </summary>
     internal static string? For(string verb) =>
-        Entry(verb) is { } entry && DigestOnlyPrinters.Contains(verb, StringComparer.Ordinal) ? entry + DigestOnlyNote : Entry(verb);
+        Entry(verb) is { } entry
+            ? entry
+                + (DigestOnlyPrinters.Contains(verb, StringComparer.Ordinal) ? DigestOnlyNote : string.Empty)
+                + (WritingVerbs.Contains(verb, StringComparer.Ordinal) ? "\n    " + Wrapped(StoreWording.WriteSentence) : string.Empty)
+            : null;
+
+    /// <summary>R11.72: the verbs that send a write (a post, a signal, an acceptance or a flag), each help entry of which carries <see cref="StoreWording.WriteSentence"/>. ULG30 derives the list from the dispatch and fails on a verb that writes and is not here.</summary>
+    private static readonly string[] WritingVerbs = ["ask", "answer", "comment", "revision", "finding", "endorse", "reproduce", "contradict", "resolve", "flag"];
 
     private static string? Entry(string verb) => verb switch
     {

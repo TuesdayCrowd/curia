@@ -76,7 +76,7 @@ public sealed class IndexLagEntryTests
         Check(PublishedIndexLag.SearchNotStatedLine().Contains("NOT STATED", StringComparison.Ordinal), "the search no-member line does not say NOT STATED");
         Check(PublishedIndexLag.ToolCountLine(3) == "vector_pending=3" && PublishedIndexLag.ToolNotStatedLine() == "vector_pending=not stated", "the tool's members are not vector_pending=<n> and vector_pending=not stated");
         Check(PublishedIndexLag.Sentence().Contains("PENDING", StringComparison.Ordinal) && PublishedIndexLag.Sentence().Contains("do not send it again", StringComparison.Ordinal), "the sentence does not tell an agent not to send the post again");
-        Check(PublishedReadersLastWords.Version() == "0.9.2", $"R11.70's version is {PublishedReadersLastWords.Version()}");
+        Check(PublishedReadersLastWords.Version() == "0.9.3", $"the version the one parser reads is {PublishedReadersLastWords.Version()}");   // the parser reads the newest entry's (R11.72, errata G52), which moves with each bump; it was 0.9.2 while it read R11.70
 
         Said("the entry holds its words and its parts agree", problems.Count == 0 ? "the entry holds its words and its parts agree" : string.Join("; ", problems));
     }

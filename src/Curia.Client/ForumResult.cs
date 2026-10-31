@@ -165,6 +165,11 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .Append($"{Error.Title} ({Error.Type}){Detailed}. {new OwnText(BudgetWording.ForumFault)}: {new OwnText(BudgetWording.UnavailableRetry)}. ")
             .Append($"{new OwnText(BudgetWording.NotADenial)}.")
             .ToString(),
+        // R11.72 (errata G52): a fault of a store the Forum owns, told by the type it issues (the token endpoint's code is its type), in the one
+        // published sentence for that type, after the title and the type, as the gate's own sentence follows its. Shared by `curia` and `curia-mcp`.
+        RefusalKind.ServerFault when StoreWording.Sentence(Error.Type) is { Length: > 0 } sentence => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Type}){Detailed}: {new OwnText(sentence)}.")
+            .ToString(),
         RefusalKind.ServerFault => Said($"{Error.Title} ({Error.Type}){Detailed}"),
         RefusalKind.Local => Said($"{Error.Title}{Detailed}"),
         _ => Said($"{Error.Title} ({Error.Type})"),
