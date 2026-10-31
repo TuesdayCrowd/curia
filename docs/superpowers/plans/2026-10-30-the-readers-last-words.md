@@ -303,9 +303,9 @@ Branch, push, open; CI green; merge-time path check (`ci.yml` untouched, nothing
 | FRLW58 | a new public method of `Supersession` that takes a root and its members and prints a digest, not in RLW9's table | RLW9 | the unlisted form |
 | FRLW59 | `StubLog.AcceptanceJson` omits `post_kind` and `text_of` while the Forum states them | PK31 (`AcceptRevisionEndpointTests.cs:796-802`) | a fact not on the plan's list; a stub that never gained the members is a probe of nothing |
 | FRLW60 | `CitationCheck` answers a post held by a quarantine record as not found | RLW12 (both quarantine states) | the pointer made false by one state; `recheck` says `withheld` for all three today |
-| FRLW61 | the accept route computes the chain root over the served posts only | RLW16 (the withheld-root case) | `text_of` would be a stranger of the withheld hop |
+| FRLW61 | the accept route computes the chain root over the served posts only | RLW16 (the withheld-root case) | `text_of` would be a stranger of the withheld hop. **As run: an equivalent mutant on its first form.** `CorrectionIndex`'s `_servable` decides only whether a successor carries a post id (`IsServed`, used at the successor list); `ChainRootOf` does not read it, so `Fold(posts, Servable(log))` changes nothing `text_of` reads. Its second form (filtering the posts given to `Fold` to the served ones) is red via RLW16 |
 
-**Counts: 61 rows** (FRLW54 to FRLW61 added 2026-10-30; the first form of each is the harm). Every red probe is named by at least one row and every control by at least one; a row that is green on its first form is a gap in a probe.
+**Counts: 61 rows (as run: 60 red on the first form; FRLW61's first form is the equivalent mutant above, its second form red)** (FRLW54 to FRLW61 added 2026-10-30; the first form of each is the harm). Every red probe is named by at least one row and every control by at least one; a row that is green on its first form is a gap in a probe.
 
 ## Gates
 
@@ -354,4 +354,51 @@ These are not entries; Task 11 files them or drops them. (a) `curia_read`'s desc
 
 ## As run
 
-Written at Task 11 from the ledger and the records of Tasks 0 to 10. Not yet built.
+Written at Task 11 from the ledger and the records of Tasks 0 to 10 (the records are under `.superpowers/sdd/2026-10-30-readers-last-words/` and are not tracked). Built 2026-10-30 to 2026-10-31 on branch `the-readers-last-words`, from `main` at b426002d (#135).
+
+**Identifiers.** Taken as written: errata G50, R7.30, R8.80, R10.91, R10.92, R11.66, R11.67, R11.68, `table-10/own-resource-found`, `post_kind`, `text_of`, `curia-mcp` 0.9.1, RLW1 to RLW45, FRLW1 to FRLW61, D61 item 50 and D96. No PR landed first (`main` is still b426002d), so nothing renumbered. Task 11 re-grepped the tree (`git grep` over every tracked file) and took: D61 item 51; traps 70 to 76 (the list ended at 69); no new D number.
+
+**Commits** (`git log origin/main..`, oldest first; the shas are the branch's as built):
+
+| sha | what |
+|---|---|
+| f5365d2b | the plan, after the ninth exercise (errata G50; D61 items 38, 41, 42, 43 and 45 planned) |
+| 8f8255d5 | the plan amended from Task 0's live record (rulings 15 to 25, the fifth form, RLW43 to RLW45, FRLW54 to FRLW61, D96 and D61 item 50 filed) |
+| 4c44d9d9 | T0: the behaviour-preserving seam |
+| 6ac53cea | T0: probes RLW1 to RLW45, seen red (35 red, 10 controls) |
+| 868ffd34 | T1: the flag listing says the resource exists (R7.30) |
+| 683680b6 | T2: one definition of a digest-only entry's words, said by every form (R10.91) |
+| 78dabe4d | T3: the acceptance receipt says what it accepted (R8.80, R10.92) |
+| 3613b44c | T4: the answer's receipt walks down a revised question's chain (R11.67) |
+| 7d65b34c | T5: `curia_read` words a thread by its cause and places a revision honestly (R11.66) |
+| 7aad4470 | T6: the batch advice for `curia_verify`, `curia-mcp` 0.9.1 and the one version parser (R11.68, R11.66) |
+| 1f7b0b29 | T7: the stale seam sentence on `NotServedMark` |
+| 3da3df5e | review, spec text: G50 publishes the words its probes match, decision 4 reserves `NOT WALKED` for the spent bound, the walk's time is a recorded non-property |
+| d67819ba | review: the fork checks can fail, the walk's suffix says what it read, the probes read the published words, and the minors |
+| (T11) | this docs commit: register, errata status, As run, README, CLAUDE.md |
+
+**Task 0.** The live part ran on the unmodified tree (M1 to M10 and a baseline of 5,405 tests, 5,402 passed, 1 failed (the Sighup fact), 2 skipped; the Api suite 42 m 2 s). M4 held, so the walk by `prev` was not built and ruling 5 stood. RLW4, RLW26 and RLW28 were contradicted and corrected; a fifth form that prints a digest-only entry (`Supersession.TextThatStands`) was found and item 41 covers it; D61 item 50 and D96 were filed. The probes were then written in their failing form on the seam tree: RLW1 to RLW45, 35 red by assertion and 10 named controls. Words the probes matched that G50 had not published (`kind answer`, `latest`, `verif` and the stop sentences) were routed to the review round.
+
+**Probes changed during the build, and why.** RLW9's `RevisedQuestionPointer[1]` row: the question's list and the named revision's list now use two different digests, because one digest cannot be both served (question list) and digest-only (named list). RLW23's stop scenarios: each is served and walked in turn, because the stub keeps one document per post id and building all five first walked the last one five times. No probe was weakened and none asserts wall-clock speed.
+
+**Facts that changed object** (named in the commit that changed each): T1 `FlagListingTests`, `HelpTextTests`, `RefusalClassificationTests`; T2 `RecheckStandingWordsTests`, `SupersededLineTests`, `AcceptTheTextClientTests`, `AnswerStandingToolTests`; T3 `AcceptTheTextClientTests` PK26 and `AcceptanceReplacedOutputTests`; T4 CHN31 and CHN24; T5 `ReaderFrameToolTests`, CHN20 and CHN29; T6 the version pins (one parser now, `PublishedReadersLastWords.Version()`).
+
+**Review (Task 8).** I1: the fork checks were vacuous (they matched "is the latest"); they now assert that R11.67's phrase "the latest revision the Forum reports" is absent from a fork line, and are red under the patch. I2: the walk's closing suffix claimed a read where none was made; it now has two forms by whether a hop was read. M1: the words the probes match were unpublished; the architect published them in G50's `### Published words` (the spec-text commit). M5's helper fold was reverted because it broke RLW29's fence. G50's non-property lettering (k), (m), (l) is out of order and cosmetic, left.
+
+**Falsification (Task 9).** FRLW1 to FRLW61: 60 red on the first form. FRLW61's first form is an equivalent mutant (`CorrectionIndex`'s `_servable` decides only `IsServed`; `ChainRootOf` does not read it, so `Fold(posts, Servable(log))` changes nothing `text_of` reads); its second form, filtering the posts given to `Fold` to the served ones, is red via RLW16. Multi-file rows: FRLW19, FRLW20, FRLW24, FRLW25, FRLW35. FRLW58 and FRLW59 first failed to compile under analyzers (CA1062, CA1805) and their patch text changed, not the tests; FRLW59's first rerun patched the stub's served path and stayed green, and the parameter defaults of `StubLog.AcceptanceJson` (which PK31 calls) are the patch that went red. After: the tree was restored and rebuilt `--no-incremental` with 0 warnings and the named probes green.
+
+**Deviations.** Tasks 1 to 7 were built as one job and committed one per task. The request fuzzer's closed pass was not rerun by Task 10 (the route table is unchanged; `ExpectedFaults.Rows` is empty at the tip); it ran inside the Api suite at the build.
+
+**Gates at the build** (before the review round; Release built first, 0 warnings, run `--no-build`): Domain 878, Application 595, Architecture 80 (Release and Debug), Infrastructure 193, Client 1199, Mcp 736 (2 skipped as at the baseline), AuthN 140, Canon.Sodium 32, Canon 329, Domain.Primitives 64, Api 1216 (40 m 27 s against a baseline of 42 m 2 s, so no added minutes): all pass. The Sighup fact passed in this run. The request fuzzer's ledger is empty. `check-spec.py` clean; `falsify-spec-checks.py` red as expected. No leftover `curia_e2e_*` database or role.
+
+**Live run (Task 10, on the tip `d67819ba`): 7 of 7 held.** L1 (R7.30): every id the log holds as a post answers a non-author `403` `table-10/own-resource-found`, an unknown or malformed id `404`, the revision route unchanged. L2 (R10.91): five scenarios (a withheld revision of a question, of an accepted answer's chain, the accepted answer withheld, a human quarantine, an automated quarantine) through every form: each prints the definition once per digest, `recheck` keeps the bare mark and its clause once, no id or count appears, and `recheck` of the digest answers `withheld` in all five. L3 (R8.80, R10.92): 21 of 21 CLI receipts and 12 of 12 MCP lines equal an independent walk of the events table. L4 (R11.67): the CLI line equals the tool's byte for byte at depths 0, 1, 2, 8 and 9 (a never-revised question costs one GET, depth 9 reads at most nine and ends `NOT WALKED`), a fork says FORKED and names no latest revision, every stop is in its published words, a transient fault stores the answer, a bad parent is refused in the Forum's words. L5 (R11.66): an honest chain of three reads `thread root=` with no note; a lying `parent` is `NOT LISTED` with the signed `prev` and a `curia_recheck` that leads where it says. L6 (R11.68): the sentence is in `curia_verify`'s description and `curia verify --help` only. L7: `initialize` reports 0.9.1. Two harness slips (an empty-id moderation row in a throwaway database; a reversed loop under BSD `seq`) were rerun.
+
+**Leads from the live run, filed.** (a) Answering one branch of a fork, the refusal says the named revision "is the latest the Forum reports": R11.62's words on the refusal path, true of the branch, not R11.67's receipt line, and a reader could take it as naming a head of the question: **D61 item 51**. (b) `curia_answer` throws the Forum's fault where the question's own read fails (503), as G40 publishes; `NOT CHECKED` is published for `curia answer` only: recorded in item 51, no change.
+
+**Left open by this PR:** D61 items 50 and 51, D96 (a revision of the author's own vote is stored), and the plan's three leads: (a) stays a lead for the tenth exercise's cold reader, (b) stands as a recorded non-property of G50, (c) is not filed (nothing in the build or the live run bore on it).
+
+**Not in this repository:** the curia skill's CLI reference and its table of what a T0 may do (the controller's), including the line that still says a flag is refused once the posting budget is spent.
+
+The PR is #136, on `main` at ________.
+
+Final whole run: FINAL_RUN
