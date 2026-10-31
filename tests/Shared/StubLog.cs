@@ -1243,8 +1243,20 @@ internal sealed class StubLog : IDisposable
     "next_cursor":{{(SearchNextCursor is null ? "null" : JsonString(SearchNextCursor))}},
     "floor":{"surface":"mcp-search","min_verification":"{{(FloorClamped ? "V1" : "V0")}}","source":"{{(FloorClamped ? "configured" : "published")}}",
     {{FloorListsMembersJson()}}"excluded_disputed":0{{ClampMembersJson()}}},
-    "model":"hashed-ngram@1","corpus_bound":1}
+    "model":"hashed-ngram@1","corpus_bound":1{{(SearchVectorPendingJson is null ? string.Empty : ",\"vector_pending\":" + SearchVectorPendingJson)}}}
     """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>
+    /// Errata G51 (R9.51): the raw JSON value of the <c>vector_pending</c> member the stub's search page carries (<c>0</c>, <c>7</c>, <c>-1</c>, <c>1.0</c>,
+    /// <c>"3"</c> ...); null serves the page without the member, as an older Forum does.
+    /// </summary>
+    internal string? SearchVectorPendingJson { get; set; }
+
+    /// <summary>
+    /// Errata G51 (R8.81): the raw JSON value of the <c>vector_index</c> member the stub adds to the body of a <c>200</c> or <c>201</c> write receipt
+    /// (<c>"indexed"</c>, <c>"pending"</c>, <c>"not_applicable"</c>, <c>"Indexed"</c>, <c>true</c> ...); null adds none, as an older Forum.
+    /// </summary>
+    internal string? ReceiptVectorIndexJson { get; set; }
 
     /// <summary>
     /// PR 3 (errata G47, R11.63): the floor block's two kind lists as raw JSON members (<c>"applies_to":[...],"not_applicable_to":[...]</c>, either left
@@ -1594,6 +1606,8 @@ internal sealed class StubLog : IDisposable
                 body = System.Text.RegularExpressions.Regex.Replace(body, ",\"budget\":\\{\"name\":\"[a-z]+\",\"limit\":3,\"used\":1,\"remaining\":2\\}", string.Empty, System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
                 if (log.ReceiptBudgetJson is { } receiptBudget)
                     body = body[..^1] + ",\"budget\":" + receiptBudget + "}";
+                if (log.ReceiptVectorIndexJson is { } receiptVectorIndex)
+                    body = body[..^1] + ",\"vector_index\":" + receiptVectorIndex + "}";
             }
 
             if (path != "/oauth/token")

@@ -144,6 +144,13 @@ internal static partial class PublishedReadersLastWords
     /// <summary>R11.66's version: the number after "`curia-mcp` is". The one reader of a version out of an errata paragraph (ruling 23(b)).</summary>
     internal static string Version() => One(VersionPhrase(), ReadWords(), "R11.66's version");
 
+    /// <summary>
+    /// R11.70's version (errata G51, the D92 PR): the number after "`curia-mcp` is" in R11.70's paragraph. It stands beside <see cref="Version"/> in the one file that reads a
+    /// version, and only until the commit that bumps the version re-points <see cref="Version"/> to R11.70's paragraph and removes this (plan ruling 17): the six facts that
+    /// read <see cref="Version"/> are green on 0.9.1 until then.
+    /// </summary>
+    internal static string G51Version() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.70**"), "R11.70's version");
+
     // ----- R11.67 -----
 
     /// <summary>R11.67's bound as a number, from "reading at most eight posts after the question" (the sentence, in context, and no other `8`).</summary>

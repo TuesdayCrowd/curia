@@ -385,6 +385,9 @@ internal sealed class FailingVectorIndex(IVectorIndex inner) : IVectorIndex
 
     internal bool FailUpserts { get; set; }
 
+    /// <summary>When set, every nearest-neighbour read fails as a returned <c>Error</c> (the near-duplicate check's read, before the append).</summary>
+    internal bool FailNearest { get; set; }
+
     /// <summary>When set, every upsert throws what this makes (a fault that is not a returned <c>Error</c>).</summary>
     internal Func<Exception>? ThrowWith { get; set; }
 
@@ -440,6 +443,7 @@ internal sealed class FailingVectorIndex(IVectorIndex inner) : IVectorIndex
     internal void ResetModes()
     {
         FailUpserts = false;
+        FailNearest = false;
         ThrowWith = null;
         ReleaseUpserts();
         lock (_gate) _failDigests.Clear();
@@ -485,7 +489,9 @@ internal sealed class FailingVectorIndex(IVectorIndex inner) : IVectorIndex
     }
 
     public Task<Result<System.Collections.Immutable.ImmutableArray<VectorMatch>>> NearestAsync(Embedding query, int limit, CancellationToken cancellationToken = default) =>
-        inner.NearestAsync(query, limit, cancellationToken);
+        FailNearest
+            ? Task.FromResult(Result<System.Collections.Immutable.ImmutableArray<VectorMatch>>.Fail(new Error("curia/retrieval/index-unavailable", "The vector index failed before the append")))
+            : inner.NearestAsync(query, limit, cancellationToken);
 
     public Task<Result<long>> CountAsync(EmbeddingModel model, CancellationToken cancellationToken = default) => inner.CountAsync(model, cancellationToken);
 
@@ -667,11 +673,12 @@ public sealed class PassThroughGateForumFixture : ForumFixture
 internal static class TimerClockHost
 {
     /// <summary>A second host over the fixture's database whose <see cref="TimeProvider"/> is <paramref name="clock"/> and whose vector index is the fixture's decorator, wrapped afresh.</summary>
-    internal static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Of(AgentWriteGateForumFixture forum, Curia.Tests.Shared.TimerManualTimeProvider clock) =>
+    internal static Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Of(AgentWriteGateForumFixture forum, Curia.Tests.Shared.TimerManualTimeProvider clock, LogCapture? log = null) =>
         forum.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(clock);
+            if (log is not null) services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(log);
         }));
 
     /// <summary>A timer-capable clock at the fixture clock's current instant.</summary>
