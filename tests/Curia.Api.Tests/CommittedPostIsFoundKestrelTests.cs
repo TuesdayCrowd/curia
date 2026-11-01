@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using Curia.Tests.Shared;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 using Probe = Curia.Api.Tests.RevisionProbe;
@@ -432,6 +433,84 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
         Said(
             "an upsert was held by the check; during it vector_pending was 1 and a check was owed; released, vector_pending was 0",
             $"{(held ? "an upsert was held by the check" : "no upsert was held by the check")}; during it vector_pending was {during.Pending}{(held ? string.Empty : " (vector_pending is 0 while the check has enrolled a post)")} and {(during.Owed ? "a check was owed" : "no check was owed")}; released, vector_pending was {after.Pending}");
+    }
+
+    /// <summary>
+    /// CPF34 (the fix round, FCPF21). The check writes nothing to the log, in process over the real Postgres. An <c>ask</c> whose append commits and then throws is found by
+    /// the checks of the next 62 seconds (the next tick, and the repeat that clears the obligation); the events table's count and highest sequence, read by SQL, are what they
+    /// were after the <c>503</c>, and the anti-join is 0.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF34_TheCheckWritesNothingToTheEventsTable()
+    {
+        await using var host = forum.NewHost();
+        var (actor, wire, token) = await AskerAsync(host);
+        await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+        var before = await host.AntiJoinAsync(actor.Agent.AgentId, Ct);
+        var shapeBefore = await host.LogShapeAsync(Ct);
+
+        await host.TicksAsync((int)PublishedCheckWords.SweepSettle().TotalSeconds + 2, Ct);
+
+        var shapeAfter = await host.LogShapeAsync(Ct);
+        var after = await host.AntiJoinAsync(actor.Agent.AgentId, Ct);
+        Said(
+            $"the anti-join held 1 digest and is now 0; the table holds {shapeBefore.Count} events with highest sequence {shapeBefore.MaxSeq}, as before the checks",
+            $"the anti-join held {before} digest{(before == 1 ? string.Empty : "s")} and is now {after}; the table holds {shapeAfter.Count} events with highest sequence {shapeAfter.MaxSeq}, as before the checks");
+    }
+
+    /// <summary>
+    /// CPF36 (the fix round, FCPF5). The obligation exists before the <c>503</c>'s response starts: a middleware outside the whole pipeline records, at the moment the response
+    /// starts, the sweep's next attempt, and it is an instant no later than the next tick. A mark set after the answer is written is set for a client that has already
+    /// been told, and a search it makes the instant the <c>503</c> returns can read it clear.
+    /// </summary>
+    [Fact]
+    public async Task R9_53_CPF36_TheObligationIsOwedBeforeTheResponseOfTheFaultStarts()
+    {
+        var seen = new System.Collections.Concurrent.ConcurrentQueue<(string Method, int Status, DateTimeOffset? DueAt)>();
+        await using var host = forum.NewHost(services => services.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter>(_ => new ResponseStartRecorder(seen)));
+        var (actor, wire, token) = await AskerAsync(host);
+        seen.Clear();
+        var now = forum.Now;
+        await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+
+        var starts = seen.Where(s => s.Status == 503).ToList();
+        var expected = $"one 503 started; when it started the sweep's next attempt was an instant no earlier than {Instant(now)} and no later than {Instant(now + TimeSpan.FromSeconds(1))}";
+        var actual = starts.Count != 1
+            ? $"{starts.Count} 503 responses started ({seen.Count} responses in all)"
+            : starts[0].DueAt is { } due && due >= now && due <= now + TimeSpan.FromSeconds(1)
+                ? expected
+                : $"one 503 started; when it started the sweep's next attempt was {(starts[0].DueAt is { } at ? Instant(at) : "none, no check was owed")}";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF37 (the fix round, FCPF9). A search reads the check's instants before it reads the backlog's count. The sweep's lock is held by the probe; a search made meanwhile
+    /// waits at the first call that needs it; while it waits a check enrols a post and records its completion (clearing the obligation), on the thread that holds the lock.
+    /// Read in the right order the search then states the cleared obligation and the post as pending; read the other way round it states the obligation cleared and none pending.
+    /// </summary>
+    [Fact]
+    public async Task R9_51_CPF37_ASearchReadsTheCheckBeforeItReadsTheCount()
+    {
+        await using var host = forum.NewHost();
+        var exit = forum.Now;
+        host.Sweep.Owe(exit);
+        var began = exit + PublishedCheckWords.SweepSettle() + TimeSpan.FromSeconds(1);
+        await host.StateAsync(Ct);
+        var hold = HeldLock.Take(host.Sweep, () =>
+        {
+            host.Backlog.Add(new Curia.Application.Retrieval.PendingEntry("sha256:" + new string('c', 64), "cpf37-post", 1), began);
+            host.Sweep.Completed(began);
+        });
+        await hold.Held.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        var search = host.StateAsync(Ct);
+        await Task.Delay(TimeSpan.FromSeconds(1), Ct);
+        await hold.ReleaseAsync();
+        var state = await search;
+
+        Said(
+            "the search stated vector_pending 1 and no check owed",
+            $"the search stated vector_pending {state.Pending} and {(state.Owed ? "a check owed" : "no check owed")}");
     }
 }
 

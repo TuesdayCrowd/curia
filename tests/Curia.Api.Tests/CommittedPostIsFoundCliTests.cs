@@ -142,6 +142,74 @@ public sealed class CommittedPostIsFoundCliTests(CommittedPostKestrelFixture for
     }
 }
 
+/// <summary>
+/// CPF35 (the fix round, FCPF21), in a class of its own and so on a fixture of its own: its ticks move the Forum's clock ahead, and the real <c>curia</c> of CPF23 signs with the
+/// real clock, which a clock left ahead would make a proof from the past.
+/// </summary>
+[Collection("forum")]
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class CommittedPostSocketLogTests(CommittedPostKestrelFixture forum) : IClassFixture<CommittedPostKestrelFixture>, IDisposable
+{
+    private readonly string _home = Directory.CreateTempSubdirectory("curia-cpf35-").FullName;
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private string Address => forum.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);
+
+    public void Dispose()
+    {
+        Directory.Delete(_home, recursive: true);
+        GC.SuppressFinalize(this);
+    }
+
+    private async Task<(int Exit, string Text)> CuriaAsync(params string[] args)
+    {
+        var behind = DateTimeOffset.UtcNow - forum.Now;
+        if (behind > TimeSpan.Zero) forum.Clock.Advance(behind);
+        var run = await CuriaProcess.RunAsync(_home, Ct, args);
+        return (run.Exit, PublishedCheckWords.Fold(run.Stdout + " " + run.Stderr));
+    }
+
+    private async Task<string> AuthorOfAsync()
+    {
+        await using var admin = new Npgsql.NpgsqlConnection(forum.ConnectionString);
+        await admin.OpenAsync(Ct);
+        await using var command = new Npgsql.NpgsqlCommand("SELECT payload->>'author' FROM events WHERE event_type = 'post.accepted' AND payload->>'board' = 'cpf35' ORDER BY seq DESC LIMIT 1;", admin);
+        return (string?)await command.ExecuteScalarAsync(Ct) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// CPF35 (the fix round, FCPF21). The check writes nothing to the log, on a real socket. An <c>ask</c> whose append commits and then throws, sent to the Forum over
+    /// Kestrel, is found by the checks of the next 62 seconds; the events table's count and highest sequence, read by SQL, are what they were after the <c>503</c>, and the
+    /// anti-join is 0.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF35_TheCheckWritesNothingToTheEventsTableOnARealSocket()
+    {
+        await using var host = forum.Itself();
+        var slug = $"cpf35-{Guid.NewGuid().ToString("N")[..8]}";
+        var enrolled = await CuriaAsync("enrol", "--agent", slug, "--forum", Address);
+        Assert.True(enrolled.Exit == 0, enrolled.Text);
+        host.Store.Arm(EventStoreFault.AppendThenThrow);
+        var asked = await CuriaAsync("ask", "--agent", slug, "--board", "cpf35", "--title", $"About a quokka {Guid.NewGuid():N}?", "--body", "A question about the quokka.", "--forum", Address);
+        host.Store.Disarm();
+        var author = await AuthorOfAsync();
+        var before = await host.AntiJoinAsync(author, Ct);
+        var shapeBefore = await host.LogShapeAsync(Ct);
+
+        await host.TicksAsync((int)PublishedCheckWords.SweepSettle().TotalSeconds + 2, Ct);
+
+        var shapeAfter = await host.LogShapeAsync(Ct);
+        var after = await host.AntiJoinAsync(author, Ct);
+        Probe.Said(
+            $"the ask is answered 503 {PublishedStoreFaults.StoreUnavailableType}; the anti-join held 1 digest and is now 0; the table holds {shapeBefore.Count} events with highest sequence {shapeBefore.MaxSeq}, as before the checks",
+            $"the ask is answered {(asked.Text.Contains(PublishedStoreFaults.StoreUnavailableType, StringComparison.Ordinal) ? "503 " + PublishedStoreFaults.StoreUnavailableType : asked.Text)}; the anti-join held {before} digest{(before == 1 ? string.Empty : "s")} and is now {after}; the table holds {shapeAfter.Count} events with highest sequence {shapeAfter.MaxSeq}, as before the checks");
+    }
+}
+
 /// <summary>CPF32.</summary>
 [Collection("forum")]
 [SuppressMessage(

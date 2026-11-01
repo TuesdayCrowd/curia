@@ -240,3 +240,60 @@ internal sealed class CheckRig
         return CatchUp.RunOnceAsync(Log, now, ct);
     }
 }
+
+/// <summary>
+/// Holds the private lock of an <see cref="IndexSweep"/> or an <see cref="IndexBacklog"/> on a thread of its own, so a probe can stop a check or a search at the one
+/// call that waits for it, and run what it likes (on that same thread, which owns the lock) before letting it go. The lock is the class's own, found by name.
+/// </summary>
+internal sealed class HeldLock
+{
+    private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _go = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Task _done;
+
+    private HeldLock(object owner, Action whileHeld)
+    {
+        var gate = (Lock)(owner.GetType().GetField("_gate", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(owner)
+            ?? throw new InvalidOperationException("the class holds no lock named _gate"));
+        _done = Task.Factory.StartNew(
+            () =>
+            {
+                using (gate.EnterScope())
+                {
+                    _held.SetResult();
+                    _go.Task.Wait(TimeSpan.FromSeconds(60));
+                    whileHeld();
+                }
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>Takes the lock of <paramref name="owner"/>; <paramref name="whileHeld"/> runs on the holding thread when <see cref="ReleaseAsync"/> is called, before the lock is let go.</summary>
+    internal static HeldLock Take(object owner, Action whileHeld) => new(owner, whileHeld);
+
+    /// <summary>Completes when the lock is held.</summary>
+    internal Task Held => _held.Task;
+
+    /// <summary>Runs the held action, lets the lock go, and completes when that is done.</summary>
+    internal Task ReleaseAsync()
+    {
+        _go.TrySetResult();
+        return _done;
+    }
+}
+
+/// <summary>An embedder that runs a probe's action the first time it is asked to embed, then answers as the embedder it wraps does.</summary>
+internal sealed class HookedEmbedder(ITextEmbedder inner, Action onFirstEmbed) : ITextEmbedder
+{
+    private int _asked;
+
+    public EmbeddingModel Model => inner.Model;
+
+    public Result<Embedding> Embed(string text)
+    {
+        if (Interlocked.Increment(ref _asked) == 1) onFirstEmbed();
+        return inner.Embed(text);
+    }
+}

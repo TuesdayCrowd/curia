@@ -5,7 +5,9 @@ using Curia.Application.Ports;
 using Curia.Application.Retrieval;
 using Curia.Domain.Primitives;
 using Curia.Tests.Shared;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -37,7 +39,8 @@ public class CommittedPostFixture : FaultableForumFixture
     }
 
     /// <summary>A host over this fixture's database with seams of its own; the caller disposes it.</summary>
-    internal CheckHost NewHost() => new(this, WithWebHostBuilder(_ => { }));
+    internal CheckHost NewHost(Action<IServiceCollection>? configure = null) =>
+        new(this, WithWebHostBuilder(builder => { if (configure is not null) builder.ConfigureTestServices(configure); }));
 
     /// <summary>The fixture's own host (the first one built), for a probe that needs the fixture itself to be the one on a socket.</summary>
     internal CheckHost Itself() => new(this, this);
@@ -123,6 +126,17 @@ internal sealed class CheckHost(ForumFixture owner, WebApplicationFactory<Progra
         return Convert.ToInt64(await command.ExecuteScalarAsync(ct).ConfigureAwait(false), CultureInfo.InvariantCulture);
     }
 
+    /// <summary>The events table's count and highest sequence, read by SQL on the fixture's own connection string (the log as it is, not as a reader of the Forum serves it).</summary>
+    internal async Task<(long Count, long MaxSeq)> LogShapeAsync(CancellationToken ct)
+    {
+        await using var admin = new NpgsqlConnection(Owner.ConnectionString);
+        await admin.OpenAsync(ct).ConfigureAwait(false);
+        await using var command = new NpgsqlCommand("SELECT count(*), coalesce(max(seq), 0) FROM events;", admin);
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        await reader.ReadAsync(ct).ConfigureAwait(false);
+        return (reader.GetInt64(0), reader.GetInt64(1));
+    }
+
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();
@@ -148,4 +162,69 @@ internal sealed record CheckState(int Status, string Body, string Pending, strin
 
     /// <summary>The words an assertion prints for the state.</summary>
     internal string Says => $"vector_pending={Pending} vector_checked_at={CheckedRaw} vector_check_due_at={DueRaw}";
+}
+
+/// <summary>
+/// Holds the private lock of an <see cref="IndexSweep"/> or an <see cref="IndexBacklog"/> on a thread of its own, so a probe can stop a search at the one call that waits for
+/// it and run what it likes (on that same thread, which owns the lock) before letting it go. The lock is the class's own, found by name.
+/// </summary>
+internal sealed class HeldLock
+{
+    private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _go = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Task _done;
+
+    private HeldLock(object owner, Action whileHeld)
+    {
+        var gate = (Lock)(owner.GetType().GetField("_gate", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(owner)
+            ?? throw new InvalidOperationException("the class holds no lock named _gate"));
+        _done = Task.Factory.StartNew(
+            () =>
+            {
+                using (gate.EnterScope())
+                {
+                    _held.SetResult();
+                    _go.Task.Wait(TimeSpan.FromSeconds(60));
+                    whileHeld();
+                }
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>Takes the lock of <paramref name="owner"/>; <paramref name="whileHeld"/> runs on the holding thread when <see cref="ReleaseAsync"/> is called, before the lock is let go.</summary>
+    internal static HeldLock Take(object owner, Action whileHeld) => new(owner, whileHeld);
+
+    /// <summary>Completes when the lock is held.</summary>
+    internal Task Held => _held.Task;
+
+    /// <summary>Runs the held action, lets the lock go, and completes when that is done.</summary>
+    internal Task ReleaseAsync()
+    {
+        _go.TrySetResult();
+        return _done;
+    }
+}
+
+/// <summary>A startup filter that puts a middleware outside every other: it records, when a response starts, the status and the sweep's next attempt at that moment.</summary>
+internal sealed class ResponseStartRecorder(System.Collections.Concurrent.ConcurrentQueue<(string Method, int Status, DateTimeOffset? DueAt)> seen) : Microsoft.AspNetCore.Hosting.IStartupFilter
+{
+    public Action<Microsoft.AspNetCore.Builder.IApplicationBuilder> Configure(Action<Microsoft.AspNetCore.Builder.IApplicationBuilder> next)
+    {
+        ArgumentNullException.ThrowIfNull(next);
+        return app =>
+        {
+            app.Use(async (context, following) =>
+            {
+                context.Response.OnStarting(() =>
+                {
+                    seen.Enqueue((context.Request.Method, context.Response.StatusCode, context.RequestServices.GetRequiredService<IndexSweep>().DueAt));
+                    return Task.CompletedTask;
+                });
+                await following(context).ConfigureAwait(false);
+            });
+            next(app);
+        };
+    }
 }

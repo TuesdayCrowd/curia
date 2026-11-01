@@ -406,4 +406,119 @@ public sealed class IndexSweepTests
             (aliveAtFifth is >= 0 and <= 3 ? "at the fifth read no more than 3 of the 4 earlier pages were alive" : $"at the fifth read {aliveAtFifth} of the 4 earlier pages were alive");
         Said(expected, actual);
     }
+
+    /// <summary>
+    /// CPF33 (the fix round, FCPF21). The check writes nothing to the log: the log is append-only and the check reads it and indexes. Three posts the log holds and the
+    /// index lacks, a check owed, the catch-up ticked for 400 seconds (three checks: the next tick, the repeat that clears the obligation, the floor); the store's count of
+    /// events and its highest sequence, read from the store, are what they were before the first check, and the index holds the three posts the checks found.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF33_TheCheckWritesNothingToTheLogAndTheIndexHoldsWhatItFound()
+    {
+        var h = new IndexRepairHarness();
+        var posts = new[] { await h.AppendAsync(Ct), await h.AppendAsync(Ct), await h.AppendAsync(Ct) };
+        var before = await h.LogShapeAsync(Ct);
+        h.Sweep.Owe(h.Now);
+
+        var checks = 0;
+        for (var second = 1; second <= 400; second++)
+            if ((await h.CatchUp.RunOnceAsync(h.Store, h.Now + TimeSpan.FromSeconds(second), Ct)).Check is not null) checks++;
+
+        var after = await h.LogShapeAsync(Ct);
+        var held = await h.IndexedAsync(Ct);
+        var expected = $"after 3 checks the log holds {before.Count} events with highest sequence {before.MaxSeq}, as before them; the index holds the 3 posts the log held";
+        var actual = $"after {checks} checks the log holds {after.Count} events with highest sequence {after.MaxSeq}, as before them; the index holds {(held.Length == 3 && posts.All(p => held.Contains(p.Digest)) ? "the 3 posts the log held" : $"{held.Length} of the 3 posts the log held")}";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF38 (the fix round, FCPF9 second form). A check records its completion only after the backlog holds what it found: with the sweep's lock held by the probe from
+    /// the moment the scan embeds the one absent post, the check waits to record its completion, and the backlog already holds the find. A completion recorded first would let
+    /// a search read the obligation cleared and a count of none in the same moment that a find is on its way.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF38_TheCheckRecordsItsCompletionOnlyAfterTheBacklogHoldsWhatItFound()
+    {
+        var rig = new CheckRig(new GeneratedLog(3));
+        await rig.IndexAllExceptAsync(new HashSet<int> { 2 }, Ct);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        rig.Sweep.Owe(exit);
+        var began = exit + Tick;
+        var backlogWhileCompletionWaits = -1;
+        HeldLock? hold = null;
+        var embedder = new HookedEmbedder(rig.Embedder, () =>
+        {
+            hold = HeldLock.Take(rig.Sweep, () => backlogWhileCompletionWaits = rig.Backlog.Count);
+            hold.Held.Wait(TimeSpan.FromSeconds(30));
+        });
+        var catchUp = new EmbeddingCatchUp(new EmbeddingIndexer(embedder, rig.Index), rig.Backlog, rig.Sweep, rig.Clock);
+        rig.Log.Now = began;
+
+        var tick = Task.Run(() => catchUp.RunOnceAsync(rig.Log, began, Ct), Ct);
+        await Task.Delay(TimeSpan.FromMilliseconds(750), Ct).ConfigureAwait(true);
+        await (hold ?? throw new Xunit.Sdk.XunitException("the scan never embedded the absent post")).ReleaseAsync().ConfigureAwait(true);
+        var result = await tick.ConfigureAwait(true);
+
+        Said(
+            "while the check's completion waited the backlog held 1 entry; the check enrolled 1",
+            $"while the check's completion waited the backlog held {backlogWhileCompletionWaits} entr{(backlogWhileCompletionWaits == 1 ? "y" : "ies")}; the check enrolled {result.Check?.Enrolled}");
+    }
+
+    /// <summary>
+    /// CPF39 (the fix round, FCPF19). The scan the check runs, run alone (not through the catch-up, whose retry removes an unplaceable entry in the same pass and so hides
+    /// it): of two posts the model cannot place and two it can, all four absent from the index, the scan hands the check the two it can place, at the first scan and at the
+    /// second (which skips the unplaceable ones from the sweep's memory), and the check's skip of the backlog's own does not change that.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF39_TheScanTheCheckRunsHandsItOnlyThePostsTheModelCanPlace()
+    {
+        var log = new GeneratedLog(6);
+        log.Unplaceable.Add(1);
+        log.Unplaceable.Add(4);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int> { 2, 5 }, Ct);
+
+        async Task<string> ScanAsync()
+        {
+            var handed = new List<string>();
+            var failure = await rig.Indexer.FindAbsentAsync(log, rig.Sweep, (post, _, _) => { handed.Add(Short(post.Digest)); return Task.FromResult<Error?>(null); }, rig.Backlog.Holds, Ct).ConfigureAwait(true);
+            return $"{(failure is null ? "no failure" : failure.Type)}, handed {string.Join(' ', handed)}";
+        }
+
+        var want = $"no failure, handed {Short(GeneratedLog.DigestOf(2))} {Short(GeneratedLog.DigestOf(5))}";
+        Said($"first scan: {want}; second scan: {want}", $"first scan: {await ScanAsync()}; second scan: {await ScanAsync()}");
+    }
+
+    /// <summary>
+    /// CPF40 (the fix round, FCPF25 first form). The floor, and the repeat while owed, are measured from when a check began and not from when it ended: a scan made to take
+    /// 30 s of the clock (the reader advances it) leaves the next attempt where an instantaneous scan would, whether a check is owed (60 s after it began) or not (scans at
+    /// 300 s and 600 s, not 330 s later).
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF40_TheFloorAndTheRepeatAreMeasuredFromWhenTheCheckBeganAndNotFromWhenItEnded()
+    {
+        var owedRig = new CheckRig(new GeneratedLog(3));
+        await owedRig.IndexAllExceptAsync(new HashSet<int>(), Ct);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        owedRig.Sweep.Owe(exit);
+        var began = exit + Tick;
+        owedRig.Clock.Set(began);
+        owedRig.Log.OnScanRead = _ => owedRig.Clock.Advance(TimeSpan.FromSeconds(30));
+        await owedRig.TickAsync(began, Ct);
+        var owed = Due(owedRig.Sweep, began);
+
+        var idleRig = new CheckRig(new GeneratedLog(3));
+        await idleRig.IndexAllExceptAsync(new HashSet<int>(), Ct);
+        idleRig.Log.OnScanRead = _ => idleRig.Clock.Advance(TimeSpan.FromSeconds(30));
+        for (var now = CheckRig.Start + Tick; now <= CheckRig.Start + TimeSpan.FromMinutes(12); now += Tick)
+        {
+            idleRig.Clock.Set(now);
+            await idleRig.TickAsync(now, Ct);
+        }
+
+        var scans = string.Join(", ", idleRig.Log.ScanStarts.Select(s => Secs(s - CheckRig.Start)));
+        Said(
+            "owed: the next attempt is 60 s after the check began; idle: scans at 300, 600 s",
+            $"owed: the next attempt is {owed} after the check began; idle: scans at {scans} s");
+    }
 }
