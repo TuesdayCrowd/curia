@@ -99,4 +99,35 @@ public static class StoreWording
         ArgumentNullException.ThrowIfNull(prefixedDigest);
         return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed); the Forum's recheck of it says whether the act was recorded as of the moment it is asked, not whether it may still be recorded after it.";
     }
+
+    /// <summary>
+    /// R11.77 words (errata G55): the sentence printed after the client's own refusal for an unheard signed post, directly above <see cref="ActLine"/>. It says the
+    /// request was sent and no answer was read, that a Forum still working on it can record the act after this client gave up, and carries the wait once
+    /// (<see cref="RecheckWaitSeconds"/>); it does not say what the act line says, that the recheck answers as of the moment it is asked.
+    /// </summary>
+    public static readonly string UnheardSentence =
+        "The Forum was not heard from: the request was sent and no answer was read, so the act sent may or may not have been recorded, and a Forum still working on it can record it after this client gave up. " +
+        "Do not run the verb again to find out: ask the Forum's recheck about the digest below when " +
+        RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+        " seconds have passed since this message, and send the act again only if the Forum still does not know it then.";
+
+    /// <summary>
+    /// The passage the helps of the verbs that sign a post and the descriptions of the tools that do carry for R11.77 (errata G55): what is printed when the request is
+    /// sent and no answer is read. A resolve and a flag do not carry it, because they print neither line.
+    /// </summary>
+    public static readonly string UnheardNote =
+        "If the request is sent and no answer is read (a timeout, a connection that ends), the refusal is titled \"No answer was read from the Forum\" and is followed by the act line's digest and this: " + UnheardSentence;
+
+    /// <summary>
+    /// What follows a refusal of a signed post, given the digest of the act the client signed (null where no signed post's digest is held: a read, a resolve, a flag):
+    /// the act line for <see cref="StoreUnavailableType"/>; the unheard sentence and then the act line for an unheard refusal (R11.77); nothing otherwise. The one
+    /// definition both printers call, so neither compares a problem type itself and neither can add a line the other does not. It calls nothing and waits for nothing (R11.64).
+    /// </summary>
+    public static IReadOnlyList<string> AfterRefusal(Refusal refusal, string? actDigest)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        if (actDigest is null) return [];
+        if (refusal.Unheard) return [UnheardSentence, ActLine(actDigest)];
+        return string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) ? [ActLine(actDigest)] : [];
+    }
 }

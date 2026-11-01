@@ -1231,11 +1231,12 @@ internal static class Program
             ? Output.FailDuplicate(refusal, duplicate, await DuplicateAnswersAsync(client, duplicate, ct).ConfigureAwait(false))
             : Output.Fail(refusal);
 
-        // R11.72 (errata G52): a signed post answered store/unavailable may or may not have been recorded; the line names the digest of the act sent, which the
-        // Forum's recheck answers for. The caller passes the digest only for a signed post (no signed act, no line). Nothing is resent and nothing is asked
-        // here (R11.64), and no other refusal prints the line: no other has an unknown outcome.
-        if (actDigest is not null && string.Equals(refusal.Error.Type, StoreWording.StoreUnavailableType, StringComparison.Ordinal))
-            Output.Error(new FrameBuilder().Line($"       {new OwnText(StoreWording.ActLine(actDigest))}"));
+        // R11.72 (errata G52), R11.77 (errata G55): a signed post answered store/unavailable, or sent and not heard from, may or may not have been recorded; what follows
+        // the refusal (the unheard sentence, the act line naming the digest the Forum's recheck answers for) is StoreWording's one definition. The caller passes the digest
+        // only for a signed post (no signed act, no lines). Nothing is resent and nothing is asked here (R11.64).
+        if (actDigest is not null)
+            foreach (var line in StoreWording.AfterRefusal(refusal, actDigest))
+                Output.Error(new FrameBuilder().Line($"       {new OwnText(line)}"));
 
         return code;
     }

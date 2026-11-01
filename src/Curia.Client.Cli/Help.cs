@@ -141,10 +141,14 @@ internal static class Help
             ? entry
                 + (DigestOnlyPrinters.Contains(verb, StringComparer.Ordinal) ? DigestOnlyNote : string.Empty)
                 + (WritingVerbs.Contains(verb, StringComparer.Ordinal) ? "\n    " + Wrapped(StoreWording.WriteSentence) : string.Empty)
+                + (SigningVerbs.Contains(verb, StringComparer.Ordinal) ? "\n    " + Wrapped(StoreWording.UnheardNote) : string.Empty)
             : null;
 
     /// <summary>R11.72: the verbs that send a write (a post, a signal, an acceptance or a flag), each help entry of which carries <see cref="StoreWording.WriteSentence"/>. ULG30 derives the list from the dispatch and fails on a verb that writes and is not here.</summary>
     private static readonly string[] WritingVerbs = ["ask", "answer", "comment", "revision", "finding", "endorse", "reproduce", "contradict", "resolve", "flag"];
+
+    /// <summary>R11.77 (errata G55): the writing verbs that sign a post or a vote, each help entry of which carries <see cref="StoreWording.UnheardNote"/>. A resolve and a flag print neither of its lines.</summary>
+    private static readonly string[] SigningVerbs = ["ask", "answer", "comment", "revision", "finding", "endorse", "reproduce", "contradict"];
 
     private static string? Entry(string verb) => verb switch
     {

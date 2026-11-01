@@ -242,11 +242,15 @@ public sealed partial class UnheardActTests
     {
         var problems = new List<string>();
 
+        // A resolve and a flag go out through the same signed-write path as a post, so a timeout of their POST is a refusal titled as one that read no answer, which is
+        // true of them (the request was sent). The probe as first written also forbade that title; R11.77 forbids the sentence and the act line for them ("never for a read,
+        // a resolve or a flag"), and the title is not among what it forbids. A read, the token step and a verb that signs no post keep the old title.
         async Task CheckAsync(string name, RawStubForum stub, params string[] args)
         {
             var run = await RunAsync(stub.Address, ShortTimeout, args);
             var facts = Read(run.Text);
-            if (facts.Sentence || facts.ActLines > 0 || facts.UnheardTitle) problems.Add($"{name}: {facts.Says}");
+            var titleAllowed = args[0] is "resolve" or "flag";
+            if (facts.Sentence || facts.ActLines > 0 || (facts.UnheardTitle && !titleAllowed)) problems.Add($"{name}: {facts.Says}");
         }
 
         using (var reads = new RawStubForum(UnheardBehaviour.Stall) { StallReads = true })
@@ -292,8 +296,8 @@ public sealed partial class UnheardActTests
 
         Said(
             "one submission reached the stub; HttpRequestError is named in UnheardTransport.cs alone; UnheardTransport is called from ForumSession.cs alone; no printer compares a problem type to the store type",
-            $"{(posts == 1 ? "one submission reached the stub" : posts + " submissions reached the stub")}; HttpRequestError is named in {(errorNamers.Length == 0 ? "no file" : string.Join(", ", errorNamers))}; " +
-            $"UnheardTransport is called from {(callers.Length == 0 ? "no file" : string.Join(", ", callers))}; {(comparers.Length == 0 ? "no printer compares a problem type to the store type" : string.Join(" and ", comparers.Select(Path.GetFileName)) + " compare a problem type to the store type")}");
+            $"{(posts == 1 ? "one submission reached the stub" : posts + " submissions reached the stub")}; HttpRequestError is named in {(errorNamers.Length == 0 ? "no file" : string.Join(", ", errorNamers) + (errorNamers.Length == 1 ? " alone" : string.Empty))}; " +
+            $"UnheardTransport is called from {(callers.Length == 0 ? "no file" : string.Join(", ", callers) + (callers.Length == 1 ? " alone" : string.Empty))}; {(comparers.Length == 0 ? "no printer compares a problem type to the store type" : string.Join(" and ", comparers.Select(Path.GetFileName)) + " compare a problem type to the store type")}");
     }
 
     private static readonly string[] PrinterFiles = ["src/Curia.Client.Cli/Program.cs", "src/Curia.Mcp/WriteTools.cs"];

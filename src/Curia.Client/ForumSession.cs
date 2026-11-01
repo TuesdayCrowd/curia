@@ -453,8 +453,12 @@ public sealed class ForumSession
         }
         catch (HttpRequestException ex)
         {
-            return (ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{url}: {ex.Message}"))), null);
+            return (ForumResult<T>.Refused(UnheardTransport.Failed(ex, url)), null);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            // R11.77: the client's own timeout, which is not the caller's cancellation (that still throws). The request was sent and no answer was read.
+            return (ForumResult<T>.Refused(UnheardTransport.TimedOut(url, ex.Message)), null);
         }
 
         using (response)
