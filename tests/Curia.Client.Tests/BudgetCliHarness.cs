@@ -91,13 +91,16 @@ internal sealed class CliHome : IDisposable
 
     internal string Path { get; }
 
-    internal async Task<(int Exit, string Stdout, string Stderr)> RunAsync(params string[] args)
+    internal Task<(int Exit, string Stdout, string Stderr)> RunAsync(params string[] args) => RunInAsync(Path, args);
+
+    /// <summary>The real <c>curia</c> command in a child process with <c>CURIA_CLIENT_HOME</c> at <paramref name="home"/>: a profile store a fact already holds.</summary>
+    internal static async Task<(int Exit, string Stdout, string Stderr)> RunInAsync(string home, params string[] args)
     {
         var ct = TestContext.Current.CancellationToken;
         var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         start.ArgumentList.Add(System.IO.Path.Combine(AppContext.BaseDirectory, "curia.dll"));
         foreach (var arg in args) start.ArgumentList.Add(arg);
-        start.Environment["CURIA_CLIENT_HOME"] = Path;
+        start.Environment["CURIA_CLIENT_HOME"] = home;
 
         using var process = Process.Start(start)!;
         var stdout = process.StandardOutput.ReadToEndAsync(ct);

@@ -150,6 +150,87 @@ public sealed partial class StoreWordsToolTests : IDisposable
         Assert.True(problems.Count == 0, $"{tool}: {string.Join("; ", problems)}");
     }
 
+    // ----- the act line (ruling 22, R11.72 act words): ULG56 and ULG57 -----
+
+    [GeneratedRegex(@"^sha256:[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
+    private static partial Regex PrefixedDigest();
+
+    /// <summary>The words an act line begins with: the published act words up to the digest.</summary>
+    private static string ActLead() => Fold(PublishedStoreFaults.ActSentence[..PublishedStoreFaults.ActSentence.IndexOf("<digest>", StringComparison.Ordinal)]);
+
+    /// <summary>
+    /// ULG56. Each tool that sends a post relays a <c>store/unavailable</c> refusal with the act line: the error text holds the published act words and the digest
+    /// recomputed from the envelope the stub received (never the one <c>SubmissionBuilder</c> returned), in the <c>sha256:</c> spelling.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PostTools))]
+    public async Task R11_72_ULG56_EveryPostToolRelaysTheActLineAfterAStoreFault(string tool)
+    {
+        using var log = new StubLog { RefusesSubmissionsAs = StubIngestRefusal.StoreUnavailable };
+        var relayed = Fold(await CallAsync(log, tool, AliceTools(log)));
+        // A DPoP nonce challenge makes a client send the same act twice: what is counted is the acts, by the digest recomputed from each body.
+        var sent = log.WrittenBodies.Where(ReceivedAct.IsSubmission).Select(ReceivedAct.DigestOf).Distinct(StringComparer.Ordinal).ToList();
+
+        var problems = new List<string>();
+        if (!relayed.StartsWith("error: ", StringComparison.Ordinal)) problems.Add("not relayed as an error");
+        if (sent.Count != 1) problems.Add($"the stub received {sent.Count} different acts, not one");
+        var digest = sent.Count == 0 ? null : sent[^1];
+        if (digest is null || !PrefixedDigest().IsMatch(digest)) problems.Add($"the recomputed digest is not in the sha256: spelling: {digest}");
+        else if (!relayed.Contains(Fold(PublishedStoreFaults.ActLine(digest)), StringComparison.Ordinal)) problems.Add($"lacks \"{Fold(PublishedStoreFaults.ActLine(digest))}\"");
+
+        Assert.True(problems.Count == 0, $"{tool}: {string.Join("; ", problems)}. Relayed: \"{relayed}\"");
+    }
+
+    public static TheoryData<string> NoActCases() => new() { "log-unreadable", "token", "gate-unavailable", "resolve", "flag" };
+
+    /// <summary>
+    /// ULG57, a control (red under FULG48), at the tools. No act line after <c>curia/log/unreadable</c>, the token's <c>temporarily_unavailable</c> or
+    /// <c>curia/budget/gate-unavailable</c> to a post, and none after <c>curia_resolve</c> or <c>curia_flag</c> answered <c>store/unavailable</c>, which carry the
+    /// store sentence.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(NoActCases))]
+    public async Task R11_72_ULG57_NoToolPrintsAnActLineWhereThereIsNoActToAskAbout(string name)
+    {
+        using var log = new StubLog();
+        var carriesStoreSentence = false;
+        switch (name)
+        {
+            case "log-unreadable": log.RefusesSubmissionsAs = StubIngestRefusal.LogUnreadable; break;
+            case "token": log.TokenRefusalJson = TokenRefusalBody(); break;
+            case "gate-unavailable": log.RefusesSubmissionsAs = StubIngestRefusal.GateUnavailable; break;
+            default:
+                log.RefusesSubmissionsAs = StubIngestRefusal.StoreUnavailable;
+                carriesStoreSentence = true;
+                break;
+        }
+
+        var tools = AliceTools(log);
+        string text;
+        try
+        {
+            var result = name switch
+            {
+                "resolve" => await tools.ResolveAsync(StubLog.PostId, Ct),
+                "flag" => await tools.FlagAsync(StubLog.PostId, "spam", "this reads as spam", Ct),
+                _ => await tools.AskAsync("b", "A title?", "A body.", null, null, Ct),
+            };
+            text = "not an error: " + Text(result);
+        }
+        catch (ModelContextProtocol.McpException refused)
+        {
+            text = "error: " + refused.Message;
+        }
+
+        text = Fold(text);
+        var problems = new List<string>();
+        if (text.Contains(ActLead(), StringComparison.Ordinal)) problems.Add("prints an act line");
+        if (carriesStoreSentence && !text.Contains(Fold(PublishedStoreFaults.StoreUnavailableSentence), StringComparison.Ordinal)) problems.Add("lacks the store sentence");
+        if (!text.StartsWith("error: ", StringComparison.Ordinal)) problems.Add("not relayed as an error");
+
+        Assert.True(problems.Count == 0, $"{name}: {string.Join("; ", problems)}. Relayed: \"{text}\"");
+    }
+
     /// <summary>
     /// ULG30, the tools' half. The description of every write tool carries the repeat sentence. The tools are the catalogue's own list of tools that write in the
     /// agent's name (<c>ToolCatalogue.WriteToolNames</c>), not a list kept here, and the count is written after, so a write tool added without the sentence is red.

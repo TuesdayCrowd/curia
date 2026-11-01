@@ -179,7 +179,7 @@ public sealed partial class StoreFaultFenceTests
     {
         string[] published =
         [
-            PublishedStoreFaults.LogUnreadableSentence, PublishedStoreFaults.StoreUnavailableSentence, PublishedStoreFaults.TokenSentence,
+            PublishedStoreFaults.LogUnreadableSentence, PublishedStoreFaults.StoreUnavailableSentence, PublishedStoreFaults.ActSentence, PublishedStoreFaults.TokenSentence,
             PublishedStoreFaults.TokenDescription, PublishedStoreFaults.FaultTitle, PublishedStoreFaults.StoreUnavailableTitle,
         ];
 
@@ -194,6 +194,35 @@ public sealed partial class StoreFaultFenceTests
         Assert.True(published.All(p => p.Length > 20), "a published sentence was parsed as a bare token");
         Assert.True(copies.Count == 0, string.Join('\n', copies));
     }
+
+    /// <summary>
+    /// ULG60 (ruling 21, R11.72). The old claim is gone from every word of the clients: in <c>src/Curia.Client</c>, <c>src/Curia.Client.Cli</c> and
+    /// <c>src/Curia.Mcp</c> (where every description and help is written or composed) no source says "sending it again is safe" or that the Forum "refuses a
+    /// repeat of an act it recorded", and the only words that say a repeat is safe are the ones the store sentence carries for <c>resolve</c> and <c>flag</c>, which
+    /// is the published sentence's own.
+    /// </summary>
+    [Fact]
+    public void R11_72_ULG60_NoWordOfTheClientsSaysARepeatOfAPostIsSafe()
+    {
+        var old = new[] { "sending it again is safe", "refuses a repeat of an act it recorded", "safe to repeat", "safe to send again" };
+        var safe = SafeRepeat();
+        var allowed = "a repeat of a resolve or of a flag is safe";
+        var found = new List<string>();
+        foreach (var root in new[] { "src/Curia.Client", "src/Curia.Client.Cli", "src/Curia.Mcp" })
+        {
+            foreach (var (relative, lines) in Sources(root))
+            {
+                var text = string.Join('\n', lines);
+                found.AddRange(old.Where(o => text.Contains(o, StringComparison.OrdinalIgnoreCase)).Select(o => $"{relative}: \"{o}\""));
+                found.AddRange(safe.Matches(text).Select(m => m.Value).Where(v => !v.Contains(allowed, StringComparison.Ordinal)).Select(v => $"{relative}: \"{v}\""));
+            }
+        }
+
+        Assert.True(found.Count == 0, string.Join('\n', found.Distinct(StringComparer.Ordinal)));
+    }
+
+    [GeneratedRegex(@"\brepeat\b[^.\r\n""]{0,40}\bis safe\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex SafeRepeat();
 
     /// <summary>
     /// ULG32, a control (green on the seam tree: errata G52 is applied; red only under FULG30). <c>PublishedStoreFaults</c> reads the entry: the two types and

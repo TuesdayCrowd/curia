@@ -102,6 +102,21 @@ internal static partial class PublishedStoreFaults
     /// <summary>The sentence the descriptions of the write tools and the helps of the writing verbs carry: R11.72 says it is the second.</summary>
     internal static string RepeatSentence => StoreUnavailableSentence;
 
+    /// <summary>
+    /// R11.72 act words (ruling 22): the line a client prints after a refusal of <c>curia/store/unavailable</c> to a signed post, with <c>&lt;digest&gt;</c> left in:
+    /// the span after "one line:" in the <c>R11.72 act words</c> paragraph.
+    /// </summary>
+    internal static string ActSentence => One(Group(ActPhrase(), WordsParagraph("R11.72 act"), "R11.72's act words"));
+
+    /// <summary>The act line for a digest in the spelling <c>recheck</c> takes: <see cref="ActSentence"/> with <c>&lt;digest&gt;</c> replaced.</summary>
+    internal static string ActLine(string prefixedDigest)
+    {
+        var sentence = ActSentence;
+        return sentence.Contains("<digest>", StringComparison.Ordinal)
+            ? sentence.Replace("<digest>", prefixedDigest, StringComparison.Ordinal)
+            : throw new InvalidOperationException($"{Errata}'s R11.72 act words have no <digest> to replace");
+    }
+
     // ----- text helpers -----
 
     /// <summary>The whole <c>words</c> paragraph of <paramref name="requirement"/> (for example <c>R8.82</c>), whitespace folded; throws where it is absent.</summary>
@@ -131,7 +146,7 @@ internal static partial class PublishedStoreFaults
 
     /// <summary>The paragraph of the errata's text, whitespace folded, for a scan that must not find a published sentence copied by hand.</summary>
     internal static string[] AllSentences() =>
-        [LogUnreadableSentence, StoreUnavailableSentence, TokenSentence, TokenDescription, TokenOwnFaultDescription, LogUnreadableTitle, StoreUnavailableTitle, FaultTitle];
+        [LogUnreadableSentence, StoreUnavailableSentence, ActSentence, TokenSentence, TokenDescription, TokenOwnFaultDescription, LogUnreadableTitle, StoreUnavailableTitle, FaultTitle];
 
     private static (string Type, string Title) Pair(int index)
     {
@@ -221,4 +236,7 @@ internal static partial class PublishedStoreFaults
 
     [GeneratedRegex(@"For the token: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex TokenSentencePhrase();
+
+    [GeneratedRegex(@"one line: `([^`]+)`", RegexOptions.CultureInvariant)]
+    private static partial Regex ActPhrase();
 }

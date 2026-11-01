@@ -1879,6 +1879,13 @@ internal sealed class StubLog : IDisposable
                 return (HttpStatusCode.Created, StubLog.ReceiptJson(digest), null);
             }
 
+            // Errata G52 (R11.72, ULG57): a fault of the store on the two writes that sign no post, worded as the entry words it.
+            if ((path.EndsWith("/accept", StringComparison.Ordinal) || path.EndsWith("/flags", StringComparison.Ordinal)) && log.RefusesSubmissionsAs is StubIngestRefusal.StoreUnavailable)
+            {
+                return (HttpStatusCode.ServiceUnavailable,
+                    $$"""{"type":"{{Curia.Tests.Shared.PublishedStoreFaults.StoreUnavailableType}}","title":"{{Curia.Tests.Shared.PublishedStoreFaults.StoreUnavailableTitle}}","detail":null}""", null);
+            }
+
             // R7.27 (errata G48): the agent write gate's two refusals are also the accept route's.
             if (path.EndsWith("/accept", StringComparison.Ordinal) && log.RefusesSubmissionsAs is StubIngestRefusal.AgentInFlight or StubIngestRefusal.GateUnavailable)
                 return BudgetGateRefusal(log.RefusesSubmissionsAs.Value);

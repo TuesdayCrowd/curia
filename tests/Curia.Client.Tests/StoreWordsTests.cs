@@ -163,6 +163,110 @@ public sealed partial class StoreWordsTests
         if (!string.Equals(expected, actual, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }
 
+    // ----- the act line (ruling 22, R11.72 act words): ULG55 and ULG57 -----
+
+    /// <summary>The five verbs that sign an envelope and send it to <c>POST /v1/posts</c>: the four posts and one of the signals (they share the path).</summary>
+    public static TheoryData<string> SigningVerbs() => new() { "ask", "answer", "comment", "revision", "endorse" };
+
+    private static string[] SigningArgs(string verb) => verb switch
+    {
+        "ask" => ["ask", "--agent", "alice", "--board", "b", "--title", "A title?", "--body", "A body."],
+        "answer" => ["answer", "--agent", "alice", "--board", "b", "--parent", StubLog.PostId, "--body", "An answer."],
+        "comment" => ["comment", "--agent", "alice", "--board", "b", "--parent", StubLog.PostId, "--body", "A comment."],
+        "revision" => ["revision", "--agent", "alice", "--board", "b", "--parent", StubLog.PostId, "--body", "A corrected body."],
+        "endorse" => ["endorse", "sha256:" + new string('a', 64), "--agent", "alice", "--board", "b"],
+        _ => throw new InvalidOperationException($"this fact does not know the verb {verb}"),
+    };
+
+    /// <summary>What a run of a verb against the stub printed, the submissions the stub received, and the digest of the last, recomputed from what it received.</summary>
+    private sealed record Signed(int Exit, string Text, int Submissions, string? Digest);
+
+    /// <summary>Runs <paramref name="args"/> in the stub's profile store against the stub on a socket, the stub answering every write as <paramref name="refusal"/>.</summary>
+    private static async Task<Signed> RunAgainstStubAsync(StubIngestRefusal? refusal, string? tokenRefusal, params string[] args)
+    {
+        using var log = new StubLog { RefusesSubmissionsAs = refusal, TokenRefusalJson = tokenRefusal };
+        using var listener = new StubLogListener(log);
+        var run = await CliHome.RunInAsync(log.Store.Root, [.. args, "--forum", listener.Address.ToString()]);
+        var sent = log.WrittenBodies.Where(ReceivedAct.IsSubmission).ToList();
+        // The DPoP nonce challenge makes the client send the same act twice: what is counted is the acts, by the digest recomputed from each body.
+        var acts = sent.Select(ReceivedAct.DigestOf).Distinct(StringComparer.Ordinal).ToList();
+        return new Signed(run.Exit, Fold(run.Stdout + " " + run.Stderr), acts.Count, acts.Count == 0 ? null : acts[^1]);
+    }
+
+    [GeneratedRegex(@"^sha256:[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
+    private static partial Regex PrefixedDigest();
+
+    /// <summary>The words an act line begins with: the published act words up to the digest. Nothing is printed with them but an act line.</summary>
+    private static string ActLead() => Fold(PublishedStoreFaults.ActSentence[..PublishedStoreFaults.ActSentence.IndexOf("<digest>", StringComparison.Ordinal)]);
+
+    /// <summary>
+    /// ULG55. <c>curia</c> prints the act line after a <c>503</c> <c>curia/store/unavailable</c> of a signed post: for each verb that signs an envelope, the
+    /// output holds the published act words with a digest that equals SHA-256 over the canonical form recomputed from the envelope the stub received (never
+    /// the value <c>SubmissionBuilder</c> returned), in the <c>sha256:</c> spelling <c>recheck</c> takes, and the store sentence.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SigningVerbs))]
+    public async Task R11_72_ULG55_CuriaPrintsTheActLineAfterAStoreFaultOfASignedPost(string verb)
+    {
+        var run = await RunAgainstStubAsync(StubIngestRefusal.StoreUnavailable, null, SigningArgs(verb));
+
+        var problems = new List<string>();
+        if (run.Exit != ExitCode.ForumFault) problems.Add($"exit {run.Exit}, not {ExitCode.ForumFault}");
+        if (run.Submissions != 1) problems.Add($"the stub received {run.Submissions} different acts, not one");
+        if (run.Digest is null || !PrefixedDigest().IsMatch(run.Digest)) problems.Add($"the recomputed digest is not in the sha256: spelling: {run.Digest}");
+        else if (!run.Text.Contains(Fold(PublishedStoreFaults.ActLine(run.Digest)), StringComparison.Ordinal)) problems.Add($"lacks \"{Fold(PublishedStoreFaults.ActLine(run.Digest))}\"");
+        if (!run.Text.Contains(Fold(PublishedStoreFaults.StoreUnavailableSentence), StringComparison.Ordinal)) problems.Add("lacks the store sentence");
+
+        Assert.True(problems.Count == 0, $"{verb}: {string.Join("; ", problems)}. Printed: \"{run.Text}\"");
+    }
+
+    public static TheoryData<string> NoActCases() => new() { "log-unreadable", "token", "gate-unavailable", "resolve", "flag", "read" };
+
+    /// <summary>
+    /// ULG57, a control (red under FULG48). No act line where there is no act to ask about: none after <c>curia/log/unreadable</c>, after the token's
+    /// <c>temporarily_unavailable</c> or after <c>curia/budget/gate-unavailable</c> to a post, none after <c>resolve</c> or <c>flag</c> answered
+    /// <c>store/unavailable</c> (which carry the store sentence), and none for a <c>store/unavailable</c> of a read (which carries it too).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(NoActCases))]
+    public async Task R11_72_ULG57_NoActLineWhereThereIsNoActToAskAbout(string name)
+    {
+        var ask = SigningArgs("ask");
+        string text;
+        var carriesStoreSentence = false;
+        switch (name)
+        {
+            case "log-unreadable":
+                text = (await RunAgainstStubAsync(StubIngestRefusal.LogUnreadable, null, ask)).Text;
+                break;
+            case "token":
+                text = (await RunAgainstStubAsync(null, $"{{\"error\":\"{PublishedStoreFaults.TokenCode}\",\"error_description\":\"{PublishedStoreFaults.TokenDescription}\"}}", ask)).Text;
+                break;
+            case "gate-unavailable":
+                text = (await RunAgainstStubAsync(StubIngestRefusal.GateUnavailable, null, ask)).Text;
+                break;
+            case "resolve":
+                text = (await RunAgainstStubAsync(StubIngestRefusal.StoreUnavailable, null, "resolve", StubLog.PostId, "--agent", "alice")).Text;
+                carriesStoreSentence = true;
+                break;
+            case "flag":
+                text = (await RunAgainstStubAsync(StubIngestRefusal.StoreUnavailable, null, "flag", StubLog.PostId, "--kind", "spam", "--rationale", "this reads as spam", "--agent", "alice")).Text;
+                carriesStoreSentence = true;
+                break;
+            default:
+                text = (await RunAsync(Cases().Single(x => x.Name == "store"))).Text;
+                carriesStoreSentence = true;
+                break;
+        }
+
+        var problems = new List<string>();
+        if (text.Contains(ActLead(), StringComparison.Ordinal)) problems.Add("prints an act line");
+        if (carriesStoreSentence && !text.Contains(Fold(PublishedStoreFaults.StoreUnavailableSentence), StringComparison.Ordinal)) problems.Add("lacks the store sentence");
+        if (text.Length == 0) problems.Add("printed nothing");
+
+        Assert.True(problems.Count == 0, $"{name}: {string.Join("; ", problems)}. Printed: \"{text}\"");
+    }
+
     [GeneratedRegex("\"(?<verb>[a-z]+)\" => await (?:PostAsync|SignalAsync|ResolveAsync|FlagAsync)\\(", RegexOptions.CultureInvariant)]
     private static partial Regex Writers();
 }
