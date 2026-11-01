@@ -220,6 +220,32 @@ public sealed partial class StoreWordsTests
         Assert.True(problems.Count == 0, $"{verb}: {string.Join("; ", problems)}. Printed: \"{run.Text}\"");
     }
 
+    public static TheoryData<string> PostVerbs() => new() { "ask", "answer", "comment", "revision" };
+
+    /// <summary>
+    /// ULG61 (R11.72, R11.64). <c>curia</c> makes no second submission after a store fault: for each of the four posts, the stub receives as many submission
+    /// POSTs when it answers <c>store/unavailable</c> as it does when it serves the call (the DPoP nonce challenge makes a served call more than one, so the
+    /// count is the fact's own baseline and never a constant), the refusal makes no more, and the nonce-challenge POSTs carry one act.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PostVerbs))]
+    public async Task R11_72_ULG61_CuriaMakesNoSecondSubmissionAfterAStoreFault(string verb)
+    {
+        async Task<int> CountAsync(StubIngestRefusal? refusal)
+        {
+            using var log = new StubLog { RefusesSubmissionsAs = refusal };
+            using var listener = new StubLogListener(log);
+            await CliHome.RunInAsync(log.Store.Root, [.. SigningArgs(verb), "--forum", listener.Address.ToString()]);
+            return log.WrittenBodies.Count(ReceivedAct.IsSubmission);
+        }
+
+        var served = await CountAsync(null);
+        var refused = await CountAsync(StubIngestRefusal.StoreUnavailable);
+
+        Assert.True(served >= 1 && refused == served,
+            $"{verb}: a served call makes {served} submission POSTs and a call refused as store/unavailable makes {refused}; the CLI must make no more after the refusal");
+    }
+
     public static TheoryData<string> NoActCases() => new() { "log-unreadable", "token", "gate-unavailable", "resolve", "flag", "read" };
 
     /// <summary>
