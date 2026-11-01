@@ -271,3 +271,36 @@ By `curia-architect`, from Task 0's live record (`.superpowers/sdd/2026-11-01-wo
 5. **The two meanings of "retained at" (not measured by M4: the equal line has no "retained at" yet and no agent's reading was taken).** An agent may read the instant as a tree size or the reverse; WAF19 holds the forms apart and M4 records whether the output confuses (finding 3). If it does, the instant's phrase changes to "stored at" and G53's words with it.
 6. **A sentence of sixteen places.** The store sentence is longer by a third; the six descriptions and ten helps carry it from one definition, and a description's length is not a requirement.
 7. **Identifiers are provisional** (see the top): G53, R10.93, R11.73, R11.74, 0.9.4, WAF, FWAF, and the candidate trap numbers.
+
+## Amendment 2 (2026-11-01, Task 6 review rulings)
+
+By `curia-architect`, from `.superpowers/sdd/2026-11-01-words-after-fault/task-6-review-report.md` (Important 1 to 3), against errata G53 as edited this day. G53 was edited directly (decisions 9 and 10, R11.73 requirement and reason, new `R11.73 act words` paragraph, G52's `R11.72 act words` reduced to a pointer, R11.74 (b) and its words, finding 5, the editorial table, two falsification bullets, the R11.73 and R11.74 index rows). `check-spec.py` and `falsify-spec-checks.py` pass. Nothing was built or run. Ruling numbers continue the list above (last was 17; re-grepped); WAF36 and WAF37 and FWAF28 to FWAF31 were free (re-grepped over this plan and `tests/`, `src/`).
+
+18. **The act line says what `recheck` answers and as of when, and carries no wait** (I1). Words: `The act sent: digest <digest> (computed here from the bytes signed); the Forum's recheck of it says whether the act was recorded as of the moment it is asked, not whether it may still be recorded after it.` Published as `R11.73 act words`; G52's `R11.72 act words` becomes a pointer (the same device as G53 decision 7). Judged as an agent reads it: the act line and the store sentence are one output, the agent reads the shorter first, and "says whether the act was recorded" is the reading G53 removes. The 60 seconds stays in two places only (the `unknown` line and the store sentence; WAF33's count of three is unchanged).
+19. **First retention is not "another check could not be made"** (I3). The suffix is said only of a check the verdict counts against it: the signature, or a consistency outcome that `Overall` does not exempt. `Consistency is { CouldNotCheck, NothingToCompare: true }` is exempt in `Overall` and SHALL be exempt in the suffix; the code reads one predicate for both (R11.74 (b), decision 10). A fresh-home first verification past the head ends at "Verify again after the operator signs a head."; a consistency check that could not be made against a retained earlier head (route refusing, no proof served) adds the suffix.
+20. **Which probe holds the suffix's absence** (I2). Two, one per way to be absent: **WAF20** (fresh home, first retention, `NothingToCompare`) is tightened from the prefix to the published closing with nothing after it, and **WAF22(d)** is new (a retained earlier head smaller than the served one and the consistency route serving its proof, so consistency is `Verified`; the closing equals the published closing exactly). WAF22(a) keeps holding presence, so a closing that always appends is red in (d) and in WAF20, and one that never appends is red in (a). The "closing equals" comparison is a whole-string comparison after the fold, never `Contains`.
+
+### Probe changes
+
+| # | Change | Predicted red now |
+|---|---|---|
+| ULG55 (`StoreWordsTests.cs`), ULG56 (`StoreWordsToolTests.cs`), ULG58 (`StoreFaultKestrelTests.cs`) | No assertion text changes: each takes the act line from `PublishedStoreFaults.ActLine`. The one edit is the helper: `ActSentence` reads `WordsParagraph("R11.73 act")` (comment and message string say R11.73 act words), not `"R11.72 act"`. Until `StoreWording.ActLine` follows, all three go red. | `the published act words differ from the printed line`; code still prints `says whether the act was recorded.` |
+| WAF29 | Extended: G52's `R11.72 act words` holds the pointer and no "one line:" span, and the old tail "says whether the act was recorded." (unqualified) occurs in no G52 paragraph | `G52's R11.72 act words still hold "one line:"` |
+| WAF36 (new) | The act line and the store sentence do not claim each other's work: from a real `503 curia/store/unavailable` of an `ask`, the printed act line contains `as of the moment it is asked`, contains no "60 seconds" and no "send"; the store sentence still carries the wait. Unit host, both clients | `act line lacks "as of the moment it is asked"` |
+| WAF20 | Tightened: the fresh-home closing equals the published past-head closing with `<n>` filled and **no** `Another check` suffix (whole-string, folded) | `closing carries "Another check could not be made"` once decision 19 is in, and now on the unmodified suffix rule |
+| WAF22(a) | Unchanged (presence, with a retained earlier head and the route refusing) | green (control for the new legs) |
+| WAF22(d) (new) | Retained earlier head smaller than the served one, the consistency route serving a valid extension proof, post past the served head: consistency `Verified`; closing equals the published closing exactly; `PastHeadTreeSize` carried | `closing carries "Another check could not be made"` under an always-append |
+| WAF37 (new) | One predicate: for a verification whose `Overall` is not blocked by consistency (`NothingToCompare`), the suffix is absent; for one with consistency `CouldNotCheck` and not `NothingToCompare`, present. Table of the four consistency outcomes (`Verified`, `FirstRetained`, `CouldNotCheck` proper, `Failed` where the Failed arm takes precedence). | `suffix present for NothingToCompare` |
+
+Counts: WAF1 to WAF37 (WAF36, WAF37 added; WAF20, WAF22, WAF29 amended).
+
+### Falsification rows added
+
+| # | Break | Also tried | Red |
+|---|---|---|---|
+| FWAF28 | the act line restores "says whether the act was recorded." | the new tail without "as of" | ULG55, ULG56, ULG58, WAF36 |
+| FWAF29 | the act line gains "ask again at 60 seconds" | a figure other than 60 | WAF36, WAF33 |
+| FWAF30 | the suffix is appended to every past-head closing | appended only when `Signature` is could-not-check | WAF20, WAF22(d), WAF37 |
+| FWAF31 | the suffix is never appended | appended for `NothingToCompare` only and not for a refused route | WAF22(a), WAF37 |
+
+Rows: 31. G53's Status, Task 9 and the open-risks list are otherwise as amended before. Task 6's re-review runs after these edits, and the code change is the implementer's: `StoreWording.ActLine`; `PostVerifier.OtherCheckCouldNotBeMade` (the signature, or consistency `CouldNotCheck` and not `NothingToCompare`, the same test `Overall` uses); the `PublishedStoreFaults` anchor; WAF20, WAF22, WAF29 and the new WAF36, WAF37.
