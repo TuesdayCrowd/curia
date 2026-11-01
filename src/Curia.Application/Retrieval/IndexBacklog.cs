@@ -105,7 +105,7 @@ public sealed class IndexBacklog
 
     /// <summary>
     /// A success of the vector store at <paramref name="now"/> (errata G54, R11.69 (rev.)): every entry becomes due now and its wait returns to the first, at most
-    /// once in <see cref="FirstWait"/>. Nothing calls it at the seam of the "A committed post is found" PR.
+    /// once in <see cref="FirstWait"/>. Called after a catch-up retry stores a vector and after a committed post's index step stores one, and by nothing else.
     /// </summary>
     public void NoteSuccess(DateTimeOffset now)
     {

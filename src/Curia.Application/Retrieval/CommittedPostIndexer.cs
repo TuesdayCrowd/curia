@@ -69,7 +69,13 @@ public sealed class CommittedPostIndexer
             {
                 var stored = await _indexer.IndexAsync(post, linked.Token).ConfigureAwait(false);
                 if (stored.TryGetValue(out var vector, out var error))
-                    return new IndexOutcome(vector is null ? CommittedIndexState.NotApplicable : CommittedIndexState.Indexed);
+                {
+                    // Only a stored vector is a success of the store (R11.69 (rev.)): a post the model cannot place proves nothing about it.
+                    if (vector is null) return new IndexOutcome(CommittedIndexState.NotApplicable);
+
+                    _backlog.NoteSuccess(_clock.GetUtcNow());
+                    return new IndexOutcome(CommittedIndexState.Indexed);
+                }
 
                 faultType = error!.Type;
                 faultDetail = error.Title;

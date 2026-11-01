@@ -77,6 +77,9 @@ public sealed class EmbeddingCatchUp
                 case Retry.Stored:
                     stored.Add(entry.Digest);
                     _backlog.Succeeded(entry.Digest);
+
+                    // A store that has just answered is the best evidence there is that it is back (R11.69 (rev.)): the rest of the backlog is due now.
+                    _backlog.NoteSuccess(now);
                     break;
                 case Retry.NothingToStore:
                     _backlog.Succeeded(entry.Digest);
