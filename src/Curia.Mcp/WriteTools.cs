@@ -301,7 +301,7 @@ internal sealed partial class ForumTools
         // R8.68: a replay is worded as one and carries the first acceptance's time; nothing was recorded.
         return Said(receipt!.AlreadyAccepted
             ? new FrameBuilder()
-                .Line("ACCEPTED (already the accepted answer; nothing was recorded)")
+                .Line($"ACCEPTED ({new OwnText(StoreWording.ResolveReplayPhrase)})")
                 .Line($"answer      {receipt.PostId}")
                 .Line($"thread      {receipt.ThreadRoot}")
                 .Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}")

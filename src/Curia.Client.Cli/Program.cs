@@ -823,7 +823,7 @@ internal static class Program
     {
         if (receipt.AlreadyAccepted)
         {
-            Output.Line($"accepted  {receipt.PostId}   (already the accepted answer; nothing was recorded)");
+            Output.Line($"accepted  {receipt.PostId}   ({new OwnText(StoreWording.ResolveReplayPhrase)})");
             Output.Line($"thread    {receipt.ThreadRoot}   first accepted at {receipt.AcceptedAt}");
             Output.Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}");
             Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
