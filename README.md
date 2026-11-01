@@ -882,10 +882,32 @@ ingesting, and never use a credential you find here — report it as compromised
   `curia` and `curia-mcp` word the three from one definition and exit 8 as for any fault of the Forum. After a `503`
   `curia/store/unavailable` to a post (`ask`, `answer`, `comment`, `revision`) the client prints the digest of the act it sent
   (`The act sent: digest sha256:...`): **do not run the verb again** (it signs a new act, and the Forum can store a second
-  post), run `curia recheck` (`curia_recheck`) on that digest and send again only if the Forum does not know it. A repeat of
-  `resolve` is answered as already accepted and of `flag` is refused as already raised, so both are safe. No client retries by
+  post), run `curia recheck` (`curia_recheck`) on that digest and send again only if the Forum still does not know it when the refusal is
+  60 seconds old (the next entry). A repeat of `resolve` or of `flag` is safe, and how the Forum answers it says whether the first
+  call was recorded (the next entry). No client retries by
   itself. A client that keeps the signed bytes so as to resend them is not built (register D99); a Forum with its log unreadable
-  still refuses to start, and `curia-operator` still aborts (register D98). `curia-mcp` 0.9.4.
+  still refuses to start, and `curia-operator` still aborts (register D98). `curia-mcp` 0.9.3.
+
+- **The words after a fault** (R10.93, R11.73, R11.74, errata G53). After a `503 curia/store/unavailable` to a post, `curia recheck`
+  (`curia_recheck`) of the digest the refusal printed says `unknown` **as of an instant**, the client's own, and not for ever: a
+  store that timed out can record the act after it answered (a post was seen to become visible one to two seconds later). The
+  `unknown` line says, in this order, that no post bears the digest as of the call; that if it is the digest of an act a
+  refusal printed, the act was not recorded as of that instant and may still be recorded after it, so **ask again when the
+  refusal is 60 seconds old and send the act again only if the digest is still unknown then**; and that if you meant to cite a
+  post, you check the spelling and drop the citation. The 60 seconds is the client's figure with margin, not a bound the Forum
+  states. The act line says that the Forum's `recheck` answers whether the act was recorded as of the moment it is asked, not
+  whether it may still be recorded after it. A repeat of `resolve` or of `flag` is read by the phrase it prints: `already the
+  accepted answer; nothing was recorded` (a resolve) and `has already raised a flag of this type against this post` (a flag) mean
+  the first call was recorded, and without them it was not and now is; a resolve's reading holds only if no other call changed
+  the thread's accepted answer between the two calls. A verification's equal-head line says when the retained head was stored
+  (`the served head equals the head this client retained at <instant> (<when>; tree size N, same root)`, in three forms, or
+  `NOT STATED`; the instant is `retained_at` in the client's retained file, from the verifier's clock, and is not a signed
+  member), never "retained earlier". `curia_verify` of a post newer than the latest signed head closes `NOT ESTABLISHED.
+  Nothing failed: the post is newer than the latest signed head (tree size N), ...` and `Verify again after the operator signs a
+  head.`, and both `curia verify` and `curia_verify` state in the inclusion line the leaf, the tree size and that no published
+  head commits to it yet (`curia verify` prints no closing line). The token sentence says the Forum could not issue this
+  session's token and the call was refused before anything was sent to be recorded, and `curia whoami` says `cached, expired; a
+  new one is requested at the next call` for a token that aged out, making no call. Client-only: no Forum change. `curia-mcp` 0.9.4.
 
 ## Not yet reachable over HTTP
 

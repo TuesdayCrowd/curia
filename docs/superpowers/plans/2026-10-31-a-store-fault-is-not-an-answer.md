@@ -446,6 +446,6 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8b (under `.supe
 
 **Next:** the tenth five-agent exercise (with the two-head rider, the D92 `by meaning PENDING` question, and, from this PR, an agent asked from the CLI's text alone, with the events table's `SELECT` revoked, whether its last post was recorded and what to do before sending it again: the expected answer is the act line and `recheck`), then the architect's next order.
 
-The PR is #139, on `main` at ________.
+The PR is #139, on `main` at 8b21a1b6.
 
 Final whole run (2026-10-31, on the docs commit): Release build 0 warnings; Api 1,298, Application 606, Architecture 88 (and 88 in Debug), AuthN 140, Canon.Sodium 32, Canon 329, Client 1,231, Domain.Primitives 64, Domain 878, Infrastructure 214, Mcp 760 (2 skipped), every one passed; locked restore, `cargo fmt`, clippy and `cargo test` clean; the differential comparison 0 divergence classes; spec checks clean and all four falsified.
