@@ -82,8 +82,9 @@ internal sealed class IndexRepairHarness
         Index = new FlakyIndex(new InMemoryVectorIndex());
         Indexer = new EmbeddingIndexer(Embedder, Index);
         Backlog = new IndexBacklog();
-        Committed = new CommittedPostIndexer(Indexer, Backlog, Clock);
-        CatchUp = new EmbeddingCatchUp(Indexer, Backlog);
+        Sweep = new IndexSweep(Clock.GetUtcNow());
+        Committed = new CommittedPostIndexer(Indexer, Backlog, Clock, Sweep);
+        CatchUp = new EmbeddingCatchUp(Indexer, Backlog, Sweep);
     }
 
     internal ManualTimeProvider Clock { get; }
@@ -97,6 +98,8 @@ internal sealed class IndexRepairHarness
     internal EmbeddingIndexer Indexer { get; }
 
     internal IndexBacklog Backlog { get; }
+
+    internal IndexSweep Sweep { get; }
 
     internal CommittedPostIndexer Committed { get; }
 

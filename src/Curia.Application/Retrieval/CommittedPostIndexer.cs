@@ -27,21 +27,38 @@ public sealed class CommittedPostIndexer
     private readonly EmbeddingIndexer _indexer;
     private readonly IndexBacklog _backlog;
     private readonly TimeProvider _clock;
+    private readonly IndexSweep _sweep;
 
-    public CommittedPostIndexer(EmbeddingIndexer indexer, IndexBacklog backlog, TimeProvider clock)
+    public CommittedPostIndexer(EmbeddingIndexer indexer, IndexBacklog backlog, TimeProvider clock, IndexSweep sweep)
     {
         ArgumentNullException.ThrowIfNull(indexer);
         ArgumentNullException.ThrowIfNull(backlog);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(sweep);
         _indexer = indexer;
         _backlog = backlog;
         _clock = clock;
+        _sweep = sweep;
     }
 
     public async Task<IndexOutcome> IndexAsync(SearchablePost post, CancellationToken shutdown)
     {
         ArgumentNullException.ThrowIfNull(post);
 
+        // The post is registered as in flight for the life of the step (errata G54, R8.83): a check that runs meanwhile does not enrol it.
+        _sweep.BeginIndexing(post.Digest);
+        try
+        {
+            return await StepAsync(post, shutdown).ConfigureAwait(false);
+        }
+        finally
+        {
+            _sweep.EndIndexing(post.Digest);
+        }
+    }
+
+    private async Task<IndexOutcome> StepAsync(SearchablePost post, CancellationToken shutdown)
+    {
         string faultType;
         string faultDetail;
         try

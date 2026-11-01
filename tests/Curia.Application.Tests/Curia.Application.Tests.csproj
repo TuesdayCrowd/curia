@@ -26,5 +26,6 @@
     <Compile Include="../Shared/TimerManualTimeProvider.cs" Link="Shared/TimerManualTimeProvider.cs" />
     <!-- Errata G51 (R8.81, R9.51, R11.69, R11.70): the stored-post entry's numbers and words, read from the errata. -->
     <Compile Include="../Shared/PublishedIndexLag.cs" Link="Shared/PublishedIndexLag.cs" />
+    <Compile Include="../Shared/PublishedCheckWords.cs" Link="Shared/PublishedCheckWords.cs" />
   </ItemGroup>
 </Project>

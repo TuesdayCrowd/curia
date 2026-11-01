@@ -456,7 +456,13 @@ public sealed record SearchResponse(
     [property: JsonPropertyName("min_cosine_bp")] int MinimumCosineBp,
 
     /// <summary>R9.51 (errata G51): how many committed posts this Forum process holds as pending in the vector index (R11.69); always present, a lower bound across a deployment, and no hit is marked.</summary>
-    [property: JsonPropertyName("vector_pending")] int VectorPending);
+    [property: JsonPropertyName("vector_pending")] int VectorPending,
+
+    /// <summary>R9.53 (errata G54): the instant the last completed check of the log against the vector index began; always present.</summary>
+    [property: JsonPropertyName("vector_checked_at")] string VectorCheckedAt,
+
+    /// <summary>R9.53 (errata G54): JSON <c>null</c> where no check is owed, otherwise the instant of the next attempt; always present, written as <c>null</c> and never omitted.</summary>
+    [property: JsonPropertyName("vector_check_due_at")] string? VectorCheckDueAt);
 
 /// <summary>
 /// R8.18 / R8.19's 409, errata G10: an RFC 9457 problem carrying the canonical thread, its
@@ -2193,6 +2199,7 @@ public static class ForumEndpoints
         IPolicyDecisionPoint pdp,
         HybridSearch search,
         IndexBacklog backlog,
+        IndexSweep sweep,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -2348,7 +2355,10 @@ public static class ForumEndpoints
             page.CandidateDepth,
             Bp(page.MinimumCosine),
             // R9.51: the serving process's backlog, stated whatever the query, the filters and the cursor, and not part of a cursor's binding (R9.35).
-            backlog.Count));
+            backlog.Count,
+            // R9.53: the check's own record, from the clock port and never from the request; not part of a cursor's binding.
+            Instant(sweep.CheckedAt),
+            sweep.DueAt is { } due ? Instant(due) : null));
     }
 
     /// <summary>R8.36's terms this build does not compute, named as absent with the reason (errata G10).</summary>

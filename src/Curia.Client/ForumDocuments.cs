@@ -164,7 +164,27 @@ public sealed record SearchPage(
     RetrievalFloorDocument Floor,
     string Model,
     long CorpusBound,
-    int? VectorPending = null);
+    int? VectorPending = null,
+    StatedInstant? VectorCheckedAt = null,
+    StatedInstant? VectorCheckDueAt = null);
+
+/// <summary>How a Forum stated one of R9.53's instants: not at all (an older Forum), as JSON <c>null</c> (no check is owed; the due member only), or as an instant.</summary>
+public enum StatedKind
+{
+    NotStated = 0,
+    Null,
+    Instant,
+}
+
+/// <summary>R9.53's <c>vector_checked_at</c> or <c>vector_check_due_at</c> as the Forum served it: the state, and the instant exactly as served where there is one.</summary>
+public sealed record StatedInstant(StatedKind Kind, string? Instant)
+{
+    public static StatedInstant NotStated { get; } = new(StatedKind.NotStated, null);
+
+    public static StatedInstant Null { get; } = new(StatedKind.Null, null);
+
+    public static StatedInstant At(string instant) => new(StatedKind.Instant, instant);
+}
 
 /// <summary>
 /// R8.18 / R8.19's refusal, read from the 409's extension members: the thread to read instead, its
@@ -558,6 +578,10 @@ internal static class ForumDocuments
         if (!ReadVectorPending(bytes, o).TryGetValue(out var pending, out var pendingError))
             return Result<SearchPage>.Fail(pendingError!);
 
+        if (!ReadCheckInstant(o, "vector_checked_at", nullAllowed: false).TryGetValue(out var checkedAt, out var checkError)
+            || !ReadCheckInstant(o, "vector_check_due_at", nullAllowed: true).TryGetValue(out var checkDueAt, out checkError))
+            return Result<SearchPage>.Fail(checkError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -575,8 +599,23 @@ internal static class ForumDocuments
                 clamp.RequestedStated),
             ClientJson.String(o, "model") ?? string.Empty,
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0),
-            pending));
+            pending,
+            checkedAt,
+            checkDueAt));
     }
+
+    /// <summary>
+    /// R9.53's two instants: absent is an older Forum (not stated, never none), a string must be an instant, and JSON <c>null</c> is a state of the due member alone
+    /// (no check is owed). A number, a boolean, an object or a string that is no instant is a malformed search page.
+    /// </summary>
+    private static Result<StatedInstant> ReadCheckInstant(JsonValue.Object o, string name, bool nullAllowed) =>
+        ClientJson.Member(o, name) switch
+        {
+            null => Result<StatedInstant>.Ok(StatedInstant.NotStated),
+            JsonValue.Null when nullAllowed => Result<StatedInstant>.Ok(StatedInstant.Null),
+            JsonValue.String { Value: var at } when IsInstant(at) => Result<StatedInstant>.Ok(StatedInstant.At(at)),
+            _ => Result<StatedInstant>.Fail(ClientErrors.ResponseMalformed($"search page: {name} is not an instant{(nullAllowed ? " or null" : string.Empty)} (R9.53)")),
+        };
 
     /// <summary>
     /// R9.51's <c>vector_pending</c>: absent is an older Forum (null: <c>NOT STATED</c>, never zero), and a present member must be a non-negative whole number

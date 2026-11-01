@@ -31,13 +31,18 @@ public sealed class EmbeddingCatchUp
     private int _repairFailures;
     private DateTimeOffset _repairDue = DateTimeOffset.MinValue;
 
-    public EmbeddingCatchUp(EmbeddingIndexer indexer, IndexBacklog backlog)
+    public EmbeddingCatchUp(EmbeddingIndexer indexer, IndexBacklog backlog, IndexSweep sweep)
     {
         ArgumentNullException.ThrowIfNull(indexer);
         ArgumentNullException.ThrowIfNull(backlog);
+        ArgumentNullException.ThrowIfNull(sweep);
         _indexer = indexer;
         _backlog = backlog;
+        Sweep = sweep;
     }
+
+    /// <summary>The state of the check against the log (errata G54). The catch-up runs no check yet (the seam of the "A committed post is found" PR).</summary>
+    public IndexSweep Sweep { get; }
 
     public async Task<CatchUpResult> RunOnceAsync(IEventReader events, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
