@@ -342,7 +342,7 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 | 25450c61 | T4: the clients say what the Forum knows of its own lag and when it last looked (R11.75); `curia-mcp` 0.9.5; G51's replaced spans become pointers |
 | da651169 | review: an exit during a scan keeps its first-tick check, a failed check waits from its failure, one snapshot for the search members, the harness guard by role, the backlog not re-counted |
 | 58daa073 | T7 fix: the falsification's five gaps closed; the check writes nothing to the log (CPF33 to CPF40) |
-| (T9) | this docs commit: register, errata status and published words, As run, README, CLAUDE.md |
+| ef9f0cd1 (T9) | this docs commit: register, errata status and published words, As run, README, CLAUDE.md |
 
 **Task 0 (the unmodified tree, `49e5c29c`).** M1: D100 seen two ways (in process through `AppendThenThrow`, and live through the muted commit-cut: four asks answered `503`, four committed, the anti-join 4 for six minutes, `vector_pending` 0 and `none pending` throughout, only a restart repaired). M2: the recovery time is a function of the ladder's phase at the close (windows of 30, 92 and 300 s cleared in 6.2, 63.7 and 16.1 s), and a healthy ask at close plus 3.4 s cleared nothing. M3: the late commit against a timeout; see the correction below. M4: the full scan at 223, 10,000 and 50,000 events, 0.05 s, 0.3 s and 0.8 s of the pool and a peak resident set of 112 MB, 275 MB and 1.04 GB; the rule (more than 2 s) not met, no watermark. M7: the payload has a `kind` member (`IngestPipeline.cs:213`), the plan's and the harness's cast of the signed text was the error. M10: the cancellation door is real (a client killed under `delaycommit` leaves a `499`, no `StoreFault`, and a committed post). Baseline 5,705 green. The plan was amended from it (rulings 10 to 16).
 
@@ -374,4 +374,4 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 
 The PR is #141, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-11-01, on the docs commit): Release build 0 warnings; Api 1,331, Application 626, Architecture 89 (and 89 in Debug), AuthN 140, Canon.Sodium 32, Canon 329, Client 1,269, Domain.Primitives 64, Domain 878, Infrastructure 214, Mcp 782 (2 skipped), every one passed; locked restore, `cargo fmt`, clippy and `cargo test` clean; the differential comparison 0 divergence classes; spec checks clean and all four falsified.
