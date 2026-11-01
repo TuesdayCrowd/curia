@@ -36,14 +36,10 @@ public sealed partial class ConfirmWordsTests
     /// <summary>G53's store sentence while the errata still holds it, otherwise <see langword="null"/> (the span is a pointer, as the build leaves it).</summary>
     private static string? OldStoreSentence()
     {
-        try
-        {
-            return PublishedStoreFaults.StoreUnavailableSentence;
-        }
-        catch (InvalidOperationException)
-        {
-            return null;
-        }
+        // G53's paragraph after the build holds a pointer, not the sentence: a surviving "may or may not have been recorded" span there is the old sentence.
+        var paragraph = PublishedConfirmWords.Paragraph("R11.73 words");
+        const string Marker = "If the request was a write it may or may not have been recorded";
+        return paragraph.Contains(Marker, StringComparison.Ordinal) ? paragraph : null;
     }
 
     private static async Task<string> PrintedAsync(Action<ListenerForum> arrange, params string[] verbArgs)

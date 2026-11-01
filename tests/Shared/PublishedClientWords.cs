@@ -24,7 +24,7 @@ internal static partial class PublishedClientWords
     internal static int WaitSeconds => int.Parse(Digits().Match(Wait).Value, CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// The figure each of the three published places states, in order: R10.93 wait, R10.93 words, R11.73 words. The count is asserted: three, and each a
+    /// The figure each of the three published places states, in order: R10.93 wait, R10.93 words, R11.76 words. The count is asserted: three, and each a
     /// whole-number of seconds.
     /// </summary>
     internal static int[] WaitFigures()
@@ -33,7 +33,7 @@ internal static partial class PublishedClientWords
         {
             WaitSeconds,
             int.Parse(One(Group(AskAgainPhrase(), Paragraph("R10.93 words"), "R10.93 words' wait")), CultureInfo.InvariantCulture),
-            int.Parse(One(Group(RefusalAgePhrase(), Paragraph("R11.73 words"), "R11.73 words' wait")), CultureInfo.InvariantCulture),
+            int.Parse(One(Group(RefusalAgePhrase(), Paragraph("R11.76 words"), "R11.76 words' wait")), CultureInfo.InvariantCulture),
         };
 
         return figures.Length == 3 ? figures : throw new InvalidOperationException($"{Errata} publishes the wait in {figures.Length} places, expected three");
@@ -66,8 +66,8 @@ internal static partial class PublishedClientWords
 
     // ----- R11.73 words: the store sentence and its pairs -----
 
-    /// <summary>The store sentence (the first backtick span of R11.73 words), whitespace folded.</summary>
-    internal static string StoreSentence => One(Group(StoreSentencePhrase(), Paragraph("R11.73 words"), "R11.73's store sentence"));
+    /// <summary>The store sentence (the first backtick span of R11.76 words, errata G55, which replaced R11.73 words'), whitespace folded.</summary>
+    internal static string StoreSentence => One(Group(StoreSentencePhrase(), Paragraph("R11.76 words"), "R11.76's store sentence"));
 
     /// <summary>
     /// The reading pairs: the phrase a replayed resolve prints and the phrase the refusal of a repeated flag prints, each with the meaning the entry gives it, in
@@ -87,10 +87,10 @@ internal static partial class PublishedClientWords
     internal static string FlagRepeatPhrase => ReadingPairs()[1].Phrase;
 
     /// <summary>The condition a resolve's reading holds under, from "a resolve's reading holds only if ...", up to the next comma: one reading.</summary>
-    internal static string ResolveCondition => One(Group(ConditionPhrase(), Paragraph("R11.73 words"), "R11.73's condition"));
+    internal static string ResolveCondition => One(Group(ConditionPhrase(), Paragraph("R11.76 words"), "R11.76's condition"));
 
     /// <summary>The clause that says an answer of any other kind says nothing of the first call.</summary>
-    internal static string OtherKindClause => One(Group(OtherKindPhrase(), Paragraph("R11.73 words"), "R11.73's other-kind clause"));
+    internal static string OtherKindClause => One(Group(OtherKindPhrase(), Paragraph("R11.76 words"), "R11.76's other-kind clause"));
 
     // ----- R11.74 words: the verification, the token and whoami -----
 
@@ -222,7 +222,7 @@ internal static partial class PublishedClientWords
     [GeneratedRegex(@"in the form `(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)`", RegexOptions.CultureInvariant)]
     private static partial Regex SecondInstantPhrase();
 
-    [GeneratedRegex(@"\*\*R11\.73 words\.\*\* The store sentence, replacing the sentence of R11\.72 words for `curia/store/unavailable`: `([^`]+)`", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\*\*R11\.76 words\.\*\* The store sentence, replacing the sentence of R11\.73 words for `curia/store/unavailable`: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex StoreSentencePhrase();
 
     [GeneratedRegex(@"`(?<phrase>[^`]+)` means (?<meaning>the first call was recorded)", RegexOptions.CultureInvariant)]

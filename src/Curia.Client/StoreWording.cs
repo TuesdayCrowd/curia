@@ -35,14 +35,15 @@ public static class StoreWording
     public const string FlagRepeatPhrase = "has already raised a flag of this type against this post";
 
     /// <summary>
-    /// R11.73 words: the sentence for <see cref="StoreUnavailableType"/>. It says how a repeat of a resolve or of a flag is read, in the words the repeat prints
+    /// R11.76 words (errata G55; it replaced R11.73 words' first form): the sentence for <see cref="StoreUnavailableType"/>. For a post it says the Forum has not confirmed that the act was recorded (it read its log and did not find it as of that read). It says how a repeat of a resolve or of a flag is read, in the words the repeat prints
     /// (<see cref="ResolveReplayPhrase"/>, <see cref="FlagRepeatPhrase"/>, which the printers share), under the condition that holds for a resolve, and what an answer of any other
     /// kind says; and for a post it sends the act again only if the Forum's recheck still does not know it when the refusal is <see cref="RecheckWaitSeconds"/> seconds old.
     /// </summary>
     private static readonly string StoreUnavailableSentence = FaultOfTheForum +
         "If the request was a write it may or may not have been recorded: do not run the verb again to find out, because ask, answer and comment each sign a new act and the Forum can store it as a second post; " +
-        "for a post, ask the Forum's recheck about the digest of the act sent, which is printed with this refusal, and send it again only if the Forum still does not know it when the refusal is " +
-        RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds old, because a store that timed out can record the act after it answered; " +
+        "for a post, the Forum has not confirmed that the act was recorded (where its append failed it read its own log for the act's digest and did not find it as of that read, which does not say the act will not be recorded, " +
+        "because a store that timed out can record the act after it answered): ask the Forum's recheck about the digest of the act sent, which is printed with this refusal, and send it again only if the Forum still does not know it when the refusal is " +
+        RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds old; " +
         "a repeat of a resolve or of a flag is safe, and how the Forum answers it says whether the first call was recorded: " +
         "a resolve answered \"" + ResolveReplayPhrase + "\" was recorded the first time, and a resolve answered without those words was not recorded and now is; " +
         "a flag refused as \"" + FlagRepeatPhrase + "\" was recorded the first time, and a flag not refused so was not recorded and now is; " +
