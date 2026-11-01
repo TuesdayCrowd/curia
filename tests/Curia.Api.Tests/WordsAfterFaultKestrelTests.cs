@@ -318,7 +318,7 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
         var slug = await EnrolAsync("waf3");
         var before = await EventsAsync();
 
-        var asked = await AskActAsync(slug, EventStoreFault.AppendThenThrow);
+        var asked = await AskActAsync(slug, EventStoreFault.AppendThenThrowThenFailReads);
         var digest = DigestOf(asked, problems, "ask");
         var stored = await EventsAsync() - before;
         if (stored != 1) problems.Add($"ask: {stored} events were stored, expected 1");

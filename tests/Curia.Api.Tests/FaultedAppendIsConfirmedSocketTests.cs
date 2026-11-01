@@ -66,16 +66,22 @@ public sealed partial class FaultedAppendIsConfirmedSocketTests(ConfirmKestrelFi
         var slug = await EnrolAsync("afc10");
         var board = "afc10-" + Guid.NewGuid().ToString("N")[..8];
         var before = await host.LogShapeAsync(Ct);
+
+        // This host is the fixture itself, whose sweep every fact of the class shares: AFC18's late commit, run first, leaves a check owed that this ask did not create.
+        // "No check is owed" is therefore read as "none was created by this ask": the state where none was owed before, and the log line of an owed check (R8.83) always.
+        var owedBefore = (await host.StateAsync(Ct)).Owed;
+        var mark = forum.Log.Mark();
         host.Store.Arm(EventStoreFault.AppendThenThrow);
         var asked = await AskAsync(slug, board);
         host.Store.Disarm();
         var after = await host.LogShapeAsync(Ct);
         var state = await host.StateAsync(Ct);
+        var owed = (!owedBefore && state.Owed) || forum.Log.Since(mark).Any(e => e.Name == "VectorIndexCheckOwed");
         var posted = asked.Stdout.Contains("posted", StringComparison.Ordinal);
 
         Probe.Said(
             "exit 0 with an ordinary receipt (posted); the table grew by 1 event and its highest sequence by 1; no check is owed",
-            $"exit {asked.Exit} {(posted ? "with an ordinary receipt (posted)" : "without a receipt: \"" + asked.Text + "\"")}; the table grew by {after.Count - before.Count} event{(after.Count - before.Count == 1 ? string.Empty : "s")} and its highest sequence by {after.MaxSeq - before.MaxSeq}; {(state.Owed ? "a check is owed" : "no check is owed")}");
+            $"exit {asked.Exit} {(posted ? "with an ordinary receipt (posted)" : "without a receipt: \"" + asked.Text + "\"")}; the table grew by {after.Count - before.Count} event{(after.Count - before.Count == 1 ? string.Empty : "s")} and its highest sequence by {after.MaxSeq - before.MaxSeq}; {(owed ? "a check is owed" : "no check is owed")}");
     }
 
     /// <summary>

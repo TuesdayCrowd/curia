@@ -1066,32 +1066,91 @@ public static class ForumEndpoints
             s = s! with { Duplicate = annotation };
 
         // PERSIST. A post the log holds by any road is found by the index (errata G54, R8.83): when the append leaves by an exception of any kind, a
-        // cancellation included, the log may hold the post though no answer says so, and a check of the log against the vector index is owed. The mark is set
-        // here, before the exception leaves the route: this is the one place it is set, and the confirm of a faulted append (D104) extends this same catch.
-        Result<PostAccepted> accepted;
+        // cancellation included, the log may hold the post though no answer says so. Errata G55 (R8.84): the route then confirms, once, under the agent's hold
+        // (and a revision's gate, which the caller's `await using` keeps), by reading the events after its own read for the act's digest. Found: it goes on as for
+        // any committed post, and owes nothing. Not found, or the confirm could not learn: the original exception is rethrown (never the confirm's) and a check is
+        // owed, set here, the one place it is set. The digest is registered as in flight from before the confirm until the index step has run, on every exit.
+        IDisposable? confirming = null;
         try
         {
-            accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            if (PostKinds.IsDiscussion(v.Envelope.Kind))
+            Result<PostAccepted> accepted;
+            try
             {
-                indexer.Sweep.Owe(indexer.Clock.GetUtcNow());
+                accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                var kind = PostKinds.Wire(v.Envelope.Kind);
+                var faultType = ex.GetType().FullName ?? ex.GetType().Name;
+                var digest = Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed();
+                confirming = indexer.Sweep.Track(digest);
+
+                // The host's token, not the caller's: a client that has gone is the case that leaves a committed post. Total: it returns an outcome and never throws.
+                var outcome = await AppendConfirmation.ConfirmAsync(
+                    events, log.Count == 0 ? EventSequence.Zero : log[^1].Seq, digest, indexer.Clock, AppendConfirmation.ConfirmBound, indexer.Shutdown).ConfigureAwait(false);
+                var confirmed = outcome as ConfirmOutcome.Found;
+                if (confirmed is null)
+                {
+                    if (PostKinds.IsDiscussion(v.Envelope.Kind))
+                    {
+                        indexer.Sweep.Owe(indexer.Clock.GetUtcNow());
+                        try
+                        {
+                            VectorIndexLog.CheckOwed(indexer.Log, faultType);
+                        }
+#pragma warning disable CA1031 // R8.83: the exception being rethrown is the answer's cause; a log sink that fails must not replace it, and the check is owed whether or not it was logged.
+                        catch (Exception)
+#pragma warning restore CA1031
+                        {
+                        }
+                    }
+
+                    try
+                    {
+                        AppendConfirmLog.NotConfirmed(indexer.Log, kind, faultType, outcome.Name);
+                    }
+#pragma warning disable CA1031 // R8.84: the exception being rethrown is the answer's cause; a log sink that fails must not replace it.
+                    catch (Exception)
+#pragma warning restore CA1031
+                    {
+                    }
+
+                    throw;
+                }
+
                 try
                 {
-                    VectorIndexLog.CheckOwed(indexer.Log, ex.GetType().FullName ?? ex.GetType().Name);
+                    AppendConfirmLog.Confirmed(indexer.Log, ex, kind, faultType);
                 }
-#pragma warning disable CA1031 // R8.83: the exception being rethrown is the answer's cause; a log sink that fails must not replace it, and the check is owed whether or not it was logged.
+#pragma warning disable CA1031 // R8.84: the post is committed, so a log sink that fails cannot change the answer.
                 catch (Exception)
 #pragma warning restore CA1031
                 {
                 }
+
+                // The receipt is composed from the event the confirm read, the stored instant being the log's own word (the column's, as GET /v1/posts/{id} serves it).
+                accepted = Result<PostAccepted>.Ok(new PostAccepted(confirmed.PostId, confirmed.ServerTimestamp, confirmed.Digest, confirmed.Sequence.Value));
             }
 
-            throw;
+            return await ReceiptAsync(v, s!, accepted, indexer, budgetAfter).ConfigureAwait(false);
         }
+        finally
+        {
+            confirming?.Dispose();
+        }
+    }
 
+    /// <summary>
+    /// What follows PERSIST, for a post the route appended or the confirm found: <see langword="null"/> when the append found the author's stream moved (R6.56), a 500
+    /// for any other failed result, otherwise the vector index step and the 201 (R8.81).
+    /// </summary>
+    private static async Task<IResult?> ReceiptAsync(
+        VerifiedSubmission v,
+        ScreenedSubmission s,
+        Result<PostAccepted> accepted,
+        IndexStep indexer,
+        Func<DateTimeOffset, BudgetEntry> budgetAfter)
+    {
         if (!accepted.TryGetValue(out var post, out var persistError))
         {
             // R6.56: the author's stream moved since VERIFY read it. Nothing was written; the caller
@@ -1130,7 +1189,7 @@ public static class ForumEndpoints
             post.PostId,
             post.Digest,
             post.ServerTimestamp.ToString(),
-            [.. s!.Annotations.Flags.Select(f => f.Category.ToString())],
+            [.. s.Annotations.Flags.Select(f => f.Category.ToString())],
             vectorIndex,
             BudgetReceiptResponse.Of(budgetAfter(post.ServerTimestamp.Value))));
     }

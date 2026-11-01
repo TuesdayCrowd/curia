@@ -158,7 +158,7 @@ public sealed class StoreFaultWriteTests(FaultableForumFixture forum) : IClassFi
         {
             var events = await EventsAsync();
             var usedBefore = await UsedAsync(c);
-            var first = await ArmedAsync(EventStoreFault.AppendThenThrow, c);
+            var first = await ArmedAsync(EventStoreFault.AppendThenThrowThenFailReads, c);
             if (!IsStoreUnavailable(first)) problems.Add($"{c.Name}: expected 503 {PublishedStoreFaults.StoreUnavailableType}, actual {first.Says}");
 
             var stored = await EventsAsync() - events;

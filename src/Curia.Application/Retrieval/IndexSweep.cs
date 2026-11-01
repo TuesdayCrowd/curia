@@ -30,7 +30,7 @@ public sealed class IndexSweep
     public static readonly TimeSpan NextTick = TimeSpan.FromSeconds(1);
 
     private readonly Lock _gate = new();
-    private readonly HashSet<string> _inFlight = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _inFlight = new(StringComparer.Ordinal);
     private readonly HashSet<string> _unplaceable = new(StringComparer.Ordinal);
     private DateTimeOffset _checkedAt;
     private DateTimeOffset _nextAt;
@@ -129,8 +129,9 @@ public sealed class IndexSweep
     private static DateTimeOffset Min(DateTimeOffset a, DateTimeOffset b) => a <= b ? a : b;
 
     /// <summary>
-    /// Registers <paramref name="digest"/> as in flight in this process until the returned scope is disposed. <b>The seam of errata G55's PR:</b> the set is
-    /// still a set, so a release clears the digest whoever registered it; the next commit makes the registration counted so that two scopes nest.
+    /// Registers <paramref name="digest"/> as in flight in this process until the returned scope is disposed (errata G55, R8.84). The registration is counted: the
+    /// confirm of a faulted append and the index step each register the digest, and the end of one does not clear the other's (trap 102). Disposing a scope twice
+    /// releases once.
     /// </summary>
     public IDisposable Track(string digest)
     {
@@ -138,24 +139,29 @@ public sealed class IndexSweep
         return new Registration(this, digest);
     }
 
-    /// <summary>Registers <paramref name="digest"/> as a post whose index step is running in this process.</summary>
+    /// <summary>Registers <paramref name="digest"/> as a post whose index step (or confirm) is running in this process; registrations nest and each needs its own end.</summary>
     public void BeginIndexing(string digest)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
-        lock (_gate) _inFlight.Add(digest);
+        lock (_gate) _inFlight[digest] = _inFlight.GetValueOrDefault(digest) + 1;
     }
 
-    /// <summary>Removes <paramref name="digest"/> from the posts whose index step is running.</summary>
+    /// <summary>Ends one registration of <paramref name="digest"/>; the digest is in flight until every registration has ended.</summary>
     public void EndIndexing(string digest)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
-        lock (_gate) _inFlight.Remove(digest);
+        lock (_gate)
+        {
+            if (!_inFlight.TryGetValue(digest, out var count)) return;
+            if (count <= 1) _inFlight.Remove(digest);
+            else _inFlight[digest] = count - 1;
+        }
     }
 
     /// <summary>Whether the index step of <paramref name="digest"/> is running in this process.</summary>
     public bool IsIndexing(string digest)
     {
-        lock (_gate) return _inFlight.Contains(digest);
+        lock (_gate) return _inFlight.ContainsKey(digest);
     }
 
     /// <summary>Remembers that the model cannot place <paramref name="digest"/>. A digest past <see cref="UnplaceableBound"/> is not remembered.</summary>

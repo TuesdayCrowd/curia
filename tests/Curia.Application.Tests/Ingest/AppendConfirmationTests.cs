@@ -106,8 +106,10 @@ public sealed class AppendConfirmationTests
 
         var found = await RunAsync(counting, EventSequence.Zero, target, Ct);
         legs.Add(($"the digest on the second page: found {first.Post.PostId} at sequence {first.Sequence.Value}, in 2 reads", $"the digest on the second page: {found}, in {counting.Reads} reads"));
-        var anchored = await RunAsync(store, first.Sequence, target, Ct);
-        legs.Add(("the digest at the anchor: absent", $"the digest at the anchor: {anchored}"));
+        // Anchored after the last event: both posts of the digest are before the anchor. (Anchored at the first of them, the delta would hold the second, which carries
+        // the same digest and is correctly found; the probe as first written expected "absent" there, which the one predicate does not give.)
+        var anchored = await RunAsync(store, whole[^1].Seq, target, Ct);
+        legs.Add(("the digest before the anchor: absent", $"the digest before the anchor: {anchored}"));
         var unmatched = await RunAsync(store, EventSequence.Zero, Digest("never"), Ct);
         legs.Add(("a digest the log does not hold: absent", $"a digest the log does not hold: {unmatched}"));
 
