@@ -206,7 +206,7 @@ public sealed partial class StoreFaultFenceTests
     {
         var old = new[] { "sending it again is safe", "refuses a repeat of an act it recorded", "safe to repeat", "safe to send again" };
         var safe = SafeRepeat();
-        var allowed = "a repeat of a resolve or of a flag is safe";
+        var allowed = "repeat of a resolve or of a flag is safe";
         var found = new List<string>();
         foreach (var root in new[] { "src/Curia.Client", "src/Curia.Client.Cli", "src/Curia.Mcp" })
         {

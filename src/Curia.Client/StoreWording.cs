@@ -24,7 +24,9 @@ public static class StoreWording
     private const string LogUnreadableSentence = FaultOfTheForum + "Nothing was recorded: the request can be sent again later";
 
     private const string StoreUnavailableSentence = FaultOfTheForum +
-        "If the request was a write it may or may not have been recorded: sending it again is safe, because the Forum refuses a repeat of an act it recorded and says so";
+        "If the request was a write it may or may not have been recorded: do not run the verb again to find out, because ask, answer and comment each sign a new act and the Forum can store it as a second post; " +
+        "for a post, ask the Forum's recheck about the digest of the act sent, which is printed with this refusal, and send it again only if the Forum does not know it; " +
+        "a repeat of a resolve or of a flag is safe, because the Forum answers that the acceptance already stands or refuses the flag as already raised";
 
     private const string TokenSentence = FaultOfTheForum + "Nothing was minted: a new request can be sent later";
 
@@ -46,15 +48,26 @@ public static class StoreWording
 
     /// <summary>
     /// The sentence about repeating a write that the write tools' descriptions and the writing verbs' helps carry: the <c>curia/store/unavailable</c> sentence,
-    /// the one that says a repeat is safe.
+    /// the one that says not to run the verb again to find out and where to ask instead (R11.72).
     /// </summary>
     public const string RepeatSentence = StoreUnavailableSentence;
 
     /// <summary>
     /// What the six write tools' descriptions and the ten writing verbs' helps say of the two <c>503</c> types, in the published words: the one that says a
-    /// repeat is safe (<see cref="RepeatSentence"/>) and the one that says nothing was recorded.
+    /// write may or may not have been recorded (<see cref="RepeatSentence"/>) and the one that says nothing was recorded.
     /// </summary>
     public const string WriteSentence =
         "A 503 " + StoreUnavailableType + " means " + StoreUnavailableSentence + ". A 503 " + LogUnreadableType + " means " + LogUnreadableSentence + ". " +
         "Neither is retried for you.";
+
+    /// <summary>
+    /// R11.72's act words (ruling 22): the line printed after a refusal of <see cref="StoreUnavailableType"/> to a signed post, with the digest of the act
+    /// the client sent. The digest is the act's <c>sha256:</c> and 64 lowercase hex digits, the spelling <c>recheck</c> takes, computed here from the canonical
+    /// bytes signed, never read from the Forum's refusal. The line holds no state and calls nothing (R11.64): it says where to ask.
+    /// </summary>
+    public static string ActLine(string prefixedDigest)
+    {
+        ArgumentNullException.ThrowIfNull(prefixedDigest);
+        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed); the Forum's recheck of it says whether the act was recorded.";
+    }
 }

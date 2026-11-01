@@ -59,11 +59,8 @@ public sealed partial class StoreFaultKestrelTests(FaultableKestrelFixture forum
     /// <summary>The state word of the line <c>curia recheck</c> printed for <paramref name="digest"/>, and the rest of that line.</summary>
     private static (string State, string Line) RecheckLine(string text, string digest)
     {
-        var at = text.IndexOf(digest, StringComparison.Ordinal);
-        if (at < 0) return ("no line names the digest", text);
-        var start = text.LastIndexOf(' ', Math.Max(0, at - 2));
-        var line = text[(start < 0 ? 0 : start + 1)..];
-        return (line.Split(' ')[0], line);
+        var line = Regex.Match(text, @"(?<state>[a-z]+)\s+""?" + Regex.Escape(digest) + @"""?(?<rest>.*)", RegexOptions.CultureInvariant);
+        return line.Success ? (line.Groups["state"].Value, line.Value) : ("no line names the digest", text);
     }
 
     /// <summary>
@@ -108,7 +105,7 @@ public sealed partial class StoreFaultKestrelTests(FaultableKestrelFixture forum
             var digest = act.Groups["digest"].Value;
             var rechecked = await CuriaAsync("recheck", digest, "--forum", address);
             var (state, line) = RecheckLine(rechecked.Text, digest);
-            if (stored == 1 && (state == "unknown" || !line.Contains("post ", StringComparison.Ordinal) || line.Contains("no post id served", StringComparison.Ordinal)))
+            if (stored == 1 && (state != "current" || !line.Contains("post ", StringComparison.Ordinal) || line.Contains("no post id served", StringComparison.Ordinal)))
                 problems.Add($"{leg}: recheck of the printed digest did not name the stored post: {rechecked.Text}");
             if (stored == 0 && state != "unknown") problems.Add($"{leg}: recheck of the printed digest of an act never stored answered {state}: {rechecked.Text}");
         }
@@ -285,7 +282,7 @@ public sealed class StoreFaultStatusQuoTests(FaultableKestrelFixture forum) : IC
             forum.Clock.Advance(TimeSpan.FromSeconds(2));
             var second = await send("The same body, twice.");
             var stored = await EventsAsync() - before;
-            if (first.IsError == true || second.IsError == true) problems.Add($"{name}: a send was an error");
+            if ((first.IsError ?? false) || (second.IsError ?? false)) problems.Add($"{name}: a send was an error");
             if (stored != 2) problems.Add($"{name}: {stored} events were stored for two sends, expected 2 (the pin)");
         }
 
