@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Domain;
+using Curia.Domain.Primitives;
 
 namespace Curia.Application.Retrieval;
 
@@ -10,6 +11,19 @@ public sealed record CatchUpResult(IReadOnlyList<string> StoredDigests)
 {
     /// <summary>The retries of this pass that failed: the post, the digest and the fault's type and fixed detail, and never any text the post carried.</summary>
     public IReadOnlyList<RetryFault> FailedRetries { get; init; } = [];
+
+    /// <summary>The check of errata G54 (R8.83) this pass ran, or <see langword="null"/> when none was due.</summary>
+    public CheckReport? Check { get; init; }
+}
+
+/// <summary>
+/// What one run of the check reported (R8.83): the instant it began; how many posts it enrolled, and, where it could not complete, the type and fixed detail of the
+/// fault (never any text a post carried).
+/// </summary>
+public sealed record CheckReport(DateTimeOffset Began, int Enrolled, string? FaultType = null, string? FaultDetail = null)
+{
+    /// <summary>Whether the check could not complete.</summary>
+    public bool Failed => FaultType is not null;
 }
 
 /// <summary>One retry that failed (R11.69): a post id, a digest, and the type and fixed detail of the fault.</summary>
@@ -41,7 +55,7 @@ public sealed class EmbeddingCatchUp
         Sweep = sweep;
     }
 
-    /// <summary>The state of the check against the log (errata G54). The catch-up runs no check yet (the seam of the "A committed post is found" PR).</summary>
+    /// <summary>The state of the check against the log (errata G54), which the catch-up runs when it is due.</summary>
     public IndexSweep Sweep { get; }
 
     public async Task<CatchUpResult> RunOnceAsync(IEventReader events, DateTimeOffset now, CancellationToken cancellationToken = default)
@@ -50,6 +64,10 @@ public sealed class EmbeddingCatchUp
 
         var stored = new Collection<string>();
         var faults = new Collection<RetryFault>();
+
+        // The check first (R8.83): it enrols the posts the index lacks, due now, and the retries below store them in this same pass.
+        var check = Sweep.IsDue(now) ? await CheckAsync(events, now, cancellationToken).ConfigureAwait(false) : null;
+
         foreach (var entry in _backlog.Due(now))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -94,7 +112,45 @@ public sealed class EmbeddingCatchUp
                 _backlog.Succeeded(digest);
         }
 
-        return new CatchUpResult([.. stored]) { FailedRetries = [.. faults] };
+        return new CatchUpResult([.. stored]) { FailedRetries = [.. faults], Check = check };
+    }
+
+    /// <summary>
+    /// R8.83's check: the one absence rule over the log and the index, enrolling each post the index lacks and the model can place into the backlog as the scan
+    /// meets it and indexing nothing. A scan that cannot complete leaves the instant of the last check and the obligation as they were and what it enrolled
+    /// enrolled. An add the bound refuses sets the backlog's overflow, which the by-absence pass repairs.
+    /// </summary>
+    private async Task<CheckReport> CheckAsync(IEventReader events, DateTimeOffset began, CancellationToken cancellationToken)
+    {
+        var enrolled = 0;
+        try
+        {
+            var scan = await _indexer.FindAbsentAsync(
+                events,
+                Sweep,
+                (post, _, _) =>
+                {
+                    if (_backlog.Add(new PendingEntry(post.Digest, post.PostId, post.Sequence), began)) enrolled++;
+                    return Task.FromResult<Error?>(null);
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            if (scan.Failure is { } failure)
+            {
+                Sweep.Failed(began);
+                return new CheckReport(began, enrolled, failure.Type, failure.Title);
+            }
+
+            Sweep.Completed(began);
+            return new CheckReport(began, enrolled);
+        }
+#pragma warning disable CA1031 // R8.83: a check that throws did not complete; nothing is moved, and the next attempt is on the failure ladder.
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+#pragma warning restore CA1031
+        {
+            Sweep.Failed(began);
+            return new CheckReport(began, enrolled, ex.GetType().FullName ?? ex.GetType().Name, "the check threw an exception");
+        }
     }
 
     private enum Retry
@@ -135,7 +191,7 @@ public sealed class EmbeddingCatchUp
     {
         try
         {
-            var reconciled = await _indexer.ReconcileByAbsenceAsync(events, stored, cancellationToken).ConfigureAwait(false);
+            var reconciled = await _indexer.ReconcileByAbsenceAsync(events, stored, Sweep, cancellationToken).ConfigureAwait(false);
             return reconciled.TryGetValue(out _, out _);
         }
 #pragma warning disable CA1031 // R11.69: a by-absence pass that throws did not complete; the overflow stays set and the next pass runs it again.

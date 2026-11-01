@@ -50,7 +50,12 @@ public sealed class EmbeddingIndexer
                 : Result<IndexedVector?>.Fail(embedError);
         }
 
-        var stored = await _index.UpsertAsync(post.Digest, post.PostId, post.Sequence, embedding!, cancellationToken).ConfigureAwait(false);
+        return await StoreAsync(post, embedding!, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<Result<IndexedVector?>> StoreAsync(SearchablePost post, Embedding embedding, CancellationToken cancellationToken)
+    {
+        var stored = await _index.UpsertAsync(post.Digest, post.PostId, post.Sequence, embedding, cancellationToken).ConfigureAwait(false);
         return stored.Map(v => (IndexedVector?)v);
     }
 
@@ -60,10 +65,14 @@ public sealed class EmbeddingIndexer
     /// (<c>NoFeatures</c>, D24) is skipped, never failed, and so is looked at again at every start. Withheld posts are indexed too: the index is keyed by
     /// digest and the serving path filters, so a later un-withholding needs no reindex. A model change is R11.10's reindex: a new model id holds no digests.
     /// </summary>
-    public async Task<Result<long>> ReconcileAsync(IEventReader events, CancellationToken cancellationToken = default)
+    public async Task<Result<long>> ReconcileAsync(IEventReader events, CancellationToken cancellationToken = default) =>
+        await ReconcileAsync(events, sweep: null, cancellationToken).ConfigureAwait(false);
+
+    /// <summary><see cref="ReconcileAsync(IEventReader, CancellationToken)"/>, noting to <paramref name="sweep"/> the posts the model cannot place.</summary>
+    public async Task<Result<long>> ReconcileAsync(IEventReader events, IndexSweep? sweep, CancellationToken cancellationToken = default)
     {
         var stored = new Collection<string>();
-        var reconciled = await ReconcileByAbsenceAsync(events, stored, cancellationToken).ConfigureAwait(false);
+        var reconciled = await ReconcileByAbsenceAsync(events, stored, sweep, cancellationToken).ConfigureAwait(false);
         return reconciled.Map(_ => (long)stored.Count);
     }
 
@@ -71,17 +80,18 @@ public sealed class EmbeddingIndexer
     /// <see cref="ReconcileAsync"/>, appending to <paramref name="stored"/> the digest of each vector it stored (the catch-up reports them, R11.69). It indexes
     /// what <see cref="FindAbsentAsync"/> finds, one post at a time as the scan meets it, and returns the first failure.
     /// </summary>
-    public async Task<Result<bool>> ReconcileByAbsenceAsync(IEventReader events, Collection<string> stored, CancellationToken cancellationToken = default)
+    public async Task<Result<bool>> ReconcileByAbsenceAsync(
+        IEventReader events, Collection<string> stored, IndexSweep? sweep = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(stored);
 
         var scan = await FindAbsentAsync(
             events,
-            sweep: null,
-            async (post, token) =>
+            sweep,
+            async (post, embedding, token) =>
             {
-                var result = await IndexAsync(post, token).ConfigureAwait(false);
+                var result = await StoreAsync(post, embedding, token).ConfigureAwait(false);
                 if (!result.TryGetValue(out var vector, out var indexError)) return indexError;
                 if (vector is not null) stored.Add(post.Digest);
                 return null;
@@ -99,7 +109,7 @@ public sealed class EmbeddingIndexer
     /// complete returns what it found before the failure, so a post known to be absent is never un-known.
     /// </summary>
     public async Task<AbsentScan> FindAbsentAsync(
-        IEventReader events, IndexSweep? sweep, Func<SearchablePost, CancellationToken, Task<Error?>>? each, CancellationToken cancellationToken = default)
+        IEventReader events, IndexSweep? sweep, Func<SearchablePost, Embedding, CancellationToken, Task<Error?>>? each, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -122,8 +132,11 @@ public sealed class EmbeddingIndexer
             {
                 if (SearchProjector.TryRead(appended) is not { } post || present.Contains(post.Digest)) continue;
 
+                // A post the model could not place at an earlier check, and a post whose index step is running in this process, are skipped (R8.83).
+                if (sweep is not null && (sweep.IsUnplaceable(post.Digest) || sweep.IsIndexing(post.Digest))) continue;
+
                 var embedded = _embedder.Embed(EmbeddedText.Of(post));
-                if (!embedded.TryGetValue(out _, out var embedError))
+                if (!embedded.TryGetValue(out var embedding, out var embedError))
                 {
                     if (!string.Equals(embedError!.Type, EmbeddingErrors.NoFeatures().Type, StringComparison.Ordinal))
                         return new AbsentScan(found, embedError);
@@ -134,7 +147,7 @@ public sealed class EmbeddingIndexer
 
                 present.Add(post.Digest);
                 found.Add(new AbsentPost(post.Digest, post.PostId, post.Sequence));
-                if (each is not null && await each(post, cancellationToken).ConfigureAwait(false) is { } eachError)
+                if (each is not null && await each(post, embedding!, cancellationToken).ConfigureAwait(false) is { } eachError)
                     return new AbsentScan(found, eachError);
             }
 

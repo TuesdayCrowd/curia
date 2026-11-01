@@ -63,7 +63,7 @@ public sealed class IndexSweepTests
         var bWaiting = !rig.Backlog.Due(second + Tick).Any(e => e.Digest == b);
 
         var expected = $"after the first tick the Forum knows of 2 of the 2 absent posts; after the second A ({Short(a)}) is in the index, B ({Short(b)}) is not, the backlog holds B alone and B waits; the check began at {first:o}";
-        var actual = $"after the first tick the Forum knows of {knownAfterFirst} of the 2 absent posts; after the second A ({Short(a)}) is {(held.Contains(a) ? "in" : "not in")} the index, B ({Short(b)}) is {(held.Contains(b) ? "in" : "not in")}, the backlog holds {(enrolled.Length == 0 ? "nothing" : string.Join(' ', enrolled.Select(Short)))}{(enrolled.SequenceEqual([b]) ? " alone" : string.Empty)} and B {(bWaiting ? "waits" : "is not waiting")}; the check began at {rig.Sweep.CheckedAt:o}";
+        var actual = $"after the first tick the Forum knows of {knownAfterFirst} of the 2 absent posts; after the second A ({Short(a)}) is {(held.Contains(a) ? "in" : "not in")} the index, B ({Short(b)}) is {(held.Contains(b) ? "in" : "not")}, the backlog holds {(enrolled.Length == 0 ? "nothing" : enrolled.SequenceEqual([b]) ? "B alone" : string.Join(' ', enrolled.Select(Short)))} and B {(bWaiting ? "waits" : "is not waiting")}; the check began at {rig.Sweep.CheckedAt:o}";
         Said(expected, actual);
     }
 
@@ -172,7 +172,7 @@ public sealed class IndexSweepTests
         await rig.TickAsync(healed, Ct);
 
         var expected = $"the instant was not moved by a failed scan; the next attempts were {string.Join(", ", expectedWaits)} away; the find stayed known; the healed attempt recorded its beginning ({healed:o}) and cleared the obligation";
-        var actual = $"the instant was {(movedChecked ? "moved" : "not moved")} by a failed scan; the next attempts were {string.Join(", ", actualWaits)} away; the find {(knownAfterFailures ? "stayed known" : "was forgotten")}; the healed attempt recorded {rig.Sweep.CheckedAt:o} and {(rig.Sweep.DueAt is null ? "cleared" : "left")} the obligation";
+        var actual = $"the instant was {(movedChecked ? "moved" : "not moved")} by a failed scan; the next attempts were {string.Join(", ", actualWaits)} away; the find {(knownAfterFailures ? "stayed known" : "was forgotten")}; the healed attempt recorded {(rig.Sweep.CheckedAt == healed ? "its beginning (" + healed.ToString("o", CultureInfo.InvariantCulture) + ")" : rig.Sweep.CheckedAt.ToString("o", CultureInfo.InvariantCulture))} and {(rig.Sweep.DueAt is null ? "cleared" : "left")} the obligation";
         Said(expected, actual);
     }
 
