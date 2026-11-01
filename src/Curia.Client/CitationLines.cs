@@ -47,10 +47,14 @@ public sealed record CitationReport(ImmutableArray<CitationLine> Lines, Error? E
 /// </summary>
 public static class CitationLines
 {
-    /// <summary>The lines for <paramref name="items"/>, the Forum's answer to a batch of <paramref name="sent"/>.</summary>
-    public static CitationReport For(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items)
+    /// <summary>
+    /// The lines for <paramref name="items"/>, the Forum's answer to a batch of <paramref name="sent"/>. <paramref name="answeredAt"/> is the
+    /// reader's own instant, taken by the caller right after the batch returned (errata G53, R10.93); the seam accepts it and does not use it yet.
+    /// </summary>
+    public static CitationReport For(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items, DateTimeOffset answeredAt)
     {
         ArgumentNullException.ThrowIfNull(sent);
+        _ = answeredAt;
 
         if (items.Length != sent.Count)
             return Refused(ClientErrors.BatchCount(sent.Count, items.Length));

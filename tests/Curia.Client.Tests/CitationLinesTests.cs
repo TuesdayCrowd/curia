@@ -58,7 +58,7 @@ public sealed class CitationLinesTests : IDisposable
         _log.BatchAnswer = _ => items;
         var result = await _log.Client().BatchAsync(sent, MarkingMode.None, TestContext.Current.CancellationToken);
         Assert.True(result.TryGetValue(out var served, out var refusal), refusal?.Summary);
-        return CitationLines.For(sent, served);
+        return CitationLines.For(sent, served, DateTimeOffset.UnixEpoch);
     }
 
     private static string Joined(CitationReport report) =>

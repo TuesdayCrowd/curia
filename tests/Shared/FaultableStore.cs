@@ -39,6 +39,12 @@ internal enum EventStoreFault
     /// <summary>The append commits and then throws a driver fault: the act is stored and the caller is told nothing.</summary>
     AppendThenThrow,
 
+    /// <summary>
+    /// The append throws the timeout-classified driver fault at once and commits later, when the test releases <see cref="FaultableEventStore.ReleaseLateCommit"/>:
+    /// the act is not stored when the caller is told, and is stored after (errata G53, the plan's ruling 10: a store that timed out can finish after it answered).
+    /// </summary>
+    ThrowThenCommitWhenReleased,
+
     /// <summary>Reads are healthy until the first append after arming commits, and fail from then on: the receipt must not read a store after the commit.</summary>
     FailReadsAfterFirstAppend,
 
@@ -76,6 +82,9 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     private bool _committedSinceArmed;
     private readonly TaskCompletionSource _hangStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _hangEnded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _lateGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _lateCommitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _lateStarted;
     private int _reads;
     private int _appends;
     private int _committed;
@@ -101,6 +110,12 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     /// <summary>Completes when that read has been cancelled and has thrown, so the host has finished with the request.</summary>
     internal Task HangEnded => _hangEnded.Task;
 
+    /// <summary>Lets the commit that <see cref="EventStoreFault.ThrowThenCommitWhenReleased"/> deferred go ahead.</summary>
+    internal void ReleaseLateCommit() => _lateGate.TrySetResult();
+
+    /// <summary>Completes when the deferred commit has been made, so a probe reads the events table only after it landed.</summary>
+    internal Task LateCommitted => _lateCommitted.Task;
+
     /// <summary>Arms <paramref name="fault"/>; <paramref name="exception"/> is what a throwing mode throws (a driver fault when omitted).</summary>
     internal void Arm(EventStoreFault fault, Func<Exception>? exception = null)
     {
@@ -109,6 +124,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
             _fault = fault;
             _make = exception ?? StoreFaultKinds.Driver;
             _committedSinceArmed = false;
+            Volatile.Write(ref _lateStarted, 0);
         }
     }
 
@@ -120,13 +136,15 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
         AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, CancellationToken cancellationToken = default) =>
-        AppendCoreAsync(() => inner.AppendAsync(aggregateId, expectedVersion, events, cancellationToken));
+        AppendCoreAsync(token => inner.AppendAsync(aggregateId, expectedVersion, events, token), cancellationToken);
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
         AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition condition, CancellationToken cancellationToken = default) =>
-        AppendCoreAsync(() => inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken));
+        AppendCoreAsync(token => inner.AppendAsync(aggregateId, expectedVersion, events, condition, token), cancellationToken);
 
-    private async Task<Result<IReadOnlyList<AppendedEvent>>> AppendCoreAsync(Func<Task<Result<IReadOnlyList<AppendedEvent>>>> append)
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "The deferred commit runs on a task nobody awaits; whatever it throws is handed to the probe through LateCommitted.")]
+    private async Task<Result<IReadOnlyList<AppendedEvent>>> AppendCoreAsync(
+        Func<CancellationToken, Task<Result<IReadOnlyList<AppendedEvent>>>> append, CancellationToken cancellationToken)
     {
         Interlocked.Increment(ref _appends);
         EventStoreFault fault;
@@ -143,9 +161,28 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
                 throw make();
             case EventStoreFault.ReportAppend:
                 return Result<IReadOnlyList<AppendedEvent>>.Fail(StoreFaultKinds.ReportedAppend());
+            case EventStoreFault.ThrowThenCommitWhenReleased when Interlocked.CompareExchange(ref _lateStarted, 1, 0) == 0:
+                // The commit is the gate's, never a sleep's, and it is not the request's: the caller has been answered by then. Once per arming.
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _lateGate.Task.ConfigureAwait(false);
+                        await append(CancellationToken.None).ConfigureAwait(false);
+                        Interlocked.Increment(ref _committed);
+                        _lateCommitted.TrySetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        _lateCommitted.TrySetException(ex);
+                    }
+                }, CancellationToken.None);
+                throw make();
+            case EventStoreFault.ThrowThenCommitWhenReleased:
+                throw make();
         }
 
-        var result = await append().ConfigureAwait(false);
+        var result = await append(cancellationToken).ConfigureAwait(false);
         Interlocked.Increment(ref _committed);
         lock (_gate) _committedSinceArmed = true;
         if (fault == EventStoreFault.AppendThenThrow) throw make();

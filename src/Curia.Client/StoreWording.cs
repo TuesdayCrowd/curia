@@ -30,6 +30,20 @@ public static class StoreWording
 
     private const string TokenSentence = FaultOfTheForum + "Nothing was minted: a new request can be sent later";
 
+    // Errata G53's published words, declared and not yet used (the seam): the build replaces the three sentences above with them.
+
+    /// <summary>R10.93 wait, R11.73 words: the figure of the wait, in seconds, before an act a refusal printed may be sent again.</summary>
+    public const int RecheckWaitSeconds = 60;
+
+    /// <summary>R11.73 words: the phrase a replayed resolve prints, which means the first call was recorded.</summary>
+    public const string ResolveReplayPhrase = "already the accepted answer; nothing was recorded";
+
+    /// <summary>R11.73 words: the phrase the refusal of a repeated flag prints, which means the first call was recorded.</summary>
+    public const string FlagRepeatPhrase = "has already raised a flag of this type against this post";
+
+    /// <summary>R11.74 words: the <c>whoami</c> line for a cached token that has expired.</summary>
+    public const string WhoamiExpiredLine = "cached, expired; a new one is requested at the next call";
+
     /// <summary>
     /// The sentence a refusal of <paramref name="type"/> carries after its title and type, or the empty string for a type that is not one of the three. The
     /// token's is chosen by the code <c>temporarily_unavailable</c>, which the token endpoint's answer carries as its type.

@@ -332,6 +332,13 @@ public sealed class HeadStore
     }
 
     /// <summary>
+    /// The retained head and the instant it was stored (errata G53, R11.74 (a)), or <see langword="null"/> where <see cref="Read"/> is. The seam
+    /// stores no instant, so the instant is always <see langword="null"/> (a file that records none).
+    /// </summary>
+    public (SignedHeadDocument Head, DateTimeOffset? RetainedAt)? ReadRetained(Uri forum) =>
+        Read(forum) is { } head ? (head, null) : null;
+
+    /// <summary>
     /// Retains a head whose signature the caller has already verified.
     ///
     /// <para>Only the signed object and the two members that identify its signature are kept. The
@@ -339,9 +346,13 @@ public sealed class HeadStore
     /// Forum re-verifying itself and is worthless once this client has done the check for real, and
     /// the second is a fact about the log at the moment of a fetch that has already passed.</para>
     /// </summary>
-    public void Write(Uri forum, SignedHeadDocument head)
+    /// <param name="forum">The Forum whose head this is.</param>
+    /// <param name="head">The head, already verified by the caller.</param>
+    /// <param name="retainedAt">The verifier's clock at the write (errata G53, R11.74 (a)); the seam accepts it and does not store it yet.</param>
+    public void Write(Uri forum, SignedHeadDocument head, DateTimeOffset retainedAt)
     {
         ArgumentNullException.ThrowIfNull(head);
+        _ = retainedAt;
 
         var directory = DirectoryFor(forum);
         PrivateFiles.CreateDirectory(directory);

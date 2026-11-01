@@ -43,7 +43,7 @@ namespace Curia.Mcp;
 /// through <c>Passage</c> (R10.79, R8.66).</para>
 /// </summary>
 internal sealed partial class ForumTools(
-    ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null)
+    ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null, TimeProvider? clock = null)
 {
     /// <summary>
     /// How many served posts this session keeps so <c>curia_verify</c> can verify the document the
@@ -58,6 +58,9 @@ internal sealed partial class ForumTools(
     private readonly ForumClient _forum = forum;
     private readonly MarkingMode _marking = marking;
     private readonly ForumWriter? _writer = writer;
+
+    /// <summary>The reader's own clock (CS-9, errata G53 ruling 15): the instant <c>curia_recheck</c> states, taken after the batch returned.</summary>
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
     /// <summary>Whether an identity is configured, and so whether the write tools are offered at all.</summary>
     internal bool CanWrite => _writer is not null;
@@ -370,7 +373,7 @@ internal sealed partial class ForumTools(
         var batch = await _forum.BatchAsync(digests, _marking, cancellationToken).ConfigureAwait(false);
         if (!batch.TryGetValue(out var items, out var refusal)) throw Refused(refusal!);
 
-        var report = CitationLines.For(digests, items);
+        var report = CitationLines.For(digests, items, _clock.GetUtcNow());
         if (report.Error is { } mismatch)
         {
             // R9.34: an error and no standing, in this client's own words (the counts and a position are the request's, never the Forum's text).

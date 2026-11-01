@@ -28,6 +28,11 @@ namespace Curia.Client;
 /// retired before the post, a broken link, a rotation no live key made, or an entry of a kind this client cannot
 /// fold, is reported here and never as a pass.
 /// </param>
+/// <param name="SupersededBy">The Forum's word on a revision of the post (R11.44).</param>
+/// <param name="PastHeadTreeSize">
+/// Errata G53 (R11.74 (b)): the tree size of the latest signed head when the post's leaf lies at or past it and no check failed, the typed
+/// fact <c>curia_verify</c>'s closing line will name; always <see langword="null"/> in the seam.
+/// </param>
 public sealed record PostVerification(
     string PostId,
     Check Signature,
@@ -38,7 +43,8 @@ public sealed record PostVerification(
     string? Digest,
     long? LogIndex,
     long? AnchorTreeSize,
-    ImmutableArray<Successor> SupersededBy = default)
+    ImmutableArray<Successor> SupersededBy = default,
+    long? PastHeadTreeSize = null)
 {
     /// <summary>
     /// One word for the five, for a caller that wants a single answer.
@@ -546,6 +552,9 @@ public sealed class PostVerifier
     {
         if (anchor.Head is not { } head) return anchor.Verdict;
 
+        // R11.74 (a): taken before the lock is waited for, so a head a sibling stores while this call waits is visibly stored after it began.
+        var began = _time.GetUtcNow();
+
         var locked = await _heads.LockAsync(_forum.Forum, _lockWait, _time, ct).ConfigureAwait(false);
         if (!locked.TryGetValue(out var held, out var unlocked))
             return Check.CouldNotCheck(
@@ -553,7 +562,7 @@ public sealed class PostVerifier
 
         try
         {
-            return await CompareAndRetainAsync(head, ct).ConfigureAwait(false);
+            return await CompareAndRetainAsync(head, began, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -565,8 +574,10 @@ public sealed class PostVerifier
     /// <see cref="ConsistencyAsync"/>'s read, fetch, compare and replace, which run only under the
     /// retained head's lock.
     /// </summary>
-    private async Task<Check> CompareAndRetainAsync(SignedHeadDocument head, CancellationToken ct)
+    private async Task<Check> CompareAndRetainAsync(SignedHeadDocument head, DateTimeOffset began, CancellationToken ct)
     {
+        _ = began;
+
         // A head this client cannot read is not the same as one it never had. R6.53 permits
         // replacing a retained head only after a consistency proof verifies, and a file that is
         // present and unreadable may be a retained head an attacker has damaged -- overwriting it
@@ -583,7 +594,7 @@ public sealed class PostVerifier
         var retained = _heads.Read(_forum.Forum);
         if (retained is null)
         {
-            _heads.Write(_forum.Forum, head);
+            _heads.Write(_forum.Forum, head, _time.GetUtcNow());
             return Check.FirstRetained(Invariant(
                 $"this client had retained no earlier head for {Check.Quote(HeadStore.Origin(_forum.Forum))}, so there was nothing to compare against. The head at tree size {head.TreeSize} is now retained, and the next verification will check the log against it (R6.53)."));
         }
@@ -609,7 +620,7 @@ public sealed class PostVerifier
 
         if (retained.TreeSize < head.TreeSize)
         {
-            _heads.Write(_forum.Forum, head);
+            _heads.Write(_forum.Forum, head, _time.GetUtcNow());
             return Check.Verified(consistent.Detail + "; the newer head is now the retained one");
         }
 

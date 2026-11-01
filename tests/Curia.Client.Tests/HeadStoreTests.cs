@@ -43,7 +43,7 @@ public sealed class HeadStoreTests : IDisposable
     {
         // No ProfileStore, no slug, no keys: this is the reader R6.19 describes.
         var writer = new HeadStore(_root);
-        writer.Write(Forum, Head());
+        writer.Write(Forum, Head(), DateTimeOffset.UnixEpoch);
 
         var reader = new HeadStore(_root);
         var retained = reader.Read(SameOrigin);
@@ -95,7 +95,7 @@ public sealed class HeadStoreTests : IDisposable
         var keyMode = File.GetUnixFileMode(Path.Combine(profiles.DirectoryFor("reader"), "signing-key.pem"));
 
         var store = new HeadStore(_root);
-        store.Write(Forum, Head());
+        store.Write(Forum, Head(), DateTimeOffset.UnixEpoch);
         var headMode = File.GetUnixFileMode(Path.Combine(store.DirectoryFor(Forum), "head.json"));
 
         Assert.Equal(keyMode, headMode);
@@ -117,7 +117,7 @@ public sealed class HeadStoreTests : IDisposable
         if (OperatingSystem.IsWindows()) return;
 
         var store = new HeadStore(_root);
-        store.Write(Forum, Head());
+        store.Write(Forum, Head(), DateTimeOffset.UnixEpoch);
 
         var path = Path.Combine(store.DirectoryFor(Forum), "head.json");
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite
@@ -127,7 +127,7 @@ public sealed class HeadStoreTests : IDisposable
         // it is about the write rather than about a mode that was never changed.
         Assert.True(File.GetUnixFileMode(path).HasFlag(UnixFileMode.OtherRead));
 
-        store.Write(Forum, Head());
+        store.Write(Forum, Head(), DateTimeOffset.UnixEpoch);
 
         var mode = File.GetUnixFileMode(path);
         Assert.False(mode.HasFlag(UnixFileMode.OtherRead));
@@ -149,7 +149,7 @@ public sealed class HeadStoreTests : IDisposable
         var store = new HeadStore(_root);
         var head = Head();
 
-        Parallel.For(0, 64, _ => store.Write(Forum, head));
+        Parallel.For(0, 64, _ => store.Write(Forum, head, DateTimeOffset.UnixEpoch));
 
         Assert.Equal(head.RootHash, store.Read(Forum)!.RootHash);
 
@@ -250,7 +250,7 @@ public sealed class HeadStoreTests : IDisposable
     {
         var store = new HeadStore(_root);
         var head = Head();
-        store.Write(Forum, head);
+        store.Write(Forum, head, DateTimeOffset.UnixEpoch);
 
         var retained = store.Read(Forum)!;
 

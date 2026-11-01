@@ -55,7 +55,7 @@ public sealed class SupersededLineWordsTests : IDisposable
         string[] sent = [digest];
         var result = _log.Client().BatchAsync(sent, MarkingMode.None, TestContext.Current.CancellationToken).GetAwaiter().GetResult();
         Assert.True(result.TryGetValue(out var served, out var refusal), refusal?.Summary);
-        return (sent, served, CitationLines.For(sent, served));
+        return (sent, served, CitationLines.For(sent, served, DateTimeOffset.UnixEpoch));
     }
 
     private static readonly (string Name, (string Digest, string? PostId)[] Successors)[] Shapes =

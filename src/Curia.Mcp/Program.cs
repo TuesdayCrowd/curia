@@ -61,7 +61,7 @@ using var owned = identity;
 // R6.53's retained head lives under the client's own root and outside any agent directory:
 // reading needs no identity, so a head under agents/<slug>/ would be unreachable by the reader who
 // needs it most, and two identities on one machine would hold two views of one log.
-var tools = new ForumTools(client, config.Marking, HeadStore.Default(), writer);
+var tools = new ForumTools(client, config.Marking, HeadStore.Default(), writer, TimeProvider.System);
 
 var options = ServerComposition.Options(tools, writer?.Agent.Profile.AgentId);
 
