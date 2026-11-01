@@ -1246,7 +1246,7 @@ internal sealed class StubLog : IDisposable
     "next_cursor":{{(SearchNextCursor is null ? "null" : JsonString(SearchNextCursor))}},
     "floor":{"surface":"mcp-search","min_verification":"{{(FloorClamped ? "V1" : "V0")}}","source":"{{(FloorClamped ? "configured" : "published")}}",
     {{FloorListsMembersJson()}}"excluded_disputed":0{{ClampMembersJson()}}},
-    "model":"hashed-ngram@1","corpus_bound":1{{(SearchVectorPendingJson is null ? string.Empty : ",\"vector_pending\":" + SearchVectorPendingJson)}}}
+    "model":"hashed-ngram@1","corpus_bound":1{{(SearchVectorPendingJson is null ? string.Empty : ",\"vector_pending\":" + SearchVectorPendingJson)}}{{(SearchVectorCheckedAtJson is null ? string.Empty : ",\"vector_checked_at\":" + SearchVectorCheckedAtJson)}}{{(SearchVectorCheckDueAtJson is null ? string.Empty : ",\"vector_check_due_at\":" + SearchVectorCheckDueAtJson)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -1254,6 +1254,12 @@ internal sealed class StubLog : IDisposable
     /// <c>"3"</c> ...); null serves the page without the member, as an older Forum does.
     /// </summary>
     internal string? SearchVectorPendingJson { get; set; }
+
+    /// <summary>Errata G54 (R9.53): the raw JSON value of the <c>vector_checked_at</c> member the stub's search page carries (an instant string, <c>null</c>, <c>3</c> ...); null serves the page without the member, as an older Forum does.</summary>
+    internal string? SearchVectorCheckedAtJson { get; set; }
+
+    /// <summary>Errata G54 (R9.53): the raw JSON value of the <c>vector_check_due_at</c> member the stub's search page carries (<c>null</c>, an instant string ...); null serves the page without the member, as an older Forum does.</summary>
+    internal string? SearchVectorCheckDueAtJson { get; set; }
 
     /// <summary>
     /// Errata G51 (R8.81): the raw JSON value of the <c>vector_index</c> member the stub adds to the body of a <c>200</c> or <c>201</c> write receipt

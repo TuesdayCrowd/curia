@@ -86,16 +86,6 @@ internal static partial class PublishedIndexLag
     /// <summary>The receipt's line for a receipt that carries no member.</summary>
     internal static string NotStatedLine() => One(NotStatedPhrase(), ClientWords(), "R11.70's receipt line for no member");
 
-    /// <summary>The CLI's search line for a count of zero.</summary>
-    internal static string NonePendingLine() => One(NonePendingPhrase(), ClientWords(), "R11.70's line for none pending");
-
-    /// <summary>The CLI's search line for a positive count, with <c>&lt;n&gt;</c> replaced by <paramref name="count"/>.</summary>
-    internal static string CountLine(int count) =>
-        One(CountPhrase(), ClientWords(), "R11.70's line for a positive count").Replace("<n>", count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
-
-    /// <summary>The CLI's search line where the Forum served none.</summary>
-    internal static string SearchNotStatedLine() => One(SearchNotStatedPhrase(), ClientWords(), "R11.70's search line for none served");
-
     /// <summary>The tool's first-block member for a count, <c>vector_pending=&lt;n&gt;</c> with the count in it.</summary>
     internal static string ToolCountLine(int count) =>
         One(ToolCountPhrase(), ClientWords(), "R11.70's tool member for a count").Replace("<n>", count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
@@ -159,15 +149,6 @@ internal static partial class PublishedIndexLag
 
     [GeneratedRegex(@"For a receipt that carries no member: `(search [^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex NotStatedPhrase();
-
-    [GeneratedRegex(@"`(vector none pending)` for 0", RegexOptions.CultureInvariant)]
-    private static partial Regex NonePendingPhrase();
-
-    [GeneratedRegex(@"`(vector <n> [^`]+)` for a positive count", RegexOptions.CultureInvariant)]
-    private static partial Regex CountPhrase();
-
-    [GeneratedRegex(@"`(vector NOT STATED)` where the Forum served none", RegexOptions.CultureInvariant)]
-    private static partial Regex SearchNotStatedPhrase();
 
     [GeneratedRegex(@"first block: `(vector_pending=<n>)`", RegexOptions.CultureInvariant)]
     private static partial Regex ToolCountPhrase();

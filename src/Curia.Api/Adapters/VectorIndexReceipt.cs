@@ -33,6 +33,18 @@ internal static partial class VectorIndexLog
         Message = "The catch-up could not store the vector of post {PostId} ({Digest}); it stays pending ({FaultType}: {FaultDetail})")]
     internal static partial void RetryFailed(ILogger logger, string postId, string digest, string faultType, string faultDetail);
 
+    [LoggerMessage(EventId = 6, EventName = "VectorIndexCheckOwed", Level = LogLevel.Warning,
+        Message = "A discussion post's append left the route by an exception, so the log may hold a post no answer reported; a check of the log against the vector index is owed ({FaultType})")]
+    internal static partial void CheckOwed(ILogger logger, string faultType);
+
+    [LoggerMessage(EventId = 7, EventName = "VectorIndexCheckFound", Level = LogLevel.Information,
+        Message = "The check of the log against the vector index that began at {Began:o} enrolled {Enrolled} post(s) the index lacked")]
+    internal static partial void CheckFound(ILogger logger, int enrolled, DateTimeOffset began);
+
+    [LoggerMessage(EventId = 8, EventName = "VectorIndexCheckFailed", Level = LogLevel.Warning,
+        Message = "The check of the log against the vector index could not complete and will be attempted again ({FaultType}: {FaultDetail})")]
+    internal static partial void CheckFailed(ILogger logger, string faultType, string faultDetail);
+
     [LoggerMessage(EventId = 4, EventName = "VectorIndexCatchUpFailed", Level = LogLevel.Error,
         Message = "A catch-up pass failed and the loop continues: {FaultType}: {FaultDetail}")]
     internal static partial void PassFailed(ILogger logger, string faultType, string faultDetail);

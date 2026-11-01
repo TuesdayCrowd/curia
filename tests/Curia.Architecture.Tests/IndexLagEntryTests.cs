@@ -71,12 +71,12 @@ public sealed class IndexLagEntryTests
         Check(PublishedIndexLag.ReceiptLine(pending).Contains("PENDING", StringComparison.Ordinal), "the pending line does not say PENDING");
         Check(PublishedIndexLag.ReceiptLine(notApplicable).Contains("not placed", StringComparison.Ordinal), "the not_applicable line does not say not placed");
         Check(PublishedIndexLag.NotStatedLine().Contains("NOT STATED", StringComparison.Ordinal), "the no-member line does not say NOT STATED");
-        Check(PublishedIndexLag.NonePendingLine().StartsWith("vector ", StringComparison.Ordinal), "the none-pending line is not a vector line");
-        Check(PublishedIndexLag.CountLine(7).Contains("7 committed", StringComparison.Ordinal), "the count line does not carry the count");
-        Check(PublishedIndexLag.SearchNotStatedLine().Contains("NOT STATED", StringComparison.Ordinal), "the search no-member line does not say NOT STATED");
+        Check(PublishedCheckWords.Line(0, null, true, "2026-11-01T10:00:00.0000000+00:00").StartsWith("vector ", StringComparison.Ordinal), "the none-pending line is not a vector line");
+        Check(PublishedCheckWords.CountClause(7).Contains("7 committed", StringComparison.Ordinal), "the count clause does not carry the count");
+        Check(PublishedCheckWords.LineNotStated().Contains("NOT STATED", StringComparison.Ordinal), "the search no-member line does not say NOT STATED");
         Check(PublishedIndexLag.ToolCountLine(3) == "vector_pending=3" && PublishedIndexLag.ToolNotStatedLine() == "vector_pending=not stated", "the tool's members are not vector_pending=<n> and vector_pending=not stated");
         Check(PublishedIndexLag.Sentence().Contains("PENDING", StringComparison.Ordinal) && PublishedIndexLag.Sentence().Contains("do not send it again", StringComparison.Ordinal), "the sentence does not tell an agent not to send the post again");
-        Check(PublishedReadersLastWords.Version() == "0.9.4", $"the version the one parser reads is {PublishedReadersLastWords.Version()}");   // the parser reads the newest entry's (R11.72, errata G52), which moves with each bump; it was 0.9.2 while it read R11.70
+        Check(PublishedReadersLastWords.Version() == "0.9.5", $"the version the one parser reads is {PublishedReadersLastWords.Version()}");   // the parser reads the newest entry's (R11.72, errata G52), which moves with each bump; it was 0.9.2 while it read R11.70
 
         Said("the entry holds its words and its parts agree", problems.Count == 0 ? "the entry holds its words and its parts agree" : string.Join("; ", problems));
     }

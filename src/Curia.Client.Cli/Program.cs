@@ -949,7 +949,7 @@ internal static class Program
         Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {FloorKinds.Render(page.Floor.AppliesTo, ", ")}; not to {FloorKinds.Render(page.Floor.NotApplicableTo, ", ")}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
         Output.Line($"clamp     {ClampWords(page.Floor)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");
-        Output.Line($"{new OwnText(IndexWording.SearchLine(page.VectorPending))}");
+        Output.Line($"{new OwnText(IndexWording.SearchLine(page.VectorPending, page.VectorCheckedAt ?? StatedInstant.NotStated, page.VectorCheckDueAt ?? StatedInstant.NotStated))}");
         Output.Blank();
 
         if (page.Results.IsDefaultOrEmpty)

@@ -45,6 +45,12 @@ internal enum EventStoreFault
     /// </summary>
     ThrowThenCommitWhenReleased,
 
+    /// <summary>
+    /// The append commits, then waits for the caller's token to be cancelled and throws that cancellation: a request aborted by its client after its act is stored
+    /// (the cancellation door of errata G54, R8.83). <see cref="FaultableEventStore.CommittedAndWaiting"/> says when the commit is made and the wait has begun.
+    /// </summary>
+    CommitThenCancel,
+
     /// <summary>Reads are healthy until the first append after arming commits, and fail from then on: the receipt must not read a store after the commit.</summary>
     FailReadsAfterFirstAppend,
 
@@ -84,6 +90,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     private readonly TaskCompletionSource _hangEnded = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _lateGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _lateCommitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource _committedAndWaiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _lateStarted;
     private int _reads;
     private int _appends;
@@ -110,6 +117,12 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     /// <summary>Completes when that read has been cancelled and has thrown, so the host has finished with the request.</summary>
     internal Task HangEnded => _hangEnded.Task;
 
+    /// <summary>Completes when <see cref="EventStoreFault.CommitThenCancel"/> has committed and is waiting for the caller's token: the probe aborts the request then.</summary>
+    internal Task CommittedAndWaiting
+    {
+        get { lock (_gate) return _committedAndWaiting.Task; }
+    }
+
     /// <summary>Lets the commit that <see cref="EventStoreFault.ThrowThenCommitWhenReleased"/> deferred go ahead.</summary>
     internal void ReleaseLateCommit() => _lateGate.TrySetResult();
 
@@ -124,6 +137,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
             _fault = fault;
             _make = exception ?? StoreFaultKinds.Driver;
             _committedSinceArmed = false;
+            _committedAndWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Volatile.Write(ref _lateStarted, 0);
         }
     }
@@ -186,6 +200,14 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
         Interlocked.Increment(ref _committed);
         lock (_gate) _committedSinceArmed = true;
         if (fault == EventStoreFault.AppendThenThrow) throw make();
+        if (fault == EventStoreFault.CommitThenCancel)
+        {
+            TaskCompletionSource waiting;
+            lock (_gate) waiting = _committedAndWaiting;
+            waiting.TrySetResult();
+            await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+        }
+
         return result;
     }
 

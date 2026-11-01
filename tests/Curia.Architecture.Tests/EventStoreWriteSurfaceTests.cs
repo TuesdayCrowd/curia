@@ -86,6 +86,11 @@ public sealed class EventStoreWriteSurfaceTests
         // producer; listed here so the widening is a recorded decision rather than a quiet one.
         "Curia.Domain.Tests.Acta.LogLeafTests",
         "Curia.Application.Tests.InMemory.InMemoryEventStore",
+
+        // Errata G54's probes (CPF9 to CPF14, CPF21, CPF30): a reader that serves a log of tens of thousands of posts generated page by page, so a probe about the paging
+        // of the check and about its cadence over a long log costs no append. It is a reader and writes nothing; it constructs the events it serves because there is no
+        // store behind it to hand them out. A test double, not a producer; listed here so the widening is a recorded decision rather than a quiet one.
+        "Curia.Application.Tests.Retrieval.GeneratedLog",
         "Curia.Infrastructure.PostgresEventStore",
     ];
 

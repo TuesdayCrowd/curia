@@ -17,6 +17,11 @@ internal sealed class ManualTimeProvider : TimeProvider
 
     public override DateTimeOffset GetUtcNow() => _now;
 
+    /// <summary>Elapsed time on this clock too, so what a unit measures through it (a check's duration) never reads the wall clock.</summary>
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+    public override long GetTimestamp() => _now.UtcTicks;
+
     public void Set(DateTimeOffset instant) => _now = instant;
 
     /// <summary>

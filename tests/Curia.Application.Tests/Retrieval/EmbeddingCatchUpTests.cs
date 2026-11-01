@@ -181,7 +181,8 @@ public sealed class EmbeddingCatchUpTests
     /// <summary>
     /// PIL37 (the review fix, M1). A by-absence pass that keeps failing is attempted on the entry's schedule, not at every tick: the first pass runs at once, the
     /// next the first wait later, then twice that, to the cap, and stays at the cap. Measured by the upserts the index is asked for, one post being unindexed and
-    /// the backlog flagged as overflowed; the pass is run at every second of the schedule.
+    /// the backlog flagged as overflowed; the pass is run at every second of the schedule. The check of errata G54 (R8.83) is a second door to the same post and
+    /// would be counted here, so it is held off: it is told at every second that it has just completed. Its own cadence is CPF14's.
     /// </summary>
     [Fact]
     public async Task R11_69_PIL37_AFailingByAbsencePassIsAttemptedOnTheDoublingScheduleAndNotAtEveryTick()
@@ -199,6 +200,7 @@ public sealed class EmbeddingCatchUpTests
             expectedWaits.Add(wait);
 
         var firstPass = h.Index.Attempted.Length;
+        h.Sweep.Completed(start);
         await h.CatchUp.RunOnceAsync(h.Store, start, Ct);
         var attemptedAtStart = h.Index.Attempted.Length - firstPass;
 
@@ -210,8 +212,13 @@ public sealed class EmbeddingCatchUpTests
             var due = instant + wait;
             var before = h.Index.Attempted.Length;
             for (var at = instant + TimeSpan.FromSeconds(1); at < due; at += TimeSpan.FromSeconds(1))
+            {
+                h.Sweep.Completed(at);
                 await h.CatchUp.RunOnceAsync(h.Store, at, Ct);
+            }
+
             var tooEarly = h.Index.Attempted.Length - before;
+            h.Sweep.Completed(due);
             await h.CatchUp.RunOnceAsync(h.Store, due, Ct);
             var atDue = h.Index.Attempted.Length - before - tooEarly;
 

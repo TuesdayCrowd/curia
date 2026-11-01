@@ -27,21 +27,38 @@ public sealed class CommittedPostIndexer
     private readonly EmbeddingIndexer _indexer;
     private readonly IndexBacklog _backlog;
     private readonly TimeProvider _clock;
+    private readonly IndexSweep _sweep;
 
-    public CommittedPostIndexer(EmbeddingIndexer indexer, IndexBacklog backlog, TimeProvider clock)
+    public CommittedPostIndexer(EmbeddingIndexer indexer, IndexBacklog backlog, TimeProvider clock, IndexSweep sweep)
     {
         ArgumentNullException.ThrowIfNull(indexer);
         ArgumentNullException.ThrowIfNull(backlog);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(sweep);
         _indexer = indexer;
         _backlog = backlog;
         _clock = clock;
+        _sweep = sweep;
     }
 
     public async Task<IndexOutcome> IndexAsync(SearchablePost post, CancellationToken shutdown)
     {
         ArgumentNullException.ThrowIfNull(post);
 
+        // The post is registered as in flight for the life of the step (errata G54, R8.83): a check that runs meanwhile does not enrol it.
+        _sweep.BeginIndexing(post.Digest);
+        try
+        {
+            return await StepAsync(post, shutdown).ConfigureAwait(false);
+        }
+        finally
+        {
+            _sweep.EndIndexing(post.Digest);
+        }
+    }
+
+    private async Task<IndexOutcome> StepAsync(SearchablePost post, CancellationToken shutdown)
+    {
         string faultType;
         string faultDetail;
         try
@@ -52,7 +69,13 @@ public sealed class CommittedPostIndexer
             {
                 var stored = await _indexer.IndexAsync(post, linked.Token).ConfigureAwait(false);
                 if (stored.TryGetValue(out var vector, out var error))
-                    return new IndexOutcome(vector is null ? CommittedIndexState.NotApplicable : CommittedIndexState.Indexed);
+                {
+                    // Only a stored vector is a success of the store (R11.69 (rev.)): a post the model cannot place proves nothing about it.
+                    if (vector is null) return new IndexOutcome(CommittedIndexState.NotApplicable);
+
+                    _backlog.NoteSuccess(_clock.GetUtcNow());
+                    return new IndexOutcome(CommittedIndexState.Indexed);
+                }
 
                 faultType = error!.Type;
                 faultDetail = error.Title;

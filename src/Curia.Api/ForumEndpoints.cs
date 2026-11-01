@@ -456,7 +456,13 @@ public sealed record SearchResponse(
     [property: JsonPropertyName("min_cosine_bp")] int MinimumCosineBp,
 
     /// <summary>R9.51 (errata G51): how many committed posts this Forum process holds as pending in the vector index (R11.69); always present, a lower bound across a deployment, and no hit is marked.</summary>
-    [property: JsonPropertyName("vector_pending")] int VectorPending);
+    [property: JsonPropertyName("vector_pending")] int VectorPending,
+
+    /// <summary>R9.53 (errata G54): the instant the last completed check of the log against the vector index began; always present.</summary>
+    [property: JsonPropertyName("vector_checked_at")] string VectorCheckedAt,
+
+    /// <summary>R9.53 (errata G54): JSON <c>null</c> where no check is owed, otherwise the instant of the next attempt; always present, written as <c>null</c> and never omitted.</summary>
+    [property: JsonPropertyName("vector_check_due_at")] string? VectorCheckDueAt);
 
 /// <summary>
 /// R8.18 / R8.19's 409, errata G10: an RFC 9457 problem carrying the canonical thread, its
@@ -767,6 +773,7 @@ public static class ForumEndpoints
         IRevisionGate revisionGate,
         IAgentWriteGate agentGate,
         CommittedPostIndexer committed,
+        IndexSweep sweep,
         IHostApplicationLifetime lifetime,
         ILoggerFactory loggerFactory,
         DuplicateCheck dedupe,
@@ -830,7 +837,7 @@ public static class ForumEndpoints
         await using var heldTurn = hold!.ConfigureAwait(false);
 
         // R8.81: the step after PERSIST is the host's to finish, not the caller's: only the host stopping reaches it.
-        var indexer = new IndexStep(committed, loggerFactory.CreateLogger("Curia.Api.VectorIndex"), lifetime.ApplicationStopping);
+        var indexer = new IndexStep(committed, sweep, clock, loggerFactory.CreateLogger("Curia.Api.VectorIndex"), lifetime.ApplicationStopping);
 
         // R6.56: VERIFY through PERSIST is one act against the author's stream, repeated while the stream
         // moves under it (IngestAttempts), and answered 503 contended after three. The attempt answers
@@ -1058,8 +1065,33 @@ public static class ForumEndpoints
         if (annotation is not null)
             s = s! with { Duplicate = annotation };
 
-        // PERSIST.
-        var accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
+        // PERSIST. A post the log holds by any road is found by the index (errata G54, R8.83): when the append leaves by an exception of any kind, a
+        // cancellation included, the log may hold the post though no answer says so, and a check of the log against the vector index is owed. The mark is set
+        // here, before the exception leaves the route: this is the one place it is set, and the confirm of a faulted append (D104) extends this same catch.
+        Result<PostAccepted> accepted;
+        try
+        {
+            accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            if (PostKinds.IsDiscussion(v.Envelope.Kind))
+            {
+                indexer.Sweep.Owe(indexer.Clock.GetUtcNow());
+                try
+                {
+                    VectorIndexLog.CheckOwed(indexer.Log, ex.GetType().FullName ?? ex.GetType().Name);
+                }
+#pragma warning disable CA1031 // R8.83: the exception being rethrown is the answer's cause; a log sink that fails must not replace it, and the check is owed whether or not it was logged.
+                catch (Exception)
+#pragma warning restore CA1031
+                {
+                }
+            }
+
+            throw;
+        }
+
         if (!accepted.TryGetValue(out var post, out var persistError))
         {
             // R6.56: the author's stream moved since VERIFY read it. Nothing was written; the caller
@@ -1103,8 +1135,8 @@ public static class ForumEndpoints
             BudgetReceiptResponse.Of(budgetAfter(post.ServerTimestamp.Value))));
     }
 
-    /// <summary>The step after PERSIST and what it needs from the request: the indexer, a logger and the host's stopping token (R8.81).</summary>
-    private sealed record IndexStep(CommittedPostIndexer Committed, ILogger Log, CancellationToken Shutdown);
+    /// <summary>The step after PERSIST and what it needs from the request: the indexer, the check's state and the clock (R8.83), a logger and the host's stopping token (R8.81).</summary>
+    private sealed record IndexStep(CommittedPostIndexer Committed, IndexSweep Sweep, TimeProvider Clock, ILogger Log, CancellationToken Shutdown);
 
     /// <summary>
     /// R10.35: "Any credentialed agent MAY flag content." Table 10's <c>flag</c>/<c>raise</c> row is
@@ -2193,6 +2225,7 @@ public static class ForumEndpoints
         IPolicyDecisionPoint pdp,
         HybridSearch search,
         IndexBacklog backlog,
+        IndexSweep sweep,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -2327,6 +2360,11 @@ public static class ForumEndpoints
                 wantsWhy ? WhyRanked(hit, page.Model.Id, page.K) : null));
         }
 
+        // R9.51, R9.53: the check's two instants from one lock, read before the count. A clear obligation seen here means the check that cleared it had finished enrolling,
+        // so the count read after it cannot be lower than what that check found; read the other way round, a post enrolled in between would be missed by a count of none.
+        var (checkedAt, dueAt) = sweep.Snapshot();
+        var pending = backlog.Count;
+
         return Results.Ok(new SearchResponse(
             results.ToImmutable(),
             matchesNothing ? null : page!.Next?.Encode(),
@@ -2348,7 +2386,10 @@ public static class ForumEndpoints
             page.CandidateDepth,
             Bp(page.MinimumCosine),
             // R9.51: the serving process's backlog, stated whatever the query, the filters and the cursor, and not part of a cursor's binding (R9.35).
-            backlog.Count));
+            pending,
+            // R9.53: the check's own record, from the clock port and never from the request; not part of a cursor's binding.
+            Instant(checkedAt),
+            dueAt is { } due ? Instant(due) : null));
     }
 
     /// <summary>R8.36's terms this build does not compute, named as absent with the reason (errata G10).</summary>

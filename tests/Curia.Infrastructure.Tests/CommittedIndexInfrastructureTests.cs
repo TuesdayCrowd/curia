@@ -94,8 +94,9 @@ public sealed class CommittedIndexInfrastructureTests(PostgresDatabaseFixture fi
         var index = new PostgresVectorIndex(source, TimeProvider.System, vectorSchema);
         var indexer = new EmbeddingIndexer(new HashedNGramEmbedder(), index);
         var backlog = new IndexBacklog();
+        var sweep = new IndexSweep(TimeProvider.System.GetUtcNow());
         var store = new PostgresEventStore(fixture.AppRoleDataSource, TimeProvider.System, fixture.PermissiveLifecycleGate(), eventsSchema);
-        return new Rig(vectorSchema, store, backlog, indexer, new CommittedPostIndexer(indexer, backlog, TimeProvider.System), new EmbeddingCatchUp(indexer, backlog), own);
+        return new Rig(vectorSchema, store, backlog, indexer, new CommittedPostIndexer(indexer, backlog, TimeProvider.System, sweep), new EmbeddingCatchUp(indexer, backlog, sweep), own);
     }
 
     /// <summary>Appends a discussion post to the rig's log and returns it as the route hands it to the indexer, without indexing it.</summary>

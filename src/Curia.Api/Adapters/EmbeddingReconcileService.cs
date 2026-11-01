@@ -16,21 +16,29 @@ public sealed class EmbeddingReconcileService : IHostedService
 {
     private readonly EmbeddingIndexer _indexer;
     private readonly IEventReader _events;
+    private readonly IndexSweep _sweep;
+    private readonly TimeProvider _clock;
     private readonly ILogger<EmbeddingReconcileService> _log;
 
-    public EmbeddingReconcileService(EmbeddingIndexer indexer, IEventReader events, ILogger<EmbeddingReconcileService> log)
+    public EmbeddingReconcileService(EmbeddingIndexer indexer, IEventReader events, IndexSweep sweep, TimeProvider clock, ILogger<EmbeddingReconcileService> log)
     {
         ArgumentNullException.ThrowIfNull(indexer);
         ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(sweep);
+        ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(log);
         _indexer = indexer;
         _events = events;
+        _sweep = sweep;
+        _clock = clock;
         _log = log;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var reconciled = await _indexer.ReconcileAsync(_events, cancellationToken).ConfigureAwait(false);
+        // The reconcile is a check (errata G54, R8.83): its beginning is the instant of the last check, taken before it ran.
+        var began = _clock.GetUtcNow();
+        var reconciled = await _indexer.ReconcileAsync(_events, _sweep, cancellationToken).ConfigureAwait(false);
         if (!reconciled.TryGetValue(out var indexed, out var error))
         {
             throw new InvalidOperationException(
@@ -39,6 +47,7 @@ public sealed class EmbeddingReconcileService : IHostedService
                 "with a retrieval channel it cannot keep in step with the log.");
         }
 
+        _sweep.Completed(began);
         Reconciled(_log, _indexer.Model.Id, indexed, null);
     }
 

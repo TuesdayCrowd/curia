@@ -1,0 +1,524 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using Curia.Application.Ports;
+using Curia.Application.Retrieval;
+using Curia.Domain.Primitives;
+using Curia.Tests.Shared;
+using Xunit;
+using static Curia.Application.Tests.Retrieval.RetrievalTestLog;
+
+namespace Curia.Application.Tests.Retrieval;
+
+/// <summary>
+/// Errata G54 (R8.83, R9.53) at the catch-up, as units over instants and a generated log (the "A committed post is found" PR, Task 0c): CPF9 the scan that finds a
+/// post past a page and does not end at a failing one, CPF10 the post the model cannot place, CPF11 the post whose index step is running, CPF12 the check that cannot
+/// complete, CPF13 the settle rule, CPF14 the cadence counted at the reader, CPF21 the instant a check records and CPF30 the paging of the scan. Every figure is the
+/// entry's (<see cref="PublishedCheckWords"/>); the oracles are the index's digests and the reader's own counts, never the sweep's report of itself.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class IndexSweepTests
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private static readonly TimeSpan Tick = TimeSpan.FromSeconds(1);
+
+    private static void Said(string expected, string actual)
+    {
+        if (!string.Equals(expected, actual, StringComparison.Ordinal))
+            throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
+    }
+
+    private static string Short(string digest) => digest.Length > 13 ? digest[7..13] : digest;
+
+    private static string Secs(TimeSpan span) => span.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    private static string Due(IndexSweep sweep, DateTimeOffset from) => sweep.DueAt is { } due ? Secs(due - from) + " s" : "none";
+
+    /// <summary>
+    /// CPF9. A find past a page, and one failing post does not end the scan (trap 77): 10,100 events with the unindexed post A at 10,050 and a second unindexed post B
+    /// at 10,100 whose index store fails. After the first tick the Forum knows of both (held in the backlog or already stored), after the second A is in the index and
+    /// B is not, B alone is held and waits on the ladder, and the check that completed began at the first tick.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF9_AFindPastAPageIsEnrolledAndOneFailingPostDoesNotEndTheScan()
+    {
+        var rig = new CheckRig(new GeneratedLog(10_100));
+        await rig.IndexAllExceptAsync(new HashSet<int> { 10_050, 10_100 }, Ct);
+        var a = GeneratedLog.DigestOf(10_050);
+        var b = GeneratedLog.DigestOf(10_100);
+        rig.Index.Fail(b);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        var first = exit + Tick;
+        var second = first + Tick;
+
+        rig.Sweep.Owe(exit);
+        await rig.TickAsync(first, Ct);
+        var held = await rig.HeldAsync(Ct);
+        var knownAfterFirst = rig.Enrolled().Count(d => d == a || d == b) + new[] { a, b }.Count(held.Contains);
+        await rig.TickAsync(second, Ct);
+        held = await rig.HeldAsync(Ct);
+        var enrolled = rig.Enrolled();
+        var bWaiting = !rig.Backlog.Due(second + Tick).Any(e => e.Digest == b);
+
+        var expected = $"after the first tick the Forum knows of 2 of the 2 absent posts; after the second A ({Short(a)}) is in the index, B ({Short(b)}) is not, the backlog holds B alone and B waits; the check began at {first:o}";
+        var actual = $"after the first tick the Forum knows of {knownAfterFirst} of the 2 absent posts; after the second A ({Short(a)}) is {(held.Contains(a) ? "in" : "not in")} the index, B ({Short(b)}) is {(held.Contains(b) ? "in" : "not")}, the backlog holds {(enrolled.Length == 0 ? "nothing" : enrolled.SequenceEqual([b]) ? "B alone" : string.Join(' ', enrolled.Select(Short)))} and B {(bWaiting ? "waits" : "is not waiting")}; the check began at {rig.Sweep.CheckedAt:o}";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF10 (a negative with its positive in one fact). A post the model cannot place (a title and a body with no letter or digit) is never enrolled, across three
+    /// floors, at any tick, and is never in the index; the placeable post beside it is found. On the seam tree the positive leg is red.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF10_APostTheModelCannotPlaceIsNeverEnrolledAndThePlaceableOneBesideItIsFound()
+    {
+        var log = new GeneratedLog(8);
+        log.Unplaceable.Add(1);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int> { 2 }, Ct);
+        var unplaceable = GeneratedLog.DigestOf(1);
+        var control = GeneratedLog.DigestOf(2);
+        var floor = PublishedCheckWords.SweepFloor();
+        var end = CheckRig.Start + (floor * 3) + TimeSpan.FromMinutes(1);
+
+        var everEnrolled = false;
+        rig.Sweep.Owe(CheckRig.Start);
+        for (var now = CheckRig.Start + Tick; now <= end; now += Tick)
+        {
+            await rig.TickAsync(now, Ct);
+            everEnrolled |= rig.Enrolled().Contains(unplaceable);
+        }
+
+        var held = await rig.HeldAsync(Ct);
+        var expected = "the unplaceable post was never enrolled and is not in the index; the placeable post is in the index";
+        var actual = $"the unplaceable post was {(everEnrolled ? "enrolled" : "never enrolled")} and is {(held.Contains(unplaceable) ? "" : "not ")}in the index; the placeable post is {(held.Contains(control) ? "" : "not ")}in the index";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF11 (a negative with its positive in one fact). A post whose index step is running is not enrolled by a check that runs meanwhile (the gated index holds the
+    /// step open), the unindexed post beside it is, and once released the held post is indexed once.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF11_APostWhoseIndexStepIsRunningIsNotEnrolledAndIsIndexedOnce()
+    {
+        var rig = new CheckRig(new GeneratedLog(6));
+        await rig.IndexAllExceptAsync(new HashSet<int> { 1, 2 }, Ct);
+        var inFlight = GeneratedLog.DigestOf(1);
+        var other = GeneratedLog.DigestOf(2);
+        var gated = new GatedIndex(rig.Index);
+        var committed = new CommittedPostIndexer(new EmbeddingIndexer(rig.Embedder, gated), rig.Backlog, rig.Clock, rig.Sweep);
+
+        var step = committed.IndexAsync(rig.Log.PostAt(1), Ct);
+        await gated.Entered.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        rig.Sweep.Owe(exit);
+        await rig.TickAsync(exit + Tick, Ct);
+        var held = await rig.HeldAsync(Ct);
+        var duringEnrolled = rig.Enrolled();
+        var otherKnown = duringEnrolled.Contains(other) || held.Contains(other);
+
+        gated.Release();
+        var outcome = await step.ConfigureAwait(true);
+        await rig.TickAsync(exit + Tick + Tick, Ct);
+        var attempts = rig.Index.Attempted.Count(d => d == inFlight);
+
+        var expected = "while its step ran the post was not enrolled and the unindexed post beside it was known; released, the step Indexed it and the index was asked for it once";
+        var actual = $"while its step ran the post was {(duringEnrolled.Contains(inFlight) ? "enrolled" : "not enrolled")} and the unindexed post beside it was {(otherKnown ? "known" : "not known")}; released, the step {outcome.State} it and the index was asked for it {(attempts == 1 ? "once" : attempts + " times")}";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF12. A scan that cannot complete moves nothing it did not do: the log unreadable at the scan's second page leaves the last-checked instant and the
+    /// obligation as they were, the next attempt is 5 s later and then each wait doubled to the interval it would have had, what the scan found stays known, and
+    /// restored the next attempt completes, records its beginning and clears the obligation.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF12_AScanThatCannotCompleteMovesNeitherTheInstantNorTheObligationAndIsRetriedOnTheLadder()
+    {
+        var log = new GeneratedLog(10_200);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int> { 500 }, Ct);
+        var found = GeneratedLog.DigestOf(500);
+        var started = rig.Sweep.CheckedAt;
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        log.UnreadableFromScanRead = 2;
+        rig.Sweep.Owe(exit);
+
+        var expectedWaits = new List<string>();
+        var actualWaits = new List<string>();
+        var movedChecked = false;
+        var now = exit + Tick;
+        var wait = PublishedCheckWords.FailedCheckWait();
+        var interval = PublishedCheckWords.SweepRepeat();
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            await rig.TickAsync(now, Ct);
+            movedChecked |= rig.Sweep.CheckedAt != started;
+            expectedWaits.Add(Secs(wait) + " s");
+            actualWaits.Add(Due(rig.Sweep, now));
+            if (rig.Sweep.DueAt is not { } next) break;
+            now = next;
+            wait = TimeSpan.FromTicks(Math.Min(wait.Ticks * 2, interval.Ticks));
+        }
+
+        var held = await rig.HeldAsync(Ct);
+        var knownAfterFailures = rig.Enrolled().Contains(found) || held.Contains(found);
+
+        log.UnreadableFromScanRead = 0;
+        var healed = rig.Sweep.DueAt ?? now;
+        await rig.TickAsync(healed, Ct);
+
+        var expected = $"the instant was not moved by a failed scan; the next attempts were {string.Join(", ", expectedWaits)} away; the find stayed known; the healed attempt recorded its beginning ({healed:o}) and cleared the obligation";
+        var actual = $"the instant was {(movedChecked ? "moved" : "not moved")} by a failed scan; the next attempts were {string.Join(", ", actualWaits)} away; the find {(knownAfterFailures ? "stayed known" : "was forgotten")}; the healed attempt recorded {(rig.Sweep.CheckedAt == healed ? "its beginning (" + healed.ToString("o", CultureInfo.InvariantCulture) + ")" : rig.Sweep.CheckedAt.ToString("o", CultureInfo.InvariantCulture))} and {(rig.Sweep.DueAt is null ? "cleared" : "left")} the obligation";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF13. The settle rule as a table: an obligation is cleared only by a check that began at least the settle window (R8.83 words) after the latest exit. The
+    /// exits and the instants at which a check begins are the scenarios'; the edge is the published figure itself and one millisecond short of it.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF13_AnObligationIsClearedOnlyByACheckThatBeganAtLeastTheSettleWindowAfterTheLatestExit()
+    {
+        var settle = PublishedCheckWords.SweepSettle();
+        var t = CheckRig.Start + TimeSpan.FromMinutes(1);
+
+        async Task<string> OwedAfterAsync(Func<CheckRig, Task> act)
+        {
+            var rig = new CheckRig(new GeneratedLog(3));
+            await rig.IndexAllExceptAsync(new HashSet<int>(), Ct).ConfigureAwait(false);
+            await act(rig).ConfigureAwait(false);
+            return rig.Sweep.DueAt is null ? "clear" : "owed";
+        }
+
+        var rows = new (string Name, string Expected, Func<CheckRig, Task> Act)[]
+        {
+            ("exit at t, check began t+1 s", "owed", async r => { r.Sweep.Owe(t); await r.TickAsync(t + Tick, Ct).ConfigureAwait(false); }),
+            ("exits at t and t+50 s, check began t+61 s", "owed", async r => { r.Sweep.Owe(t); r.Sweep.Owe(t + TimeSpan.FromSeconds(50)); await r.TickAsync(t + TimeSpan.FromSeconds(61), Ct).ConfigureAwait(false); }),
+            ("exits at t and t+50 s, check began t+110 s", "clear", async r => { r.Sweep.Owe(t); r.Sweep.Owe(t + TimeSpan.FromSeconds(50)); await r.TickAsync(t + TimeSpan.FromSeconds(110), Ct).ConfigureAwait(false); }),
+            ("exit at t, the scan began t+100 s and an exit arrived during it at t+105 s", "owed", async r =>
+            {
+                r.Sweep.Owe(t);
+                r.Log.OnScanRead = _ => r.Sweep.Owe(t + TimeSpan.FromSeconds(105));
+                await r.TickAsync(t + TimeSpan.FromSeconds(100), Ct).ConfigureAwait(false);
+            }),
+            ("exit at t, check began at exactly the settle window", "clear", async r => { r.Sweep.Owe(t); await r.TickAsync(t + settle, Ct).ConfigureAwait(false); }),
+            ("exit at t, check began 1 ms short of the settle window", "owed", async r => { r.Sweep.Owe(t); await r.TickAsync(t + settle - TimeSpan.FromMilliseconds(1), Ct).ConfigureAwait(false); }),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (name, want, act) in rows)
+        {
+            expected.Add($"{name}: {want}");
+            actual.Add($"{name}: {await OwedAfterAsync(act)}");
+        }
+
+        Said(string.Join("; ", expected), string.Join("; ", actual));
+    }
+
+    /// <summary>
+    /// CPF14. The cadence, counted at the reader (a different artifact from the schedule): with nothing owed the log is scanned at the floor after the last check began
+    /// and at no other time over twelve fake minutes; while owed, at the first tick and then every repeat until an obligation clears, and then at the floor.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF14_TheLogIsScannedOnTheFloorWhenNothingIsOwedAndOnTheRepeatWhileOwed()
+    {
+        var floor = PublishedCheckWords.SweepFloor();
+        var repeat = PublishedCheckWords.SweepRepeat();
+        var log = new GeneratedLog(3);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int>(), Ct);
+
+        var idleEnd = CheckRig.Start + TimeSpan.FromMinutes(12);
+        for (var now = CheckRig.Start + Tick; now <= idleEnd; now += Tick) await rig.TickAsync(now, Ct);
+        var idle = log.ScanStarts.Select(s => Secs(s - CheckRig.Start)).ToList();
+        var lastBegan = rig.Sweep.CheckedAt;
+
+        var exit = idleEnd;
+        log.ScanStarts.Clear();
+        rig.Sweep.Owe(exit);
+        var owedEnd = exit + TimeSpan.FromMinutes(7);
+        for (var now = exit + Tick; now <= owedEnd; now += Tick) await rig.TickAsync(now, Ct);
+        var owed = log.ScanStarts.Select(s => Secs(s - exit)).ToList();
+
+        string Scans(IReadOnlyCollection<string> at) => at.Count == 0 ? "no scan" : $"scans at {string.Join(", ", at)} s";
+        var expectedIdle = new[] { Secs(floor), Secs(floor * 2) };
+        var expectedOwed = new[] { Secs(Tick), Secs(Tick + repeat), Secs(Tick + repeat + floor) };
+        Said(
+            $"nothing owed: {Scans(expectedIdle)}; owed from the exit: {Scans(expectedOwed)}",
+            $"nothing owed: {Scans(idle)}; owed from the exit: {Scans(owed)}");
+        _ = lastBegan;
+    }
+
+    /// <summary>
+    /// CPF21. The instant a check records is the one it began at, taken from the clock port before the scan: a scan made to take fake time (the reader advances the
+    /// clock by 30 s inside it) records the instant handed in at the start, not the one the scan ended at, and not the system clock's.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF21_TheInstantACheckRecordsIsTheOneItBeganAtFromTheClockPort()
+    {
+        var log = new GeneratedLog(3);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int>(), Ct);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        rig.Sweep.Owe(exit);
+        rig.Clock.Set(exit + Tick);
+        var began = rig.Clock.GetUtcNow();
+        log.OnScanRead = _ => rig.Clock.Advance(TimeSpan.FromSeconds(30));
+
+        await rig.TickAsync(began, Ct);
+
+        var recorded = rig.Sweep.CheckedAt;
+        var which = recorded == began ? "the instant the check began" : recorded == rig.Clock.GetUtcNow() ? "the instant the scan ended" : recorded == CheckRig.Start ? "the process start" : "an instant from no clock the probe moved";
+        Said($"the check recorded the instant the check began ({began:o})", $"the check recorded {which} ({recorded:o})");
+    }
+
+    /// <summary>
+    /// CPF13 (in-scan exit, review C1). An exit that arrives while a check is running is checked at the first tick after it, whether nothing was owed before or a check
+    /// already was: the completion of the running check does not push the next attempt past it. Asserted as the instant of the next attempt, not only as "owed".
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF13_AnExitDuringAScanKeepsItsFirstTickCheck()
+    {
+        var t = CheckRig.Start + TimeSpan.FromMinutes(10);
+
+        async Task<string> NextAttemptAsync(bool owedBefore, DateTimeOffset began)
+        {
+            var exit = began + TimeSpan.FromMilliseconds(500);
+            var rig = new CheckRig(new GeneratedLog(3));
+            await rig.IndexAllExceptAsync(new HashSet<int>(), Ct).ConfigureAwait(false);
+            if (owedBefore) rig.Sweep.Owe(began - TimeSpan.FromSeconds(100));
+            rig.Log.OnScanRead = _ => rig.Sweep.Owe(exit);
+            await rig.TickAsync(began, Ct).ConfigureAwait(false);
+            return Due(rig.Sweep, exit);
+        }
+
+        var expected = "nothing owed before: 1 s after the exit; already owed: 1 s after the exit";
+        var actual = $"nothing owed before: {await NextAttemptAsync(false, t)} after the exit; already owed: {await NextAttemptAsync(true, t + TimeSpan.FromSeconds(100))} after the exit";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF12 (slow failure, review Q1). A check whose scan fails after a long time waits from the instant the failure is known: a scan that takes 30 s of the clock
+    /// and then cannot complete is attempted again 5 s after it failed, not at once because 5 s from its start has passed.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF12_AFailedCheckWaitsFromWhenTheFailureIsKnown()
+    {
+        var log = new GeneratedLog(3);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int>(), Ct);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        rig.Sweep.Owe(exit);
+        var began = exit + Tick;
+        rig.Clock.Set(began);
+        log.OnScanRead = _ => rig.Clock.Advance(TimeSpan.FromSeconds(30));
+        log.UnreadableFromScanRead = 1;
+
+        await rig.TickAsync(began, Ct);
+
+        Said("the next attempt is 35 s after the check began", $"the next attempt is {Due(rig.Sweep, began)} after the check began");
+    }
+
+    /// <summary>
+    /// CPF10 (known posts, review Q5). A post the backlog already holds is not enrolled again by the next check: the second check, 60 s after the first, enrols none
+    /// where the first enrolled the one absent post whose store keeps failing.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF10_APostTheBacklogHoldsIsNotEnrolledAgainByTheNextCheck()
+    {
+        var rig = new CheckRig(new GeneratedLog(3));
+        await rig.IndexAllExceptAsync(new HashSet<int> { 2 }, Ct);
+        rig.Index.Fail(GeneratedLog.DigestOf(2));
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        rig.Sweep.Owe(exit);
+
+        var first = await rig.TickAsync(exit + Tick, Ct);
+        var second = await rig.TickAsync(exit + Tick + IndexSweep.Repeat, Ct);
+
+        Said("the first check enrolled 1; the second enrolled 0", $"the first check enrolled {first.Check?.Enrolled}; the second enrolled {second.Check?.Enrolled}");
+    }
+
+    /// <summary>
+    /// CPF21 (snapshot, review Q2). The two instants the search states come from one lock: while an owed check completes again and again, every snapshot pairs the
+    /// instant a check began with the next attempt that check set (60 s on), and never the beginning of one with the next attempt of another.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF21_TheTwoInstantsOfASnapshotComeFromOneMoment()
+    {
+        var sweep = new IndexSweep(CheckRig.Start);
+        sweep.Owe(CheckRig.Start + TimeSpan.FromDays(30));
+        var stop = false;
+        var writer = Task.Run(
+            () =>
+            {
+                for (var i = 1; i <= 200_000; i++) sweep.Completed(CheckRig.Start + TimeSpan.FromSeconds(i));
+                Volatile.Write(ref stop, true);
+            },
+            Ct);
+
+        var torn = 0;
+        var reads = 0;
+        while (!Volatile.Read(ref stop))
+        {
+            var (checkedAt, dueAt) = sweep.Snapshot();
+            reads++;
+            if (checkedAt != CheckRig.Start && dueAt != checkedAt + IndexSweep.Repeat) torn++;
+        }
+
+        await writer.ConfigureAwait(true);
+        Said("no snapshot paired one check's beginning with another's next attempt", torn == 0 && reads > 0 ? "no snapshot paired one check's beginning with another's next attempt" : $"{torn} of {reads} snapshots did");
+    }
+
+    /// <summary>
+    /// CPF30 (a control). The scan is paged and holds no more than the page it is on: over 40,050 events (five pages) the reader is asked for no more than a page at a
+    /// time, the log is read in five pages, and when the fifth is asked for no more than three of the four pages served before it are alive (the scan holds the previous
+    /// page in its state and the runtime's first frame may hold one more; a scan that kept every page would hold four). Over the extracted rule itself, so the check, the
+    /// start reconcile and the overflow pass are held by one fact. Not "the first page is dead": under tiered compilation the on-stack replacement of the scan's long loop
+    /// leaves the first frame's slots reported, which a streaming scan cannot help (measured: two alive at every read from the third).
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF30_TheScanHoldsNoMoreThanAPageOrTwoAndAsksForNoMoreThanAPage()
+    {
+        var log = new GeneratedLog(40_050);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int> { 15_000 }, Ct);
+        var aliveAtFifth = -1;
+        log.OnScanRead = number =>
+        {
+            if (number != 5) return;
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            aliveAtFifth = log.PagesAlive;
+        };
+
+        var found = 0;
+        var failure = await rig.Indexer.FindAbsentAsync(log, null, (_, _, _) => { found++; return Task.FromResult<Error?>(null); }, null, Ct);
+
+        var expected = $"the scan found 1 post and no failure; {EventReaderExtensions.PageSize} was the largest ask; 5 reads; at the fifth read no more than 3 of the 4 earlier pages were alive";
+        var actual = $"the scan found {found} post{(found == 1 ? string.Empty : "s")} and {(failure is null ? "no failure" : failure.Type)}; {log.LargestAsk} was the largest ask; {log.ForwardReads} reads; " +
+            (aliveAtFifth is >= 0 and <= 3 ? "at the fifth read no more than 3 of the 4 earlier pages were alive" : $"at the fifth read {aliveAtFifth} of the 4 earlier pages were alive");
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF33 (the fix round, FCPF21). The check writes nothing to the log: the log is append-only and the check reads it and indexes. Three posts the log holds and the
+    /// index lacks, a check owed, the catch-up ticked for 400 seconds (three checks: the next tick, the repeat that clears the obligation, the floor); the store's count of
+    /// events and its highest sequence, read from the store, are what they were before the first check, and the index holds the three posts the checks found.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF33_TheCheckWritesNothingToTheLogAndTheIndexHoldsWhatItFound()
+    {
+        var h = new IndexRepairHarness();
+        var posts = new[] { await h.AppendAsync(Ct), await h.AppendAsync(Ct), await h.AppendAsync(Ct) };
+        var before = await h.LogShapeAsync(Ct);
+        h.Sweep.Owe(h.Now);
+
+        var checks = 0;
+        for (var second = 1; second <= 400; second++)
+            if ((await h.CatchUp.RunOnceAsync(h.Store, h.Now + TimeSpan.FromSeconds(second), Ct)).Check is not null) checks++;
+
+        var after = await h.LogShapeAsync(Ct);
+        var held = await h.IndexedAsync(Ct);
+        var expected = $"after 3 checks the log holds {before.Count} events with highest sequence {before.MaxSeq}, as before them; the index holds the 3 posts the log held";
+        var actual = $"after {checks} checks the log holds {after.Count} events with highest sequence {after.MaxSeq}, as before them; the index holds {(held.Length == 3 && posts.All(p => held.Contains(p.Digest)) ? "the 3 posts the log held" : $"{held.Length} of the 3 posts the log held")}";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF38 (the fix round, FCPF9 second form). A check records its completion only after the backlog holds what it found: with the sweep's lock held by the probe from
+    /// the moment the scan embeds the one absent post, the check waits to record its completion, and the backlog already holds the find. A completion recorded first would let
+    /// a search read the obligation cleared and a count of none in the same moment that a find is on its way.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF38_TheCheckRecordsItsCompletionOnlyAfterTheBacklogHoldsWhatItFound()
+    {
+        var rig = new CheckRig(new GeneratedLog(3));
+        await rig.IndexAllExceptAsync(new HashSet<int> { 2 }, Ct);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        rig.Sweep.Owe(exit);
+        var began = exit + Tick;
+        var backlogWhileCompletionWaits = -1;
+        HeldLock? hold = null;
+        var embedder = new HookedEmbedder(rig.Embedder, () =>
+        {
+            hold = HeldLock.Take(rig.Sweep, () => backlogWhileCompletionWaits = rig.Backlog.Count);
+            hold.Held.Wait(TimeSpan.FromSeconds(30));
+        });
+        var catchUp = new EmbeddingCatchUp(new EmbeddingIndexer(embedder, rig.Index), rig.Backlog, rig.Sweep, rig.Clock);
+        rig.Log.Now = began;
+
+        var tick = Task.Run(() => catchUp.RunOnceAsync(rig.Log, began, Ct), Ct);
+        await Task.Delay(TimeSpan.FromMilliseconds(750), Ct).ConfigureAwait(true);
+        await (hold ?? throw new Xunit.Sdk.XunitException("the scan never embedded the absent post")).ReleaseAsync().ConfigureAwait(true);
+        var result = await tick.ConfigureAwait(true);
+
+        Said(
+            "while the check's completion waited the backlog held 1 entry; the check enrolled 1",
+            $"while the check's completion waited the backlog held {backlogWhileCompletionWaits} entr{(backlogWhileCompletionWaits == 1 ? "y" : "ies")}; the check enrolled {result.Check?.Enrolled}");
+    }
+
+    /// <summary>
+    /// CPF39 (the fix round, FCPF19). The scan the check runs, run alone (not through the catch-up, whose retry removes an unplaceable entry in the same pass and so hides
+    /// it): of two posts the model cannot place and two it can, all four absent from the index, the scan hands the check the two it can place, at the first scan and at the
+    /// second (which skips the unplaceable ones from the sweep's memory), and the check's skip of the backlog's own does not change that.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF39_TheScanTheCheckRunsHandsItOnlyThePostsTheModelCanPlace()
+    {
+        var log = new GeneratedLog(6);
+        log.Unplaceable.Add(1);
+        log.Unplaceable.Add(4);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int> { 2, 5 }, Ct);
+
+        async Task<string> ScanAsync()
+        {
+            var handed = new List<string>();
+            var failure = await rig.Indexer.FindAbsentAsync(log, rig.Sweep, (post, _, _) => { handed.Add(Short(post.Digest)); return Task.FromResult<Error?>(null); }, rig.Backlog.Holds, Ct).ConfigureAwait(true);
+            return $"{(failure is null ? "no failure" : failure.Type)}, handed {string.Join(' ', handed)}";
+        }
+
+        var want = $"no failure, handed {Short(GeneratedLog.DigestOf(2))} {Short(GeneratedLog.DigestOf(5))}";
+        Said($"first scan: {want}; second scan: {want}", $"first scan: {await ScanAsync()}; second scan: {await ScanAsync()}");
+    }
+
+    /// <summary>
+    /// CPF40 (the fix round, FCPF25 first form). The floor, and the repeat while owed, are measured from when a check began and not from when it ended: a scan made to take
+    /// 30 s of the clock (the reader advances it) leaves the next attempt where an instantaneous scan would, whether a check is owed (60 s after it began) or not (scans at
+    /// 300 s and 600 s, not 330 s later).
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF40_TheFloorAndTheRepeatAreMeasuredFromWhenTheCheckBeganAndNotFromWhenItEnded()
+    {
+        var owedRig = new CheckRig(new GeneratedLog(3));
+        await owedRig.IndexAllExceptAsync(new HashSet<int>(), Ct);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        owedRig.Sweep.Owe(exit);
+        var began = exit + Tick;
+        owedRig.Clock.Set(began);
+        owedRig.Log.OnScanRead = _ => owedRig.Clock.Advance(TimeSpan.FromSeconds(30));
+        await owedRig.TickAsync(began, Ct);
+        var owed = Due(owedRig.Sweep, began);
+
+        var idleRig = new CheckRig(new GeneratedLog(3));
+        await idleRig.IndexAllExceptAsync(new HashSet<int>(), Ct);
+        idleRig.Log.OnScanRead = _ => idleRig.Clock.Advance(TimeSpan.FromSeconds(30));
+        for (var now = CheckRig.Start + Tick; now <= CheckRig.Start + TimeSpan.FromMinutes(12); now += Tick)
+        {
+            idleRig.Clock.Set(now);
+            await idleRig.TickAsync(now, Ct);
+        }
+
+        var scans = string.Join(", ", idleRig.Log.ScanStarts.Select(s => Secs(s - CheckRig.Start)));
+        Said(
+            "owed: the next attempt is 60 s after the check began; idle: scans at 300, 600 s",
+            $"owed: the next attempt is {owed} after the check began; idle: scans at {scans} s");
+    }
+}

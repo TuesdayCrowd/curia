@@ -54,6 +54,11 @@ public sealed class EmbeddingCatchUpService : BackgroundService
                 VectorIndexLog.CaughtUp(_log, digest);
             foreach (var fault in result.FailedRetries)
                 VectorIndexLog.RetryFailed(_log, fault.PostId, fault.Digest, fault.FaultType, fault.FaultDetail);
+            if (result.Check is { } check)
+            {
+                if (check.Failed) VectorIndexLog.CheckFailed(_log, check.FaultType!, check.FaultDetail!);
+                else if (check.Enrolled > 0) VectorIndexLog.CheckFound(_log, check.Enrolled, check.Began);
+            }
         }
 #pragma warning disable CA1031 // A pass that faults must not end the loop: the next pass retries, and the backlog still holds the entries.
         catch (Exception ex) when (!stoppingToken.IsCancellationRequested)

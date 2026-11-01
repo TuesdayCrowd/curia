@@ -22,6 +22,7 @@ public sealed class IndexBacklog
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Slot> _slots = new(StringComparer.Ordinal);
     private bool _overflowed;
+    private DateTimeOffset _lastSuccess = DateTimeOffset.MinValue;
 
     private sealed class Slot(PendingEntry entry, DateTimeOffset due)
     {
@@ -71,6 +72,12 @@ public sealed class IndexBacklog
         }
     }
 
+    /// <summary>Whether the backlog holds an entry for <paramref name="digest"/>.</summary>
+    public bool Holds(string digest)
+    {
+        lock (_gate) return _slots.ContainsKey(digest);
+    }
+
     /// <summary>The entries due at <paramref name="now"/>, in log order.</summary>
     public IReadOnlyList<PendingEntry> Due(DateTimeOffset now)
     {
@@ -99,6 +106,27 @@ public sealed class IndexBacklog
                 ticks = Math.Min(ticks * 2, WaitCap.Ticks);
 
             slot.Due = now + TimeSpan.FromTicks(ticks);
+        }
+    }
+
+    /// <summary>
+    /// A success of the vector store at <paramref name="now"/> (errata G54, R11.69 (rev.)): every entry becomes due now and its wait returns to the first, at most
+    /// once in <see cref="FirstWait"/>. Called after a catch-up retry stores a vector and after a committed post's index step stores one, and by nothing else.
+    /// </summary>
+    public void NoteSuccess(DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            if (now - _lastSuccess < FirstWait) return;
+
+            _lastSuccess = now;
+            foreach (var slot in _slots.Values)
+            {
+                slot.Due = now;
+
+                // The retry that is now due is the "first retry" again: if it fails, the wait is the first wait, then the doubling from there.
+                slot.Failures = -1;
+            }
         }
     }
 
