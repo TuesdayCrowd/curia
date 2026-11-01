@@ -28,6 +28,10 @@ on the named tables for the named role, or a mode file read by the proxy.
 | `FH_PG_HOST`, `FH_PG_PORT` | where the proxy forwards | `127.0.0.1`, `5432` |
 | `FH_FORUMLOG` | the Forum's console log (`mark.sh`, `census.sh`) | unset |
 
+Known behaviours, documented and not changed: after `proxy.sh stop` and `start` the Forum's pooled connections are dead and it answers
+`503` until it is restarted, so restart the Forum with the proxy. `common.sh` calls `psql` with no database, so the admin connection needs
+the default database to exist or `PGDATABASE` set.
+
 Point the Forum's connection string at the proxy (`Host=127.0.0.1;Port=$FH_PROXY_PORT;...`); use the real port for the operator tool and psql.
 To build the database, render `db/*.sql` with the app role name substituted for `__CURIA_APP_ROLE__` and apply them in order as an
 admin (pgvector is needed by `db/0003`).
@@ -46,8 +50,13 @@ admin (pgvector is needed by `db/0003`).
   - `passthru`: transparent.
   - `cutcommit[:p]`: after a connection has sent `INSERT INTO "public".events`, its simple-query `COMMIT` is forwarded, Postgres is given 60 ms,
     both sockets close and the answer is muted: committed, and the client sees a broken connection.
-  - `dropcancel`: a cancel request is dropped, so a client timeout cannot cancel the running query.
-  - `delaycommit:<s>`: the `COMMIT` is held `s` seconds, then forwarded even if the client has gone (a late commit).
+  - `dropcancel`: a cancel request is dropped, so a client timeout cannot cancel the running query. The proxy serves **plaintext only**: it
+    answers an 8-byte SSLRequest (and a GSSENCRequest) itself with `N`, without forwarding it, and treats the next packet as the connection's
+    first, so Npgsql's default `SSL Mode=Prefer` falls back to plaintext and its cancel (the next 16-byte packet, code 80877102) is
+    recognised and logged `dropped cancel request`. `SSL Mode=Require` is unsupported through the proxy.
+  - `delaycommit:<s>`: the `COMMIT` is held `s` seconds, then forwarded even if the client has gone (a late commit). **It holds every
+    simple-query `COMMIT`, not only one after an `INSERT INTO "public".events`** (the rule `cutcommit` uses), so a token mint or a nonce
+    write inside the window is held too: warm the token (one call that mints it) before the window opens.
 - `mark.sh <name>`: `marks/<name>` holds `epoch_ms`, `seq` (max event seq), `forum_log_lines`, `pgproxy_log_lines`.
 - `counts.sh [mark]`: events since the mark by actor and type; **unindexed**; `answer.accepted` since the mark and in 24 hours; posts per
   author in 24 hours; flags; digests stored twice.
@@ -60,5 +69,6 @@ admin (pgvector is needed by `db/0003`).
 `counts.sh` counts `post.accepted` events whose digest is not in `post_embeddings`, **restricted to the discussion kinds** the model places
 in the vector index: `question`, `answer`, `finding`, `comment`, `revision` -- `PostKinds.IsDiscussion` in
 `src/Curia.Domain/Content/PostKind.cs`. A vote and a verification are logged and never indexed, so counting them (as the exercise's
-version did, then subtracting a baseline) overstated the gap. The kind is read from the `kind` member of the event payload's `canonical`
-text, because the payload has no kind member of its own. No baseline is subtracted: an empty gap is `unindexed=0`.
+version did, then subtracting a baseline) overstated the gap. The kind is read as `payload->>'kind'`, the payload's own top-level `kind`
+member, with no `jsonb` cast (a cast of the signed `canonical` text fails on a stored post whose text holds a U+0000, as the exercise's
+dump does). No baseline is subtracted: an empty gap is `unindexed=0`.
