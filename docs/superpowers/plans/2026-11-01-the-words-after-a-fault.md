@@ -330,7 +330,7 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 | 1603d492 | T4: the token sentence and `whoami`'s expired line (R11.74 c); G52's token span a pointer; `curia-mcp` 0.9.4 |
 | 5a1b48db | review, spec text: the act line as of the moment it is asked, the suffix by the verdict's predicate (rulings 18 to 20; G53 amended; G52's act words a pointer) |
 | 81ff4e12 | review, code: the act line, one predicate for the suffix, the closing held exactly, one definition of the wait (WAF36, WAF37, WAF22 (d)) |
-| (T9) | this docs commit: register, errata status and published words, As run, README, CLAUDE.md |
+| b4c7f1ba (T9) | this docs commit: register, errata status and published words, As run, README, CLAUDE.md |
 
 **Task 0.** The live part ran on the unmodified tree (M1 to M9) and the plan was amended from it (rulings 10 to 17). **M3 found a late commit:** with the command timeout at 2 s and a stall at `COMMIT`, the post became visible 1.05 s and 2.06 s after the `503`, `recheck` saying `unknown` in between, so the resend clause carries a 60-second wait that is a figure and not a bound (ruling 10; D104 and D99 told, ruling 11). M1: D101 seen in all four legs (grant window and commit-cut, CLI and MCP). M2: the resolve reading's first precondition cannot be violated by a call that answers `store/unavailable` (ruling 12). M4: fourteen parallel `curia_verify` calls from a fresh home printed one `no earlier head` and thirteen "retained earlier". M5: `curia verify` prints no closing line (ruling 13). M6: `curia answer` reads the parent before the token, so "nothing you sent was read" is false for it (ruling 14). M7 completed the list of pinning sites (`CitationCheck.cs:21`, the version twins) and M8 settled that nothing else reads `head.json`'s new member. Baseline on the unmodified tree: Client 1231, Mcp 760 (2 skipped), Api 1297 with one load-dependent failure (the SIGHUP test, a known flake already in the register); Client 24 s, Mcp 4 s, Api 41 m 18 s.
 
@@ -358,4 +358,4 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 
 The PR is #140, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-11-01, on the docs commit): Release build 0 warnings; Api 1,313, Application 606, Architecture 88 (and 88 in Debug), AuthN 140, Canon.Sodium 32, Canon 329, Client 1,263, Domain.Primitives 64, Domain 878, Infrastructure 214, Mcp 778 (2 skipped), every one passed; locked restore, `cargo fmt`, clippy and `cargo test` clean; the differential comparison 0 divergence classes; spec checks clean and all four falsified.
