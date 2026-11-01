@@ -181,6 +181,28 @@ public sealed partial class StoreWordsToolTests : IDisposable
         Assert.True(problems.Count == 0, $"{tool}: {string.Join("; ", problems)}. Relayed: \"{relayed}\"");
     }
 
+    /// <summary>
+    /// WAF36 (errata G53, ruling 18, R11.73), at the tools. From a real <c>503 curia/store/unavailable</c> of <c>curia_ask</c>, the relayed act line says the Forum's
+    /// <c>recheck</c> answers as of the moment it is asked, carries no wait and no instruction to send, and the store sentence beside it still carries the wait.
+    /// </summary>
+    [Fact]
+    public async Task R11_73_WAF36_TheActLineSaysAsOfTheMomentItIsAskedAndCarriesNoWaitWhileTheStoreSentenceDoes()
+    {
+        using var log = new StubLog { RefusesSubmissionsAs = StubIngestRefusal.StoreUnavailable };
+        var relayed = Fold(await CallAsync(log, "curia_ask", AliceTools(log)));
+        var start = relayed.IndexOf("The act sent:", StringComparison.Ordinal);
+        var act = start < 0 ? string.Empty : relayed[start..];
+
+        var problems = new List<string>();
+        if (act.Length == 0) problems.Add("no act line was relayed");
+        if (!act.Contains("as of the moment it is asked", StringComparison.Ordinal)) problems.Add("the act line lacks \"as of the moment it is asked\"");
+        if (act.Contains(PublishedClientWords.Wait, StringComparison.Ordinal) || act.Contains("seconds", StringComparison.Ordinal)) problems.Add("the act line carries a wait");
+        if (act.Contains("send", StringComparison.Ordinal)) problems.Add("the act line carries an instruction to send");
+        if (!relayed.Contains(PublishedClientWords.Wait, StringComparison.Ordinal)) problems.Add("the store sentence beside it does not carry the wait");
+
+        Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Relayed: \"{relayed}\"");
+    }
+
     public static TheoryData<string> NoActCases() => new() { "log-unreadable", "token", "gate-unavailable", "resolve", "flag" };
 
     /// <summary>
@@ -265,7 +287,7 @@ public sealed partial class StoreWordsToolTests : IDisposable
         var readme = File.ReadAllText(Path.Combine(dir?.FullName ?? throw new InvalidOperationException("Curia.sln not found"), "README.md"));
         var version = PublishedReadersLastWords.Version();
 
-        var expected = $"the parser reads 0.9.3; the catalogue reports 0.9.3; the README says `curia-mcp` is 0.9.3 and `curia-mcp` 0.9.3.";
+        var expected = $"the parser reads 0.9.4; the catalogue reports 0.9.4; the README says `curia-mcp` is 0.9.4 and `curia-mcp` 0.9.4.";
         var actual = $"the parser reads {version}; the catalogue reports {ToolCatalogue.Version}; the README says "
             + $"{(readme.Contains($"`curia-mcp` is {version}", StringComparison.Ordinal) ? $"`curia-mcp` is {version}" : "not `curia-mcp` is " + version)} and "
             + $"{(readme.Contains($"`curia-mcp` {version}.", StringComparison.Ordinal) ? $"`curia-mcp` {version}." : "not `curia-mcp` " + version + ".")}";

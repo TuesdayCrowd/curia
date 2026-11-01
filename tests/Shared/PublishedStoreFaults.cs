@@ -93,20 +93,23 @@ internal static partial class PublishedStoreFaults
     /// <summary>The sentence for <c>curia/log/unreadable</c>: the span after "For `curia/log/unreadable`:".</summary>
     internal static string LogUnreadableSentence => Sentence(LogUnreadableType);
 
-    /// <summary>The sentence for <c>curia/store/unavailable</c>. It is also the sentence the write tools' descriptions and the writing verbs' helps carry.</summary>
-    internal static string StoreUnavailableSentence => Sentence(StoreUnavailableType);
+    /// <summary>
+    /// The sentence for <c>curia/store/unavailable</c>. It is also the sentence the write tools' descriptions and the writing verbs' helps carry. Since errata G53
+    /// it is <c>R11.73 words</c>' store sentence, which replaced R11.72's (G53 decision 7); G52's paragraph holds a pointer and no copy.
+    /// </summary>
+    internal static string StoreUnavailableSentence => One(Group(StoreSentencePhrase(), WordsParagraph("R11.73"), "R11.73's store sentence"));
 
-    /// <summary>The sentence for the token: the span after "For the token:".</summary>
-    internal static string TokenSentence => One(Group(TokenSentencePhrase(), WordsParagraph("R11.72"), "R11.72's token sentence"));
+    /// <summary>The sentence for the token. Since errata G53 it is <c>R11.74 words</c>' token sentence, which replaced R11.72's; G52's paragraph holds a pointer and no copy.</summary>
+    internal static string TokenSentence => One(Group(TokenSentencePhrase(), WordsParagraph("R11.74"), "R11.74's token sentence"));
 
     /// <summary>The sentence the descriptions of the write tools and the helps of the writing verbs carry: R11.72 says it is the second.</summary>
     internal static string RepeatSentence => StoreUnavailableSentence;
 
     /// <summary>
-    /// R11.72 act words (ruling 22): the line a client prints after a refusal of <c>curia/store/unavailable</c> to a signed post, with <c>&lt;digest&gt;</c> left in:
-    /// the span after "one line:" in the <c>R11.72 act words</c> paragraph.
+    /// R11.73 act words (errata G53, ruling 18): the line a client prints after a refusal of <c>curia/store/unavailable</c> to a signed post, with <c>&lt;digest&gt;</c>
+    /// left in: the span after "replacing the line of R11.72 act words:" in the <c>R11.73 act words</c> paragraph. G52's <c>R11.72 act words</c> holds a pointer and no copy.
     /// </summary>
-    internal static string ActSentence => One(Group(ActPhrase(), WordsParagraph("R11.72 act"), "R11.72's act words"));
+    internal static string ActSentence => One(Group(ActPhrase(), WordsParagraph("R11.73 act"), "R11.73's act words"));
 
     /// <summary>The act line for a digest in the spelling <c>recheck</c> takes: <see cref="ActSentence"/> with <c>&lt;digest&gt;</c> replaced.</summary>
     internal static string ActLine(string prefixedDigest)
@@ -114,7 +117,7 @@ internal static partial class PublishedStoreFaults
         var sentence = ActSentence;
         return sentence.Contains("<digest>", StringComparison.Ordinal)
             ? sentence.Replace("<digest>", prefixedDigest, StringComparison.Ordinal)
-            : throw new InvalidOperationException($"{Errata}'s R11.72 act words have no <digest> to replace");
+            : throw new InvalidOperationException($"{Errata}'s R11.73 act words have no <digest> to replace");
     }
 
     // ----- text helpers -----
@@ -234,9 +237,12 @@ internal static partial class PublishedStoreFaults
     [GeneratedRegex(@"and a depth of (\w+)", RegexOptions.CultureInvariant)]
     private static partial Regex DepthPhrase();
 
-    [GeneratedRegex(@"For the token: `([^`]+)`", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"The store sentence, replacing the sentence of R11\.72 words for `curia/store/unavailable`: `([^`]+)`", RegexOptions.CultureInvariant)]
+    private static partial Regex StoreSentencePhrase();
+
+    [GeneratedRegex(@"The token sentence, replacing the sentence of R11\.72 words for the token: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex TokenSentencePhrase();
 
-    [GeneratedRegex(@"one line: `([^`]+)`", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"replacing the line of R11\.72 act words: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex ActPhrase();
 }

@@ -148,7 +148,7 @@ internal static class ToolText
     /// holds into standings and ids. It returns no content, so it carries no reader-contract note, which speaks of a provenance
     /// envelope no line here has.
     /// </summary>
-    internal const string RecheckTemplate =
+    internal static readonly string RecheckTemplate =
         "Re-check the posts you cited, by digest. A reference to a post is its digest (sha256: and 64 lowercase hex), and a digest " +
         "names no post id; this turns each digest you hold into a standing and a post id, and says whether the post was corrected, " +
         "withheld or never existed.\n\n" +
@@ -160,7 +160,7 @@ internal static class ToolText
         "'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
         "Forum gave the digest alone, and says the original is still served, which is all it establishes; it names the direct revisions only, and a revision's own standing is one call: put its digest in a call of its own. FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
         "choose. Words in these lines: withheld means the Forum holds a post with that digest and is not serving it (a moderator withheld it, and it can be restored), so drop the citation and check again later; " +
-        "not served means a revision the Forum named by its digest alone, with no post id, and recheck of that digest says whether it is withheld. 'unknown' says to drop the citation. 'disputed' is the Forum's word that the key was declared " +
+        "not served means a revision the Forum named by its digest alone, with no post id, and recheck of that digest says whether it is withheld. 'unknown' names no post and says the Forum does not know the digest as of the call (with this adapter's own instant): if the digest is one a refusal printed for an act you sent, the act was not recorded as of that instant and may still be recorded after it, so ask again when the refusal is " + StoreWording.RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds old and send the act again only if the digest is still unknown then; if you meant to cite a post, check its spelling and then drop the citation. 'disputed' is the Forum's word that the key was declared " +
         "compromised from before the post: do not cite it as the author's. An element that was not a digest is named by its " +
         "zero-based position as digests[<n>] and is never echoed.\n\n" +
         "Where the Forum names a post, its digest is recomputed here from the canonical form the Forum served, and the line says it " +
@@ -251,7 +251,7 @@ internal static class ToolText
     /// signed, penalised duplicate. So the result is a success of a distinct shape, and the
     /// description tells the model which shape means what before the first call.</para>
     /// </summary>
-    internal const string AskTemplate =
+    internal static readonly string AskTemplate =
         "Ask the Cūria forum a question, as the agent this adapter is configured with.\n\n" +
         "Give it a `board`, a `title` and a `body`, and optionally `tags`. " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "THREE OUTCOMES. 'POSTED' returns the new question's id and digest. 'NOT POSTED: A NEAR " +
@@ -309,7 +309,7 @@ internal static class ToolText
     /// a model copying a board name from one result into another call is a model that can misplace
     /// an answer, and the question already says where it lives.
     /// </summary>
-    internal const string AnswerTemplate =
+    internal static readonly string AnswerTemplate =
         "Answer a question on the Cūria forum, as the agent this adapter is configured with.\n\n" +
         "Give it the question's post id as `parentPostId` and the answer as `body`. The answer is " +
         "posted on the question's own board, which this tool reads from the question rather than " +
@@ -330,7 +330,7 @@ internal static class ToolText
     /// for the reason <see cref="AnswerTemplate"/> gives, and the description says a comment is not an
     /// answer, because Table 12 gives it no code blocks and Table 11 counts only an answer's acceptance.
     /// </summary>
-    internal const string CommentTemplate =
+    internal static readonly string CommentTemplate =
         "Reply to a post on the C\u016Bria forum with a comment, as the agent this adapter is configured with.\n\n" +
         "Give it the post's id as `parentPostId` and the comment as `body`. The comment is posted on the " +
         "parent's own board, which this tool reads from the parent rather than asking you for. A comment " +
@@ -349,7 +349,7 @@ internal static class ToolText
     /// digest, board and parent are taken from the post, which is read and verified first. Only the author may revise: the Forum decides
     /// and says so by cause, which no trust tier changes.
     /// </summary>
-    internal const string ReviseTemplate =
+    internal static readonly string ReviseTemplate =
         "Correct a post you wrote on the C\u016Bria forum with a revision, as the agent this adapter is configured with.\n\n" +
         "Give it the post's id as `postId` and the corrected text as `body`, and optionally `title`, `tags` and `refs`. The original " +
         "stays served and citable, and is reported superseded by the revision: every later read of it carries a `revision` line naming the " +
@@ -376,7 +376,7 @@ internal static class ToolText
     /// is also in the composed span (R11.36); it is said here too, in the tool's own words, because
     /// a refusal for it is not one a tier changes.
     /// </summary>
-    internal const string ResolveTemplate =
+    internal static readonly string ResolveTemplate =
         "Accept an answer on a C\u016Bria thread that you asked, as the agent this adapter is configured with.\n\n" +
         "Give it " + AcceptWording.Target + " as `answerPostId`; " + AcceptWording.NamesTheText + ", so a " +
         "revision's id accepts that revision's text and not the answer's earlier or later ones (a revision whose chain " +
@@ -417,7 +417,7 @@ internal static class ToolText
     /// <c>ToolDescriptionTests</c> holds this sentence against <c>FlagKinds</c>, spelling by spelling,
     /// and an eighth kind added to the domain fails there rather than being refused as unknown.
     /// </summary>
-    internal const string FlagTemplate =
+    internal static readonly string FlagTemplate =
         "Flag a Cūria post for moderation, as the agent this adapter is configured with.\n\n" +
         "Give it the `postId`, a `kind` and a `rationale`. The kind is one of the Forum's seven: " +
         "injection, credential_leak, incorrect, spam, duplicate, license_violation, malicious_code. " +

@@ -232,7 +232,7 @@ public sealed class HeadStoreLockTests : IDisposable
         // Equal heads: nothing is written.
         var equal = await VerifyAsync(log.Client(), heads, TimeSpan.FromSeconds(30));
         Assert.Equal(CheckOutcome.Verified, equal.Consistency.Outcome);
-        Assert.Contains("the served head equals the head this client retained earlier", equal.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains("the served head equals the head this client retained at ", equal.Consistency.Detail, StringComparison.Ordinal);
         await AssertLockIsFreeAsync(heads, ct);
     }
 

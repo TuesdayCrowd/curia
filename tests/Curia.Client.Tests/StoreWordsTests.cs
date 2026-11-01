@@ -220,6 +220,34 @@ public sealed partial class StoreWordsTests
         Assert.True(problems.Count == 0, $"{verb}: {string.Join("; ", problems)}. Printed: \"{run.Text}\"");
     }
 
+    /// <summary>The act line out of a printed output (already folded): from "The act sent:" to the end, where the client prints it last.</summary>
+    private static string ActLineOf(string text)
+    {
+        var start = text.IndexOf("The act sent:", StringComparison.Ordinal);
+        return start < 0 ? string.Empty : text[start..];
+    }
+
+    /// <summary>
+    /// WAF36 (errata G53, ruling 18, R11.73). The act line and the store sentence do not claim each other's work: from a real <c>503 curia/store/unavailable</c> of an
+    /// <c>ask</c>, the printed act line says the Forum's <c>recheck</c> answers as of the moment it is asked, carries no wait and no instruction to send, and the store
+    /// sentence beside it still carries the wait.
+    /// </summary>
+    [Fact]
+    public async Task R11_73_WAF36_TheActLineSaysAsOfTheMomentItIsAskedAndCarriesNoWaitWhileTheStoreSentenceDoes()
+    {
+        var run = await RunAgainstStubAsync(StubIngestRefusal.StoreUnavailable, null, SigningArgs("ask"));
+        var act = ActLineOf(run.Text);
+
+        var problems = new List<string>();
+        if (act.Length == 0) problems.Add("no act line was printed");
+        if (!act.Contains("as of the moment it is asked", StringComparison.Ordinal)) problems.Add("the act line lacks \"as of the moment it is asked\"");
+        if (act.Contains(PublishedClientWords.Wait, StringComparison.Ordinal) || act.Contains("seconds", StringComparison.Ordinal)) problems.Add("the act line carries a wait");
+        if (act.Contains("send", StringComparison.Ordinal)) problems.Add("the act line carries an instruction to send");
+        if (!Fold(run.Text).Contains(PublishedClientWords.Wait, StringComparison.Ordinal)) problems.Add("the store sentence beside it does not carry the wait");
+
+        Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Printed: \"{run.Text}\"");
+    }
+
     public static TheoryData<string> PostVerbs() => new() { "ask", "answer", "comment", "revision" };
 
     /// <summary>

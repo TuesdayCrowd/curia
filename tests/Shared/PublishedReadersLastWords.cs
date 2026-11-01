@@ -142,11 +142,11 @@ internal static partial class PublishedReadersLastWords
     }
 
     /// <summary>
-    /// The version: the number after "`curia-mcp` is" in R11.72's paragraph (errata G52). The one reader of a version out of an errata paragraph (ruling 23(b)); it
-    /// reads the paragraph of the entry that last bumped the version, so each bump re-points it (it read R11.70's until the D95 PR's Task 0b, which re-pointed it at the
-    /// entry that moves the version to 0.9.3, so that the facts that read it are red until the version moves: ULG31).
+    /// The version: the number after "`curia-mcp` is" in R11.74's paragraph (errata G53). The one reader of a version out of an errata paragraph (ruling 23(b)); it
+    /// reads the paragraph of the entry that last bumped the version, so each bump re-points it (it read R11.70's until the D95 PR's Task 0b, which re-pointed it at G52's R11.72 (0.9.3), and
+    /// the words-after-a-fault PR re-pointed it at G53's R11.74 (0.9.4)).
     /// </summary>
-    internal static string Version() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.72**"), "R11.72's version");
+    internal static string Version() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.74**"), "R11.74's version");
 
     // ----- R11.67 -----
 

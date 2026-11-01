@@ -189,7 +189,7 @@ public sealed class NotServedWordsTests : IDisposable
     {
         var pointer = PublishedReadersLastWords.PointerTailOfThatDigest();
         var item = new CitationDocument(D1, "superseded", [D1], false, null);
-        var report = CitationLines.For([D1], [item]);
+        var report = CitationLines.For([D1], [item], DateTimeOffset.UnixEpoch);
         Assert.Null(report.Error);
         var line = report.Lines.Single().Text.Text;
 

@@ -488,7 +488,7 @@ public sealed class ForumSession
             ? string.Create(
                 CultureInfo.InvariantCulture,
                 $"valid for {(int)remaining.TotalSeconds}s")
-            : "expired";
+            : StoreWording.WhoamiExpiredLine;
     }
 }
 

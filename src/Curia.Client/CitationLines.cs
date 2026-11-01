@@ -47,8 +47,11 @@ public sealed record CitationReport(ImmutableArray<CitationLine> Lines, Error? E
 /// </summary>
 public static class CitationLines
 {
-    /// <summary>The lines for <paramref name="items"/>, the Forum's answer to a batch of <paramref name="sent"/>.</summary>
-    public static CitationReport For(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items)
+    /// <summary>
+    /// The lines for <paramref name="items"/>, the Forum's answer to a batch of <paramref name="sent"/>. <paramref name="answeredAt"/> is the
+    /// reader's own instant, taken by the caller right after the batch returned (errata G53, R10.93); the <c>unknown</c> line states it, UTC to the second.
+    /// </summary>
+    public static CitationReport For(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items, DateTimeOffset answeredAt)
     {
         ArgumentNullException.ThrowIfNull(sent);
 
@@ -63,14 +66,14 @@ public static class CitationLines
 
         var lines = ImmutableArray.CreateBuilder<CitationLine>(items.Length);
         for (var i = 0; i < items.Length; i++)
-            lines.Add(LineOf(i, sent[i], items[i]));
+            lines.Add(LineOf(i, sent[i], items[i], answeredAt));
 
         return new CitationReport(lines.MoveToImmutable(), null);
     }
 
     private static CitationReport Refused(Error error) => new([], error);
 
-    private static CitationLine LineOf(int position, string asked, CitationDocument item)
+    private static CitationLine LineOf(int position, string asked, CitationDocument item, DateTimeOffset answeredAt)
     {
         switch (item.State)
         {
@@ -97,7 +100,7 @@ public static class CitationLines
                 return new CitationLine("withheld", Of($"withheld    {asked}  drop this citation; it is no longer served (withholding can be reversed -- re-check later)"), true, false, false, false);
 
             case "unknown":
-                return new CitationLine("unknown", Of($"unknown     {asked}  no post here bears this digest; check the encoding (sha256:<64 hex>), then drop it"), true, false, false, false);
+                return new CitationLine("unknown", Of($"unknown     {asked}  {UnknownWords(answeredAt)}"), true, false, false, false);
 
             case "malformed" when IsDigestShape(asked):
                 return new CitationLine("malformed", Of($"malformed   {asked}  the Forum answered malformed for a digest of the expected shape (the Forum's word); treat the citation as changed"), true, false, false, false);
@@ -109,6 +112,21 @@ public static class CitationLines
                 return new CitationLine(item.State, Of($"{item.State}  {asked}  (a state this build does not know; treat the citation as changed)"), true, false, false, false);
         }
     }
+
+    /// <summary>
+    /// R10.93 words (errata G53): what an <c>unknown</c> line says after its digest. The Forum cannot tell a mistyped citation from an act a refusal printed that was
+    /// not recorded, so the line says both, the act first, with the reader's own instant (UTC to the second) and the wait (<see cref="StoreWording.RecheckWaitSeconds"/>),
+    /// because a store that timed out can record after it answered. It never says to drop a digest without the first reading, and never of an act.
+    /// </summary>
+    private static OwnText UnknownWords(DateTimeOffset answeredAt) =>
+        new(
+            "no post here bears this digest as of this call (answered at "
+            + answeredAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)
+            + ", by this client's clock). If it is the digest of an act a refusal printed, the act was not recorded as of that instant and may still be recorded after it, "
+            + "because a store that timed out can finish after it answered: ask again when the refusal is "
+            + StoreWording.RecheckWaitSeconds.ToString(CultureInfo.InvariantCulture)
+            + " seconds old, and send the act again only if the digest is still unknown then; "
+            + "if you meant to cite a post, check the spelling (sha256:<64 hex>), then drop the citation");
 
     /// <summary>True when <paramref name="value"/> is <c>sha256:</c> and 64 lowercase hex digits, decided here and not by the Forum.</summary>
     private static bool IsDigestShape(string value)
