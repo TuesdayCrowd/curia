@@ -271,14 +271,16 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
     private static string ClosingOf(PostVerification verification)
     {
         var rendered = verification.Render();
-        return PublishedClientWords.Fold(rendered[(rendered.LastIndexOf("\n\n", StringComparison.Ordinal) + 2)..]);
+        return PublishedClientWords.Fold(rendered[(rendered.LastIndexOf("\n\n", StringComparison.Ordinal) + 2)..]).Trim();
     }
 
     /// <summary>
     /// WAF22. No sole cause is claimed over another (the plan's ruling 13). (a) A leaf past the served head, a head retained earlier that is smaller, and the
     /// consistency route refusing: the closing holds the published cause with the head's tree size and the published sentence that another check could not be made,
     /// and the cause is the typed fact the verification carries. (b) No head at all: no "newer than the latest signed head", the cause is not carried. (c) A post the
-    /// head covers with the key set unreachable: <c>NOT ESTABLISHED</c> with no past-head words.
+    /// head covers with the key set unreachable: <c>NOT ESTABLISHED</c> with no past-head words. (d) A leaf past the served head, a head retained earlier that is
+    /// smaller, and the consistency route serving a valid extension proof: the closing equals the published closing exactly (a whole-string comparison after the
+    /// fold, never <c>Contains</c>), so a suffix appended to every closing is red here.
     /// </summary>
     [Fact]
     public async Task R11_74_WAF22_ACauseIsNamedWhereItIsOneAndNeverClaimedAsTheSoleCause()
@@ -304,6 +306,22 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
             if (verification.Consistency.Outcome is not CheckOutcome.CouldNotCheck) problems.Add("(a) the consistency check was not could-not-check, so the leg does not hold the case");
         }
 
+        // (d)
+        {
+            var log = NewLog(treeSize: 12, postIndex: 9);
+            log.HeadTreeSize = 4;
+            var verifier = VerifierOn(log, new HeadStore(NewHome()), new TimerManualTimeProvider(T0));
+            _ = await VerifyAsync(verifier);
+            log.HeadTreeSize = 6;
+            var verification = await VerifyAsync(verifier);
+
+            var closing = ClosingOf(verification);
+            var expected = PublishedClientWords.Fold(PublishedClientWords.PastHeadClosing.Replace("<n>", "6", StringComparison.Ordinal));
+            if (closing != expected) problems.Add($"(d) closing is \"{closing}\", expected exactly \"{expected}\"");
+            if (verification.PastHeadTreeSize != 6) problems.Add($"(d) PastHeadTreeSize is {verification.PastHeadTreeSize?.ToString(CultureInfo.InvariantCulture) ?? "null"}, expected 6");
+            if (verification.Consistency.Outcome is not CheckOutcome.Verified) problems.Add($"(d) the consistency check was {verification.Consistency.Outcome}, not verified, so the leg does not hold the case");
+        }
+
         // (b)
         {
             var log = NewLog();
@@ -326,6 +344,108 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
         }
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    /// <summary>
+    /// WAF37. The suffix follows the verdict's predicate (errata G53, R11.74 (b), ruling 19): a table over the four consistency outcomes of a post past the head.
+    /// Verified: no suffix. Nothing to compare (a first verification from a home that retained no head): no suffix, because <c>Overall</c> does not count it against
+    /// the verdict. Could not be checked proper (a retained head and the route refusing): the suffix. Failed: the <c>FAILED.</c> closing, with no past-head words and
+    /// no suffix. The closing is compared whole, after the fold.
+    /// </summary>
+    [Fact]
+    public async Task R11_74_WAF37_TheSuffixFollowsTheVerdictsPredicateOverTheFourConsistencyOutcomes()
+    {
+        var problems = new List<string>();
+        var published = PublishedClientWords.Fold(PublishedClientWords.PastHeadClosing.Replace("<n>", "6", StringComparison.Ordinal));
+        var withSuffix = published + " " + PublishedClientWords.AnotherCheckSuffix.Trim();
+
+        void Check(string leg, PostVerification verification, string? expectedClosing, CheckOutcome expectedConsistency, bool nothingToCompare)
+        {
+            if (verification.Consistency.Outcome != expectedConsistency || verification.Consistency.NothingToCompare != nothingToCompare)
+                problems.Add($"{leg}: consistency is {verification.Consistency.Outcome} (nothing to compare: {verification.Consistency.NothingToCompare}), so the leg does not hold the case");
+            var closing = ClosingOf(verification);
+            if (expectedClosing is null)
+            {
+                if (!closing.StartsWith("FAILED.", StringComparison.Ordinal)) problems.Add($"{leg}: closing is not the FAILED line: \"{closing}\"");
+                if (closing.Contains(PublishedClientWords.AnotherCheckSuffix, StringComparison.Ordinal)) problems.Add($"{leg}: the FAILED closing carries the suffix");
+            }
+            else if (closing != expectedClosing) problems.Add($"{leg}: closing is \"{closing}\", expected exactly \"{expectedClosing}\"");
+        }
+
+        // Verified: a retained smaller head and a valid extension proof.
+        {
+            var log = NewLog(treeSize: 12, postIndex: 9);
+            log.HeadTreeSize = 4;
+            var verifier = VerifierOn(log, new HeadStore(NewHome()), new TimerManualTimeProvider(T0));
+            _ = await VerifyAsync(verifier);
+            log.HeadTreeSize = 6;
+            Check("verified", await VerifyAsync(verifier), published, CheckOutcome.Verified, nothingToCompare: false);
+        }
+
+        // Nothing to compare: the first verification from a home with no retained head.
+        {
+            var log = NewLog(treeSize: 12, postIndex: 9);
+            log.HeadTreeSize = 6;
+            Check("nothing to compare", await VerifyAsync(VerifierOn(log, new HeadStore(NewHome()), new TimerManualTimeProvider(T0))), published, CheckOutcome.CouldNotCheck, nothingToCompare: true);
+        }
+
+        // Could not be checked proper: a retained smaller head and the route refusing.
+        {
+            var log = NewLog(treeSize: 12, postIndex: 9);
+            log.HeadTreeSize = 4;
+            var verifier = VerifierOn(log, new HeadStore(NewHome()), new TimerManualTimeProvider(T0));
+            _ = await VerifyAsync(verifier);
+            log.HeadTreeSize = 6;
+            log.ConsistencyRouteRefuses = true;
+            Check("could not be checked", await VerifyAsync(verifier), withSuffix, CheckOutcome.CouldNotCheck, nothingToCompare: false);
+        }
+
+        // Failed: a retained smaller head and a served head whose root the retained head does not extend to.
+        {
+            var log = NewLog(treeSize: 12, postIndex: 9);
+            log.HeadTreeSize = 4;
+            var verifier = VerifierOn(log, new HeadStore(NewHome()), new TimerManualTimeProvider(T0));
+            _ = await VerifyAsync(verifier);
+            log.HeadTreeSize = 6;
+            log.HeadCommitsToTheWrongRoot = true;
+            Check("failed", await VerifyAsync(verifier), null, CheckOutcome.Failed, nothingToCompare: false);
+        }
+
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
+    /// <summary>
+    /// WAF16(b). A <c>retained_at</c> that is not in the published form reads as no instant and the head still reads: a number, a word that is not an instant, and an
+    /// instant without its milliseconds. The line says <c>NOT STATED</c> for each, in the published words with the tree size.
+    /// </summary>
+    [Fact]
+    public async Task R11_74_WAF16b_AMalformedInstantReadsAsNotStated()
+    {
+        var problems = new List<string>();
+        var expected = PublishedClientWords.Fold(PublishedClientWords.NotStatedLine.Replace("<n>", "8", StringComparison.Ordinal));
+
+        foreach (var member in new[] { "5", "\"yesterday\"", "\"2026-11-01T09:30:00Z\"" })
+        {
+            var log = NewLog();
+            var heads = new HeadStore(NewHome());
+            var clock = new TimerManualTimeProvider(T0);
+            var verifier = VerifierOn(log, heads, clock);
+            _ = await VerifyAsync(verifier);
+
+            var path = Path.Combine(heads.DirectoryFor(StubLog.Forum), "head.json");
+            var node = JsonNode.Parse(await File.ReadAllTextAsync(path, Ct))!.AsObject();
+            node["retained_at"] = JsonNode.Parse(member);
+            await File.WriteAllTextAsync(path, node.ToJsonString(), Ct);
+
+            var read = heads.ReadRetained(StubLog.Forum);
+            if (read is null || read.Value.RetainedAt is not null) problems.Add($"retained_at {member}: did not read as a head with no instant");
+
+            clock.Advance(TimeSpan.FromSeconds(3));
+            var line = Describe(await VerifyAsync(verifier));
+            if (!line.Contains(expected, StringComparison.Ordinal)) problems.Add($"retained_at {member}: lacks \"{expected}\"; printed \"{line}\"");
+        }
+
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
     /// <summary>

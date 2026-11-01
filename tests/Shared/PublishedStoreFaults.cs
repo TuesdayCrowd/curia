@@ -106,10 +106,10 @@ internal static partial class PublishedStoreFaults
     internal static string RepeatSentence => StoreUnavailableSentence;
 
     /// <summary>
-    /// R11.72 act words (ruling 22): the line a client prints after a refusal of <c>curia/store/unavailable</c> to a signed post, with <c>&lt;digest&gt;</c> left in:
-    /// the span after "one line:" in the <c>R11.72 act words</c> paragraph.
+    /// R11.73 act words (errata G53, ruling 18): the line a client prints after a refusal of <c>curia/store/unavailable</c> to a signed post, with <c>&lt;digest&gt;</c>
+    /// left in: the span after "replacing the line of R11.72 act words:" in the <c>R11.73 act words</c> paragraph. G52's <c>R11.72 act words</c> holds a pointer and no copy.
     /// </summary>
-    internal static string ActSentence => One(Group(ActPhrase(), WordsParagraph("R11.72 act"), "R11.72's act words"));
+    internal static string ActSentence => One(Group(ActPhrase(), WordsParagraph("R11.73 act"), "R11.73's act words"));
 
     /// <summary>The act line for a digest in the spelling <c>recheck</c> takes: <see cref="ActSentence"/> with <c>&lt;digest&gt;</c> replaced.</summary>
     internal static string ActLine(string prefixedDigest)
@@ -117,7 +117,7 @@ internal static partial class PublishedStoreFaults
         var sentence = ActSentence;
         return sentence.Contains("<digest>", StringComparison.Ordinal)
             ? sentence.Replace("<digest>", prefixedDigest, StringComparison.Ordinal)
-            : throw new InvalidOperationException($"{Errata}'s R11.72 act words have no <digest> to replace");
+            : throw new InvalidOperationException($"{Errata}'s R11.73 act words have no <digest> to replace");
     }
 
     // ----- text helpers -----
@@ -243,6 +243,6 @@ internal static partial class PublishedStoreFaults
     [GeneratedRegex(@"The token sentence, replacing the sentence of R11\.72 words for the token: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex TokenSentencePhrase();
 
-    [GeneratedRegex(@"one line: `([^`]+)`", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"replacing the line of R11\.72 act words: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex ActPhrase();
 }

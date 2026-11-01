@@ -59,12 +59,12 @@ internal sealed partial class ForumTools(
     private readonly MarkingMode _marking = marking;
     private readonly ForumWriter? _writer = writer;
 
-    /// <summary>The reader's own clock (CS-9, errata G53 ruling 15): the instant <c>curia_recheck</c> states, taken after the batch returned.</summary>
+    /// <summary>The reader's own clock (CS-9, errata G53 ruling 15): the instant <c>curia_recheck</c> states, taken after the batch returned, and the one <c>curia_verify</c>'s verifier stamps a retained head with.</summary>
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
     /// <summary>Whether an identity is configured, and so whether the write tools are offered at all.</summary>
     internal bool CanWrite => _writer is not null;
-    private readonly PostVerifier _verifier = new(forum, heads);
+    private readonly PostVerifier _verifier = new(forum, heads, clock ?? TimeProvider.System, TimeSpan.FromSeconds(30));
 
     /// <summary>
     /// The posts this session has served, by id, in the order they were served.

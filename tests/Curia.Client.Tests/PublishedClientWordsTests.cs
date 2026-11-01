@@ -48,7 +48,8 @@ public sealed class PublishedClientWordsTests
 
     /// <summary>
     /// WAF29. No span G53 replaced is left in G52 (decision 7): G52's <c>R11.72 words</c> holds neither the store sentence's old reading ("a repeat of a resolve or of
-    /// a flag is safe, because") nor the token sentence's "Nothing was minted", and it holds a pointer to the words that replaced them (R11.73 and R11.74).
+    /// a flag is safe, because") nor the token sentence's "Nothing was minted", and it holds a pointer to the words that replaced them (R11.73 and R11.74). G52's <c>R11.72 act words</c> is a pointer too (ruling 18): no "one line:" span and
+    /// not the unqualified tail "says whether the act was recorded."
     /// </summary>
     [Fact]
     public void R11_74_WAF29_NoSpanG53ReplacedIsLeftBehindInG52()
@@ -65,6 +66,12 @@ public sealed class PublishedClientWordsTests
         {
             if (!g52.Contains(pointer, StringComparison.Ordinal)) problems.Add($"G52's R11.72 words hold no pointer to {pointer}");
         }
+
+        // The act words (ruling 18): G52's paragraph is a pointer to R11.73's, with no line of its own and not the unqualified tail.
+        var g52Act = PublishedStoreFaults.WordsParagraph("R11.72 act");
+        if (g52Act.Contains("one line:", StringComparison.Ordinal)) problems.Add("G52's R11.72 act words still hold \"one line:\"");
+        if (g52Act.Contains("says whether the act was recorded.", StringComparison.Ordinal)) problems.Add("G52's R11.72 act words still hold the unqualified tail");
+        if (!g52Act.Contains("R11.73", StringComparison.Ordinal)) problems.Add("G52's R11.72 act words hold no pointer to R11.73");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }

@@ -89,13 +89,13 @@ public static class StoreWording
         "Neither is retried for you.";
 
     /// <summary>
-    /// R11.72's act words (ruling 22): the line printed after a refusal of <see cref="StoreUnavailableType"/> to a signed post, with the digest of the act
+    /// R11.73's act words (errata G53, ruling 18): the line printed after a refusal of <see cref="StoreUnavailableType"/> to a signed post, with the digest of the act
     /// the client sent. The digest is the act's <c>sha256:</c> and 64 lowercase hex digits, the spelling <c>recheck</c> takes, computed here from the canonical
-    /// bytes signed, never read from the Forum's refusal. The line holds no state and calls nothing (R11.64): it says where to ask.
+    /// bytes signed, never read from the Forum's refusal. The line holds no state, calls nothing (R11.64) and carries no wait: it says where to ask and what the answer is of.
     /// </summary>
     public static string ActLine(string prefixedDigest)
     {
         ArgumentNullException.ThrowIfNull(prefixedDigest);
-        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed); the Forum's recheck of it says whether the act was recorded.";
+        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed); the Forum's recheck of it says whether the act was recorded as of the moment it is asked, not whether it may still be recorded after it.";
     }
 }

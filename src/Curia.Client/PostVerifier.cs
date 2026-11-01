@@ -51,7 +51,16 @@ public sealed record PostVerification(
     /// need the inclusion and are never a separate cause there, so only the signature and the consistency check can be another.
     /// </summary>
     private bool OtherCheckCouldNotBeMade =>
-        Signature.Outcome is CheckOutcome.CouldNotCheck || Consistency.Outcome is CheckOutcome.CouldNotCheck;
+        Signature.Outcome is CheckOutcome.CouldNotCheck
+        || (Consistency.Outcome is CheckOutcome.CouldNotCheck && !ConsistencyAllowsVerdict);
+
+    /// <summary>
+    /// The one predicate for the consistency check, read by <see cref="Overall"/> and by <see cref="OtherCheckCouldNotBeMade"/> (R11.74 (b), ruling 19): the check
+    /// was made, or it had nothing to compare (a first verification from a home that retained no head), which the verdict does not count against the post.
+    /// </summary>
+    private bool ConsistencyAllowsVerdict =>
+        Consistency.Outcome is CheckOutcome.Verified
+        || Consistency is { Outcome: CheckOutcome.CouldNotCheck, NothingToCompare: true };
 
     /// <summary>
     /// One word for the five, for a caller that wants a single answer.
@@ -97,8 +106,7 @@ public sealed record PostVerification(
               && Inclusion.Outcome is CheckOutcome.Verified
               && KeyBinding.Outcome is CheckOutcome.Verified
               && Lifecycle.Outcome is CheckOutcome.Verified or CheckOutcome.Disputed
-              && (Consistency.Outcome is CheckOutcome.Verified
-                  || Consistency is { Outcome: CheckOutcome.CouldNotCheck, NothingToCompare: true })
+              && ConsistencyAllowsVerdict
                 ? (Lifecycle.Outcome is CheckOutcome.Disputed ? CheckOutcome.Disputed : CheckOutcome.Verified)
                 : CheckOutcome.CouldNotCheck;
 

@@ -666,6 +666,14 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
         return PostedLine().Match(asked.Stdout).Groups["id"].Value;
     }
 
+    /// <summary>The closing paragraph of <c>curia_verify</c>'s output for a post, folded: everything after the last blank line, whole.</summary>
+    private static async Task<string> VerifiedClosingAsync(ForumTools tools, string postId)
+    {
+        _ = await tools.ReadAsync(postId, Ct);
+        var raw = Text(await tools.VerifyAsync(postId, null, Ct)).TrimEnd();
+        return Fold(raw[(raw.LastIndexOf("\n\n", StringComparison.Ordinal) + 2)..]);
+    }
+
     private static async Task<string> VerifiedTextAsync(ForumTools tools, string postId)
     {
         _ = await tools.ReadAsync(postId, Ct);
@@ -740,7 +748,7 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
     /// <summary>
     /// WAF20. Past the head, at the first leaf and beyond it. A head is signed; the first post after it is at the leaf after the head's own event, a later one three
     /// leaves on. For each, <c>curia verify</c> exits 8 and both clients' inclusion line holds R11.74's two fragments with <c>&lt;m&gt;</c> equal to the Forum's own head
-    /// route's tree size, and <c>curia_verify</c>'s closing holds the published cause with that tree size.
+    /// route's tree size, and <c>curia_verify</c>'s closing is the published closing with that tree size, whole and with no suffix (a fresh home has nothing to compare).
     /// </summary>
     [Fact]
     public async Task R11_74_WAF20_APostPastTheHeadNamesTheLeafTheTreeSizeAndTheCause()
@@ -767,6 +775,9 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
             if (!tool.Contains(expectedLeaf, StringComparison.Ordinal)) problems.Add($"curia_verify of {post}: the inclusion line lacks \"{expectedLeaf}\"");
             if (!tool.Contains(Fold(fragments[1]), StringComparison.Ordinal)) problems.Add($"curia_verify of {post}: the inclusion line lacks \"{fragments[1]}\"");
             if (!tool.Contains(closing, StringComparison.Ordinal)) problems.Add($"curia_verify of {post}: lacks the closing \"{closing}\"");
+            // The fresh home retained no head: nothing to compare, so the closing is the published one whole, with no suffix after it (ruling 20).
+            var closingOnly = await VerifiedClosingAsync(ToolsFor(WordsAfterFaultFixture.Answerer, headHome: NewHome()), post);
+            if (closingOnly != closing) problems.Add($"curia_verify of {post}: the closing is \"{closingOnly}\", expected exactly \"{closing}\"");
 
             var cli = await CuriaAsync("verify", post, "--forum", Address);
             if (cli.Exit != CliExit.ForumFault) problems.Add($"curia verify of {post} exited {cli.Exit}, not {CliExit.ForumFault}");

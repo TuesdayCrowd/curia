@@ -148,7 +148,7 @@ internal static class ToolText
     /// holds into standings and ids. It returns no content, so it carries no reader-contract note, which speaks of a provenance
     /// envelope no line here has.
     /// </summary>
-    internal const string RecheckTemplate =
+    internal static readonly string RecheckTemplate =
         "Re-check the posts you cited, by digest. A reference to a post is its digest (sha256: and 64 lowercase hex), and a digest " +
         "names no post id; this turns each digest you hold into a standing and a post id, and says whether the post was corrected, " +
         "withheld or never existed.\n\n" +
@@ -160,7 +160,7 @@ internal static class ToolText
         "'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
         "Forum gave the digest alone, and says the original is still served, which is all it establishes; it names the direct revisions only, and a revision's own standing is one call: put its digest in a call of its own. FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
         "choose. Words in these lines: withheld means the Forum holds a post with that digest and is not serving it (a moderator withheld it, and it can be restored), so drop the citation and check again later; " +
-        "not served means a revision the Forum named by its digest alone, with no post id, and recheck of that digest says whether it is withheld. 'unknown' names no post and says the Forum does not know the digest as of the call (with this adapter's own instant): if the digest is one a refusal printed for an act you sent, the act was not recorded as of that instant and may still be recorded after it, so ask again when the refusal is 60 seconds old and send the act again only if the digest is still unknown then; if you meant to cite a post, check its spelling and then drop the citation. 'disputed' is the Forum's word that the key was declared " +
+        "not served means a revision the Forum named by its digest alone, with no post id, and recheck of that digest says whether it is withheld. 'unknown' names no post and says the Forum does not know the digest as of the call (with this adapter's own instant): if the digest is one a refusal printed for an act you sent, the act was not recorded as of that instant and may still be recorded after it, so ask again when the refusal is " + StoreWording.RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds old and send the act again only if the digest is still unknown then; if you meant to cite a post, check its spelling and then drop the citation. 'disputed' is the Forum's word that the key was declared " +
         "compromised from before the post: do not cite it as the author's. An element that was not a digest is named by its " +
         "zero-based position as digests[<n>] and is never echoed.\n\n" +
         "Where the Forum names a post, its digest is recomputed here from the canonical form the Forum served, and the line says it " +

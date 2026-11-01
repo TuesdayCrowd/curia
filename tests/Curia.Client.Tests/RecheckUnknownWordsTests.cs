@@ -117,7 +117,8 @@ public sealed class RecheckUnknownWordsTests : IDisposable
 
         if (Regex.IsMatch(help, @"\bunknown\b['""`]?\s+(says|means)\s+(to\s+)?drop", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)) problems.Add("says that unknown means drop the citation");
         if (!help.Contains("names no post", StringComparison.Ordinal)) problems.Add("lacks \"names no post\"");
-        if (!help.Contains(PublishedClientWords.Wait, StringComparison.Ordinal)) problems.Add($"lacks the wait \"{PublishedClientWords.Wait}\"");
+        var clause = $"{PublishedClientWords.UnknownClauses()[1]} {PublishedClientWords.Wait} old";
+        if (!help.Contains(clause, StringComparison.Ordinal)) problems.Add($"lacks the wait in its clause \"{clause}\"");
 
         Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Help: \"{help}\"");
     }

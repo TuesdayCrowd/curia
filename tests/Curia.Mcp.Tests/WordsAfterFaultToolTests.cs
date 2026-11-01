@@ -60,7 +60,8 @@ public sealed class WordsAfterFaultToolTests : IDisposable
         if (Regex.IsMatch(description, @"\bunknown\b['""`]?\s+(says|means)\s+(to\s+)?drop", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase))
             problems.Add("ToolText.cs: \"'unknown' says to drop the citation\"");
         if (!description.Contains("names no post", StringComparison.Ordinal)) problems.Add("lacks \"names no post\"");
-        if (!description.Contains(PublishedClientWords.Wait, StringComparison.Ordinal)) problems.Add($"lacks the wait \"{PublishedClientWords.Wait}\"");
+        var clause = $"{PublishedClientWords.UnknownClauses()[1]} {PublishedClientWords.Wait} old";
+        if (!description.Contains(clause, StringComparison.Ordinal)) problems.Add($"lacks the wait in its clause \"{clause}\"");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
