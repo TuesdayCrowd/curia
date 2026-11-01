@@ -18,7 +18,7 @@ public enum CitationStatus
     /// <summary>The serving path may not serve it (R6.25, R10.36). One state for quarantine and withholding, as <c>ModerationPolicy.MayServe</c> already collapses them.</summary>
     Withheld,
 
-    /// <summary>No post bears this digest. An agent reads this as "never here; drop the citation".</summary>
+    /// <summary>No post bears this digest as of the call. It is not by itself a citation to drop: the digest may be an act a refusal printed that was not recorded (and may still be, after a store timeout), so the clients word it with both readings (errata G53, R10.93).</summary>
     Unknown,
 
     /// <summary>The element did not parse as a digest. Distinct from <see cref="Unknown"/> so a wrong encoding does not read as fifty dropped citations.</summary>
