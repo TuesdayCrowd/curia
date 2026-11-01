@@ -66,6 +66,9 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
     /// <summary>The slug of <see cref="LogUnreadable"/>, for callers that match on it.</summary>
     public const string LogUnreadableType = "curia/log/unreadable";
 
+    /// <summary>The title of <see cref="LogUnreadable"/> and of the Api's own 503 for the same fault: written once here.</summary>
+    public const string LogUnreadableTitle = "The event log could not be read";
+
     private readonly IAuthorKeyResolver _store;
     private readonly IAuthorKeyRegistry _registry;
     private readonly IEventReader _events;
@@ -187,7 +190,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
     {
         ArgumentNullException.ThrowIfNull(readError);
 
-        return new Error(LogUnreadableType, "The event log could not be read", readError.Type);
+        return new Error(LogUnreadableType, LogUnreadableTitle, readError.Type);
     }
 
     /// <summary>One read of an identity's stream: what it holds, what it binds, and the version a decision on it was made at.</summary>

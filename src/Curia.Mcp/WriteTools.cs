@@ -431,6 +431,12 @@ internal sealed partial class ForumTools
             return await DuplicateAsync(duplicate, cancellationToken).ConfigureAwait(false);
 
         var refused = WriteRefused(refusal!, resource, action);
+
+        // R11.72 (errata G52): a signed post answered store/unavailable may or may not have been recorded; the line says which digest to ask curia_recheck about.
+        // The digest is the one computed here over the bytes signed. Nothing is resent or asked here (R11.64), and no other refusal carries the line.
+        if (string.Equals(refusal!.Error.Type, StoreWording.StoreUnavailableType, StringComparison.Ordinal))
+            throw new McpException($"{refused.Message} {StoreWording.ActLine(submission.PrefixedDigest)}");
+
         if (revisionParent is not null
             && string.Equals(refusal!.Error.Type, ParentErrors.NotAQuestionType, StringComparison.Ordinal)
             && await RevisedQuestionPointerAsync(revisionParent, cancellationToken).ConfigureAwait(false) is { } pointer)

@@ -257,12 +257,20 @@ public sealed class PostgresEventStore : IEventStore
         AggregateId aggregateId,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = new NpgsqlCommand(
-            $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE aggregate_id = @agg ORDER BY seq;", connection);
-        command.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
+        try
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = new NpgsqlCommand(
+                $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE aggregate_id = @agg ORDER BY seq;", connection);
+            command.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
 
-        return Result<IReadOnlyList<AppendedEvent>>.Ok(await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false));
+            return Result<IReadOnlyList<AppendedEvent>>.Ok(await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception e) when (PostgresStoreFaults.IsStoreFault(e, cancellationToken))
+        {
+            // R11.71: a fault of the store is thrown, never returned as a failed Result, which a caller can read as an empty log.
+            throw PostgresStoreFaults.Unreadable(e);
+        }
     }
 
     [SuppressMessage(
@@ -281,25 +289,33 @@ public sealed class PostgresEventStore : IEventStore
         int? maxCount = null,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = new NpgsqlCommand(
-            // "LIMIT @limit" with a NULL @limit is "LIMIT ALL" per Postgres semantics -- no
-            // limit -- so maxCount: null needs no separate SQL text/branch.
-            $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE seq > @after ORDER BY seq LIMIT @limit;", connection);
-        command.Parameters.Add(new NpgsqlParameter("after", NpgsqlDbType.Bigint) { Value = afterSeq.Value });
+        try
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = new NpgsqlCommand(
+                // "LIMIT @limit" with a NULL @limit is "LIMIT ALL" per Postgres semantics -- no
+                // limit -- so maxCount: null needs no separate SQL text/branch.
+                $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE seq > @after ORDER BY seq LIMIT @limit;", connection);
+            command.Parameters.Add(new NpgsqlParameter("after", NpgsqlDbType.Bigint) { Value = afterSeq.Value });
 
-        var limitParameter = new NpgsqlParameter("limit", NpgsqlDbType.Bigint);
-        // Written as an if/else, not a `maxCount is { } m ? m : DBNull.Value` conditional
-        // expression: the ternary's common type is object, and CA1508 cannot see that boxing
-        // a null int? produces a real null reference (not a boxed default(int?)), so it
-        // reports the DBNull.Value arm as unreachable dead code -- it is not.
-        if (maxCount is { } limit)
-            limitParameter.Value = limit;
-        else
-            limitParameter.Value = DBNull.Value;
-        command.Parameters.Add(limitParameter);
+            var limitParameter = new NpgsqlParameter("limit", NpgsqlDbType.Bigint);
+            // Written as an if/else, not a `maxCount is { } m ? m : DBNull.Value` conditional
+            // expression: the ternary's common type is object, and CA1508 cannot see that boxing
+            // a null int? produces a real null reference (not a boxed default(int?)), so it
+            // reports the DBNull.Value arm as unreachable dead code -- it is not.
+            if (maxCount is { } limit)
+                limitParameter.Value = limit;
+            else
+                limitParameter.Value = DBNull.Value;
+            command.Parameters.Add(limitParameter);
 
-        return Result<IReadOnlyList<AppendedEvent>>.Ok(await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false));
+            return Result<IReadOnlyList<AppendedEvent>>.Ok(await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception e) when (PostgresStoreFaults.IsStoreFault(e, cancellationToken))
+        {
+            // R11.71: see ReadByAggregateAsync.
+            throw PostgresStoreFaults.Unreadable(e);
+        }
     }
 
     [SuppressMessage(

@@ -1,3 +1,4 @@
+using Curia.Tests.Shared;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http.Json;
@@ -210,7 +211,7 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
     /// <summary>
     /// A log that cannot be read decides nothing about a key, so it is the server's fault and never a
     /// refusal of the key (R4.35; the spec's Decision 8). With a reader that refuses the identity's
-    /// stream, the token endpoint answers <c>server_error</c>, as it answers its own read of the log's
+    /// stream, the token endpoint answers <c>temporarily_unavailable</c> (503, errata G52; <c>server_error</c> before), as it answers its own read of the log's
     /// failure, and ingest and the key set answer 503 <c>curia/log/unreadable</c>, where a 401 would
     /// tell an agent its key had been refused. With a reader that refuses the whole-log read the key
     /// set's positions are folded from, the key set answers 503 too, rather than serving its keys
@@ -219,12 +220,16 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
     /// the log (R11.33, errata G17).
     /// </summary>
     [Theory]
-    [InlineData("token", "stream", "500 {\"error\":\"server_error\",\"error_description\":\"The Forum could not issue a token\"}")]
+    [InlineData("token", "stream", "token-unavailable")]
     [InlineData("question", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     [InlineData("key set", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     [InlineData("key set", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     public async Task R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(string path, string refuses, string expected)
     {
+        // Errata G52 (R5.23): the token endpoint's answer is 503 temporarily_unavailable with the published description (it was 500 server_error).
+        if (expected == "token-unavailable")
+            expected = $"{PublishedStoreFaults.TokenStatus} {{\"error\":\"{PublishedStoreFaults.TokenCode}\",\"error_description\":\"{PublishedStoreFaults.TokenDescription}\"}}";
+
         var ct = TestContext.Current.CancellationToken;
         var suffix = Suffix();
         var agent = ForumAgent.Create($"https://agents.example/unreadable-{suffix}", $"unreadable-{suffix}");

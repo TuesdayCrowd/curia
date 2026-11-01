@@ -111,6 +111,19 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     internal string ConnectionString => _connectionString;
 
     /// <summary>
+    /// The connection string the host itself connects with. Today's is the administrator's (<see cref="ConnectionString"/>), so the Api suite's hosts run as the
+    /// database owner and a <c>REVOKE</c> from the application role changes nothing for them (the D95 PR's Task 0, ruling 13); a fixture that must exercise R11.6's
+    /// grants overrides it (<c>RoleForumFixture</c>). Nothing else reads it.
+    /// </summary>
+    protected virtual string HostConnectionString => _connectionString;
+
+    /// <summary>The application role this fixture's migrations created, for a fixture whose host connects as it.</summary>
+    internal string RoleName => _role;
+
+    /// <summary>The role's password, set explicitly by <c>SchemaMigrations.RenderAll</c>.</summary>
+    internal string RolePassword => _password;
+
+    /// <summary>
     /// How many events of <paramref name="eventType"/> the log holds on <paramref name="aggregateId"/>, read
     /// from the table itself and not through the host's event store, so a count is not the code under test
     /// reporting on its own appends.
@@ -443,7 +456,7 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.UseSetting("ConnectionStrings:Events", _connectionString);
+        builder.UseSetting("ConnectionStrings:Events", HostConnectionString);
 
         // The issuer signing key is configuration, not something the host generates (see
         // Curia.Api.Issuer.IssuerSigningKey). One PEM per fixture, held for the fixture's whole

@@ -507,7 +507,7 @@ internal static class Program
             {
                 // R10.71: the refusal goes whole through RefusedAsync, which verifies a duplicate refusal's answers;
                 // only then is the identity's lifecycle compared (R4.39).
-                var refused = await RefusedAsync(client, refusal!, ct).ConfigureAwait(false);
+                var refused = await RefusedAsync(client, refusal!, ct, submission.PrefixedDigest).ConfigureAwait(false);
                 return await ForeignAfterAsync(client, agent.Profile, refusal!, refused, ct).ConfigureAwait(false);
             }
 
@@ -1219,14 +1219,22 @@ internal static class Program
     /// A posting refusal, written as <c>curia</c> writes every refusal; a duplicate refusal's thread and
     /// answers follow on stdout (R8.19), the answers as this client verified them (R10.71).
     /// </summary>
-    internal static async Task<int> RefusedAsync(ForumClient client, Refusal refusal, CancellationToken ct)
+    internal static async Task<int> RefusedAsync(ForumClient client, Refusal refusal, CancellationToken ct, string? actDigest = null)
     {
         ArgumentNullException.ThrowIfNull(refusal);
 
         // R10.71: a duplicate refusal's answers are shown only as this client verified them.
-        return refusal.AsDuplicate is { } duplicate
+        var code = refusal.AsDuplicate is { } duplicate
             ? Output.FailDuplicate(refusal, duplicate, await DuplicateAnswersAsync(client, duplicate, ct).ConfigureAwait(false))
             : Output.Fail(refusal);
+
+        // R11.72 (errata G52): a signed post answered store/unavailable may or may not have been recorded; the line names the digest of the act sent, which the
+        // Forum's recheck answers for. The caller passes the digest only for a signed post (no signed act, no line). Nothing is resent and nothing is asked
+        // here (R11.64), and no other refusal prints the line: no other has an unknown outcome.
+        if (actDigest is not null && string.Equals(refusal.Error.Type, StoreWording.StoreUnavailableType, StringComparison.Ordinal))
+            Output.Error(new FrameBuilder().Line($"       {new OwnText(StoreWording.ActLine(actDigest))}"));
+
+        return code;
     }
 
     private static async Task<int> ContractAsync(Args args, CancellationToken ct)

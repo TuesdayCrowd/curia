@@ -16,10 +16,12 @@ namespace Curia.Api.Issuer;
 /// since a server fault's detail is the component's own and the operator is who can act on it.</para>
 ///
 /// <para><b>Status.</b> <c>invalid_client</c> is the one code §5.2 pairs with a 401; everything it
-/// defines for this endpoint is a 400. <c>server_error</c> is §4.1.2.1's code rather than §5.2's --
-/// the token endpoint has no code of its own for "the Forum could not read its own log" -- and it is
-/// mapped to a 500 because that is what it is: a client that retries an identical request may well
-/// succeed, which is exactly the distinction a 4xx would erase.</para>
+/// defines for this endpoint is a 400. <c>server_error</c> and <c>temporarily_unavailable</c> are
+/// §4.1.2.1's codes rather than §5.2's. <c>temporarily_unavailable</c> is a 503: a store the Forum owns
+/// could not be reached (R5.23, errata G52), nothing was minted, and a new request may succeed.
+/// <c>server_error</c> is a 500 and is the Forum's own fault only (a posture that will not fold, an
+/// exception nothing names). Either way a client that retries may well succeed, which is exactly the
+/// distinction a 4xx would erase.</para>
 /// </summary>
 internal sealed partial class OAuthRefusal(string code, string description, Error? reason) : IResult
 {
@@ -32,6 +34,9 @@ internal sealed partial class OAuthRefusal(string code, string description, Erro
     /// <summary>The description of every server fault.</summary>
     internal const string CouldNotIssue = "The Forum could not issue a token";
 
+    /// <summary>R5.23 (errata G52): the description of <c>temporarily_unavailable</c>, the answer to a fault of a store the Forum owns.</summary>
+    internal const string StoreUnavailable = "The Forum's store could not be reached; the request may be sent again";
+
     public async Task ExecuteAsync(HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
@@ -40,6 +45,7 @@ internal sealed partial class OAuthRefusal(string code, string description, Erro
         {
             "invalid_client" => StatusCodes.Status401Unauthorized,
             "server_error" => StatusCodes.Status500InternalServerError,
+            "temporarily_unavailable" => StatusCodes.Status503ServiceUnavailable,
             _ => StatusCodes.Status400BadRequest,
         };
 

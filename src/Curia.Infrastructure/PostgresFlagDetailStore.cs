@@ -57,10 +57,11 @@ public sealed class PostgresFlagDetailStore : IFlagDetailStore
         {
             return Result<FlagDetail>.Fail(FlagDetailRules.Exists(detail.EventId));
         }
-        catch (PostgresException e)
+        catch (Exception e) when (e is not OperationCanceledException && PostgresStoreFaults.Is(e))
         {
-            // The state code only: a Postgres message can quote the value it refused.
-            return Result<FlagDetail>.Fail(FlagDetailRules.Unavailable($"sqlstate={e.SqlState}"));
+            // R11.71 (ruling 20): the one predicate, so a pool timeout is this refusal too and not an escape. The cause is the type name and, for a Postgres
+            // fault, the SQLSTATE: never the message, which can quote the value the store refused.
+            return Result<FlagDetail>.Fail(FlagDetailRules.Unavailable(Cause(e)));
         }
     }
 
@@ -87,9 +88,18 @@ public sealed class PostgresFlagDetailStore : IFlagDetailStore
 
             return Result<IReadOnlyList<FlagDetail>>.Ok(rows);
         }
-        catch (PostgresException e)
+        catch (Exception e) when (e is not OperationCanceledException && PostgresStoreFaults.Is(e))
         {
-            return Result<IReadOnlyList<FlagDetail>>.Fail(FlagDetailRules.Unavailable($"sqlstate={e.SqlState}"));
+            return Result<IReadOnlyList<FlagDetail>>.Fail(FlagDetailRules.Unavailable(Cause(e)));
         }
+    }
+
+    /// <summary>The SQLSTATE of a Postgres fault, as before (<c>sqlstate=...</c>), and the type name of any other store fault; never a message.</summary>
+    private static string Cause(Exception exception)
+    {
+        for (var inner = exception; inner is not null; inner = inner.InnerException)
+            if (inner is PostgresException postgres) return $"sqlstate={postgres.SqlState}";
+
+        return PostgresStoreFaults.Cause(exception);
     }
 }

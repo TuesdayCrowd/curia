@@ -38,6 +38,9 @@ internal sealed class ListenerForum : IDisposable
     /// <summary>The status and body for a method and path that is not the token endpoint.</summary>
     internal Func<string, string, (int Status, string Body)> Answer { get; set; } = (_, _) => (404, """{"type":"curia/request/no-route","title":"No route","detail":null}""");
 
+    /// <summary>The status and body for the token endpoint when a fact needs it to refuse; null (the default) is a token.</summary>
+    internal Func<(int Status, string Body)>? Token { get; set; }
+
     internal IReadOnlyList<string> Calls(string request) => [.. Requests.Where(r => r == request)];
 
     private async Task ServeAsync()
@@ -57,7 +60,7 @@ internal sealed class ListenerForum : IDisposable
             var request = $"{context.Request.HttpMethod} {context.Request.Url!.AbsolutePath}";
             Requests.Enqueue(request);
             var (status, body) = context.Request.Url.AbsolutePath == "/oauth/token"
-                ? (200, """{"access_token":"stub-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""")
+                ? Token?.Invoke() ?? (200, """{"access_token":"stub-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""")
                 : Answer(context.Request.HttpMethod, context.Request.Url.AbsolutePath);
             var bytes = Encoding.UTF8.GetBytes(body);
             context.Response.StatusCode = status;
@@ -88,13 +91,16 @@ internal sealed class CliHome : IDisposable
 
     internal string Path { get; }
 
-    internal async Task<(int Exit, string Stdout, string Stderr)> RunAsync(params string[] args)
+    internal Task<(int Exit, string Stdout, string Stderr)> RunAsync(params string[] args) => RunInAsync(Path, args);
+
+    /// <summary>The real <c>curia</c> command in a child process with <c>CURIA_CLIENT_HOME</c> at <paramref name="home"/>: a profile store a fact already holds.</summary>
+    internal static async Task<(int Exit, string Stdout, string Stderr)> RunInAsync(string home, params string[] args)
     {
         var ct = TestContext.Current.CancellationToken;
         var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         start.ArgumentList.Add(System.IO.Path.Combine(AppContext.BaseDirectory, "curia.dll"));
         foreach (var arg in args) start.ArgumentList.Add(arg);
-        start.Environment["CURIA_CLIENT_HOME"] = Path;
+        start.Environment["CURIA_CLIENT_HOME"] = home;
 
         using var process = Process.Start(start)!;
         var stdout = process.StandardOutput.ReadToEndAsync(ct);

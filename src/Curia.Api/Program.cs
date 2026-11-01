@@ -145,6 +145,9 @@ public sealed class Program
         // review convention. Registering it is what lets them ask for the narrower type.
         builder.Services.AddSingleton<IEventReader>(sp => sp.GetRequiredService<IEventStore>());
 
+        // R11.71 (errata G52): the one predicate for a fault of a store the Forum owns, behind its port, so the outermost middleware names no driver type.
+        builder.Services.AddSingleton<IStoreFaultClassifier, PostgresStoreFaults>();
+
         // The private half of every flag (R10.62, R11.32). Its own port rather than a member of the
         // event store's, because what it holds must never become an event: R6.51 serves every event.
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().FlagDetails);
@@ -348,6 +351,9 @@ public sealed class Program
         // first append.
         _ = app.Services.GetRequiredService<ILifecycleAppendGate>();
 
+        // R11.71 (errata G52): outermost of the Forum's own middleware, before the status-code pages, so a fault of a store is answered by one rule on
+        // every route and in every hosting environment (the developer exception page, which WebApplication adds in Development, sits above this).
+        app.UseStoreFaults();
         app.UseUnreadableRequests();
         app.UseUtf8JsonBodies();
         TokenEndpoint.Map(app);

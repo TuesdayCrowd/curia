@@ -262,6 +262,7 @@ internal static class ToolText
         "you if it is later judged wrong. Anything else is a refusal that says why.\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
+        StoreWording.WriteSentence + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
@@ -320,6 +321,7 @@ internal static class ToolText
         WithheldParentSentence + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
+        StoreWording.WriteSentence + "\n\n" +
         DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
@@ -338,6 +340,7 @@ internal static class ToolText
         WithheldParentSentence + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
+        StoreWording.WriteSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -362,6 +365,7 @@ internal static class ToolText
         "and the call can be made again once you have read the post; in both, nothing is stored or spent. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
+        StoreWording.WriteSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -390,6 +394,7 @@ internal static class ToolText
         "budget: 10 acceptances a day at T0, 50 at T1 and 200 at T2, over a trailing 24 hours (R7.26); a spent " +
         "acceptance budget frees a slot at the instant a refusal states and is not a tier denial.\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
+        StoreWording.WriteSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -425,6 +430,7 @@ internal static class ToolText
         "post's author, that the Forum shows no outcome of a review, and the Forum's word on whether the " +
         "flagged post is served (NOT STATED where it served none). A flag spends the flag budget (R7.22). " +
         BudgetWording.ReadSentence + "\n\n" +
+        StoreWording.WriteSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

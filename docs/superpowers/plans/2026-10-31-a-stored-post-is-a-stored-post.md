@@ -354,6 +354,6 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (the records a
 
 **Next:** D95 (an unreadable event log is a body-less `500`, with D61 item 48 and D91's tail) as its own PR, then the tenth five-agent exercise, with the two-head rider, and, from this PR, an agent asked from the CLI's text alone what `by meaning PENDING` means and whether to send the post again, run with the index's grant revoked.
 
-The PR is #137, on `main` at ________.
+The PR is #137, on `main` at fb04ea74.
 
 Final whole run (2026-10-31, on the docs commit): Release build 0 warnings; Api 1,250, Application 604, Architecture 82 (and 82 in Debug), AuthN 140, Canon.Sodium 32, Canon 329, Client 1,207, Domain.Primitives 64, Domain 878, Infrastructure 197, Mcp 741 (2 skipped), every one passed (the Sighup fact among them); locked restore, `cargo fmt`, clippy and `cargo test` clean; the differential comparison 0 divergence classes; spec checks clean and all four falsified.

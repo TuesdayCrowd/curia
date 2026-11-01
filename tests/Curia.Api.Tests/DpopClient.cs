@@ -189,7 +189,24 @@ internal sealed class DpopClient
     internal static async Task<(System.Net.HttpStatusCode Status, string Body)> RequestTokenWithProofAsync(
         HttpClient client, string clientId, string assertion, string proof, CancellationToken ct)
     {
-        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        using var request = TokenRequest(clientId, assertion, proof);
+        using var response = await client.SendAsync(request, ct);
+        return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    /// <summary>As <see cref="RequestTokenWithProofAsync"/>, answered as a <see cref="Reply"/> that also names the headers the Forum sent (D95's no-Retry-After facts).</summary>
+    internal static async Task<Reply> RequestTokenReplyAsync(HttpClient client, string clientId, string assertion, string proof, CancellationToken ct)
+    {
+        using var request = TokenRequest(clientId, assertion, proof);
+        using var response = await client.SendAsync(request, ct);
+        return new Reply(
+            (int)response.StatusCode, response.Content.Headers.ContentType?.MediaType, await response.Content.ReadAsStringAsync(ct), null,
+            response.Headers.Select(h => h.Key).Concat(response.Content.Headers.Select(h => h.Key)).ToList());
+    }
+
+    private static HttpRequestMessage TokenRequest(string clientId, string assertion, string proof)
+    {
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "client_credentials",
             ["client_id"] = clientId,
@@ -198,11 +215,9 @@ internal sealed class DpopClient
             ["scope"] = "question:create answer:create",
         });
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = form };
+        var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = form };
         request.Headers.TryAddWithoutValidation("DPoP", proof);
-
-        using var response = await client.SendAsync(request, ct);
-        return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));
+        return request;
     }
 
     /// <summary>

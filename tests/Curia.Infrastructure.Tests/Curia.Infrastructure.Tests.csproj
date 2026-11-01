@@ -42,5 +42,7 @@
     <Compile Include="../Shared/PublishedBudgetGate.cs" Link="Shared/PublishedBudgetGate.cs" />
     <!-- Errata G51 (R8.81, R11.69): the stored-post entry's bound and schedule, read from the errata. -->
     <Compile Include="../Shared/PublishedIndexLag.cs" Link="Shared/PublishedIndexLag.cs" />
+    <!-- Errata G52 (the D95 PR): the words of the entry, read from the errata at test time. -->
+    <Compile Include="../Shared/PublishedStoreFaults.cs" Link="Shared/PublishedStoreFaults.cs" />
   </ItemGroup>
 </Project>
