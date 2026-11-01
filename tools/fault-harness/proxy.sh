@@ -29,7 +29,10 @@ start)
   echo "proxy NOT UP"; cat "$FH_DIR/pgproxy.out"; exit 1 ;;
 stop)
   alive || { echo "proxy not running"; rm -f "$PIDF"; exit 0; }
-  p=$(cat "$PIDF"); kill -TERM "$p"
+  p=$(cat "$PIDF")
+  # The pid file can outlive the proxy and the pid be reused: signal only a process whose command line is this proxy.
+  case "$(ps -p "$p" -o command= 2>/dev/null)" in *pgproxy.py*) ;; *) echo "pid $p is not the proxy; not signalled" >&2; rm -f "$PIDF"; exit 1;; esac
+  kill -TERM "$p"
   for _ in $(seq 1 40); do kill -0 "$p" 2>/dev/null || { echo "proxy stopped"; rm -f "$PIDF"; exit 0; }; sleep 0.25; done
   echo "proxy still running"; exit 1 ;;
 status)

@@ -11,10 +11,13 @@ on the named tables for the named role, or a mode file read by the proxy.
   (`mark.sh`, `counts.sh`, `census.sh`) need `FH_DB` and apply the database rule.
 - The database name must match `curia_[a-z0-9_]+`. It is refused if it matches `curia_e2e_*`, is `postgres`, or is a template; and
   `current_database()` on the connection must equal `FH_DB`.
-- The role must be a plain lowercase identifier, must already exist, must not be `postgres` or `pg_*`, and must not be a superuser or the
+- The role's name must begin with `FH_DB` (a `curia_*` database on a shared server is never touched with an unrelated role). The role
+  must be a plain lowercase identifier, must already exist, must not be `postgres` or `pg_*`, and must not be a superuser or the
   admin session's own user.
 - SQL issued: `REVOKE`/`GRANT` of `INSERT`/`UPDATE`/`SELECT` on `events` and `post_embeddings` to `FH_ROLE`, and reads. `psql` is the admin
   connection (the standard `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`), never through the proxy.
+- `proxy.sh stop` signals the pid in the pid file only if that process's command line is `pgproxy.py`. The state directory is created
+  with mode 700.
 - `fault.sh status` exits 0 only when the grants and the proxy mode are the originals; run `fault.sh all-off` before you leave.
 
 ## Configuration (environment only)

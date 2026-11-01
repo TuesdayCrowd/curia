@@ -53,6 +53,15 @@ public sealed class IndexSweep
         }
     }
 
+    /// <summary>
+    /// The instant the last completed check began and the instant of the next attempt where a check is owed (otherwise <see langword="null"/>), read under one lock so
+    /// the two never come from different moments (review Q2).
+    /// </summary>
+    public (DateTimeOffset CheckedAt, DateTimeOffset? DueAt) Snapshot()
+    {
+        lock (_gate) return (_checkedAt, _owed ? _nextAt : null);
+    }
+
     /// <summary>The instant of the next attempt where a check is owed, otherwise <see langword="null"/>.</summary>
     public DateTimeOffset? DueAt
     {
@@ -85,7 +94,7 @@ public sealed class IndexSweep
     /// <summary>
     /// A check that began at <paramref name="began"/> completed (R8.83): its beginning is the instant of the last check, the failure ladder starts again, and the
     /// obligation is cleared only if the check began at least <see cref="Settle"/> after the latest exit. The next attempt is the repeat after it where still owed,
-    /// otherwise the floor.
+    /// otherwise the floor; an exit that arrived during the scan is attempted at its first tick if that is sooner.
     /// </summary>
     public void Completed(DateTimeOffset began)
     {
@@ -94,7 +103,10 @@ public sealed class IndexSweep
             _checkedAt = began;
             _failures = 0;
             if (_owed && began - _latestExit >= Settle) _owed = false;
-            _nextAt = began + (_owed ? Repeat : Floor);
+
+            // An exit that arrived during the scan (after it began) keeps its first-tick check (R8.83 (b)): the next attempt is the earlier of that tick and the repeat.
+            var next = began + (_owed ? Repeat : Floor);
+            _nextAt = _latestExit > began ? Min(next, _latestExit + NextTick) : next;
         }
     }
 

@@ -2360,6 +2360,11 @@ public static class ForumEndpoints
                 wantsWhy ? WhyRanked(hit, page.Model.Id, page.K) : null));
         }
 
+        // R9.51, R9.53: the check's two instants from one lock, read before the count. A clear obligation seen here means the check that cleared it had finished enrolling,
+        // so the count read after it cannot be lower than what that check found; read the other way round, a post enrolled in between would be missed by a count of none.
+        var (checkedAt, dueAt) = sweep.Snapshot();
+        var pending = backlog.Count;
+
         return Results.Ok(new SearchResponse(
             results.ToImmutable(),
             matchesNothing ? null : page!.Next?.Encode(),
@@ -2381,10 +2386,10 @@ public static class ForumEndpoints
             page.CandidateDepth,
             Bp(page.MinimumCosine),
             // R9.51: the serving process's backlog, stated whatever the query, the filters and the cursor, and not part of a cursor's binding (R9.35).
-            backlog.Count,
+            pending,
             // R9.53: the check's own record, from the clock port and never from the request; not part of a cursor's binding.
-            Instant(sweep.CheckedAt),
-            sweep.DueAt is { } due ? Instant(due) : null));
+            Instant(checkedAt),
+            dueAt is { } due ? Instant(due) : null));
     }
 
     /// <summary>R8.36's terms this build does not compute, named as absent with the reason (errata G10).</summary>

@@ -183,7 +183,8 @@ public sealed class Program
         builder.Services.AddSingleton(sp => new EmbeddingCatchUp(
             sp.GetRequiredService<EmbeddingIndexer>(),
             sp.GetRequiredService<IndexBacklog>(),
-            sp.GetRequiredService<IndexSweep>()));
+            sp.GetRequiredService<IndexSweep>(),
+            sp.GetRequiredService<TimeProvider>()));
         builder.Services.AddHostedService<EmbeddingReconcileService>();
         builder.Services.AddHostedService<EmbeddingCatchUpService>();
         builder.Services.AddHostedService<LifecycleEntryScan>();

@@ -39,19 +39,21 @@ public sealed class EmbeddingCatchUp
 {
     private readonly EmbeddingIndexer _indexer;
     private readonly IndexBacklog _backlog;
+    private readonly TimeProvider _clock;
 
     // The by-absence pass backs off as an entry does (R11.69): after n failures in a row it waits the first wait doubled n-1 times, to the cap. One loop calls
     // RunOnceAsync, so these are not shared.
     private int _repairFailures;
     private DateTimeOffset _repairDue = DateTimeOffset.MinValue;
 
-    public EmbeddingCatchUp(EmbeddingIndexer indexer, IndexBacklog backlog, IndexSweep sweep)
+    public EmbeddingCatchUp(EmbeddingIndexer indexer, IndexBacklog backlog, IndexSweep sweep, TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(indexer);
         ArgumentNullException.ThrowIfNull(backlog);
         ArgumentNullException.ThrowIfNull(sweep);
         _indexer = indexer;
         _backlog = backlog;
+        _clock = clock ?? TimeProvider.System;
         Sweep = sweep;
     }
 
@@ -126,9 +128,13 @@ public sealed class EmbeddingCatchUp
     private async Task<CheckReport> CheckAsync(IEventReader events, DateTimeOffset began, CancellationToken cancellationToken)
     {
         var enrolled = 0;
+        var startedAt = _clock.GetTimestamp();
+
+        // A failed check waits from when the failure is known, not from when the check began (review Q1): the beginning plus the time the clock port measured.
+        DateTimeOffset FailureKnown() => began + _clock.GetElapsedTime(startedAt);
         try
         {
-            var scan = await _indexer.FindAbsentAsync(
+            var scanFailure = await _indexer.FindAbsentAsync(
                 events,
                 Sweep,
                 (post, _, _) =>
@@ -136,11 +142,12 @@ public sealed class EmbeddingCatchUp
                     if (_backlog.Add(new PendingEntry(post.Digest, post.PostId, post.Sequence), began)) enrolled++;
                     return Task.FromResult<Error?>(null);
                 },
+                _backlog.Holds,
                 cancellationToken).ConfigureAwait(false);
 
-            if (scan.Failure is { } failure)
+            if (scanFailure is { } failure)
             {
-                Sweep.Failed(began);
+                Sweep.Failed(FailureKnown());
                 return new CheckReport(began, enrolled, failure.Type, failure.Title);
             }
 
@@ -151,7 +158,7 @@ public sealed class EmbeddingCatchUp
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
 #pragma warning restore CA1031
         {
-            Sweep.Failed(began);
+            Sweep.Failed(FailureKnown());
             return new CheckReport(began, enrolled, ex.GetType().FullName ?? ex.GetType().Name, "the check threw an exception");
         }
     }

@@ -29,13 +29,17 @@ check_db(){
   case "$FH_DB" in curia_e2e_*) die "database '$FH_DB' is a curia_e2e_* database";; esac
   local cur; cur=$(psql -d "$FH_DB" -Atc "select current_database()" 2>/dev/null) || die "cannot connect to '$FH_DB'"
   [ "$cur" = "$FH_DB" ] || die "current_database() is '$cur', not '$FH_DB'"
-  mkdir -p "$FH_DIR/marks"
+  # The state directory is private to the user: another local user must not be able to write the mode or the pid file.
+  ( umask 077; mkdir -p -m 700 "$FH_DIR" "$FH_DIR/marks" )
+  chmod 700 "$FH_DIR"
 }
 # fault.sh and proxy.sh also need the role: named, a plain identifier, existing, not a superuser, not the admin session's own user.
 check_pair(){
   check_db
   [ -n "$FH_ROLE" ] || die "FH_ROLE is not set (name the Forum's application role)"
   [[ "$FH_ROLE" =~ ^[a-z][a-z0-9_]*$ ]] || die "role '$FH_ROLE' is not a plain lowercase identifier"
+  # The role must carry the database's name as its prefix, so a curia_* database on a shared server is never touched with an unrelated role.
+  case "$FH_ROLE" in "$FH_DB"*) ;; *) die "role '$FH_ROLE' does not begin with the database name '$FH_DB'";; esac
   case "$FH_ROLE" in postgres|pg_*) die "role '$FH_ROLE' is not an application role";; esac
   local info; info=$(psql -d "$FH_DB" -Atc "select rolsuper::text || ' ' || (rolname = current_user)::text from pg_roles where rolname = '$FH_ROLE'")
   [ -n "$info" ] || die "role '$FH_ROLE' does not exist"

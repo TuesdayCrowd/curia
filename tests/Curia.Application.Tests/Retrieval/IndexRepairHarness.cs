@@ -84,7 +84,7 @@ internal sealed class IndexRepairHarness
         Backlog = new IndexBacklog();
         Sweep = new IndexSweep(Clock.GetUtcNow());
         Committed = new CommittedPostIndexer(Indexer, Backlog, Clock, Sweep);
-        CatchUp = new EmbeddingCatchUp(Indexer, Backlog, Sweep);
+        CatchUp = new EmbeddingCatchUp(Indexer, Backlog, Sweep, Clock);
     }
 
     internal ManualTimeProvider Clock { get; }

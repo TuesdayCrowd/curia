@@ -191,7 +191,7 @@ internal sealed class CheckRig
         Backlog = new IndexBacklog();
         Sweep = new IndexSweep(Start);
         Committed = new CommittedPostIndexer(Indexer, Backlog, Clock, Sweep);
-        CatchUp = new EmbeddingCatchUp(Indexer, Backlog, Sweep);
+        CatchUp = new EmbeddingCatchUp(Indexer, Backlog, Sweep, Clock);
     }
 
     internal GeneratedLog Log { get; }

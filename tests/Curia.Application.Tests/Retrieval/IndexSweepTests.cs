@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Curia.Application.Ports;
 using Curia.Application.Retrieval;
+using Curia.Domain.Primitives;
 using Curia.Tests.Shared;
 using Xunit;
 using static Curia.Application.Tests.Retrieval.RetrievalTestLog;
@@ -278,6 +279,103 @@ public sealed class IndexSweepTests
     }
 
     /// <summary>
+    /// CPF13 (in-scan exit, review C1). An exit that arrives while a check is running is checked at the first tick after it, whether nothing was owed before or a check
+    /// already was: the completion of the running check does not push the next attempt past it. Asserted as the instant of the next attempt, not only as "owed".
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF13_AnExitDuringAScanKeepsItsFirstTickCheck()
+    {
+        var t = CheckRig.Start + TimeSpan.FromMinutes(10);
+
+        async Task<string> NextAttemptAsync(bool owedBefore, DateTimeOffset began)
+        {
+            var exit = began + TimeSpan.FromMilliseconds(500);
+            var rig = new CheckRig(new GeneratedLog(3));
+            await rig.IndexAllExceptAsync(new HashSet<int>(), Ct).ConfigureAwait(false);
+            if (owedBefore) rig.Sweep.Owe(began - TimeSpan.FromSeconds(100));
+            rig.Log.OnScanRead = _ => rig.Sweep.Owe(exit);
+            await rig.TickAsync(began, Ct).ConfigureAwait(false);
+            return Due(rig.Sweep, exit);
+        }
+
+        var expected = "nothing owed before: 1 s after the exit; already owed: 1 s after the exit";
+        var actual = $"nothing owed before: {await NextAttemptAsync(false, t)} after the exit; already owed: {await NextAttemptAsync(true, t + TimeSpan.FromSeconds(100))} after the exit";
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// CPF12 (slow failure, review Q1). A check whose scan fails after a long time waits from the instant the failure is known: a scan that takes 30 s of the clock
+    /// and then cannot complete is attempted again 5 s after it failed, not at once because 5 s from its start has passed.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF12_AFailedCheckWaitsFromWhenTheFailureIsKnown()
+    {
+        var log = new GeneratedLog(3);
+        var rig = new CheckRig(log);
+        await rig.IndexAllExceptAsync(new HashSet<int>(), Ct);
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        rig.Sweep.Owe(exit);
+        var began = exit + Tick;
+        rig.Clock.Set(began);
+        log.OnScanRead = _ => rig.Clock.Advance(TimeSpan.FromSeconds(30));
+        log.UnreadableFromScanRead = 1;
+
+        await rig.TickAsync(began, Ct);
+
+        Said("the next attempt is 35 s after the check began", $"the next attempt is {Due(rig.Sweep, began)} after the check began");
+    }
+
+    /// <summary>
+    /// CPF10 (known posts, review Q5). A post the backlog already holds is not enrolled again by the next check: the second check, 60 s after the first, enrols none
+    /// where the first enrolled the one absent post whose store keeps failing.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF10_APostTheBacklogHoldsIsNotEnrolledAgainByTheNextCheck()
+    {
+        var rig = new CheckRig(new GeneratedLog(3));
+        await rig.IndexAllExceptAsync(new HashSet<int> { 2 }, Ct);
+        rig.Index.Fail(GeneratedLog.DigestOf(2));
+        var exit = CheckRig.Start + TimeSpan.FromMinutes(1);
+        rig.Sweep.Owe(exit);
+
+        var first = await rig.TickAsync(exit + Tick, Ct);
+        var second = await rig.TickAsync(exit + Tick + IndexSweep.Repeat, Ct);
+
+        Said("the first check enrolled 1; the second enrolled 0", $"the first check enrolled {first.Check?.Enrolled}; the second enrolled {second.Check?.Enrolled}");
+    }
+
+    /// <summary>
+    /// CPF21 (snapshot, review Q2). The two instants the search states come from one lock: while an owed check completes again and again, every snapshot pairs the
+    /// instant a check began with the next attempt that check set (60 s on), and never the beginning of one with the next attempt of another.
+    /// </summary>
+    [Fact]
+    public async Task R8_83_CPF21_TheTwoInstantsOfASnapshotComeFromOneMoment()
+    {
+        var sweep = new IndexSweep(CheckRig.Start);
+        sweep.Owe(CheckRig.Start + TimeSpan.FromDays(30));
+        var stop = false;
+        var writer = Task.Run(
+            () =>
+            {
+                for (var i = 1; i <= 200_000; i++) sweep.Completed(CheckRig.Start + TimeSpan.FromSeconds(i));
+                Volatile.Write(ref stop, true);
+            },
+            Ct);
+
+        var torn = 0;
+        var reads = 0;
+        while (!Volatile.Read(ref stop))
+        {
+            var (checkedAt, dueAt) = sweep.Snapshot();
+            reads++;
+            if (checkedAt != CheckRig.Start && dueAt != checkedAt + IndexSweep.Repeat) torn++;
+        }
+
+        await writer.ConfigureAwait(true);
+        Said("no snapshot paired one check's beginning with another's next attempt", torn == 0 && reads > 0 ? "no snapshot paired one check's beginning with another's next attempt" : $"{torn} of {reads} snapshots did");
+    }
+
+    /// <summary>
     /// CPF30 (a control). The scan is paged and holds no more than the page it is on: over 40,050 events (five pages) the reader is asked for no more than a page at a
     /// time, the log is read in five pages, and when the fifth is asked for no more than three of the four pages served before it are alive (the scan holds the previous
     /// page in its state and the runtime's first frame may hold one more; a scan that kept every page would hold four). Over the extracted rule itself, so the check, the
@@ -300,10 +398,11 @@ public sealed class IndexSweepTests
             aliveAtFifth = log.PagesAlive;
         };
 
-        var scan = await rig.Indexer.FindAbsentAsync(log, null, null, Ct);
+        var found = 0;
+        var failure = await rig.Indexer.FindAbsentAsync(log, null, (_, _, _) => { found++; return Task.FromResult<Error?>(null); }, null, Ct);
 
         var expected = $"the scan found 1 post and no failure; {EventReaderExtensions.PageSize} was the largest ask; 5 reads; at the fifth read no more than 3 of the 4 earlier pages were alive";
-        var actual = $"the scan found {scan.Found.Count} post{(scan.Found.Count == 1 ? string.Empty : "s")} and {(scan.Failure is null ? "no failure" : scan.Failure.Type)}; {log.LargestAsk} was the largest ask; {log.ForwardReads} reads; " +
+        var actual = $"the scan found {found} post{(found == 1 ? string.Empty : "s")} and {(failure is null ? "no failure" : failure.Type)}; {log.LargestAsk} was the largest ask; {log.ForwardReads} reads; " +
             (aliveAtFifth is >= 0 and <= 3 ? "at the fifth read no more than 3 of the 4 earlier pages were alive" : $"at the fifth read {aliveAtFifth} of the 4 earlier pages were alive");
         Said(expected, actual);
     }

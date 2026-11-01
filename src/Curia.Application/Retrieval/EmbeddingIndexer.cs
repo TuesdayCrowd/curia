@@ -86,7 +86,7 @@ public sealed class EmbeddingIndexer
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(stored);
 
-        var scan = await FindAbsentAsync(
+        var failure = await FindAbsentAsync(
             events,
             sweep,
             async (post, embedding, token) =>
@@ -96,37 +96,42 @@ public sealed class EmbeddingIndexer
                 if (vector is not null) stored.Add(post.Digest);
                 return null;
             },
+            skipKnown: null,
             cancellationToken).ConfigureAwait(false);
 
-        return scan.Failure is { } failure ? Result<bool>.Fail(failure) : Result<bool>.Ok(true);
+        return failure is not null ? Result<bool>.Fail(failure) : Result<bool>.Ok(true);
     }
 
     /// <summary>
     /// The one absence rule (errata G54, decision 1): a discussion post the log holds whose digest the index does not hold under the model and that the model can
-    /// place. Reads the log in pages of <see cref="EventReaderExtensions.PageSize"/> and keeps none; returns each such post as a digest, a post id and a sequence
-    /// and never its text. A post the model cannot place (<c>NoFeatures</c>, D24) is skipped and noted to <paramref name="sweep"/>'s memory when one is given. Where
-    /// <paramref name="each"/> is given it is called with each post as the scan meets it, and a returned error ends the scan with that error; a scan that cannot
-    /// complete returns what it found before the failure, so a post known to be absent is never un-known.
+    /// place. Reads the log in pages of <see cref="EventReaderExtensions.PageSize"/> and keeps none; hands each such post to <paramref name="each"/> and never keeps its text.
+    /// A post the model cannot place (<c>NoFeatures</c>, D24) is skipped and noted to <paramref name="sweep"/>'s memory when one is given. Where
+    /// <paramref name="each"/> is given it is called with each post as the scan meets it, and a returned error ends the scan with that error. A post for which
+    /// <paramref name="skipKnown"/> answers true (the check passes the backlog's) is passed over before it is embedded, the rule otherwise unchanged. Returns the
+    /// error that ended the scan, or <see langword="null"/> when it completed.
     /// </summary>
-    public async Task<AbsentScan> FindAbsentAsync(
-        IEventReader events, IndexSweep? sweep, Func<SearchablePost, Embedding, CancellationToken, Task<Error?>>? each, CancellationToken cancellationToken = default)
+    public async Task<Error?> FindAbsentAsync(
+        IEventReader events,
+        IndexSweep? sweep,
+        Func<SearchablePost, Embedding, CancellationToken, Task<Error?>>? each,
+        Func<string, bool>? skipKnown,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
 
-        var found = new List<AbsentPost>();
         var held = await _index.IndexedDigestsAsync(Model, cancellationToken).ConfigureAwait(false);
         if (!held.TryGetValue(out var digests, out var heldError))
-            return new AbsentScan(found, heldError!);
+            return heldError!;
 
         var present = new HashSet<string>(digests!, StringComparer.Ordinal);
         if (!EventSequence.From(0).TryGetValue(out var from, out var fromError))
-            return new AbsentScan(found, fromError!);
+            return fromError!;
 
         while (true)
         {
             var page = await events.ReadForwardAsync(from, EventReaderExtensions.PageSize, cancellationToken).ConfigureAwait(false);
             if (!page.TryGetValue(out var batch, out var readError))
-                return new AbsentScan(found, readError!);
+                return readError!;
 
             foreach (var appended in batch!)
             {
@@ -135,32 +140,27 @@ public sealed class EmbeddingIndexer
                 // A post the model could not place at an earlier check, and a post whose index step is running in this process, are skipped (R8.83).
                 if (sweep is not null && (sweep.IsUnplaceable(post.Digest) || sweep.IsIndexing(post.Digest))) continue;
 
+                if (skipKnown is not null && skipKnown(post.Digest)) continue;
+
                 var embedded = _embedder.Embed(EmbeddedText.Of(post));
                 if (!embedded.TryGetValue(out var embedding, out var embedError))
                 {
                     if (!string.Equals(embedError!.Type, EmbeddingErrors.NoFeatures().Type, StringComparison.Ordinal))
-                        return new AbsentScan(found, embedError);
+                        return embedError;
 
                     sweep?.NoteUnplaceable(post.Digest);
                     continue;
                 }
 
                 present.Add(post.Digest);
-                found.Add(new AbsentPost(post.Digest, post.PostId, post.Sequence));
                 if (each is not null && await each(post, embedding!, cancellationToken).ConfigureAwait(false) is { } eachError)
-                    return new AbsentScan(found, eachError);
+                    return eachError;
             }
 
             if (batch.Count < EventReaderExtensions.PageSize)
-                return new AbsentScan(found, null);
+                return null;
 
             from = batch[^1].Seq;
         }
     }
 }
-
-/// <summary>A discussion post the log holds and the index lacks: its digest, its post id and its sequence, never its text.</summary>
-public sealed record AbsentPost(string Digest, string PostId, long Sequence);
-
-/// <summary>What <see cref="EmbeddingIndexer.FindAbsentAsync"/> found, and the error that ended the scan where it did not complete.</summary>
-public sealed record AbsentScan(IReadOnlyList<AbsentPost> Found, Error? Failure);

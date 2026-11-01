@@ -72,6 +72,12 @@ public sealed class IndexBacklog
         }
     }
 
+    /// <summary>Whether the backlog holds an entry for <paramref name="digest"/>.</summary>
+    public bool Holds(string digest)
+    {
+        lock (_gate) return _slots.ContainsKey(digest);
+    }
+
     /// <summary>The entries due at <paramref name="now"/>, in log order.</summary>
     public IReadOnlyList<PendingEntry> Due(DateTimeOffset now)
     {
