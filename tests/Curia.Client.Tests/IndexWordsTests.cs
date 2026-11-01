@@ -181,9 +181,12 @@ public sealed class IndexWordsTests
             Fold($"exit {run.Exit}; {posts} POST; \"{line ?? "no search line"}\""));
     }
 
+    private const string CheckedAt = "2026-11-01T10:00:00.0000000+00:00";
+
     private static async Task<string> SearchOutputAsync(string? pendingJson)
     {
-        using var log = new StubLog { SearchVectorPendingJson = pendingJson };
+        // The two instants are stated (not owed), so the line is the count clause beside R11.75's pieces: the count is this fact's object (PIL29).
+        using var log = new StubLog { SearchVectorPendingJson = pendingJson, SearchVectorCheckedAtJson = $"\"{CheckedAt}\"", SearchVectorCheckDueAtJson = "null" };
         var args = Args.Parse(["search", "x"], 1);
         var (exit, stdout, stderr) = await CaptureAsync(
             () => Program.SearchPageAsync(args, "x", null, log.Client(), MarkingMode.None, null, TestContext.Current.CancellationToken));
@@ -191,13 +194,18 @@ public sealed class IndexWordsTests
     }
 
     /// <summary>
-    /// PIL29, the CLI's half. <c>curia search</c> prints <c>vector  none pending</c> for 0, the count line for a positive number and <c>vector  NOT STATED</c>
-    /// where the Forum served none, each as the entry gives it.
+    /// PIL29, the CLI's half (its object moved with errata G54, R11.75). <c>curia search</c> prints the count clause <c>none pending</c> for 0 (both instants stated, no check
+    /// owed), the count clause for a positive number and <c>vector  NOT STATED</c> where the Forum served none, each as R11.75's words give them.
     /// </summary>
     [Fact]
     public async Task R11_70_PIL29_TheSearchLinesStateThePendingCount()
     {
-        var expected = new[] { PublishedIndexLag.NonePendingLine(), PublishedIndexLag.CountLine(7), PublishedIndexLag.SearchNotStatedLine() };
+        var expected = new[]
+        {
+            PublishedCheckWords.Line(0, null, true, CheckedAt),
+            PublishedCheckWords.Line(7, null, true, CheckedAt),
+            PublishedCheckWords.Line(null, null, true, CheckedAt),
+        };
         var actual = new[] { await SearchOutputAsync("0"), await SearchOutputAsync("7"), await SearchOutputAsync(null) };
 
         Said(string.Join(" | ", expected.Select(Fold)), string.Join(" | ", actual.Select(Fold)));

@@ -230,7 +230,7 @@ public sealed class BudgetToolTests : IDisposable
     /// would pass them all. This one is written by hand and moves only when someone means the version to move.
     /// </summary>
     [Fact]
-    public void R11_65_SEB47_TheVersionIs094() => Assert.Equal("0.9.4", ToolCatalogue.Version);   // the hand-written twin: 0.9.4 since errata G53 (R11.74)
+    public void R11_65_SEB47_TheVersionIs095() => Assert.Equal("0.9.5", ToolCatalogue.Version);   // the hand-written twin: 0.9.5 since errata G54 (R11.75)
 
     /// <summary>
     /// SEB51, the tool half. The tool's description says that every receipt already states the standing after the act, that the readout is read before the

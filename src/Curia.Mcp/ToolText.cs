@@ -68,9 +68,8 @@ internal static class ToolText
         "not a count of the whole corpus: each search channel considers a bounded number of candidates. It also " +
         "states excluded_disputed: among the results the floor kept, across every page, how many were left out because their author's key " +
         "was declared compromised. A count the Forum did not serve reads not stated, which is not 0.\n\n" +
-        "The first block also states vector_pending=N, the number of committed posts this Forum process still holds as pending in the " +
-        "vector channel: found by words now and not yet by the vector channel, and no hit is marked. It reads vector_pending=not stated " +
-        "where the Forum served none. " + IndexWording.Sentence + "\n\n" +
+        IndexWording.CheckParagraph + " The first block states vector_pending=N, vector_check_due_at (an instant, none or not stated) and " +
+        "vector_checked_at (an instant or not stated), and no hit is marked. " + IndexWording.Sentence + "\n\n" +
         "The result states `next_cursor` followed by the cursor written in quotes; the text between " +
         "the quotes, without the quotes, is what you pass back as `criteria.cursor` to get the next " +
         "page. It says no_further_pages when this is the last page. A cursor belongs to the query that produced it: pass it back with the " +

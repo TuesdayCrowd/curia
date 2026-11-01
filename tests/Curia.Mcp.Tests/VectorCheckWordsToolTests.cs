@@ -113,11 +113,11 @@ public sealed class VectorCheckWordsToolTests : IDisposable
             : $"the description of curia_search lacks {string.Join(" and ", missing)}");
     }
 
-    /// <summary>CPF25. <c>curia-mcp</c> is the version G54's R11.75 names, read through the one reader of a version out of an errata paragraph (RLW40).</summary>
+    /// <summary>CPF25. <c>curia-mcp</c> is the version G54's R11.75 names, read through the one reader of a version out of an errata paragraph (RLW40; which reads R11.75 since the committed-post PR).</summary>
     [Fact]
     public void R11_75_CPF25_TheAdapterIsTheVersionTheEntryNames()
     {
-        var named = PublishedReadersLastWords.VersionOfTheCheckEntry();
+        var named = PublishedReadersLastWords.Version();
         Said($"expected {named}, actual {named}", $"expected {named}, actual {ToolCatalogue.Version}");
     }
 

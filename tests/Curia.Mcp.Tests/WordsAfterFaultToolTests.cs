@@ -106,7 +106,7 @@ public sealed class WordsAfterFaultToolTests : IDisposable
     }
 
     /// <summary>
-    /// WAF31. <c>curia-mcp</c> is the version G53's R11.74 names (0.9.4 when written): the catalogue reports it, the one reader of a version
+    /// WAF31. <c>curia-mcp</c> is the version the newest entry that bumped it names (G53's R11.74, 0.9.4, when written; G54's R11.75, 0.9.5, since the committed-post PR): the catalogue reports it, the one reader of a version
     /// (<c>PublishedReadersLastWords.Version()</c>, which the build re-points from R11.72's paragraph to R11.74's) reads it, the README says it, and the two
     /// hand-written twins (<c>BudgetToolTests</c>, <c>IndexLagEntryTests</c>) have it as their newest literal. The version is read from G53 here with a pattern built
     /// at run time, so RLW40's scan of <c>GeneratedRegex</c> readers is not given a second reader.
@@ -115,9 +115,9 @@ public sealed class WordsAfterFaultToolTests : IDisposable
     public void R11_74_WAF31_CuriaMcpIsTheVersionG53NamesByTheOneParserThePinsAndTheTwins()
     {
         var named = new Regex("`curia-mcp` is (" + @"\d+\.\d+\.\d+" + ")", RegexOptions.CultureInvariant)
-            .Match(PublishedAcceptBudget.Paragraph("**R11.74**")) is { Success: true } m
+            .Match(PublishedAcceptBudget.Paragraph("**R11.75**")) is { Success: true } m
             ? m.Groups[1].Value
-            : throw new InvalidOperationException("the errata's R11.74 names no curia-mcp version");
+            : throw new InvalidOperationException("the errata's R11.75 names no curia-mcp version");
 
         var problems = new List<string>();
         void Expect(string where, string actual)
