@@ -218,7 +218,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
         var expectedClearing = Instant(exit + TimeSpan.FromSeconds(settle + 1));
         Said(
             $"after the window: the anti-join holds 1, no check is owed, last compared at {expectedClearing}; at the floor after that check the anti-join holds 0",
-            $"after the window: the anti-join holds {holeJoin}, {(hole.Owed ? "a check is owed" : "no check is owed")}, last compared at {clearedBy}; at the floor after that check the anti-join holds {atFloor} ({floorState.Says})");
+            $"after the window: the anti-join holds {holeJoin}, {(hole.Owed ? "a check is owed" : "no check is owed")}, last compared at {clearedBy}; at the floor after that check the anti-join holds {atFloor}{(atFloor == 0 ? string.Empty : " (" + floorState.Says + ")")}");
     }
 
     /// <summary>

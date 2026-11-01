@@ -773,6 +773,7 @@ public static class ForumEndpoints
         IRevisionGate revisionGate,
         IAgentWriteGate agentGate,
         CommittedPostIndexer committed,
+        IndexSweep sweep,
         IHostApplicationLifetime lifetime,
         ILoggerFactory loggerFactory,
         DuplicateCheck dedupe,
@@ -836,7 +837,7 @@ public static class ForumEndpoints
         await using var heldTurn = hold!.ConfigureAwait(false);
 
         // R8.81: the step after PERSIST is the host's to finish, not the caller's: only the host stopping reaches it.
-        var indexer = new IndexStep(committed, loggerFactory.CreateLogger("Curia.Api.VectorIndex"), lifetime.ApplicationStopping);
+        var indexer = new IndexStep(committed, sweep, clock, loggerFactory.CreateLogger("Curia.Api.VectorIndex"), lifetime.ApplicationStopping);
 
         // R6.56: VERIFY through PERSIST is one act against the author's stream, repeated while the stream
         // moves under it (IngestAttempts), and answered 503 contended after three. The attempt answers
@@ -1064,8 +1065,33 @@ public static class ForumEndpoints
         if (annotation is not null)
             s = s! with { Duplicate = annotation };
 
-        // PERSIST.
-        var accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
+        // PERSIST. A post the log holds by any road is found by the index (errata G54, R8.83): when the append leaves by an exception of any kind, a
+        // cancellation included, the log may hold the post though no answer says so, and a check of the log against the vector index is owed. The mark is set
+        // here, before the exception leaves the route: this is the one place it is set, and the confirm of a faulted append (D104) extends this same catch.
+        Result<PostAccepted> accepted;
+        try
+        {
+            accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            if (PostKinds.IsDiscussion(v.Envelope.Kind))
+            {
+                indexer.Sweep.Owe(indexer.Clock.GetUtcNow());
+                try
+                {
+                    VectorIndexLog.CheckOwed(indexer.Log, ex.GetType().FullName ?? ex.GetType().Name);
+                }
+#pragma warning disable CA1031 // R8.83: the exception being rethrown is the answer's cause; a log sink that fails must not replace it, and the check is owed whether or not it was logged.
+                catch (Exception)
+#pragma warning restore CA1031
+                {
+                }
+            }
+
+            throw;
+        }
+
         if (!accepted.TryGetValue(out var post, out var persistError))
         {
             // R6.56: the author's stream moved since VERIFY read it. Nothing was written; the caller
@@ -1109,8 +1135,8 @@ public static class ForumEndpoints
             BudgetReceiptResponse.Of(budgetAfter(post.ServerTimestamp.Value))));
     }
 
-    /// <summary>The step after PERSIST and what it needs from the request: the indexer, a logger and the host's stopping token (R8.81).</summary>
-    private sealed record IndexStep(CommittedPostIndexer Committed, ILogger Log, CancellationToken Shutdown);
+    /// <summary>The step after PERSIST and what it needs from the request: the indexer, the check's state and the clock (R8.83), a logger and the host's stopping token (R8.81).</summary>
+    private sealed record IndexStep(CommittedPostIndexer Committed, IndexSweep Sweep, TimeProvider Clock, ILogger Log, CancellationToken Shutdown);
 
     /// <summary>
     /// R10.35: "Any credentialed agent MAY flag content." Table 10's <c>flag</c>/<c>raise</c> row is

@@ -44,7 +44,7 @@ public sealed partial class OweCallSiteTests
         var inside = persist >= 0 && PersistTryCatch().Match(endpoints, persist) is { Success: true } m && OweCall().IsMatch(m.Groups["body"].Value);
 
         var expected = "1 call site of IndexSweep.Owe in src/Curia.Api, inside the catch around PersistAsync in PersistSubmissionAsync, followed by a rethrow";
-        var actual = $"{total} call site{(total == 1 ? string.Empty : "s")} of IndexSweep.Owe in src/Curia.Api{(total > 0 ? " (" + string.Join(", ", calls.Select(c => $"{c.File} x{c.Count}")) + ")" : string.Empty)}" +
+        var actual = $"{total} call site{(total == 1 ? string.Empty : "s")} of IndexSweep.Owe in src/Curia.Api{(total is 0 or 1 ? string.Empty : " (" + string.Join(", ", calls.Select(c => $"{c.File} x{c.Count}")) + ")")}" +
             (total == 1 && inside ? ", inside the catch around PersistAsync in PersistSubmissionAsync, followed by a rethrow" : total == 0 ? string.Empty : ", " + (inside ? "inside" : "not inside") + " the catch around PersistAsync in PersistSubmissionAsync");
         if (!string.Equals(expected, actual, StringComparison.Ordinal))
             throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
