@@ -64,6 +64,8 @@
     <Compile Include="../Shared/PublishedConfirmWords.cs" Link="Shared/PublishedConfirmWords.cs" />
     <Compile Include="../Shared/ReceivedAct.cs" Link="Shared/ReceivedAct.cs" />
     <Compile Include="../Shared/TimerManualTimeProvider.cs" Link="Shared/TimerManualTimeProvider.cs" />
+    <!-- Errata G55 (the faulted-append PR): a Forum that reads a submission and says nothing, closes or resets. -->
+    <Compile Include="../Shared/RawStubForum.cs" Link="Shared/RawStubForum.cs" />
   </ItemGroup>
 
 </Project>
