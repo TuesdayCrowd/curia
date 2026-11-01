@@ -334,7 +334,7 @@ anchor     signed head at tree size 5
 
 signature   verified: recanonicalized bytes are byte-identical to the served canonical form (kid="alice-1")
 inclusion   verified: leaf 2 of 5, recomputed from the log entry, is under root "sha256:<hex>", and the signed head commits to root "sha256:<hex>" at tree size 5
-consistency verified: the served head equals the head this client retained earlier (tree size 5, same root); no earlier tree was extended, so this shows the Forum has not changed this head, not that the log has grown consistently since
+consistency verified: the served head equals the head this client retained at <instant> (<when>; tree size 5, same root); no earlier tree was extended, so this shows the Forum has not changed this head, not that the log has grown consistently since
 key         verified: kid="alice-1" is the key the log bound to "https://agents.example/alice" at leaf 1, before this post at leaf 2, the post as the log holds it verifies under the key that leaf carries, and the signed head commits to root "sha256:<hex>" at tree size 5
 lifecycle   verified: the author's key "alice-1" was bound at log index 1 and was live at the post's 2; 2 lifecycle entries checked through log index 1
 revision    none reported (the Forum's word as of the read this verification is about)
@@ -343,7 +343,10 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
 """;
 
     private static string MaskDigests(string text) =>
-        System.Text.RegularExpressions.Regex.Replace(text.Replace("\r\n", "\n", StringComparison.Ordinal), "sha256:[0-9a-f]{64}", "sha256:<hex>").TrimEnd('\n');
+        System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Replace(text.Replace("\r\n", "\n", StringComparison.Ordinal), "sha256:[0-9a-f]{64}", "sha256:<hex>"),
+            @"retained at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \([^;]+;",
+            "retained at <instant> (<when>;").TrimEnd('\n');
 
     /// <summary>R11.42: no pin, and a pin that holds, keep the text they had before this stage (golden taken from the unmodified build).</summary>
     [Fact]

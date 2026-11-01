@@ -40,6 +40,10 @@ public sealed class HeadStore
 {
     private const string HeadFile = "head.json";
     private const string LockFile = "head.lock";
+    private const string RetainedAtMember = "retained_at";
+
+    /// <summary>R11.74 words: the instant the retained head was stored, UTC to the millisecond.</summary>
+    internal const string InstantFormat = "yyyy-MM-dd'T'HH:mm:ss.fff'Z'";
 
     /// <summary>The runtime's switch that turns <c>FileShare</c> locking off.</summary>
     internal const string LockingSwitch = "System.IO.DisableFileLocking";
@@ -332,11 +336,32 @@ public sealed class HeadStore
     }
 
     /// <summary>
-    /// The retained head and the instant it was stored (errata G53, R11.74 (a)), or <see langword="null"/> where <see cref="Read"/> is. The seam
-    /// stores no instant, so the instant is always <see langword="null"/> (a file that records none).
+    /// The retained head and the instant it was stored (errata G53, R11.74 (a)), or <see langword="null"/> where <see cref="Read"/> is. The instant is the
+    /// file's <c>retained_at</c> member, written by <see cref="Write"/> from the verifier's clock and never signed; <see langword="null"/> for a file that records
+    /// none (an older one) or whose member is not in the published form.
     /// </summary>
-    public (SignedHeadDocument Head, DateTimeOffset? RetainedAt)? ReadRetained(Uri forum) =>
-        Read(forum) is { } head ? (head, null) : null;
+    public (SignedHeadDocument Head, DateTimeOffset? RetainedAt)? ReadRetained(Uri forum)
+    {
+        if (Read(forum) is not { } head) return null;
+
+        try
+        {
+            var bytes = File.ReadAllBytes(Path.Combine(DirectoryFor(forum), HeadFile));
+            if (JsonReader.Parse(bytes, ClientJson.Limits).TryGetValue(out var value, out _)
+                && value is JsonValue.Object o
+                && ClientJson.String(o, RetainedAtMember) is { } text
+                && DateTimeOffset.TryParseExact(text, InstantFormat, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var instant))
+                return (head, instant);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return (head, null);
+    }
 
     /// <summary>
     /// Retains a head whose signature the caller has already verified.
@@ -348,11 +373,10 @@ public sealed class HeadStore
     /// </summary>
     /// <param name="forum">The Forum whose head this is.</param>
     /// <param name="head">The head, already verified by the caller.</param>
-    /// <param name="retainedAt">The verifier's clock at the write (errata G53, R11.74 (a)); the seam accepts it and does not store it yet.</param>
+    /// <param name="retainedAt">The verifier's clock at the write (errata G53, R11.74 (a)), stored as <c>retained_at</c>, UTC to the millisecond. It is the client's own member of the file and is not part of the signed head.</param>
     public void Write(Uri forum, SignedHeadDocument head, DateTimeOffset retainedAt)
     {
         ArgumentNullException.ThrowIfNull(head);
-        _ = retainedAt;
 
         var directory = DirectoryFor(forum);
         PrivateFiles.CreateDirectory(directory);
@@ -363,6 +387,7 @@ public sealed class HeadStore
             new("kid", new JsonValue.String(head.Kid)),
             new("log_index", new JsonValue.Number(head.LogIndex)),
             new("signature", new JsonValue.String(head.Signature)),
+            new(RetainedAtMember, new JsonValue.String(retainedAt.UtcDateTime.ToString(InstantFormat, CultureInfo.InvariantCulture))),
         ]));
     }
 }

@@ -31,7 +31,7 @@ namespace Curia.Client;
 /// <param name="SupersededBy">The Forum's word on a revision of the post (R11.44).</param>
 /// <param name="PastHeadTreeSize">
 /// Errata G53 (R11.74 (b)): the tree size of the latest signed head when the post's leaf lies at or past it and no check failed, the typed
-/// fact <c>curia_verify</c>'s closing line will name; always <see langword="null"/> in the seam.
+/// fact <c>curia_verify</c>'s closing line names (<see cref="Render"/>). It is carried, not matched out of a detail string, and is <see langword="null"/> where a check failed.
 /// </param>
 public sealed record PostVerification(
     string PostId,
@@ -46,6 +46,13 @@ public sealed record PostVerification(
     ImmutableArray<Successor> SupersededBy = default,
     long? PastHeadTreeSize = null)
 {
+    /// <summary>
+    /// R11.74 (b): whether a check other than the ones the post's leaf past the head explains could not be made. Inclusion is the cause; the key and lifecycle checks
+    /// need the inclusion and are never a separate cause there, so only the signature and the consistency check can be another.
+    /// </summary>
+    private bool OtherCheckCouldNotBeMade =>
+        Signature.Outcome is CheckOutcome.CouldNotCheck || Consistency.Outcome is CheckOutcome.CouldNotCheck;
+
     /// <summary>
     /// One word for the five, for a caller that wants a single answer.
     ///
@@ -148,6 +155,13 @@ public sealed record PostVerification(
                 "FAILED. At least one check ran and did not hold. Read the failing line above: it "
                 + "names the predicate, and a failure here is a claim about the material, not about "
                 + "this client's ability to reach it.\n",
+            CheckOutcome.CouldNotCheck when PastHeadTreeSize is { } pastHead =>
+                // R11.74 (b): the cause, from a typed fact, and never a sole cause where another check could not be made either.
+                "NOT ESTABLISHED. Nothing failed: the post is newer than the latest signed head (tree size "
+                + pastHead.ToString(culture)
+                + "), so its inclusion could not be checked, and the key and lifecycle checks, which need it, were not run. Verify again after the operator signs a head."
+                + (OtherCheckCouldNotBeMade ? " Another check could not be made: read the lines above." : string.Empty)
+                + "\n",
             CheckOutcome.CouldNotCheck =>
                 "NOT ESTABLISHED. Nothing failed, and something could not be checked. This is not a "
                 + "verification and must not be read as one; the line above says what was missing.\n",
@@ -249,8 +263,18 @@ public sealed class PostVerifier
             digest,
             post.LogIndex,
             head.Head?.TreeSize,
-            post.Provenance.SupersededBy);
+            post.Provenance.SupersededBy,
+            PastHead(inclusion, signature, consistency));
     }
+
+    /// <summary>R11.74 (b): the head's tree size when the leaf lies past it and no check failed; otherwise <see langword="null"/>.</summary>
+    private static long? PastHead(PostInclusion inclusion, Check signature, Check consistency) =>
+        inclusion.PastHeadTreeSize is { } size
+        && inclusion.Check.Outcome is not CheckOutcome.Failed
+        && signature.Outcome is not CheckOutcome.Failed
+        && consistency.Outcome is not CheckOutcome.Failed
+            ? size
+            : null;
 
     /// <summary>
     /// R6.52's first check, and the one place the JWKS collapse is closed: a key set this client
@@ -492,10 +516,12 @@ public sealed class PostVerifier
         if (anchor.Head is not { } head) return new(anchor.Verdict);
 
         if (logIndex >= head.TreeSize)
-            return new(Check.CouldNotCheck(
-                Invariant($"leaf {logIndex} is not covered by the signed head at tree size {head.TreeSize}.")
-                + " The Forum served this post at that leaf and no published head commits to it yet. A later head will,"
-                + " once the operator signs one with 'curia-operator sign-head'; verify again then."));
+            return new(
+                Check.CouldNotCheck(
+                    Invariant($"leaf {logIndex} is not covered by the signed head at tree size {head.TreeSize}.")
+                    + " The Forum served this post at that leaf and no published head commits to it yet. A later head will,"
+                    + " once the operator signs one with 'curia-operator sign-head'; verify again then."),
+                PastHeadTreeSize: head.TreeSize);
 
         var proof = post.InclusionProof;
         if (proof.TreeSize != head.TreeSize)
@@ -576,8 +602,6 @@ public sealed class PostVerifier
     /// </summary>
     private async Task<Check> CompareAndRetainAsync(SignedHeadDocument head, DateTimeOffset began, CancellationToken ct)
     {
-        _ = began;
-
         // A head this client cannot read is not the same as one it never had. R6.53 permits
         // replacing a retained head only after a consistency proof verifies, and a file that is
         // present and unreadable may be a retained head an attacker has damaged -- overwriting it
@@ -591,7 +615,8 @@ public sealed class PostVerifier
                 + "evidence this client has of what the log looked like before (R6.53). Inspect "
                 + $"{Check.Quote(_heads.DirectoryFor(_forum.Forum))} by hand.");
 
-        var retained = _heads.Read(_forum.Forum);
+        var retainedHead = _heads.ReadRetained(_forum.Forum);
+        var retained = retainedHead?.Head;
         if (retained is null)
         {
             _heads.Write(_forum.Forum, head, _time.GetUtcNow());
@@ -603,7 +628,7 @@ public sealed class PostVerifier
         {
             return string.Equals(retained.RootHash, head.RootHash, StringComparison.Ordinal)
                 ? Check.Verified(Invariant(
-                    $"the served head equals the head this client retained earlier (tree size {head.TreeSize}, same root); no earlier tree was extended, so this shows the Forum has not changed this head, not that the log has grown consistently since"))
+                    $"the served head equals the head this client {RetainedWords(retainedHead!.Value.RetainedAt, began, head.TreeSize)}; no earlier tree was extended, so this shows the Forum has not changed this head, not that the log has grown consistently since"))
                 : Check.Failed(Invariant(
                     $"two different roots at tree size {head.TreeSize}: this client retained {Check.Quote(retained.RootHash)} and the Forum now serves {Check.Quote(head.RootHash)}. The log has equivocated (R6.24). The retained head is kept."));
         }
@@ -631,6 +656,26 @@ public sealed class PostVerifier
     }
 
     /// <summary>
+    /// R11.74 words (errata G53): when the retained head was stored, against the instant this check began. Three forms by the two instants only, never by whether the
+    /// lock was waited for, and <c>NOT STATED</c> for a file that records no instant.
+    /// </summary>
+    private static string RetainedWords(DateTimeOffset? retainedAt, DateTimeOffset began, long treeSize)
+    {
+        if (retainedAt is not { } stored)
+            return Invariant($"retained at NOT STATED (the retained file records no instant; tree size {treeSize}, same root)");
+
+        var instant = stored.UtcDateTime.ToString(HeadStore.InstantFormat, CultureInfo.InvariantCulture);
+        var before = began - stored;
+        var when = before < TimeSpan.Zero
+            ? "after this check began, by another check of this client"
+            : before < TimeSpan.FromSeconds(1)
+                ? "less than a second before this check began, so a check of this client's that ran just before may have stored it"
+                : Invariant($"{(long)before.TotalSeconds} s before this check began");
+
+        return Invariant($"retained at {instant} ({when}; tree size {treeSize}, same root)");
+    }
+
+    /// <summary>
     /// Invariant formatting for the numbers in these messages. Sizes and indices are the same digits
     /// in every culture, but CS-9's sibling rule applies: the formatting is stated rather than
     /// inherited from whatever the host happens to be running under.
@@ -642,5 +687,5 @@ public sealed class PostVerifier
 
     /// <summary>R6.52's second check, and the post's own entry and proof it ran over, when it had both.</summary>
     private readonly record struct PostInclusion(
-        Check Check, LogEntryDocument? Entry = null, InclusionProofDocument? Proof = null);
+        Check Check, LogEntryDocument? Entry = null, InclusionProofDocument? Proof = null, long? PastHeadTreeSize = null);
 }
