@@ -53,6 +53,9 @@ public sealed record PostView(
     string? Prev = null,
     string? PossibleDuplicateOf = null);
 
+/// <summary>A post found by digest (<see cref="PostProjector.FirstWithDigest"/>) and the sequence of the event that holds it.</summary>
+public sealed record DigestMatch(PostView Post, EventSequence Sequence);
+
 /// <summary>
 /// Builds the post read model purely from the event stream -- R11.9's "all read models SHALL be
 /// rebuildable from [the event table] by replay", exercised rather than assumed.
@@ -81,11 +84,38 @@ public static class PostProjector
     /// </summary>
     public static ImmutableArray<PostView> Fold(IReadOnlyList<AppendedEvent> eventsInSeqOrder)
     {
+        var posts = ImmutableArray.CreateBuilder<PostView>();
+        foreach (var (view, _) in Views(eventsInSeqOrder))
+            posts.Add(view);
+
+        return posts.ToImmutable();
+    }
+
+    /// <summary>
+    /// R8.78, R8.84 (errata G55): the first stored post, in log order, whose digest is <paramref name="digest"/> (served or not), with the sequence of the event that
+    /// holds it; <see langword="null"/> when none. The one definition of "this digest is recorded": the refusal of a repeat and the confirm of a faulted append both
+    /// call it, so they cannot answer differently. The list is checked as <see cref="Fold"/> checks it, whole, before a match is returned.
+    /// </summary>
+    public static DigestMatch? FirstWithDigest(IReadOnlyList<AppendedEvent> eventsInSeqOrder, string digest)
+    {
+        ArgumentNullException.ThrowIfNull(digest);
+
+        DigestMatch? first = null;
+        foreach (var (view, seq) in Views(eventsInSeqOrder))
+        {
+            if (first is null && string.Equals(view.Digest, digest, StringComparison.Ordinal))
+                first = new DigestMatch(view, seq);
+        }
+
+        return first;
+    }
+
+    /// <summary>The posts of a seq-ordered list with the sequence of each one's event, in seq order; the list is checked as it is walked.</summary>
+    private static IEnumerable<(PostView View, EventSequence Seq)> Views(IReadOnlyList<AppendedEvent> eventsInSeqOrder)
+    {
         ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
 
-        var posts = ImmutableArray.CreateBuilder<PostView>();
         var lastSeq = EventSequence.Zero;
-
         foreach (var appended in eventsInSeqOrder)
         {
             if (appended.Seq < lastSeq)
@@ -101,10 +131,8 @@ public static class PostProjector
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
 
             var view = ReadView(payload, appended);
-            if (view is not null) posts.Add(view);
+            if (view is not null) yield return (view, appended.Seq);
         }
-
-        return posts.ToImmutable();
     }
 
     /// <summary>

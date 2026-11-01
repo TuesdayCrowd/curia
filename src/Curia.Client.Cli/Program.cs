@@ -24,6 +24,9 @@ internal static class Program
 {
     private const string DefaultForum = "http://localhost:5000";
 
+    /// <summary>The command, as a fact runs it in process (errata G55's seam): the same entry the shell runs, with the client built by <see cref="HttpClientFactory"/>.</summary>
+    internal static Task<int> RunAsync(string[] argv) => Main(argv);
+
     private static async Task<int> Main(string[] argv)
     {
         if (argv.Length == 0 || argv[0] is "help" or "--help" or "-h")
@@ -2017,8 +2020,13 @@ internal static class Program
             : throw new ArgumentException($"not an absolute URL: '{raw}'", nameof(args));
     }
 
-    internal static HttpClient HttpFor(Uri forum) =>
-        new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
+    /// <summary>
+    /// The factory every verb builds its client with (<see cref="HttpFor"/>). <b>The seam of errata G55's PR (R11.77):</b> a test replaces it to give the client a short
+    /// timeout and restores it; the shipped client has no flag or environment variable for one, and its default builds the 30-second client.
+    /// </summary>
+    internal static Func<Uri, HttpClient> HttpClientFactory { get; set; } = static forum => new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
+
+    internal static HttpClient HttpFor(Uri forum) => HttpClientFactory(forum);
 
     /// <summary>A local error's detail, as a display literal after a colon, or nothing.</summary>
     private static OwnText Detail(string? detail) =>

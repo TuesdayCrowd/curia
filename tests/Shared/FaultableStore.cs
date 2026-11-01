@@ -56,6 +56,32 @@ internal enum EventStoreFault
 
     /// <summary>Every read waits until the caller's token is cancelled, then throws the cancellation: a client that aborts the request mid-read (ULG39).</summary>
     HangUntilCancelled,
+
+    /// <summary>
+    /// The append commits and throws a driver fault, and from then on every read throws <see cref="LogUnreadableException"/> around a driver fault: the confirm's own
+    /// read fails over a post the log holds (errata G55, R8.84; AFC3). Reads before the fault are healthy.
+    /// </summary>
+    AppendThenThrowThenFailReads,
+
+    /// <summary>
+    /// The append commits and throws a driver fault, and from then on every read waits for its token and throws that cancellation: the confirm's read outlasts its
+    /// bound (AFC12). Reads before the fault are healthy.
+    /// </summary>
+    AppendThenThrowThenHangReads,
+
+    /// <summary>
+    /// The append commits and throws a driver fault, and the first read after the fault is held until the probe calls <see cref="FaultableEventStore.ReleaseHeldRead"/>
+    /// (or the read's token is cancelled): the confirm's read is in progress while the probe looks at the gates and the registration (AFC4, AFC16).
+    /// <see cref="FaultableEventStore.HeldReadStarted"/> says when it is held. Once per arming.
+    /// </summary>
+    HoldNextReadAfterFault,
+
+    /// <summary>
+    /// On the first append after arming the act is committed, then the callback the probe gave to <see cref="FaultableEventStore.OnInterleave"/> runs (another agent's
+    /// post, appended through the same host, with the fault suspended for its duration), then the append throws a driver fault: the log holds the act at a lower
+    /// sequence than another agent's newest post (AFC1). Once per arming; later appends are healthy.
+    /// </summary>
+    InterleaveOtherAgentsPost,
 }
 
 /// <summary>The faults a probe throws.</summary>
@@ -92,6 +118,14 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     private readonly TaskCompletionSource _lateCommitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TaskCompletionSource _committedAndWaiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _lateStarted;
+    private int _interleaveStarted;
+    private bool _faulted;
+    private int _holdTaken;
+    private Func<CancellationToken, Task>? _interleave;
+    private readonly TaskCompletionSource _heldReadStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _heldReadGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _readsAfterFault;
+    private int _forwardReadsAfterFault;
     private int _reads;
     private int _appends;
     private int _committed;
@@ -104,6 +138,28 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
 
     /// <summary>Reads attempted (faulted or not) since the host started.</summary>
     internal int Reads => Volatile.Read(ref _reads);
+
+    /// <summary>
+    /// Reads attempted (faulted or not) after an append left by an exception because of an armed mode, since that fault: the count of the confirm's reads and of any
+    /// other read the host made after it. Zero before a fault. Reset by <see cref="Arm"/>.
+    /// </summary>
+    internal int ReadsAfterFault => Volatile.Read(ref _readsAfterFault);
+
+    /// <summary>The forward (whole-log) reads among <see cref="ReadsAfterFault"/>.</summary>
+    internal int ForwardReadsAfterFault => Volatile.Read(ref _forwardReadsAfterFault);
+
+    /// <summary>Completes when <see cref="EventStoreFault.HoldNextReadAfterFault"/> holds a read.</summary>
+    internal Task HeldReadStarted => _heldReadStarted.Task;
+
+    /// <summary>Lets the read that <see cref="EventStoreFault.HoldNextReadAfterFault"/> holds go ahead.</summary>
+    internal void ReleaseHeldRead() => _heldReadGate.TrySetResult();
+
+    /// <summary>The callback <see cref="EventStoreFault.InterleaveOtherAgentsPost"/> runs between the commit and the throw. It appends through the host; the fault is suspended while it runs.</summary>
+    internal Func<CancellationToken, Task>? OnInterleave
+    {
+        get { lock (_gate) return _interleave; }
+        set { lock (_gate) _interleave = value; }
+    }
 
     /// <summary>Appends attempted since the host started.</summary>
     internal int Appends => Volatile.Read(ref _appends);
@@ -137,6 +193,11 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
             _fault = fault;
             _make = exception ?? StoreFaultKinds.Driver;
             _committedSinceArmed = false;
+            _faulted = false;
+            Volatile.Write(ref _readsAfterFault, 0);
+            Volatile.Write(ref _forwardReadsAfterFault, 0);
+            Volatile.Write(ref _interleaveStarted, 0);
+            Volatile.Write(ref _holdTaken, 0);
             _committedAndWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Volatile.Write(ref _lateStarted, 0);
         }
@@ -172,6 +233,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
         switch (fault)
         {
             case EventStoreFault.ThrowOnAppend:
+                MarkFaulted();
                 throw make();
             case EventStoreFault.ReportAppend:
                 return Result<IReadOnlyList<AppendedEvent>>.Fail(StoreFaultKinds.ReportedAppend());
@@ -191,17 +253,47 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
                         _lateCommitted.TrySetException(ex);
                     }
                 }, CancellationToken.None);
+                MarkFaulted();
                 throw make();
             case EventStoreFault.ThrowThenCommitWhenReleased:
+                MarkFaulted();
                 throw make();
         }
 
         var result = await append(cancellationToken).ConfigureAwait(false);
         Interlocked.Increment(ref _committed);
         lock (_gate) _committedSinceArmed = true;
-        if (fault == EventStoreFault.AppendThenThrow) throw make();
+        if (fault == EventStoreFault.InterleaveOtherAgentsPost && Interlocked.CompareExchange(ref _interleaveStarted, 1, 0) == 0)
+        {
+            Func<CancellationToken, Task>? other;
+            lock (_gate)
+            {
+                other = _interleave;
+                _fault = EventStoreFault.None;
+            }
+
+            try
+            {
+                if (other is not null) await other(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (_gate) _fault = EventStoreFault.InterleaveOtherAgentsPost;
+            }
+
+            MarkFaulted();
+            throw make();
+        }
+
+        if (fault is EventStoreFault.AppendThenThrow or EventStoreFault.AppendThenThrowThenFailReads or EventStoreFault.AppendThenThrowThenHangReads
+            or EventStoreFault.HoldNextReadAfterFault)
+        {
+            MarkFaulted();
+            throw make();
+        }
         if (fault == EventStoreFault.CommitThenCancel)
         {
+            MarkFaulted();
             TaskCompletionSource waiting;
             lock (_gate) waiting = _committedAndWaiting;
             waiting.TrySetResult();
@@ -214,13 +306,32 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _reads);
-        return ReadFault(forward: false, cancellationToken) is { } failed ? failed : inner.ReadByAggregateAsync(aggregateId, cancellationToken);
+        CountAfterFault(forward: false);
+        if (ReadFault(forward: false, cancellationToken) is { } failed) return failed;
+        return TakeHold() ? HoldThenAsync(() => inner.ReadByAggregateAsync(aggregateId, cancellationToken), cancellationToken) : inner.ReadByAggregateAsync(aggregateId, cancellationToken);
     }
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _reads);
-        return ReadFault(forward: true, cancellationToken) is { } failed ? failed : inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+        CountAfterFault(forward: true);
+        if (ReadFault(forward: true, cancellationToken) is { } failed) return failed;
+        return TakeHold() ? HoldThenAsync(() => inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken), cancellationToken) : inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+    }
+
+    private void MarkFaulted()
+    {
+        lock (_gate) _faulted = true;
+    }
+
+    private void CountAfterFault(bool forward)
+    {
+        bool faulted;
+        lock (_gate) faulted = _faulted;
+        if (!faulted) return;
+
+        Interlocked.Increment(ref _readsAfterFault);
+        if (forward) Interlocked.Increment(ref _forwardReadsAfterFault);
     }
 
     /// <summary>A task that fails the read as the armed mode says, or null where the read is healthy. Throws for a throwing mode.</summary>
@@ -229,11 +340,13 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
         EventStoreFault fault;
         Func<Exception> make;
         bool committed;
+        bool faulted;
         lock (_gate)
         {
             fault = _fault;
             make = _make;
             committed = _committedSinceArmed;
+            faulted = _faulted;
         }
 
         switch (fault)
@@ -246,12 +359,35 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
                 throw make();
             case EventStoreFault.HangUntilCancelled:
                 return HangAsync(cancellationToken);
+            case EventStoreFault.AppendThenThrowThenFailReads when faulted:
+                throw new LogUnreadableException("armed by the test after the fault", make());
+            case EventStoreFault.AppendThenThrowThenHangReads when faulted:
+                return HangAsync(cancellationToken);
             case EventStoreFault.ReportAll:
             case EventStoreFault.ReportForward when forward:
                 return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(StoreFaultKinds.ReportedRead()));
             default:
                 return null;
         }
+    }
+
+    /// <summary>True for the one read <see cref="EventStoreFault.HoldNextReadAfterFault"/> holds: the first read after the fault, once per arming.</summary>
+    private bool TakeHold()
+    {
+        lock (_gate)
+        {
+            if (_fault != EventStoreFault.HoldNextReadAfterFault || !_faulted) return false;
+        }
+
+        return Interlocked.CompareExchange(ref _holdTaken, 1, 0) == 0;
+    }
+
+    /// <summary>The held read: it waits for the probe (or its own token) and then goes on to the inner store, the real read, late.</summary>
+    private async Task<Result<IReadOnlyList<AppendedEvent>>> HoldThenAsync(Func<Task<Result<IReadOnlyList<AppendedEvent>>>> read, CancellationToken cancellationToken)
+    {
+        _heldReadStarted.TrySetResult();
+        await _heldReadGate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return await read().ConfigureAwait(false);
     }
 
     private async Task<Result<IReadOnlyList<AppendedEvent>>> HangAsync(CancellationToken cancellationToken)

@@ -2196,7 +2196,7 @@ public static class ForumEndpoints
 
     /// <summary>R8.78: the id of the first stored post (served or not) whose digest is <paramref name="digest"/>, in log order; <see langword="null"/> when none.</summary>
     private static string? AlreadyRecordedPost(IReadOnlyList<AppendedEvent> log, string digest) =>
-        PostProjector.Fold(log).FirstOrDefault(p => string.Equals(p.Digest, digest, StringComparison.Ordinal))?.PostId;
+        PostProjector.FirstWithDigest(log, digest)?.Post.PostId;
 
     private static bool RevisesOwnPost(IReadOnlyList<AppendedEvent> log, string? prev, string author)
     {

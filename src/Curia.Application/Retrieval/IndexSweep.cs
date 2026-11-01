@@ -128,6 +128,16 @@ public sealed class IndexSweep
 
     private static DateTimeOffset Min(DateTimeOffset a, DateTimeOffset b) => a <= b ? a : b;
 
+    /// <summary>
+    /// Registers <paramref name="digest"/> as in flight in this process until the returned scope is disposed. <b>The seam of errata G55's PR:</b> the set is
+    /// still a set, so a release clears the digest whoever registered it; the next commit makes the registration counted so that two scopes nest.
+    /// </summary>
+    public IDisposable Track(string digest)
+    {
+        BeginIndexing(digest);
+        return new Registration(this, digest);
+    }
+
     /// <summary>Registers <paramref name="digest"/> as a post whose index step is running in this process.</summary>
     public void BeginIndexing(string digest)
     {
@@ -160,5 +170,15 @@ public sealed class IndexSweep
     public bool IsUnplaceable(string digest)
     {
         lock (_gate) return _unplaceable.Contains(digest);
+    }
+
+    private sealed class Registration(IndexSweep sweep, string digest) : IDisposable
+    {
+        private int _released;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 0) sweep.EndIndexing(digest);
+        }
     }
 }

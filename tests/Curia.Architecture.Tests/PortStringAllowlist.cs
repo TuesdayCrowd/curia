@@ -51,6 +51,7 @@ internal static class PortStringAllowlist
         ("Curia.Application.Projections.CitationCheck.Resolve", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),
         ("Curia.Application.Projections.CorrectionIndex.Fold", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),
         ("Curia.Application.Projections.AcceptedAnswerIndex.Fold", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),
+        ("Curia.Application.Projections.PostProjector.FirstWithDigest", "digest", "a Forum-minted value: the digest the Forum computed over the canonical bytes it verified (R8.78), compared ordinally in memory with projected posts' digests and never stored or looked up"),
         ("Curia.Application.Projections.PostView..ctor", "Author", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): a projection of the log"),
         ("Curia.Application.Projections.PostView..ctor", "Board", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): a projection of the log"),
         ("Curia.Application.Projections.PostView..ctor", "Canonical", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): a projection of the log"),
