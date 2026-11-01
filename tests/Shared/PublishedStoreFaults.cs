@@ -99,8 +99,8 @@ internal static partial class PublishedStoreFaults
     /// </summary>
     internal static string StoreUnavailableSentence => One(Group(StoreSentencePhrase(), WordsParagraph("R11.73"), "R11.73's store sentence"));
 
-    /// <summary>The sentence for the token: the span after "For the token:".</summary>
-    internal static string TokenSentence => One(Group(TokenSentencePhrase(), WordsParagraph("R11.72"), "R11.72's token sentence"));
+    /// <summary>The sentence for the token. Since errata G53 it is <c>R11.74 words</c>' token sentence, which replaced R11.72's; G52's paragraph holds a pointer and no copy.</summary>
+    internal static string TokenSentence => One(Group(TokenSentencePhrase(), WordsParagraph("R11.74"), "R11.74's token sentence"));
 
     /// <summary>The sentence the descriptions of the write tools and the helps of the writing verbs carry: R11.72 says it is the second.</summary>
     internal static string RepeatSentence => StoreUnavailableSentence;
@@ -240,7 +240,7 @@ internal static partial class PublishedStoreFaults
     [GeneratedRegex(@"The store sentence, replacing the sentence of R11\.72 words for `curia/store/unavailable`: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex StoreSentencePhrase();
 
-    [GeneratedRegex(@"For the token: `([^`]+)`", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"The token sentence, replacing the sentence of R11\.72 words for the token: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex TokenSentencePhrase();
 
     [GeneratedRegex(@"one line: `([^`]+)`", RegexOptions.CultureInvariant)]

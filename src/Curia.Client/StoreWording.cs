@@ -48,7 +48,12 @@ public static class StoreWording
         "a flag refused as \"" + FlagRepeatPhrase + "\" was recorded the first time, and a flag not refused so was not recorded and now is; " +
         "a resolve's reading holds only if no other call changed the thread's accepted answer between the two calls, and an answer of any other kind says nothing of the first call";
 
-    private const string TokenSentence = FaultOfTheForum + "Nothing was minted: a new request can be sent later";
+    /// <summary>
+    /// R11.74 words: the sentence for the token's refusal. No call is a token request, so it says what is true of every call that prints it: the Forum could not
+    /// issue this session's token and the call was refused before anything was sent to be recorded. It does not say that nothing was read, because a verb that reads
+    /// a parent first has read it.
+    /// </summary>
+    private const string TokenSentence = FaultOfTheForum + "The Forum could not issue this session's token, so the call was refused before anything was sent to be recorded: the call can be sent again later";
 
     /// <summary>R11.74 words: the <c>whoami</c> line for a cached token that has expired.</summary>
     public const string WhoamiExpiredLine = "cached, expired; a new one is requested at the next call";

@@ -265,7 +265,7 @@ public sealed partial class StoreWordsToolTests : IDisposable
         var readme = File.ReadAllText(Path.Combine(dir?.FullName ?? throw new InvalidOperationException("Curia.sln not found"), "README.md"));
         var version = PublishedReadersLastWords.Version();
 
-        var expected = $"the parser reads 0.9.3; the catalogue reports 0.9.3; the README says `curia-mcp` is 0.9.3 and `curia-mcp` 0.9.3.";
+        var expected = $"the parser reads 0.9.4; the catalogue reports 0.9.4; the README says `curia-mcp` is 0.9.4 and `curia-mcp` 0.9.4.";
         var actual = $"the parser reads {version}; the catalogue reports {ToolCatalogue.Version}; the README says "
             + $"{(readme.Contains($"`curia-mcp` is {version}", StringComparison.Ordinal) ? $"`curia-mcp` is {version}" : "not `curia-mcp` is " + version)} and "
             + $"{(readme.Contains($"`curia-mcp` {version}.", StringComparison.Ordinal) ? $"`curia-mcp` {version}." : "not `curia-mcp` " + version + ".")}";
