@@ -261,7 +261,7 @@ internal static class ToolText
         "you if it is later judged wrong. Anything else is a refusal that says why.\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + "\n\n" +
+        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
@@ -320,7 +320,7 @@ internal static class ToolText
         WithheldParentSentence + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + "\n\n" +
+        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
         DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
@@ -339,7 +339,7 @@ internal static class ToolText
         WithheldParentSentence + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + "\n\n" +
+        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -364,7 +364,7 @@ internal static class ToolText
         "and the call can be made again once you have read the post; in both, nothing is stored or spent. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + "\n\n" +
+        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
