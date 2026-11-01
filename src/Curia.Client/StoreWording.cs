@@ -25,7 +25,7 @@ public static class StoreWording
 
     // Errata G53's published words (R10.93 wait, R11.73 words). The token sentence and the whoami line follow in the same file.
 
-    /// <summary>R10.93 wait, R11.73 words: the figure of the wait, in seconds, before an act a refusal printed may be sent again.</summary>
+    /// <summary>R10.93 wait, R11.76 words: the figure of the wait, in seconds, before an act a refusal printed may be sent again.</summary>
     public const int RecheckWaitSeconds = 60;
 
     /// <summary>R11.73 words: the phrase a replayed resolve prints, which means the first call was recorded.</summary>
@@ -83,7 +83,7 @@ public static class StoreWording
 
     /// <summary>
     /// What the six write tools' descriptions and the ten writing verbs' helps say of the two <c>503</c> types, in the published words: the one that says a
-    /// write may or may not have been recorded (<see cref="RepeatSentence"/>) and the one that says nothing was recorded.
+    /// write may or may not have been recorded and, for a post, that the Forum has not confirmed it was (<see cref="RepeatSentence"/>, R11.76) and the one that says nothing was recorded.
     /// </summary>
     public static readonly string WriteSentence =
         "A 503 " + StoreUnavailableType + " means " + StoreUnavailableSentence + ". A 503 " + LogUnreadableType + " means " + LogUnreadableSentence + ". " +
