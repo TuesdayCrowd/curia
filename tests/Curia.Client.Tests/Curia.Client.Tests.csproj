@@ -61,6 +61,7 @@
     <Compile Include="../Shared/PublishedStoreFaults.cs" Link="Shared/PublishedStoreFaults.cs" />
     <Compile Include="../Shared/PublishedClientWords.cs" Link="Shared/PublishedClientWords.cs" />
     <Compile Include="../Shared/ReceivedAct.cs" Link="Shared/ReceivedAct.cs" />
+    <Compile Include="../Shared/TimerManualTimeProvider.cs" Link="Shared/TimerManualTimeProvider.cs" />
   </ItemGroup>
 
 </Project>
