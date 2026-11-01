@@ -148,6 +148,12 @@ internal static partial class PublishedReadersLastWords
     /// </summary>
     internal static string Version() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.74**"), "R11.74's version");
 
+    /// <summary>
+    /// The version the next entry names (errata G54's R11.75, <c>curia-mcp</c> 0.9.5), read here because this file is the one reader of a <c>curia-mcp</c> version (RLW40).
+    /// The build of that entry re-points <see cref="Version"/> at R11.75 and removes this.
+    /// </summary>
+    internal static string VersionOfTheCheckEntry() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.75**"), "R11.75's version");
+
     // ----- R11.67 -----
 
     /// <summary>R11.67's bound as a number, from "reading at most eight posts after the question" (the sentence, in context, and no other `8`).</summary>
