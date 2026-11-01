@@ -356,6 +356,6 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 
 **Next:** PR 2, "A committed post is found" (D100; errata G54), then PR 3 (D104; G55), PR 4 (D102 and D103; G56) and PR 5 (D105; G57); the eleventh exercise after PR 3, carrying L7 (the cold read: two agents given only the CLI's text for L1 and L2 decide whether to resend; the expected answer is a resend in L1 only).
 
-The PR is #140, on `main` at ________.
+The PR is #140, on `main` at 298acd93.
 
 Final whole run (2026-11-01, on the docs commit): Release build 0 warnings; Api 1,313, Application 606, Architecture 88 (and 88 in Debug), AuthN 140, Canon.Sodium 32, Canon 329, Client 1,263, Domain.Primitives 64, Domain 878, Infrastructure 214, Mcp 778 (2 skipped), every one passed; locked restore, `cargo fmt`, clippy and `cargo test` clean; the differential comparison 0 divergence classes; spec checks clean and all four falsified.
