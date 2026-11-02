@@ -94,6 +94,8 @@ public sealed class IngestPipeline : IIngestPipeline
             return Result<VerifiedSubmission>.Fail(schemaError!);
 
         // R8.64 (errata G24): the rules about `prev` that apply to a submission and not to a stored post, so not PostEnvelope.Read's.
+        // R8.73 and R8.85 ride in the same function, in this order: prev, tags, board. The board grammar is asked here only of a board
+        // BoardName accepts; the storable check below stays R11.33's answer for a board that does not parse.
         if (PostEnvelope.AdmissionRefusal(envelope!) is { } admissionRefusal)
             return Result<VerifiedSubmission>.Fail(admissionRefusal);
 

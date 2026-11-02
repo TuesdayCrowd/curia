@@ -49,7 +49,7 @@ public static class ContentErrors
 
     /// <summary>
     /// R8.85 (errata G56): a submission's <c>board</c> is not a name. The detail is <c>board: </c> and each failing class, from the closed
-    /// list of ten, in the published order, and never the value (R6.40). Called by nobody at this stage (the seam).
+    /// list of ten, in the published order, and never the value (R6.40).
     /// </summary>
     public static Error BoardNotCanonical(IReadOnlyList<string> classes)
     {

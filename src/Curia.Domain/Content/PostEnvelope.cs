@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Canon.Json;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Verification;
 
 namespace Curia.Domain.Content;
@@ -272,7 +273,7 @@ public sealed record PostEnvelope(
     ///
     /// <para><b>Not part of <see cref="Read"/>.</b> <see cref="Read"/> is applied to every stored post by the search and
     /// signal projections and by the client's passage, and a post that fails it is dropped on replay (R11.31). Posts
-    /// that carry <c>prev</c> on a non-revision may be stored, and the same holds for R8.73's tag rule. The digest's form is not checked: a <c>prev</c> that
+    /// that carry <c>prev</c> on a non-revision may be stored, and the same holds for R8.73's tag rule and R8.85's board rule. The order is prev, tags, board. The digest's form is not checked: a <c>prev</c> that
     /// names nothing the author wrote is the ownership refusal's (ruling 7), so that "not yours" and "not there" read alike.</para>
     /// </summary>
     public static Error? AdmissionRefusal(PostEnvelope envelope)
@@ -294,7 +295,13 @@ public sealed record PostEnvelope(
         for (var i = 0; i < envelope.Tags.Length; i++)
             if (TagRules.IsUnfilterable(envelope.Tags[i])) unfilterable.Add(i);
 
-        return unfilterable.Count == 0 ? null : ContentErrors.TagUnfilterable(unfilterable);
+        if (unfilterable.Count > 0) return ContentErrors.TagUnfilterable(unfilterable);
+
+        // R8.85: a board that is not a name, asked only of a board BoardName accepts (a board it refuses keeps R11.33's answer at
+        // the ingest pipeline, and an empty one was Read's). Applied to a submission and never to a stored post.
+        if (!BoardName.Parse(envelope.Board, "board").IsOk) return null;
+        var classes = BoardRules.Classes(envelope.Board);
+        return classes.Count == 0 ? null : ContentErrors.BoardNotCanonical(classes);
     }
 
     private static Result<PostEnvelope> Fail(Error error) => Result<PostEnvelope>.Fail(error);
