@@ -61,6 +61,8 @@
     <Compile Include="../Shared/ConflictingEventStore.cs" Link="Shared/ConflictingEventStore.cs" />
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
     <Compile Include="../Shared/PublishedSmallWords.cs" Link="Shared/PublishedSmallWords.cs" />
+    <Compile Include="../Shared/PublishedBoardWords.cs" Link="Shared/PublishedBoardWords.cs" />
+    <Compile Include="../Shared/BoardSpellings.cs" Link="Shared/BoardSpellings.cs" />
     <Compile Include="../Shared/PublishedParentRule.cs" Link="Shared/PublishedParentRule.cs" />
     <Compile Include="../Shared/PublishedRevisionSlugs.cs" Link="Shared/PublishedRevisionSlugs.cs" />
     <Compile Include="../Shared/PublishedWithheldWords.cs" Link="Shared/PublishedWithheldWords.cs" />

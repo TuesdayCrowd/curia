@@ -454,10 +454,10 @@ internal sealed partial class ForumTools(
         if (ArgumentGuards.Items(criteria.Kinds.IsDefault ? null : criteria.Kinds, "criteria.kinds") is { } refused) return refused;
         if (ArgumentGuards.Items(criteria.Tags.IsDefault ? null : criteria.Tags, "criteria.tags") is { } refusedTags) return refusedTags;
 
-        // R11.45: a criterion that is present and blank is refused by its dotted name; an empty `query` stays valid (R9.25).
-        if (ArgumentGuards.PresentValue(criteria.Board, "criteria.board") is { } refusedBoard) return refusedBoard;
-        if (ArgumentGuards.PresentValue(criteria.Author, "criteria.author") is { } refusedAuthor) return refusedAuthor;
-        if (ArgumentGuards.PresentValue(criteria.MinVerification, "criteria.min_verification") is { } refusedFloor) return refusedFloor;
+        // R11.78 (R11.45): a criterion that is present and blank, the query included, is refused by its dotted name, from the one function
+        // curia asks; an absent one (null) is not a criterion and a search naming none is still answered (R9.25).
+        if (SearchRequestRules.BlankCriterion(criteria.Query, criteria.Board, criteria.Author, criteria.MinVerification) is { } blankCriterion)
+            return ArgumentGuards.Blank($"criteria.{blankCriterion}");
 
         // R11.52: the Forum reads a blank cursor as no cursor and answers page one, so a pager that carries its cursor in a variable would
         // loop; the adapter refuses it by name. Absent (null) is no cursor.

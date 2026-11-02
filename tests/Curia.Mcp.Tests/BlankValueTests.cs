@@ -38,10 +38,10 @@ public sealed class BlankValueTests : IDisposable
         return await McpProtocolSession.StartAsync(tools, writer.Agent.Profile.AgentId, agent);
     }
 
-    /// <summary>The R11.45 sites, written from the sentence, and R11.52's cursor: a board, an author and a verification level in the criteria, and a cursor; a pin; a rationale; a body of an answer, a comment and a revision.</summary>
-    private static readonly (string Tool, string Path)[] Sites =
+    /// <summary>The R11.45 sites with R11.78's addition (the query), written from the sentence, and R11.52's cursor: a query, a board, an author and a verification level in the criteria, and a cursor; a pin; a rationale; a body of an answer, a comment and a revision.</summary>
+    internal static readonly (string Tool, string Path)[] Sites =
     [
-        ("curia_search", "criteria.board"), ("curia_search", "criteria.author"), ("curia_search", "criteria.min_verification"),
+        ("curia_search", "criteria.query"), ("curia_search", "criteria.board"), ("curia_search", "criteria.author"), ("curia_search", "criteria.min_verification"),
         ("curia_search", "criteria.cursor"),
         ("curia_verify", "expectedDigest"), ("curia_flag", "rationale"),
         ("curia_answer", "body"), ("curia_comment", "body"), ("curia_revise", "body"),
@@ -95,18 +95,28 @@ public sealed class BlankValueTests : IDisposable
         Assert.Empty(_log.Requests);
     }
 
-    /// <summary>The control: an empty <c>query</c> is valid (R9.25, absent returns everything) and an absent member is no filter.</summary>
+    /// <summary>
+    /// The control, with its object changed by R11.78 (errata G56): an empty <c>query</c> is no longer valid (it is present and blank, refused by name,
+    /// nothing sent); an absent <c>query</c> still searches (R9.25: a search naming no criterion returns everything) and so does an absent member.
+    /// </summary>
     [Fact]
-    public async Task R11_45_AnEmptyQueryAndAnAbsentMemberStillSearch()
+    public async Task R11_78_AnAbsentQueryAndAnAbsentMemberStillSearchButAnEmptyQueryIsRefused()
     {
         await using var session = await StartAsync(_log, _home);
 
-        var empty = await session.CallAsync("curia_search", new() { ["criteria"] = new Dictionary<string, object?> { ["query"] = "" } });
+        var none = await session.CallAsync("curia_search", new() { ["criteria"] = new Dictionary<string, object?>() });
         var absent = await session.CallAsync("curia_search", new() { ["criteria"] = new Dictionary<string, object?> { ["board"] = "b" } });
-
-        Assert.False(empty.IsError, empty.Text);
+        Assert.False(none.IsError, none.Text);
         Assert.False(absent.IsError, absent.Text);
         Assert.Equal(2, _log.Requests.Count(r => r.StartsWith("GET /v1/search", StringComparison.Ordinal)));
+
+        _log.Requests.Clear();
+        var empty = await session.CallAsync("curia_search", new() { ["criteria"] = new Dictionary<string, object?> { ["query"] = "" } });
+
+        Assert.True(
+            empty.IsError && empty.Text.StartsWith(NotSent, StringComparison.Ordinal) && empty.Text.Contains("criteria.query", StringComparison.Ordinal),
+            $"an empty query was not refused by name:\n{empty.Text}");
+        Assert.Empty(_log.Requests);
     }
 
     [Fact]
@@ -258,7 +268,7 @@ public sealed class BlankValueTests : IDisposable
 
     /// <summary>
     /// R14.12's gate: the schema <c>tools/list</c> serves names every site R11.45 does, and a blank at each is refused by name.
-    /// The sites are written from the sentence (eight tool-and-argument pairs: three criteria, a pin, a rationale, three bodies).
+    /// The sites are written from the sentences of R11.45 and R11.78 (ten tool-and-argument pairs: four criteria, a cursor, a pin, a rationale, three bodies).
     /// </summary>
     [Fact]
     public async Task R14_12_TheGateFindsEveryBlankRefusalR1145Names()

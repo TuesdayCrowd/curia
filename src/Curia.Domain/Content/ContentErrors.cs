@@ -47,6 +47,22 @@ public static class ContentErrors
             string.Join(", ", indices.Select(i => $"tags[{i.ToString(CultureInfo.InvariantCulture)}]")));
     }
 
+    /// <summary>
+    /// R8.85 (errata G56): a submission's <c>board</c> is not a name. The detail is <c>board: </c> and each failing class, from the closed
+    /// list of ten, in the published order, and never the value (R6.40).
+    /// </summary>
+    public static Error BoardNotCanonical(IReadOnlyList<string> classes)
+    {
+        ArgumentNullException.ThrowIfNull(classes);
+        return new(
+            BoardNotCanonicalType,
+            "A board is a name: NFC, 1 to 64 characters, lower case, with no control, format, separator, private-use or unassigned character, none of , / ? # %, and not . or ..; lower-case letters, digits, - and _ always qualify",
+            "board: " + string.Join(", ", classes));
+    }
+
+    /// <summary>R8.85: the problem type of a board that is not a name.</summary>
+    public const string BoardNotCanonicalType = "curia/content/board-not-canonical";
+
     public static Error UnsupportedVersion(int v) => new(
         "curia/content/unsupported-version",
         $"Only envelope schema version {PostEnvelope.CurrentVersion} is supported",

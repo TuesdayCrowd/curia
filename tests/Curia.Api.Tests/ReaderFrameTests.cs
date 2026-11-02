@@ -77,8 +77,10 @@ public sealed class ReaderFrameTests(ForumFixture forum) : IClassFixture<ForumFi
         using (var enrolled = await agent.EnrollAsync(forum.Client, ct))
             Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
 
+        // R8.85 (errata G56): the door now refuses this board, so the post is stored by the direct-append seam, as a post stored before the rule is; the readers
+        // are the subject, and they read a stored board as it is.
         var board = "b-" + suffix + Hostile;
-        var postId = await AskAsync(agent, board, ct);
+        var (postId, _) = await forum.AppendStoredPostAsync(agent.SignQuestion(board, "An ordinary question?", "An ordinary title", forum.Now), ct);
 
         var outputs = await ReadEverywhereAsync(postId, board, ct);
 
