@@ -2664,7 +2664,7 @@ public static class ForumEndpoints
         }
     }
 
-    private static string? Nullable(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+    private static string? Nullable(string value) => BlankQueryParameters.IsBlank(value) ? null : value;
 
     /// <summary>
     /// The post the single read of an id serves (<c>GET /v1/posts/{id}</c> answers <c>200</c> exactly when this is not null): it exists, moderation
