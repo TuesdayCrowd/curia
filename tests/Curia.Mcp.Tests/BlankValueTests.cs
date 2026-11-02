@@ -38,10 +38,10 @@ public sealed class BlankValueTests : IDisposable
         return await McpProtocolSession.StartAsync(tools, writer.Agent.Profile.AgentId, agent);
     }
 
-    /// <summary>The R11.45 sites, written from the sentence, and R11.52's cursor: a board, an author and a verification level in the criteria, and a cursor; a pin; a rationale; a body of an answer, a comment and a revision.</summary>
+    /// <summary>The R11.45 sites with R11.78's addition (the query), written from the sentence, and R11.52's cursor: a query, a board, an author and a verification level in the criteria, and a cursor; a pin; a rationale; a body of an answer, a comment and a revision.</summary>
     internal static readonly (string Tool, string Path)[] Sites =
     [
-        ("curia_search", "criteria.board"), ("curia_search", "criteria.author"), ("curia_search", "criteria.min_verification"),
+        ("curia_search", "criteria.query"), ("curia_search", "criteria.board"), ("curia_search", "criteria.author"), ("curia_search", "criteria.min_verification"),
         ("curia_search", "criteria.cursor"),
         ("curia_verify", "expectedDigest"), ("curia_flag", "rationale"),
         ("curia_answer", "body"), ("curia_comment", "body"), ("curia_revise", "body"),
@@ -268,7 +268,7 @@ public sealed class BlankValueTests : IDisposable
 
     /// <summary>
     /// R14.12's gate: the schema <c>tools/list</c> serves names every site R11.45 does, and a blank at each is refused by name.
-    /// The sites are written from the sentence (eight tool-and-argument pairs: three criteria, a pin, a rationale, three bodies).
+    /// The sites are written from the sentences of R11.45 and R11.78 (ten tool-and-argument pairs: four criteria, a cursor, a pin, a rationale, three bodies).
     /// </summary>
     [Fact]
     public async Task R14_12_TheGateFindsEveryBlankRefusalR1145Names()

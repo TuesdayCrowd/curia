@@ -237,19 +237,20 @@ public sealed partial class UnheardActToolTests : IDisposable
     }
 
     /// <summary>
-    /// AFC26. <c>curia-mcp</c>'s version is the one the entry names: the code's version, the parser's, and the entry's R11.77 words agree. (The version is not parsed here: the
-    /// one parser is <c>PublishedReadersLastWords.Version()</c>, and this fact asks only whether R11.77's words state the version the code reports.)
+    /// AFC26. <c>curia-mcp</c>'s version is the one the newest entry names: the code's version, the parser's, and that entry's R11.78 words agree (it read R11.77's until
+    /// the board-and-blank PR, which bumped to 0.9.7). The version is not parsed here: the one parser is <c>PublishedReadersLastWords.Version()</c>, and this fact asks only
+    /// whether R11.78's words state the version the code reports.
     /// </summary>
     [Fact]
-    public void R11_77_AFC26_CuriaMcpIsTheVersionR1177Names()
+    public void R11_78_AFC26_CuriaMcpIsTheVersionR1178Names()
     {
         var code = ToolCatalogue.Version;
         var parser = PublishedReadersLastWords.Version();
-        var stated = PublishedConfirmWords.Paragraph("R11.77 words").Contains($"`curia-mcp` {code}.", StringComparison.Ordinal);
+        var stated = PublishedConfirmWords.Paragraph("R11.78 words").Contains($"`curia-mcp` {code}.", StringComparison.Ordinal);
         Said(
-            "the catalogue reports the version R11.77 words state, and the parser reads the same",
+            "the catalogue reports the version R11.78 words state, and the parser reads the same",
             stated && string.Equals(code, parser, StringComparison.Ordinal)
-                ? "the catalogue reports the version R11.77 words state, and the parser reads the same"
-                : $"the catalogue reports {code}; the parser reads {parser}; R11.77 words {(stated ? "state" : "do not state")} {code}");
+                ? "the catalogue reports the version R11.78 words state, and the parser reads the same"
+                : $"the catalogue reports {code}; the parser reads {parser}; R11.78 words {(stated ? "state" : "do not state")} {code}");
     }
 }
