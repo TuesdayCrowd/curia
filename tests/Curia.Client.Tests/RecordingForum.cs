@@ -14,22 +14,41 @@ namespace Curia.Client.Tests;
 /// </summary>
 internal sealed class RecordingForum : IDisposable
 {
-    private readonly HttpListener _listener = new();
+    private readonly HttpListener _listener;
     private readonly Task _loop;
 
     internal RecordingForum()
     {
-        int port;
-        using (var probe = new TcpListener(IPAddress.Loopback, 0))
+        // A free port is probed and then bound, so another listener can take it in between (seen in CI as "Address already in use"
+        // once more classes ran this stub in parallel); a bind that loses the race is tried again on a fresh port.
+        for (var attempt = 1; ; attempt++)
         {
-            probe.Start();
-            port = ((IPEndPoint)probe.LocalEndpoint).Port;
-            probe.Stop();
+            int port;
+            using (var probe = new TcpListener(IPAddress.Loopback, 0))
+            {
+                probe.Start();
+                port = ((IPEndPoint)probe.LocalEndpoint).Port;
+                probe.Stop();
+            }
+
+            var listener = new HttpListener();
+            var address = new Uri($"http://127.0.0.1:{port}");
+            listener.Prefixes.Add(address.ToString());
+            try
+            {
+                listener.Start();
+            }
+            catch (HttpListenerException) when (attempt < 10)
+            {
+                listener.Close();
+                continue;
+            }
+
+            _listener = listener;
+            Address = address;
+            break;
         }
 
-        Address = new Uri($"http://127.0.0.1:{port}");
-        _listener.Prefixes.Add(Address.ToString());
-        _listener.Start();
         _loop = Task.Run(LoopAsync);
     }
 
