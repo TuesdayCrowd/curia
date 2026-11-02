@@ -50,6 +50,9 @@ internal static class ArgumentGuards
         return null;
     }
 
+    /// <summary>R11.78: the refusal of a search criterion that is present and blank, named by its dotted path; the function that found it is <c>SearchRequestRules.BlankCriterion</c>.</summary>
+    internal static CallToolResult Blank(string argument) => Refusal($"{argument} is empty or blank");
+
     /// <summary>
     /// R11.45: an optional value that is present is not blank. Absent (null) is the argument not given and is no refusal; an
     /// empty or whitespace string is a value the model meant and the tool cannot honour, so it is refused rather than read as

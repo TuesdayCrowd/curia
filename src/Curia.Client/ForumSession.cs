@@ -243,6 +243,10 @@ public sealed class ForumSession
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // R11.78: a blank board is refused here too (the Forum refuses it, R9.54), before any token is obtained.
+        if (SearchRequestRules.BlankCriterion(null, request.Board, null, null) is { } blank)
+            return ForumResult<InboxPage>.Local(ClientErrors.BlankCriterion(blank));
+
         // Before any token is obtained: a tag the Forum's filter would read as another is refused
         // here rather than sent (R9.26, R10.66).
         if (ForumClient.UnfilterableTag(request.Tags) is { } unfilterable)

@@ -155,6 +155,10 @@ public sealed class ForumClient
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // R11.78: the net under both front ends; a present blank criterion is refused here too, so no caller of the client can send one.
+        if (SearchRequestRules.BlankCriterion(request.Text, request.Board, request.Author, request.MinVerification) is { } blank)
+            return ForumResult<SearchPage>.Local(ClientErrors.BlankCriterion(blank));
+
         if (UnfilterableTag(request.Tags) is { } unfilterable)
             return ForumResult<SearchPage>.Local(ClientErrors.TagNotFilterable(unfilterable));
 

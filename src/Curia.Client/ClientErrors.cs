@@ -188,6 +188,16 @@ public static class ClientErrors
     /// element (R9.26), so it would read such a tag as another, or as none, and answer a query that
     /// was never asked. Refused rather than misread; the detail is the tag, quoted as a literal.
     /// </summary>
+    /// <summary>
+    /// R11.78 (errata G56): a search criterion that is present and empty or white space, which the Forum refuses (R9.54) and the client
+    /// refuses before it builds a request. <paramref name="criterion"/> is the name <see cref="SearchRequestRules.BlankCriterion"/> returned
+    /// (<c>query</c>, <c>board</c>, <c>author</c>, <c>min_verification</c>); the value is blank and is not echoed.
+    /// </summary>
+    public static Error BlankCriterion(string criterion) => new(
+        "curia/client/blank-criterion",
+        "A search criterion is present and empty or white space; nothing was sent. Omit it to search without it",
+        criterion);
+
     public static Error TagNotFilterable(string tag) => new(
         "curia/client/tag-not-filterable",
         "Tag cannot be named in a filter; the Forum's tags filter is comma-separated and trimmed, so it would read this tag as another (R9.26)",

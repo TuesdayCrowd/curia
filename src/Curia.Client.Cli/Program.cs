@@ -704,6 +704,10 @@ internal static class Program
         if (args.Has("cursor") && string.IsNullOrWhiteSpace(args.Value("cursor")))
             return Output.Fail("error: --cursor is empty or blank; nothing was sent. Omit --cursor for the first page.", ExitCode.Usage);
 
+        // R11.78: a --board that was typed and is empty or white space is refused, before a profile is loaded or a request built.
+        if (SearchRequestRules.BlankCriterion(null, args.Value("board"), null, null) is { } blank)
+            return BlankCriterionFail(blank, inbox: true);
+
         int? limit = null;
         if (args.Value("limit") is { Length: > 0 } rawLimit)
         {
@@ -880,6 +884,17 @@ internal static class Program
     /// search and got term matching would conclude the corpus held nothing on its topic, which is
     /// a worse failure than being told what it is using.</para>
     /// </summary>
+    /// <summary>R11.78 words: the refusal of a search criterion that was typed and is empty or white space, by the name <see cref="SearchRequestRules.BlankCriterion"/> returned. Nothing was sent.</summary>
+    private static int BlankCriterionFail(string criterion, bool inbox) => (criterion, inbox) switch
+    {
+        ("query", _) => Output.Fail("error: the search terms are empty or blank; nothing was sent. Omit them to search by the filters alone.", ExitCode.Usage),
+        ("board", true) => Output.Fail("error: --board is empty or blank; nothing was sent. Omit --board to list every board.", ExitCode.Usage),
+        ("board", false) => Output.Fail("error: --board is empty or blank; nothing was sent. Omit --board to search every board.", ExitCode.Usage),
+        ("author", _) => Output.Fail("error: --author is empty or blank; nothing was sent. Omit --author to search every author.", ExitCode.Usage),
+        ("min_verification", _) => Output.Fail("error: --min-verification is empty or blank; nothing was sent. Omit --min-verification to use the Forum's floor.", ExitCode.Usage),
+        _ => throw new ArgumentOutOfRangeException(nameof(criterion), criterion, "not a search criterion"),
+    };
+
     private static async Task<int> SearchAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown([
@@ -892,10 +907,16 @@ internal static class Program
         if (args.Has("cursor") && string.IsNullOrWhiteSpace(args.Value("cursor")))
             return Output.Fail("error: --cursor is empty or blank; nothing was sent. Omit --cursor for the first page.", ExitCode.Usage);
 
+        // R11.78 (ruling 20): a criterion that was typed and is empty or white space is refused, before a profile is loaded or a request
+        // built, from the one function curia-mcp asks. Every positional is a term, so `""` among them is a present blank term.
+        var blankTerm = args.Positional.Select(p => SearchRequestRules.BlankCriterion(p, null, null, null)).FirstOrDefault(c => c is not null);
+        var blank = blankTerm
+            ?? SearchRequestRules.BlankCriterion(null, args.Value("board"), args.Value("author"), args.Value("min-verification"));
+        if (blank is not null) return BlankCriterionFail(blank, inbox: false);
+
         var terms = string.Join(" ", args.Positional);
-        var hasFilter = args.Value("board") is not null
+        var hasFilter = SearchRequestRules.HasCriterion(null, args.Value("board"), args.Value("author"), null)
             || args.Value("kind") is not null
-            || args.Value("author") is not null
             || args.List("tags").Length > 0;
 
         // A bare `curia search` is a request for the whole corpus, which is a listing wearing a
