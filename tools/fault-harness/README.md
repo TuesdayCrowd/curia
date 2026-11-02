@@ -53,7 +53,9 @@ admin (pgvector is needed by `db/0003`).
   combined (`dropcancel` with `delaycommit:<s>`, say; `proxy.sh` refuses a combined string), and setting one replaces the other:
   - `passthru`: transparent.
   - `cutcommit[:p]`: after a connection has sent `INSERT INTO "public".events`, its simple-query `COMMIT` is forwarded, Postgres is given 60 ms,
-    both sockets close and the answer is muted: committed, and the client sees a broken connection.
+    both sockets close and the answer is muted: committed, and the connection that wrote it is broken. Since the faulted-append PR the
+    Forum then reads its own log, finds the act by its digest and answers the client `201` (`census.sh` counts it as `AppendConfirmed`), so
+    a write under `cut-on` ends in `201`, not in a broken connection.
   - `dropcancel`: a cancel request is dropped, so a client timeout cannot cancel the running query. The proxy serves **plaintext only**: it
     answers an 8-byte SSLRequest (and a GSSENCRequest) itself with `N`, without forwarding it, and treats the next packet as the connection's
     first, so Npgsql's default `SSL Mode=Prefer` falls back to plaintext and its cancel (the next 16-byte packet, code 80877102) is
