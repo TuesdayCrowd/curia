@@ -49,3 +49,18 @@ internal static partial class VectorIndexLog
         Message = "A catch-up pass failed and the loop continues: {FaultType}: {FaultDetail}")]
     internal static partial void PassFailed(ILogger logger, string faultType, string faultDetail);
 }
+
+/// <summary>
+/// R8.84 (errata G55): the log lines of the confirm of a faulted append, ids 5004 and 5005 as R8.84 words publishes them. They carry the post's kind, the exception's type
+/// and the confirm's outcome and never any text a post carried; the confirmed line carries the exception itself.
+/// </summary>
+internal static partial class AppendConfirmLog
+{
+    [LoggerMessage(EventId = 5004, EventName = "AppendConfirmed", Level = LogLevel.Warning,
+        Message = "A {Kind} post's append left the route by an exception and the log holds the post; it was answered from the log ({FaultType})")]
+    internal static partial void Confirmed(ILogger logger, Exception exception, string kind, string faultType);
+
+    [LoggerMessage(EventId = 5005, EventName = "AppendNotConfirmed", Level = LogLevel.Warning,
+        Message = "A {Kind} post's append left the route by an exception and a read of the log made after it did not confirm the post ({FaultType}; {Outcome}); the original fault is answered")]
+    internal static partial void NotConfirmed(ILogger logger, string kind, string faultType, string outcome);
+}

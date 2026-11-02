@@ -25,7 +25,7 @@ public static class StoreWording
 
     // Errata G53's published words (R10.93 wait, R11.73 words). The token sentence and the whoami line follow in the same file.
 
-    /// <summary>R10.93 wait, R11.73 words: the figure of the wait, in seconds, before an act a refusal printed may be sent again.</summary>
+    /// <summary>R10.93 wait, R11.76 words: the figure of the wait, in seconds, before an act a refusal printed may be sent again.</summary>
     public const int RecheckWaitSeconds = 60;
 
     /// <summary>R11.73 words: the phrase a replayed resolve prints, which means the first call was recorded.</summary>
@@ -35,14 +35,15 @@ public static class StoreWording
     public const string FlagRepeatPhrase = "has already raised a flag of this type against this post";
 
     /// <summary>
-    /// R11.73 words: the sentence for <see cref="StoreUnavailableType"/>. It says how a repeat of a resolve or of a flag is read, in the words the repeat prints
+    /// R11.76 words (errata G55; it replaced R11.73 words' first form): the sentence for <see cref="StoreUnavailableType"/>. For a post it says the Forum has not confirmed that the act was recorded (it tried to read its log and, where the read finished, did not find it as of that read; a read that did not finish says nothing). It says how a repeat of a resolve or of a flag is read, in the words the repeat prints
     /// (<see cref="ResolveReplayPhrase"/>, <see cref="FlagRepeatPhrase"/>, which the printers share), under the condition that holds for a resolve, and what an answer of any other
     /// kind says; and for a post it sends the act again only if the Forum's recheck still does not know it when the refusal is <see cref="RecheckWaitSeconds"/> seconds old.
     /// </summary>
     private static readonly string StoreUnavailableSentence = FaultOfTheForum +
         "If the request was a write it may or may not have been recorded: do not run the verb again to find out, because ask, answer and comment each sign a new act and the Forum can store it as a second post; " +
-        "for a post, ask the Forum's recheck about the digest of the act sent, which is printed with this refusal, and send it again only if the Forum still does not know it when the refusal is " +
-        RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds old, because a store that timed out can record the act after it answered; " +
+        "for a post, the Forum has not confirmed that the act was recorded (where its append failed it tried to read its own log for the act's digest, and where that read finished it did not find it as of that read; that does not say the act will not be recorded, " +
+        "because a store that timed out can record the act after it answered, and a read that did not finish says nothing): ask the Forum's recheck about the digest of the act sent, which is printed with this refusal, and send it again only if the Forum still does not know it when the refusal is " +
+        RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds old; " +
         "a repeat of a resolve or of a flag is safe, and how the Forum answers it says whether the first call was recorded: " +
         "a resolve answered \"" + ResolveReplayPhrase + "\" was recorded the first time, and a resolve answered without those words was not recorded and now is; " +
         "a flag refused as \"" + FlagRepeatPhrase + "\" was recorded the first time, and a flag not refused so was not recorded and now is; " +
@@ -82,7 +83,7 @@ public static class StoreWording
 
     /// <summary>
     /// What the six write tools' descriptions and the ten writing verbs' helps say of the two <c>503</c> types, in the published words: the one that says a
-    /// write may or may not have been recorded (<see cref="RepeatSentence"/>) and the one that says nothing was recorded.
+    /// write may or may not have been recorded and, for a post, that the Forum has not confirmed it was (<see cref="RepeatSentence"/>, R11.76) and the one that says nothing was recorded.
     /// </summary>
     public static readonly string WriteSentence =
         "A 503 " + StoreUnavailableType + " means " + StoreUnavailableSentence + ". A 503 " + LogUnreadableType + " means " + LogUnreadableSentence + ". " +
@@ -97,5 +98,36 @@ public static class StoreWording
     {
         ArgumentNullException.ThrowIfNull(prefixedDigest);
         return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed); the Forum's recheck of it says whether the act was recorded as of the moment it is asked, not whether it may still be recorded after it.";
+    }
+
+    /// <summary>
+    /// R11.77 words (errata G55): the sentence printed after the client's own refusal for an unheard signed post, directly above <see cref="ActLine"/>. It says the
+    /// request was sent and no answer was read, that a Forum still working on it can record the act after this client gave up, and carries the wait once
+    /// (<see cref="RecheckWaitSeconds"/>); it does not say what the act line says, that the recheck answers as of the moment it is asked.
+    /// </summary>
+    public static readonly string UnheardSentence =
+        "The Forum was not heard from: the request was sent and no answer was read, so the act sent may or may not have been recorded, and a Forum still working on it can record it after this client gave up. " +
+        "Do not run the verb again to find out: ask the Forum's recheck about the digest below when " +
+        RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+        " seconds have passed since this message, and send the act again only if the Forum still does not know it then.";
+
+    /// <summary>
+    /// The passage the helps of the verbs that sign a post and the descriptions of the tools that do carry for R11.77 (errata G55): what is printed when the request is
+    /// sent and no answer is read. A resolve and a flag do not carry it, because they print neither line.
+    /// </summary>
+    public static readonly string UnheardNote =
+        "If the request is sent and no answer is read (a timeout, or a connection that ends after the request was sent), the refusal is titled \"No answer was read from the Forum\" and is followed by this sentence and then the act line, which names the digest: " + UnheardSentence;
+
+    /// <summary>
+    /// What follows a refusal of a signed post, given the digest of the act the client signed (null where no signed post's digest is held: a read, a resolve, a flag):
+    /// the act line for <see cref="StoreUnavailableType"/>; the unheard sentence and then the act line for an unheard refusal (R11.77); nothing otherwise. The one
+    /// definition both printers call, so neither compares a problem type itself and neither can add a line the other does not. It calls nothing and waits for nothing (R11.64).
+    /// </summary>
+    public static IReadOnlyList<string> AfterRefusal(Refusal refusal, string? actDigest)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        if (actDigest is null) return [];
+        if (refusal.Unheard) return [UnheardSentence, ActLine(actDigest)];
+        return string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) ? [ActLine(actDigest)] : [];
     }
 }

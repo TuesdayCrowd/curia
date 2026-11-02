@@ -216,6 +216,18 @@ public static class ClientErrors
         "The Forum could not be reached",
         detail);
 
+    /// <summary>The slug of <see cref="Unheard"/> (errata G55, R11.77 words).</summary>
+    public const string UnheardType = "curia/client/unheard";
+
+    /// <summary>
+    /// R11.77 (errata G55, D106): a signed post was sent and no answer was read (the client's timeout, a connection that ended after the request was handed to the
+    /// transport). Titled so it does not contradict the sentence printed beneath it: a request that was sent is not one that could not reach the Forum.
+    /// </summary>
+    public static Error Unheard(string detail) => new(
+        UnheardType,
+        "No answer was read from the Forum",
+        detail);
+
     /// <summary>
     /// A 403 that carried no Forum problem document. The Forum explains every refusal with a
     /// <c>curia/</c>-typed problem, so a bare 403 came from something else on the configured

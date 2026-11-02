@@ -80,7 +80,7 @@ public sealed class CommittedPostIsFoundCliTests(CommittedPostKestrelFixture for
         var enrolled = await CuriaAsync("enrol", "--agent", slug, "--forum", Address);
         Assert.True(enrolled.Exit == 0, enrolled.Text);
 
-        host.Store.Arm(EventStoreFault.AppendThenThrow);
+        host.Store.Arm(EventStoreFault.AppendThenThrowThenFailReads);
         var asked = await CuriaAsync("ask", "--agent", slug, "--board", "cpf23", "--title", $"About a quokka {Guid.NewGuid():N}?", "--body", "A question about the quokka.", "--forum", Address);
         host.Store.Disarm();
         var exit = forum.Now;
@@ -193,7 +193,7 @@ public sealed class CommittedPostSocketLogTests(CommittedPostKestrelFixture foru
         var slug = $"cpf35-{Guid.NewGuid().ToString("N")[..8]}";
         var enrolled = await CuriaAsync("enrol", "--agent", slug, "--forum", Address);
         Assert.True(enrolled.Exit == 0, enrolled.Text);
-        host.Store.Arm(EventStoreFault.AppendThenThrow);
+        host.Store.Arm(EventStoreFault.AppendThenThrowThenFailReads);
         var asked = await CuriaAsync("ask", "--agent", slug, "--board", "cpf35", "--title", $"About a quokka {Guid.NewGuid():N}?", "--body", "A question about the quokka.", "--forum", Address);
         host.Store.Disarm();
         var author = await AuthorOfAsync();

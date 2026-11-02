@@ -432,10 +432,10 @@ internal sealed partial class ForumTools
 
         var refused = WriteRefused(refusal!, resource, action);
 
-        // R11.72 (errata G52): a signed post answered store/unavailable may or may not have been recorded; the line says which digest to ask curia_recheck about.
-        // The digest is the one computed here over the bytes signed. Nothing is resent or asked here (R11.64), and no other refusal carries the line.
-        if (string.Equals(refusal!.Error.Type, StoreWording.StoreUnavailableType, StringComparison.Ordinal))
-            throw new McpException($"{refused.Message} {StoreWording.ActLine(submission.PrefixedDigest)}");
+        // R11.72 (errata G52), R11.77 (errata G55): what follows the refusal of a signed post (the unheard sentence, the act line naming the digest to ask curia_recheck
+        // about) is StoreWording's one definition, computed over the bytes signed here. Nothing is resent or asked here (R11.64).
+        if (StoreWording.AfterRefusal(refusal!, submission.PrefixedDigest) is { Count: > 0 } following)
+            throw new McpException($"{refused.Message} {string.Join('\n', following)}");
 
         if (revisionParent is not null
             && string.Equals(refusal!.Error.Type, ParentErrors.NotAQuestionType, StringComparison.Ordinal)

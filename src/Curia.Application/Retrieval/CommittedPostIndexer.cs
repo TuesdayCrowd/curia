@@ -46,15 +46,8 @@ public sealed class CommittedPostIndexer
         ArgumentNullException.ThrowIfNull(post);
 
         // The post is registered as in flight for the life of the step (errata G54, R8.83): a check that runs meanwhile does not enrol it.
-        _sweep.BeginIndexing(post.Digest);
-        try
-        {
-            return await StepAsync(post, shutdown).ConfigureAwait(false);
-        }
-        finally
-        {
-            _sweep.EndIndexing(post.Digest);
-        }
+        using var registration = _sweep.Track(post.Digest);
+        return await StepAsync(post, shutdown).ConfigureAwait(false);
     }
 
     private async Task<IndexOutcome> StepAsync(SearchablePost post, CancellationToken shutdown)

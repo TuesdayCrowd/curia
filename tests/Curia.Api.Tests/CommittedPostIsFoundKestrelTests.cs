@@ -68,7 +68,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
         await using var host = forum.NewHost();
         var loopAbsent = host.LoopIsAbsent;
         var (actor, wire, token) = await AskerAsync(host);
-        var sent = await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+        var sent = await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, actor, wire, token);
         var author = actor.Agent.AgentId;
         var events = await host.EventsOfAsync(author, Ct);
         var before = await host.AntiJoinAsync(author, Ct);
@@ -97,7 +97,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
     {
         await using var host = forum.NewHost();
         var (actor, wire, token) = await AskerAsync(host);
-        await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+        await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, actor, wire, token);
         var now = forum.Now;
         var state = await host.StateAsync(Ct);
 
@@ -117,7 +117,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
     {
         await using var host = forum.NewHost();
         var (actor, wire, token) = await AskerAsync(host);
-        await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+        await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, actor, wire, token);
         await host.TicksAsync(1, Ct);
         var tickAt = forum.Now;
         var antiJoin = await host.AntiJoinAsync(actor.Agent.AgentId, Ct);
@@ -223,12 +223,12 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
     }
 
     /// <summary>
-    /// CPF5. The cancellation door (ruling 14). The append commits and then waits for the request's token, which the client cancels: nothing is answered, the post is
-    /// committed, the next search states the obligation, and the post is found within a tick. The live variant (the proxy and a killed client) is Task 8's L7(b); this
-    /// proves the mark, that proves the cancellation reaches <c>PersistAsync</c>.
+    /// CPF5, changed object (errata G55, R8.84; the successor AFC8 states the same door with the log line). The cancellation door (ruling 14). The append commits and then
+    /// waits for the request's token, which the client cancels: nothing is answered and the post is committed. Before G55 the next search stated the obligation; now the
+    /// route's confirm (the host's token, not the request's) finds the committed post, so no check is owed and the anti-join is 0 with no tick. The live variant is L3.
     /// </summary>
     [Fact]
-    public async Task R8_83_CPF5_ARequestAbortedAfterItsCommitOwesACheck()
+    public async Task R8_83_CPF5_ARequestAbortedAfterItsCommitIsConfirmedAndOwesNothing()
     {
         await using var host = forum.NewHost();
         var (actor, wire, token) = await AskerAsync(host);
@@ -241,24 +241,22 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
         var sent = await send;
         host.Store.Disarm();
 
-        CheckState state;
+        // The confirm runs after the request ends; give it a bounded moment to finish its index step (it takes no tick).
+        long antiJoin;
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         do
         {
-            state = await host.StateAsync(Ct);
-            if (state.Owed) break;
+            antiJoin = await host.AntiJoinAsync(author, Ct);
+            if (antiJoin == 0) break;
             await Task.Delay(50, Ct);
         }
         while (DateTime.UtcNow < deadline);
 
+        var state = await host.StateAsync(Ct);
         var events = await host.EventsOfAsync(author, Ct);
-        await host.TicksAsync(1, Ct);
-        var antiJoin = await host.AntiJoinAsync(author, Ct);
         Said(
-            "no status was answered; the post is committed; the next search states an instant for the obligation; within one tick the anti-join is 0",
-            $"{(sent.Threw == "cancelled" ? "no status was answered" : "the status was " + Answered(sent))}; the post is {(events == 1 ? "committed" : "not committed")}; the next search states {(state.Owed ? "an instant" : "no instant")} for the obligation" +
-            (state.Owed ? string.Empty : " (vector_check_due_at is null after a committed post whose request was aborted)") +
-            $"; within one tick the anti-join is {antiJoin}");
+            "no status was answered; the post is committed; the next search states no instant for the obligation; with no tick the anti-join is 0",
+            $"{(sent.Threw == "cancelled" ? "no status was answered" : "the status was " + Answered(sent))}; the post is {(events == 1 ? "committed" : "not committed")}; the next search states {(state.Owed ? "an instant" : "no instant")} for the obligation; with no tick the anti-join is {antiJoin}");
     }
 
     /// <summary>
@@ -287,7 +285,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
         var other = await BudgetBursts.StoredQuestionAsync(forum, board, Ct);
         var result = await BudgetBursts.StoreAsync(forum, ForumAgent.Create("https://agents.example/result-" + Probe.Suffix(), "result").SignAnswer(board, Probe.Unrelated(), other.PostId, forum.Now), Ct);
         var voteToken = await voter.Dpop.GetTokenAsync(host.Client, Probe.TokenEndpoint, forum.Now, Ct);
-        var sentC = await SendUnderAsync(host, EventStoreFault.AppendThenThrow, voter, voter.Agent.SignVote(board, result.Digest, forum.Now), voteToken);
+        var sentC = await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, voter, voter.Agent.SignVote(board, result.Digest, forum.Now), voteToken);
         legs.Add($"a vote whose append threw ({sentC.Status} {sentC.Type}): {await OwedAsync()}");
 
         var (d, wireD, tokenD) = await AskerAsync(host);
@@ -398,7 +396,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
         }
 
         var (actor, faulted, faultToken) = await AskerAsync(host, token + " " + Probe.Unrelated());
-        await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, faulted, faultToken);
+        await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, actor, faulted, faultToken);
         var owed = await host.StateAsync(Ct, $"q={token}&limit=1");
         using var page = JsonDocument.Parse(owed.Body);
         var cursor = page.RootElement.TryGetProperty("next_cursor", out var next) && next.ValueKind == JsonValueKind.String ? next.GetString()! : string.Empty;
@@ -419,7 +417,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
     {
         await using var host = forum.NewHost();
         var (actor, wire, token) = await AskerAsync(host);
-        await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+        await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, actor, wire, token);
         host.Index.HoldUpserts();
         forum.Clock.Advance(TimeSpan.FromSeconds(1));
         var tick = host.TickAsync(forum.Now, Ct);
@@ -445,7 +443,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
     {
         await using var host = forum.NewHost();
         var (actor, wire, token) = await AskerAsync(host);
-        await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+        await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, actor, wire, token);
         var before = await host.AntiJoinAsync(actor.Agent.AgentId, Ct);
         var shapeBefore = await host.LogShapeAsync(Ct);
 
@@ -471,7 +469,7 @@ public sealed class CommittedPostIsFoundKestrelTests(CommittedPostFixture forum)
         var (actor, wire, token) = await AskerAsync(host);
         seen.Clear();
         var now = forum.Now;
-        await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+        await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, actor, wire, token);
 
         var starts = seen.Where(s => s.Status == 503).ToList();
         var expected = $"one 503 started; when it started the sweep's next attempt was an instant no earlier than {Instant(now)} and no later than {Instant(now + TimeSpan.FromSeconds(1))}";

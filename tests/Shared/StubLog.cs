@@ -2203,6 +2203,6 @@ internal enum StubIngestRefusal
     /// <summary><c>503 curia/log/unreadable</c> (errata G52): a read of the event log failed; nothing was recorded.</summary>
     LogUnreadable,
 
-    /// <summary><c>503 curia/store/unavailable</c> (errata G52): any other store failed; a write may or may not have been recorded.</summary>
+    /// <summary><c>503 curia/store/unavailable</c> (errata G52): any other store failed; a write may or may not have been recorded, and for a post the Forum has not confirmed that it was (errata G55, R11.76).</summary>
     StoreUnavailable,
 }

@@ -372,6 +372,6 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 
 **Next:** PR 3, "A faulted append is confirmed" (D104; errata G55), with D106 beside it (a write that timed out on the client has nothing to recheck, and D104's confirm makes no difference to a request that never reached the Forum's answer); then PR 4 (D102 and D103; G56) and PR 5 (D105; G57); the eleventh exercise after PR 3, carrying both cold reads (PR 1's L7 and this PR's L5) with the commit-cut window re-run.
 
-The PR is #141, on `main` at ________.
+The PR is #141, on `main` at 0b94f783.
 
 Final whole run (2026-11-01, on the docs commit): Release build 0 warnings; Api 1,331, Application 626, Architecture 89 (and 89 in Debug), AuthN 140, Canon.Sodium 32, Canon 329, Client 1,269, Domain.Primitives 64, Domain 878, Infrastructure 214, Mcp 782 (2 skipped), every one passed; locked restore, `cargo fmt`, clippy and `cargo test` clean; the differential comparison 0 divergence classes; spec checks clean and all four falsified.

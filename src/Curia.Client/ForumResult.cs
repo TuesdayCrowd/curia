@@ -68,8 +68,10 @@ public enum RefusalKind
 /// <para>The Forum's slug is passed through unaltered rather than translated. A client that
 /// rewrote <c>curia/ingest/screening-rejected</c> into its own vocabulary would make its user
 /// unable to search the specification for what happened.</para>
+///
+/// <para><paramref name="Unheard"/> (errata G55, R11.77): the request was sent and no response was read from the Forum. False for every refusal built today.</para>
 /// </summary>
-public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Json.JsonValue? Document = null)
+public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Json.JsonValue? Document = null, bool Unheard = false)
 {
     /// <summary>R8.18 / R8.19: when this refusal is a duplicate-question 409, the thread to read instead and its answers; otherwise null.</summary>
     public DuplicateRefusalDocument? AsDuplicate => ForumDocuments.ReadDuplicateRefusal(Document);

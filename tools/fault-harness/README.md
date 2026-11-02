@@ -8,7 +8,7 @@ on the named tables for the named role, or a mode file read by the proxy.
 ## Safety rules
 
 - `fault.sh` and `proxy.sh` refuse (exit 2, nothing touched) unless **both** `FH_DB` and `FH_ROLE` are set. The read-only scripts
-  (`mark.sh`, `counts.sh`, `census.sh`) need `FH_DB` and apply the database rule.
+  (`mark.sh`, `counts.sh`, `census.sh`) and `burst.sh` need `FH_DB` and apply the database rule.
 - The database name must match `curia_[a-z0-9_]+`. It is refused if it matches `curia_e2e_*`, is `postgres`, or is a template; and
   `current_database()` on the connection must equal `FH_DB`.
 - The role's name must begin with `FH_DB` (a `curia_*` database on a shared server is never touched with an unrelated role). The role
@@ -49,7 +49,8 @@ admin (pgvector is needed by `db/0003`).
   - Each action takes a mark (`v-open`/`v-close`, `c2-open`/`c2-close`, `l-open`/`l-close`, `c1-open`/`c1-close`) and appends to `faults.log`;
     `status` prints each open window's age and warns past 8 minutes.
 - `proxy.sh start | stop | status | mode <mode> | p <0..1>`: the fault proxy (`pgproxy.py`, run with `python3 -I`). `p 0` is `passthru`.
-  Modes, re-read per packet from `$FH_DIR/pgproxy.mode`:
+  Modes, re-read per packet from `$FH_DIR/pgproxy.mode`. **The modes are exclusive:** the file holds one value, so no two can be
+  combined (`dropcancel` with `delaycommit:<s>`, say; `proxy.sh` refuses a combined string), and setting one replaces the other:
   - `passthru`: transparent.
   - `cutcommit[:p]`: after a connection has sent `INSERT INTO "public".events`, its simple-query `COMMIT` is forwarded, Postgres is given 60 ms,
     both sockets close and the answer is muted: committed, and the client sees a broken connection.
@@ -63,8 +64,20 @@ admin (pgvector is needed by `db/0003`).
 - `mark.sh <name>`: `marks/<name>` holds `epoch_ms`, `seq` (max event seq), `forum_log_lines`, `pgproxy_log_lines`.
 - `counts.sh [mark]`: events since the mark by actor and type; **unindexed**; `answer.accepted` since the mark and in 24 hours; posts per
   author in 24 hours; flags; digests stored twice.
-- `census.sh [mark]`: from `FH_FORUMLOG` since the mark's line: `Request finished` by status, body-less 5xx, and the counts of the log events
-  StoreFault, UnhandledFault, VectorIndexPending, VectorIndexCaughtUp, VectorIndexRetryFailed, VectorIndexCatchUpFailed.
+- `census.sh [mark]`: from `FH_FORUMLOG` since the mark's line: `Request finished` by status, body-less 5xx, and eleven counts of log events,
+  each matched by its message text (the console logger prints no event name): `StoreFault`, `UnhandledFault`, `VectorIndexPending`,
+  `VectorIndexCaughtUp`, `VectorIndexRetryFailed`, `VectorIndexCatchUpFailed`, `VectorIndexCheckOwed`, `VectorIndexCheckFound`,
+  `VectorIndexCheckFailed`, `AppendConfirmed` and `AppendNotConfirmed` (the confirm of a faulted append, ids 5004 and 5005). A log
+  holding none of the eleven prints each as 0 and exits 0.
+- `burst.sh <n>` (needs `FH_DB`, `FH_AGENT`; optional `FH_CURIA`, `FH_BOARD`, `FH_FORUM`): `n` simultaneous `curia ask` of one enrolled agent, one process
+  each, to `FH_FORUM` (default `$CURIA_FORUM`, then `http://localhost:5000`), passed to every `curia` as `--forum`. Prints per request the exit code, the status (read from the CLI's text) and the client's wall time, then how many answered
+  `curia/budget/agent-in-flight` and the burst's wall time. Exit 2 for `n` below 1 or **above 64** (the cap; R7.27 queues 16 per agent) and for a Forum whose host is
+  not loopback (`127.0.0.1`, `::1`, `localhost`): nothing is sent. `FH_DB` is checked as ever; the script cannot tell a harness Forum on loopback
+  from another Forum on loopback. A `curia` that cannot start is a line `exit -1 status error: <name>`. The times are the client's, not the Forum's.
+- `killat.sh <seconds> -- <command> [args...]`: runs the command and kills it (SIGKILL to its process group) after the stated seconds,
+  printing the start and the kill as epoch milliseconds, so a client can disappear at a known instant. Exit 0 when it killed the command,
+  3 when the command ended first, 2 for a bad argument, `<seconds>` above 86400 or a command that cannot start. It touches no database. The command's
+  process group is killed on every way out (the instant, the command ending first, SIGINT, SIGTERM, SIGHUP); only SIGKILL of `killat.sh` itself leaves it.
 - `common.sh`: the shared configuration and guard (sourced, not run).
 
 ## The unindexed count

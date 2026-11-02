@@ -1,7 +1,8 @@
 #!/bin/bash
 # census.sh [markname]: from the Forum's console log (FH_FORUMLOG, required) since the mark's line: `Request finished` lines by HTTP
 # status, among 5xx how many carry content type `-` (body-less), and the log events StoreFault, UnhandledFault, VectorIndexPending,
-# VectorIndexCaughtUp, VectorIndexRetryFailed, VectorIndexCatchUpFailed, VectorIndexCheckOwed, VectorIndexCheckFound, VectorIndexCheckFailed. The console logger prints message text, not the EventName,
+# VectorIndexCaughtUp, VectorIndexRetryFailed, VectorIndexCatchUpFailed, VectorIndexCheckOwed, VectorIndexCheckFound, VectorIndexCheckFailed, AppendConfirmed, AppendNotConfirmed
+# (eleven counts; a log holding none of them prints each as 0 and exits 0). The console logger prints message text, not the EventName,
 # so each event is matched by its message (src: StoreFaults.cs, VectorIndexReceipt.cs). A line looks like:
 #   Request finished HTTP/1.1 GET http://127.0.0.1:5099/v1/posts/<id> - 200 - application/json;+charset=utf-8 69.49ms
 set -euo pipefail
@@ -34,7 +35,9 @@ EV = [("StoreFault", "A store fault was served as"), ("UnhandledFault", "An uncl
       ("VectorIndexRetryFailed", "The catch-up could not store the vector of post"), ("VectorIndexCatchUpFailed", "A catch-up pass failed"),
       ("VectorIndexCheckOwed", "A discussion post's append left the route by an exception"),
       ("VectorIndexCheckFound", "The check of the log against the vector index that began at"),
-      ("VectorIndexCheckFailed", "The check of the log against the vector index could not complete")]
+      ("VectorIndexCheckFailed", "The check of the log against the vector index could not complete"),
+      ("AppendConfirmed", "append left the route by an exception and the log holds the post"),
+      ("AppendNotConfirmed", "append left the route by an exception and a read of the log made after it did not confirm the post")]
 for ev, msg in EV:
     print("%-26s %d" % (ev, txt.count(msg)))
 if sample: print("sample:", sample)

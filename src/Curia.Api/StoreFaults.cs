@@ -15,7 +15,7 @@ internal static class StoreFaults
     /// <summary>The log could not be read; nothing was recorded.</summary>
     internal const string LogUnreadableType = LogBoundKeys.LogUnreadableType;
 
-    /// <summary>Any other store could not complete the request; a write may or may not have been recorded.</summary>
+    /// <summary>Any other store could not complete the request; a write that is not a post may or may not have been recorded, and a post is answered this way only where the route's confirm (R8.84, errata G55) did not find it in the log as of its read.</summary>
     internal const string StoreUnavailableType = "curia/store/unavailable";
 
     /// <summary>An exception nothing names.</summary>

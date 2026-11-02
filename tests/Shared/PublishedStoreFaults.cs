@@ -95,9 +95,9 @@ internal static partial class PublishedStoreFaults
 
     /// <summary>
     /// The sentence for <c>curia/store/unavailable</c>. It is also the sentence the write tools' descriptions and the writing verbs' helps carry. Since errata G53
-    /// it is <c>R11.73 words</c>' store sentence, which replaced R11.72's (G53 decision 7); G52's paragraph holds a pointer and no copy.
+    /// it is <c>R11.76 words</c>' store sentence (errata G55), which replaced R11.73's, which replaced R11.72's; G52's and G53's paragraphs hold pointers and no copy.
     /// </summary>
-    internal static string StoreUnavailableSentence => One(Group(StoreSentencePhrase(), WordsParagraph("R11.73"), "R11.73's store sentence"));
+    internal static string StoreUnavailableSentence => One(Group(StoreSentencePhrase(), WordsParagraph("R11.76"), "R11.76's store sentence"));
 
     /// <summary>The sentence for the token. Since errata G53 it is <c>R11.74 words</c>' token sentence, which replaced R11.72's; G52's paragraph holds a pointer and no copy.</summary>
     internal static string TokenSentence => One(Group(TokenSentencePhrase(), WordsParagraph("R11.74"), "R11.74's token sentence"));
@@ -237,7 +237,7 @@ internal static partial class PublishedStoreFaults
     [GeneratedRegex(@"and a depth of (\w+)", RegexOptions.CultureInvariant)]
     private static partial Regex DepthPhrase();
 
-    [GeneratedRegex(@"The store sentence, replacing the sentence of R11\.72 words for `curia/store/unavailable`: `([^`]+)`", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"The store sentence, replacing the sentence of R11\.73 words for `curia/store/unavailable`: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex StoreSentencePhrase();
 
     [GeneratedRegex(@"The token sentence, replacing the sentence of R11\.72 words for the token: `([^`]+)`", RegexOptions.CultureInvariant)]

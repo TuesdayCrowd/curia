@@ -1,0 +1,186 @@
+using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+namespace Curia.Tests.Shared;
+
+/// <summary>What the stub does with a submission it has read (errata G55, R11.77: the request was sent and no response is read).</summary>
+internal enum UnheardBehaviour
+{
+    /// <summary>Read the request and never answer: the client's own timeout is what ends it.</summary>
+    Stall,
+
+    /// <summary>Read the request and close the connection with a FIN, no response: the transport reports the response as ended.</summary>
+    Fin,
+
+    /// <summary>Read the request and reset the connection (RST): the transport reports an error it does not name.</summary>
+    Reset,
+}
+
+/// <summary>
+/// A Forum on a loopback socket that answers the token endpoint like a Forum and does one of three things to a submission after reading it: nothing, a FIN, an RST. It is
+/// raw TCP because an HTTP listener cannot leave a request unanswered, close without a response or reset (the three cases of M5's record). It checks nothing of the DPoP
+/// protocol; the facts are about what a client does when it hears no answer. Every body it was sent is kept, so a probe recomputes the digest of the act from what was received.
+/// </summary>
+internal sealed class RawStubForum : IDisposable
+{
+    private const string Token = """{"access_token":"stub-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""";
+
+    private readonly TcpListener _listener;
+    private readonly CancellationTokenSource _stop = new();
+    private readonly ConcurrentBag<TcpClient> _open = [];
+    private readonly Task _loop;
+
+    internal RawStubForum(UnheardBehaviour behaviour)
+    {
+        Behaviour = behaviour;
+        _listener = new TcpListener(IPAddress.Loopback, 0);
+        _listener.Start();
+        Address = new Uri($"http://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}");
+        _loop = Task.Run(AcceptAsync);
+    }
+
+    internal Uri Address { get; }
+
+    internal UnheardBehaviour Behaviour { get; set; }
+
+    /// <summary>True: a request that is neither the token endpoint nor the submission route (a read, an acceptance, a flag) is read and never answered.</summary>
+    internal bool StallReads { get; set; }
+
+    /// <summary>True: the token endpoint is read and never answered.</summary>
+    internal bool StallToken { get; set; }
+
+    /// <summary>Every request read, as "METHOD path".</summary>
+    internal ConcurrentQueue<string> Requests { get; } = new();
+
+    /// <summary>The body of every <c>POST /v1/posts</c> read.</summary>
+    internal ConcurrentQueue<string> Submissions { get; } = new();
+
+    private async Task AcceptAsync()
+    {
+        while (!_stop.IsCancellationRequested)
+        {
+            TcpClient client;
+            try
+            {
+                client = await _listener.AcceptTcpClientAsync(_stop.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
+            {
+                return;
+            }
+
+            _open.Add(client);
+            _ = Task.Run(() => ServeAsync(client));
+        }
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "A stub connection that fails is the client's business; the stub only records what it read.")]
+    private async Task ServeAsync(TcpClient client)
+    {
+        try
+        {
+            var stream = client.GetStream();
+            var (method, path, body) = await ReadRequestAsync(stream).ConfigureAwait(false);
+            Requests.Enqueue($"{method} {path}");
+
+            if (method == "POST" && path == "/oauth/token")
+            {
+                if (StallToken) await Task.Delay(Timeout.Infinite, _stop.Token).ConfigureAwait(false);
+
+                await RespondAsync(stream, 200, "application/json", Token).ConfigureAwait(false);
+                client.Close();
+                return;
+            }
+
+            if (method == "POST" && path == "/v1/posts")
+            {
+                Submissions.Enqueue(body);
+                switch (Behaviour)
+                {
+                    case UnheardBehaviour.Stall:
+                        await Task.Delay(Timeout.Infinite, _stop.Token).ConfigureAwait(false);
+                        break;
+                    case UnheardBehaviour.Fin:
+                        client.Close();
+                        break;
+                    default:
+                        client.LingerState = new LingerOption(true, 0);
+                        client.Close();
+                        break;
+                }
+
+                return;
+            }
+
+            if (StallReads) await Task.Delay(Timeout.Infinite, _stop.Token).ConfigureAwait(false);
+
+            await RespondAsync(stream, 404, "application/problem+json", """{"type":"curia/request/no-route","title":"No route","detail":null}""").ConfigureAwait(false);
+            client.Close();
+        }
+        catch (Exception)
+        {
+            client.Close();
+        }
+    }
+
+    private static async Task<(string Method, string Path, string Body)> ReadRequestAsync(NetworkStream stream)
+    {
+        var buffer = new List<byte>();
+        var one = new byte[1];
+        var head = string.Empty;
+        while (!head.EndsWith("\r\n\r\n", StringComparison.Ordinal))
+        {
+            if (await stream.ReadAsync(one).ConfigureAwait(false) == 0) throw new IOException("closed before the request head ended");
+            buffer.Add(one[0]);
+            head = Encoding.ASCII.GetString([.. buffer]);
+        }
+
+        var lines = head.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+        var first = lines[0].Split(' ');
+        var length = lines.Skip(1)
+            .Select(l => l.Split(':', 2))
+            .Where(p => p.Length == 2 && p[0].Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+            .Select(p => int.Parse(p[1].Trim(), System.Globalization.CultureInfo.InvariantCulture))
+            .FirstOrDefault();
+        var body = new byte[length];
+        var read = 0;
+        while (read < length)
+        {
+            var n = await stream.ReadAsync(body.AsMemory(read)).ConfigureAwait(false);
+            if (n == 0) throw new IOException("closed before the request body ended");
+            read += n;
+        }
+
+        return (first[0], first[1], Encoding.UTF8.GetString(body));
+    }
+
+    private static async Task RespondAsync(NetworkStream stream, int status, string contentType, string body)
+    {
+        var bytes = Encoding.UTF8.GetBytes(body);
+        var head = $"HTTP/1.1 {status} X\r\nContent-Type: {contentType}\r\nContent-Length: {bytes.Length}\r\nConnection: close\r\n\r\n";
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head)).ConfigureAwait(false);
+        await stream.WriteAsync(bytes).ConfigureAwait(false);
+        await stream.FlushAsync().ConfigureAwait(false);
+    }
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _listener.Stop();
+        _listener.Dispose();
+        foreach (var client in _open) client.Close();
+        try
+        {
+            _loop.Wait(TimeSpan.FromSeconds(5));
+        }
+        catch (AggregateException)
+        {
+            // The loop ends by its token or its listener closing; either is how it stops.
+        }
+
+        _stop.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}

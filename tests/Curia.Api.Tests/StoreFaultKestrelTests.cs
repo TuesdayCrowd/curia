@@ -77,7 +77,7 @@ public sealed partial class StoreFaultKestrelTests(FaultableKestrelFixture forum
         Assert.True(enrolled.Exit == 0, enrolled.Text);
 
         var problems = new List<string>();
-        foreach (var (leg, fault, stored) in new[] { ("a: committed then cut", EventStoreFault.AppendThenThrow, 1L), ("b: nothing committed", EventStoreFault.ThrowOnAppend, 0L) })
+        foreach (var (leg, fault, stored) in new[] { ("a: committed then cut", EventStoreFault.AppendThenThrowThenFailReads, 1L), ("b: nothing committed", EventStoreFault.ThrowOnAppend, 0L) })
         {
             var before = await EventsAsync();
             (int Exit, string Text) asked;

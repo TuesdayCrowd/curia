@@ -24,6 +24,9 @@ internal static class Program
 {
     private const string DefaultForum = "http://localhost:5000";
 
+    /// <summary>The command, as a fact runs it in process (errata G55's seam): the same entry the shell runs, with the client built by <see cref="HttpClientFactory"/>.</summary>
+    internal static Task<int> RunAsync(string[] argv) => Main(argv);
+
     private static async Task<int> Main(string[] argv)
     {
         if (argv.Length == 0 || argv[0] is "help" or "--help" or "-h")
@@ -1228,11 +1231,12 @@ internal static class Program
             ? Output.FailDuplicate(refusal, duplicate, await DuplicateAnswersAsync(client, duplicate, ct).ConfigureAwait(false))
             : Output.Fail(refusal);
 
-        // R11.72 (errata G52): a signed post answered store/unavailable may or may not have been recorded; the line names the digest of the act sent, which the
-        // Forum's recheck answers for. The caller passes the digest only for a signed post (no signed act, no line). Nothing is resent and nothing is asked
-        // here (R11.64), and no other refusal prints the line: no other has an unknown outcome.
-        if (actDigest is not null && string.Equals(refusal.Error.Type, StoreWording.StoreUnavailableType, StringComparison.Ordinal))
-            Output.Error(new FrameBuilder().Line($"       {new OwnText(StoreWording.ActLine(actDigest))}"));
+        // R11.72 (errata G52), R11.77 (errata G55): a signed post answered store/unavailable, or sent and not heard from, may or may not have been recorded; what follows
+        // the refusal (the unheard sentence, the act line naming the digest the Forum's recheck answers for) is StoreWording's one definition. The caller passes the digest
+        // only for a signed post (no signed act, no lines). Nothing is resent and nothing is asked here (R11.64).
+        if (actDigest is not null)
+            foreach (var line in StoreWording.AfterRefusal(refusal, actDigest))
+                Output.Error(new FrameBuilder().Line($"       {new OwnText(line)}"));
 
         return code;
     }
@@ -2017,8 +2021,13 @@ internal static class Program
             : throw new ArgumentException($"not an absolute URL: '{raw}'", nameof(args));
     }
 
-    internal static HttpClient HttpFor(Uri forum) =>
-        new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
+    /// <summary>
+    /// The factory every verb builds its client with (<see cref="HttpFor"/>). <b>The seam of errata G55's PR (R11.77):</b> a test replaces it to give the client a short
+    /// timeout and restores it; the shipped client has no flag or environment variable for one, and its default builds the 30-second client.
+    /// </summary>
+    internal static Func<Uri, HttpClient> HttpClientFactory { get; set; } = static forum => new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
+
+    internal static HttpClient HttpFor(Uri forum) => HttpClientFactory(forum);
 
     /// <summary>A local error's detail, as a display literal after a colon, or nothing.</summary>
     private static OwnText Detail(string? detail) =>
