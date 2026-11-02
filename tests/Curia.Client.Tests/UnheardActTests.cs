@@ -9,7 +9,7 @@ using Xunit;
 namespace Curia.Client.Tests;
 
 /// <summary>
-/// AFC20 to AFC25, AFC31 and AFC32 (errata G55, R11.77, D106): a signed post whose request ends with no response read, at the real command. <c>Program.Main</c> is run
+/// AFC20 to AFC25, AFC31, AFC32 and AFC41 (errata G55, R11.77, D106): a signed post whose request ends with no response read, at the real command. <c>Program.Main</c> is run
 /// in process against a Forum on a loopback socket (<see cref="RawStubForum"/>) that reads a submission and then says nothing, closes (FIN) or resets (RST), with the
 /// client's <c>HttpClient</c> given a 300 ms timeout through <c>Program.HttpClientFactory</c> (the shipped client has the 30 seconds and no flag or variable for another).
 /// Every sentence, title and type is read from the errata (<see cref="PublishedConfirmWords"/>, <see cref="PublishedStoreFaults"/>), folded for whitespace; the digest the
@@ -142,6 +142,7 @@ public sealed partial class UnheardActTests
         new("an RST after the request was read (no name)", true),
         new("a refused connection (ConnectionError)", false),
         new("an unresolvable name (NameResolutionError)", false),
+        new("a constructed ConnectionError", false),
         new("a constructed SecureConnectionError", false),
         new("a constructed ProxyTunnelError", false),
         new("a constructed InvalidResponse", true),
@@ -189,6 +190,8 @@ public sealed partial class UnheardActTests
                 return await RunAsync(UnusedPort(), ShortTimeout, AskArgs);
             case "an unresolvable name (NameResolutionError)":
                 return await RunAsync(new Uri("http://forum.invalid"), ShortTimeout, AskArgs);
+            case "a constructed ConnectionError":
+                return await RunAsync(new Uri("http://forum.test"), Throwing(() => new HttpRequestException(HttpRequestError.ConnectionError, "refused")), AskArgs);
             case "a constructed SecureConnectionError":
                 return await RunAsync(new Uri("http://forum.test"), Throwing(() => new HttpRequestException(HttpRequestError.SecureConnectionError, "tls")), AskArgs);
             case "a constructed ProxyTunnelError":
@@ -214,7 +217,7 @@ public sealed partial class UnheardActTests
     /// <summary>
     /// AFC21. What is unheard, case by case, in one fact. A FIN and an RST after the request was read, a constructed <c>InvalidResponse</c>, <c>HttpProtocolError</c> and an
     /// exception that names no error print the unheard title, the sentence and the act line; a refused connection, an unresolvable name and a constructed
-    /// <c>SecureConnectionError</c> and <c>ProxyTunnelError</c> print the title of a request that was not sent and neither line.
+    /// <c>ConnectionError</c>, <c>SecureConnectionError</c> and <c>ProxyTunnelError</c> print the title of a request that was not sent and neither line.
     /// </summary>
     [Fact]
     public async Task R11_77_AFC21_OnlyARequestThatProvablyWasNotSentIsPrintedAsNotReached()
@@ -336,6 +339,20 @@ public sealed partial class UnheardActTests
         Said("the unheard sentence carries the wait once; the act line carries no wait, no instruction and states its moment", problems.Count == 0
             ? "the unheard sentence carries the wait once; the act line carries no wait, no instruction and states its moment"
             : string.Join("; ", problems));
+    }
+
+    /// <summary>
+    /// AFC41, a wording probe on the code. What <c>StoreWording.ActLine</c> prints is the act line the errata publishes (R11.73 act words), byte for byte: a sentence added in
+    /// the code, a wait or an instruction to send among them, is not the published line (AFC25 reads the errata's words and cannot see the code's).
+    /// </summary>
+    [Fact]
+    public void R11_77_AFC41_TheActLineTheCodePrintsIsThePublishedOne()
+    {
+        const string Digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        var printed = StoreWording.ActLine(Digest);
+        var published = PublishedStoreFaults.ActLine(Digest);
+
+        Said(Fold(published), Fold(printed));
     }
 
     /// <summary>

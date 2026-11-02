@@ -33,6 +33,12 @@ internal enum EventStoreFault
     /// <summary>The append returns a failed <see cref="Result{T}"/>; reads are healthy.</summary>
     ReportAppend,
 
+    /// <summary>
+    /// Every append returns a failed <see cref="Result{T}"/> of the type the route already decides again on (<c>DomainErrors.ConditionConflictType</c>, the author's stream
+    /// moved) and commits nothing; reads are healthy. The fault is marked, so the reads after it are counted (errata G55, AFC38 and AFC39: a failed result is not a thrown fault, and no confirm is made).
+    /// </summary>
+    ReportConflictAppend,
+
     /// <summary>The append throws a driver fault and commits nothing.</summary>
     ThrowOnAppend,
 
@@ -97,6 +103,9 @@ internal static class StoreFaultKinds
     /// <summary>The failed result a reporting reader returns for a read.</summary>
     internal static Error ReportedRead() => new(PublishedStoreFaults.LogUnreadableType, PublishedStoreFaults.LogUnreadableTitle, "reported by the test double");
 
+    /// <summary>The failed result an append that lost the race on the author's stream returns: the type the route decides again on (R6.56).</summary>
+    internal static Error ReportedConflict() => new(DomainErrors.ConditionConflictType, "The author's stream moved", "reported by the test double");
+
     /// <summary>The failed result a reporting reader returns for the append.</summary>
     internal static Error ReportedAppend() => new(PublishedStoreFaults.StoreUnavailableType, PublishedStoreFaults.StoreUnavailableTitle, "reported by the test double");
 }
@@ -126,6 +135,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     private readonly TaskCompletionSource _heldReadGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _readsAfterFault;
     private int _forwardReadsAfterFault;
+    private int _tailReadsAfterFault;
     private int _reads;
     private int _appends;
     private int _committed;
@@ -147,6 +157,12 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
 
     /// <summary>The forward (whole-log) reads among <see cref="ReadsAfterFault"/>.</summary>
     internal int ForwardReadsAfterFault => Volatile.Read(ref _forwardReadsAfterFault);
+
+    /// <summary>
+    /// The forward reads among <see cref="ReadsAfterFault"/> that began past the start of the log: the confirm's own shape (it reads the events after the sequence the route
+    /// held, <c>log[^1].Seq</c>), which no read of the whole log, from sequence zero, has. A decide-again after a failed result reads from zero and is not counted.
+    /// </summary>
+    internal int TailReadsAfterFault => Volatile.Read(ref _tailReadsAfterFault);
 
     /// <summary>Completes when <see cref="EventStoreFault.HoldNextReadAfterFault"/> holds a read.</summary>
     internal Task HeldReadStarted => _heldReadStarted.Task;
@@ -196,6 +212,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
             _faulted = false;
             Volatile.Write(ref _readsAfterFault, 0);
             Volatile.Write(ref _forwardReadsAfterFault, 0);
+            Volatile.Write(ref _tailReadsAfterFault, 0);
             Volatile.Write(ref _interleaveStarted, 0);
             Volatile.Write(ref _holdTaken, 0);
             _committedAndWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -236,7 +253,11 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
                 MarkFaulted();
                 throw make();
             case EventStoreFault.ReportAppend:
+                MarkFaulted();
                 return Result<IReadOnlyList<AppendedEvent>>.Fail(StoreFaultKinds.ReportedAppend());
+            case EventStoreFault.ReportConflictAppend:
+                MarkFaulted();
+                return Result<IReadOnlyList<AppendedEvent>>.Fail(StoreFaultKinds.ReportedConflict());
             case EventStoreFault.ThrowThenCommitWhenReleased when Interlocked.CompareExchange(ref _lateStarted, 1, 0) == 0:
                 // The commit is the gate's, never a sleep's, and it is not the request's: the caller has been answered by then. Once per arming.
                 _ = Task.Run(async () =>
@@ -306,7 +327,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _reads);
-        CountAfterFault(forward: false);
+        CountAfterFault(forward: false, tail: false);
         if (ReadFault(forward: false, cancellationToken) is { } failed) return failed;
         return TakeHold() ? HoldThenAsync(() => inner.ReadByAggregateAsync(aggregateId, cancellationToken), cancellationToken) : inner.ReadByAggregateAsync(aggregateId, cancellationToken);
     }
@@ -314,7 +335,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _reads);
-        CountAfterFault(forward: true);
+        CountAfterFault(forward: true, tail: afterSeq.Value > 0);
         if (ReadFault(forward: true, cancellationToken) is { } failed) return failed;
         return TakeHold() ? HoldThenAsync(() => inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken), cancellationToken) : inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
@@ -324,7 +345,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
         lock (_gate) _faulted = true;
     }
 
-    private void CountAfterFault(bool forward)
+    private void CountAfterFault(bool forward, bool tail)
     {
         bool faulted;
         lock (_gate) faulted = _faulted;
@@ -332,6 +353,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
 
         Interlocked.Increment(ref _readsAfterFault);
         if (forward) Interlocked.Increment(ref _forwardReadsAfterFault);
+        if (tail) Interlocked.Increment(ref _tailReadsAfterFault);
     }
 
     /// <summary>A task that fails the read as the armed mode says, or null where the read is healthy. Throws for a throwing mode.</summary>

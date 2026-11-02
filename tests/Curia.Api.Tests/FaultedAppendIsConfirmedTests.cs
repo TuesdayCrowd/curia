@@ -13,7 +13,7 @@ using Probe = Curia.Api.Tests.RevisionProbe;
 namespace Curia.Api.Tests;
 
 /// <summary>
-/// AFC1 to AFC9, AFC12 to AFC16, AFC29 and AFC30 (errata G55, R8.84, R8.82 (rev.)): the confirm of a faulted append, on the production Forum over a real Postgres and the
+/// AFC1 to AFC9, AFC12 to AFC16, AFC29, AFC30 and AFC33 to AFC40 (errata G55, R8.84, R8.82 (rev.)): the confirm of a faulted append, on the production Forum over a real Postgres and the
 /// real vector index, in process (TestServer). <b>The oracle is the events table, read by SQL on the fixture's own connection string by the digest the probe recomputes from the
 /// bytes it signed</b> (<see cref="Afc"/>): never the status, never the Forum's projection (trap 97). The fixture's store clock reads 7 ms after the pipeline's
 /// (<see cref="ConfirmFixture"/>), the catch-up's loop is removed and asserted absent, and a probe that moves time drives the tick itself. Every sentence, figure and event is
@@ -694,5 +694,213 @@ public sealed class FaultedAppendIsConfirmedTests(ConfirmFixture forum) : IClass
             $"the ask is {Answered(sent)}; the column is {gap.TotalMilliseconds:0.###} ms after the pipeline's instant; Committed moved by {committedMoved} and the table by {tableMoved}; " +
             $"the read gate {(reached ? "held a read" : "held no read")} and the reads were then {(served == 200 ? "served" : "answered " + served)}; the host has {(host.LoopIsAbsent ? "no" : "a")} catch-up loop";
         Said(ok, sent.Status == 201 && gap >= TimeSpan.FromMilliseconds(6) && committedMoved == 1 && tableMoved == 1 && reached && served == 200 && host.LoopIsAbsent ? ok : observed);
+    }
+
+    // ----- The fix round of Task 7 (the falsification's gaps): AFC33 to AFC40 -----
+
+    private const string Released = "no registration after the request; the next check enrols the post (post_embeddings holds 1 row for the digest, the anti-join is 0)";
+
+    /// <summary>What a check does with the post once the request is over: clock and ticks driven by the probe, the late commit (if any) landed first, a bounded number of ticks.</summary>
+    private async Task<string> AfterTheRequestAsync(CheckHost host, SceneActor actor, string digest, Func<Task> tick)
+    {
+        var registered = host.Sweep.IsIndexing(digest);
+        var settle = (int)PublishedCheckWords.SweepSettle().TotalSeconds;
+        var embeddings = 0;
+        for (var i = 0; i < (settle + 2) * 8 && embeddings == 0; i++)
+        {
+            await tick();
+            embeddings = (await Afc.EmbeddingSequencesAsync(forum, digest, Ct)).Count;
+        }
+
+        var antiJoin = await host.AntiJoinAsync(actor.Agent.AgentId, Ct);
+        return $"{(registered ? "the digest is still registered after the request" : "no registration after the request")}; " +
+            $"the next check {(embeddings > 0 ? "enrols" : "does not enrol")} the post (post_embeddings holds {Plural(embeddings, "row")} for the digest, the anti-join is {antiJoin})";
+    }
+
+    /// <summary>
+    /// AFC33, the exit <c>absent</c>. The confirm read the log and the act is not in it (a store that timed out and commits later: <c>ThrowThenCommitWhenReleased</c>): the
+    /// answer is the append's 503, the digest is not registered as in flight after the request, and when the late commit lands the next check enrols the post. A registration
+    /// that outlives the request hides the post from every check for as long as the process runs.
+    /// </summary>
+    [Fact]
+    public async Task R8_84_AFC33_TheRegistrationIsReleasedWhenTheConfirmFindsNothing()
+    {
+        await using var host = forum.NewHost();
+        var (actor, wire, token, digest) = await AskerAsync(host);
+        var sent = await SendUnderAsync(host, EventStoreFault.ThrowThenCommitWhenReleased, actor, wire, token);
+        host.Store.ReleaseLateCommit();
+        await host.Store.LateCommitted.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        var after = await AfterTheRequestAsync(host, actor, digest, () => host.TicksAsync(1, Ct));
+
+        Said($"503 {Unavailable}; {Released}", $"{Answered(sent)}; {after}");
+    }
+
+    /// <summary>
+    /// AFC34, the exit <c>unreadable</c>. The confirm's read fails over a post the log holds (<c>AppendThenThrowThenFailReads</c>): 503, the digest is not registered after
+    /// the request, and the next check enrols the stored post.
+    /// </summary>
+    [Fact]
+    public async Task R8_84_AFC34_TheRegistrationIsReleasedWhenTheConfirmCouldNotRead()
+    {
+        await using var host = forum.NewHost();
+        var (actor, wire, token, digest) = await AskerAsync(host);
+        var sent = await SendUnderAsync(host, EventStoreFault.AppendThenThrowThenFailReads, actor, wire, token);
+        var after = await AfterTheRequestAsync(host, actor, digest, () => host.TicksAsync(1, Ct));
+
+        Said($"503 {Unavailable}; {Released}", $"{Answered(sent)}; {after}");
+    }
+
+    /// <summary>
+    /// AFC35, the exit <c>bound</c>. The confirm's read outlasts its bound (<c>AppendThenThrowThenHangReads</c> on a timer-capable clock, as AFC12): 503, the digest is not
+    /// registered after the request, and the next check enrols the stored post.
+    /// </summary>
+    [Fact]
+    public async Task R8_84_AFC35_TheRegistrationIsReleasedWhenTheConfirmOutlastsItsBound()
+    {
+        var bound = TimeSpan.FromSeconds(PublishedConfirmWords.ConfirmBoundSeconds);
+        var clock = new TimerManualTimeProvider(forum.Now);
+        await using var host = forum.NewHost(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        });
+        var (actor, wire, token, digest) = await AskerAsync(host);
+
+        host.Store.Arm(EventStoreFault.AppendThenThrowThenHangReads);
+        var send = Probe.SendViaAsync(forum, host.Client, actor, wire, token, Ct);
+        await Task.WhenAny(host.Store.HangStarted, send, Task.Delay(TimeSpan.FromSeconds(10), Ct));
+        if (!host.Store.HangStarted.IsCompleted)
+        {
+            host.Store.Disarm();
+            var early = await send;
+            Said("the confirm's read was reached and waited", $"the confirm's read was never reached ({Answered(early)} was answered with no read after the fault)");
+            return;
+        }
+
+        clock.Advance(bound);
+        forum.Clock.Advance(bound);
+        var sent = await send.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        host.Store.Disarm();
+        var after = await AfterTheRequestAsync(host, actor, digest, () =>
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            forum.Clock.Advance(TimeSpan.FromSeconds(1));
+            return host.TickAsync(forum.Now, Ct);
+        });
+
+        Said($"503 {Unavailable}; {Released}", $"{Answered(sent)}; {after}");
+    }
+
+    /// <summary>
+    /// AFC36, the exit <c>stopped</c>. The host stops while the confirm's read is held (<c>HoldNextReadAfterFault</c>, then <c>StopApplication</c>, which ends the factory's
+    /// host and disposes its container): the request ends (what a request answers while its host is being disposed is the host's, and is not asserted) and the digest is not registered after it. There is no next check in a process that has
+    /// stopped, so the registration is read from the sweep the probe held before the stop.
+    /// </summary>
+    [Fact]
+    public async Task R8_84_AFC36_TheRegistrationIsReleasedWhenTheHostStopsTheConfirm()
+    {
+        await using var host = forum.NewHost();
+        var (actor, wire, token, digest) = await AskerAsync(host);
+
+        host.Store.Arm(EventStoreFault.HoldNextReadAfterFault);
+        var send = Probe.SendViaAsync(forum, host.Client, actor, wire, token, Ct);
+        await Task.WhenAny(host.Store.HeldReadStarted, send, Task.Delay(TimeSpan.FromSeconds(10), Ct));
+        if (!host.Store.HeldReadStarted.IsCompleted)
+        {
+            host.Store.Disarm();
+            var early = await send;
+            Said("the confirm's read was reached and held", $"the confirm's read was never reached ({Answered(early)} was answered with no read after the fault)");
+            return;
+        }
+
+        var store = host.Store;
+        var sweep = host.Sweep;
+        host.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>().StopApplication();
+        _ = await send.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        store.Disarm();
+
+        Said("the request ended; no registration after the request", $"the request ended; {(sweep.IsIndexing(digest) ? "the digest is still registered after the request" : "no registration after the request")}");
+    }
+
+    /// <summary>
+    /// AFC37, a found post whose index step did not end <c>Indexed</c>. The confirm finds the post and the vector index fails (<c>AppendThenThrow</c>, <c>FailUpserts</c>):
+    /// 201 with <c>vector_index</c> pending, the digest is not registered after the request, and once the index heals the next check stores the post's vector.
+    /// </summary>
+    [Fact]
+    public async Task R8_84_AFC37_TheRegistrationIsReleasedWhenAFoundPostIsPending()
+    {
+        await using var host = forum.NewHost();
+        var (actor, wire, token, digest) = await AskerAsync(host);
+        host.Index.FailUpserts = true;
+        var sent = await SendUnderAsync(host, EventStoreFault.AppendThenThrow, actor, wire, token);
+        var vector = Afc.Member(sent.Body, "vector_index") ?? "absent";
+        host.Index.FailUpserts = false;
+        var after = await AfterTheRequestAsync(host, actor, digest, () => host.TicksAsync(1, Ct));
+
+        Said($"201 with vector_index pending; {Released}", $"{Answered(sent)} with vector_index {vector}; {after}");
+    }
+
+    /// <summary>
+    /// AFC38, a failed result of PERSIST that is not the conflict. The append returns a failed <c>Result</c> (<c>ReportAppend</c>), it does not throw: no confirm is made (no read
+    /// after the fault, none that begins past the start of the log), nothing is stored and none is fabricated, and the answer is the route's own, <c>503 curia/store/unavailable</c> with the append's error.
+    /// </summary>
+    [Fact]
+    public async Task R8_84_AFC38_AFailedResultOfTheAppendIsNotConfirmedAndIsAnsweredAsBefore()
+    {
+        await using var host = forum.NewHost();
+        var (actor, wire, token, digest) = await AskerAsync(host);
+        var sent = await SendUnderAsync(host, EventStoreFault.ReportAppend, actor, wire, token);
+        var tail = host.Store.TailReadsAfterFault;
+        var rows = await Afc.StoredAsync(forum, digest, Ct);
+
+        Said(
+            $"503 {Unavailable}; the table holds 0 events of the digest; the Forum made 0 reads of the log's tail after the failed result",
+            $"{Answered(sent)}; the table holds {Plural(rows.Count, "event")} of the digest; the Forum made {Plural(tail, "read")} of the log's tail after the failed result");
+    }
+
+    /// <summary>
+    /// AFC39, a failed result of PERSIST that is the conflict. Every append returns the condition conflict (<c>ReportConflictAppend</c>): the route decides again, as it did, three
+    /// times, and answers <c>503</c> contended; no confirm is made, nothing is stored, none is fabricated, and the append was tried three times.
+    /// </summary>
+    [Fact]
+    public async Task R8_84_AFC39_AConflictOfTheAppendIsDecidedAgainAndNeverConfirmed()
+    {
+        await using var host = forum.NewHost();
+        var (actor, wire, token, digest) = await AskerAsync(host);
+        var appendsBefore = host.Store.Appends;
+        var sent = await SendUnderAsync(host, EventStoreFault.ReportConflictAppend, actor, wire, token);
+        var appends = host.Store.Appends - appendsBefore;
+        var tail = host.Store.TailReadsAfterFault;
+        var rows = await Afc.StoredAsync(forum, digest, Ct);
+
+        Said(
+            $"503 {IngestErrors.Contended().Type}; the append was tried {IngestAttempts.Attempts} times; the table holds 0 events of the digest; the Forum made 0 reads of the log's tail after the failed result",
+            $"{Answered(sent)}; the append was tried {appends} times; the table holds {Plural(rows.Count, "event")} of the digest; the Forum made {Plural(tail, "read")} of the log's tail after the failed result");
+    }
+
+    /// <summary>
+    /// AFC40. The confirm finds the act by its digest and by nothing else: the same author's other post, stored after the act and before the confirm's read (appended straight to
+    /// the store while the append is suspended: the agent's hold is the request's own), is not the post the receipt names. The ask is answered 201 naming the act's post.
+    /// </summary>
+    [Fact]
+    public async Task R8_84_AFC40_ACommittedPostIsFoundByItsDigestWhateverTheSameAuthorStoredAfterIt()
+    {
+        await using var host = forum.NewHost();
+        var (actor, wire, token, digest) = await AskerAsync(host);
+        var laterWire = actor.Agent.SignQuestion(Probe.Board(), Probe.Unrelated(), "About " + Probe.Unrelated(), forum.Now);
+        host.Store.OnInterleave = async ct => await BudgetBursts.StoreAsync(forum, laterWire, ct);
+
+        var sent = await SendUnderAsync(host, EventStoreFault.InterleaveOtherAgentsPost, actor, wire, token);
+        host.Store.OnInterleave = null;
+        var rows = await Afc.StoredAsync(forum, digest, Ct);
+        var later = await Afc.StoredAsync(forum, Afc.DigestOf(laterWire), Ct);
+        var mine = rows.Count > 0 ? rows[0] : null;
+        Assert.True(mine is not null && later.Count == 1 && later[0].Seq > mine.Seq && later[0].Author == mine.Author, $"the fixture did not store the author's later post after the act: act stored {rows.Count}, later stored {later.Count}");
+
+        var expected = $"the ask is answered 201 naming {mine!.PostId}, not the same author's later post {later[0].PostId}; the table holds 1 event of the digest";
+        var good = sent.Status == 201 && sent.PostId == mine.PostId && rows.Count == 1;
+        Said(
+            expected,
+            good ? expected : $"the ask is answered {Answered(sent)} naming {sent.PostId ?? "no post"}{(sent.PostId == later[0].PostId ? ", the same author's later post" : string.Empty)}; the table holds {Plural(rows.Count, "event")} of the digest");
     }
 }
