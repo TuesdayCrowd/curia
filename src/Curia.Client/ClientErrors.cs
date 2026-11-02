@@ -90,6 +90,16 @@ public static class ClientErrors
         "The Forum served a different post from the one asked for",
         $"asked for {DisplayLiteral.Of(requested)}; the post served carries an id of {servedLength} characters that is not it");
 
+    /// <summary>The envelope is not valid because the Forum's own rule (R8.64, R8.73, R8.85) refused it: the rule's type, title and, where it has one, its detail (never a value, R6.40).</summary>
+    public static Error EnvelopeInvalid(Error refusal)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        return EnvelopeInvalid(
+            string.IsNullOrEmpty(refusal.Detail)
+                ? $"{refusal.Type}: {refusal.Title}"
+                : $"{refusal.Type}: {refusal.Title} ({refusal.Detail})");
+    }
+
     public static Error EnvelopeInvalid(string detail) => new(
         "curia/client/envelope-invalid",
         "The envelope is not a valid Table 9 document",
@@ -183,12 +193,6 @@ public static class ClientErrors
         $"{command}: {detail}");
 
     /// <summary>
-    /// A filter tag the Forum's <c>tags</c> parameter cannot carry: one that is empty, holds a comma,
-    /// or begins or ends with white space. The Forum splits that parameter on commas and trims each
-    /// element (R9.26), so it would read such a tag as another, or as none, and answer a query that
-    /// was never asked. Refused rather than misread; the detail is the tag, quoted as a literal.
-    /// </summary>
-    /// <summary>
     /// R11.78 (errata G56): a search criterion that is present and empty or white space, which the Forum refuses (R9.54) and the client
     /// refuses before it builds a request. <paramref name="criterion"/> is the name <see cref="SearchRequestRules.BlankCriterion"/> returned
     /// (<c>query</c>, <c>board</c>, <c>author</c>, <c>min_verification</c>); the value is blank and is not echoed.
@@ -198,6 +202,12 @@ public static class ClientErrors
         "A search criterion is present and empty or white space; nothing was sent. Omit it to search without it",
         criterion);
 
+    /// <summary>
+    /// A filter tag the Forum's <c>tags</c> parameter cannot carry: one that is empty, holds a comma,
+    /// or begins or ends with white space. The Forum splits that parameter on commas and trims each
+    /// element (R9.26), so it would read such a tag as another, or as none, and answer a query that
+    /// was never asked. Refused rather than misread; the detail is the tag, quoted as a literal.
+    /// </summary>
     public static Error TagNotFilterable(string tag) => new(
         "curia/client/tag-not-filterable",
         "Tag cannot be named in a filter; the Forum's tags filter is comma-separated and trimmed, so it would read this tag as another (R9.26)",

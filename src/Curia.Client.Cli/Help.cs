@@ -107,6 +107,19 @@ internal static class Help
         "\n    A revision or an accepted answer the Forum lists by its digest alone, and does not serve, is\n    shown beside its digest as ("
         + Supersession.DigestOnlyWords + "):\n    the Forum has no post to give for it, and recheck of that digest is what says whether it is\n    withheld; no reader says so itself.";
 
+    /// <summary>
+    /// <see cref="BoardWording.Sentence"/> broken at 100 characters as <see cref="Wrapped"/> breaks it, written out because <see cref="Usage"/> is a constant
+    /// (the output seam takes only constants); a test holds it equal to <c>Wrapped(BoardWording.Sentence)</c>.
+    /// </summary>
+    internal const string OverviewBoardSentence =
+        "A board is a name: lower case, 1 to 64 characters, with no space or other separator, no control,\n"
+        + "    format, private-use or unassigned character, none of , / ? # % and not . or ..; lower-case letters,\n"
+        + "    digits, - and _ always qualify. The Forum refuses any other name for a new post and never changes\n"
+        + "    one for you; a board that exists already is read as it is.";
+
+    /// <summary>Wraps <paramref name="text"/> as <see cref="Wrapped"/> does, for the test that holds <see cref="OverviewBoardSentence"/> to it.</summary>
+    internal static string WrappedForTest(string text) => Wrapped(text);
+
     /// <summary>Breaks <paramref name="text"/> at spaces into lines of at most 100 characters, each after the first indented as the entry's lines are.</summary>
     private static string Wrapped(string text)
     {
@@ -254,7 +267,7 @@ internal static class Help
                   coordinate (pkg:...) or a URL (http:// or https://), comma-separated; anything else is
                   a usage error. An answer with no refs is an opinion and is ranked as one (Table 12).
               --board names a board:
-            """ + " " + BoardWording.Sentence + "\n" + """
+            """ + "\n    " + OverviewBoardSentence + "\n" + """
 
               One agent's budget is counted one write at a time (R7.27): simultaneous writes by one
                   agent are processed one at a time in the order they reach the Forum, so a parallel

@@ -109,6 +109,32 @@ public sealed partial class BoardStoredReadersEndToEndTests(PassThroughGateForum
         Said("400", ((int)blank.StatusCode).ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
+    /// <summary>
+    /// NAM12 (the inbox leg, I1): <c>GET /v1/inbox?board=</c> over a stored board the grammar refuses (<c>Meta-x</c>, <c>a b-x</c>, stored by the direct-append seam) answers 200 and lists
+    /// that board's open question for another agent; an inbox filter is a filter and never a door.
+    /// </summary>
+    [Fact]
+    public async Task R8_85_NAM12_AnInboxFilterIsNeverRefusedForItsGrammar()
+    {
+        var asker = await AcceptedAnswerScene.EnrolAsync(forum, "asker", Ct);
+        var reader = await AcceptedAnswerScene.EnrolAsync(forum, "reader", Ct);
+        var token = await reader.Dpop.GetTokenAsync(forum.Client, "http://localhost/oauth/token", forum.Now, Ct);
+        var problems = new List<string>();
+        foreach (var board in new[] { $"Meta-{Suffix()}", $"a b-{Suffix()}" })
+        {
+            var (questionId, _) = await forum.AppendStoredPostAsync(asker.Agent.SignQuestion(board, "A body " + Unrelated(), "A title " + Unrelated(), forum.Now), Ct);
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"/v1/inbox?board={Uri.EscapeDataString(board)}");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("DPoP", token);
+            request.Headers.Add("DPoP", reader.Dpop.Proof("GET", "http://localhost/v1/inbox", forum.Now, token, nonce: null));
+            using var response = await forum.Client.SendAsync(request, Ct);
+            var text = await response.Content.ReadAsStringAsync(Ct);
+            if ((int)response.StatusCode != 200 || !text.Contains(questionId, StringComparison.Ordinal))
+                problems.Add($"inbox board={board}: {(int)response.StatusCode}; lists the stored question: {text.Contains(questionId, StringComparison.Ordinal)}");
+        }
+
+        Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
+    }
+
     // ---- NAM14 ----------------------------------------------------------------------------------
 
     /// <summary>

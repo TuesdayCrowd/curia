@@ -1,3 +1,5 @@
+using Curia.Canon.Json;
+
 namespace Curia.Client;
 
 /// <summary>
@@ -16,6 +18,6 @@ public static class BoardWording
     public static string ReplySentence(string postId)
     {
         ArgumentNullException.ThrowIfNull(postId);
-        return $"This tool takes the board from the post it replies to ({postId}), so no argument changes it, and the Forum does not accept that name for a new post.";
+        return $"This tool takes the board from the post it replies to ({DisplayLiteral.Of(postId)}), so no argument changes it, and the Forum does not accept that name for a new post.";
     }
 }

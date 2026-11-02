@@ -11,7 +11,7 @@ namespace Curia.Architecture.Tests;
 /// the two doors that "refuse every other blank" came to refuse one criterion each (the register's D102, which was true of one door).
 ///
 /// <para>A source scan, the shape of <see cref="ParentReadFenceTests"/>: the call sites that must exist (a positive row per entry point) and the
-/// definitions that must not (no second <c>BlankCriterion</c>, <c>HasCriterion</c> or board-class function in either assembly). The positive rows are
+/// definitions that must not (no second <c>BlankCriterion</c>, <c>HasFilter</c> or board-class function in either assembly). The positive rows are
 /// red until the build; the negative rows are controls.</para>
 /// </summary>
 [SuppressMessage(
@@ -37,7 +37,10 @@ public sealed partial class SharedBoardAndBlankRulesFenceTests
     [GeneratedRegex(@"BoardRules\.Classes\(", RegexOptions.CultureInvariant)]
     private static partial Regex BoardClassesCall();
 
-    [GeneratedRegex(@"\b(?:static|internal|private|public)\b[^;{=]*\b(?:BlankCriterion|HasCriterion|BoardClasses|BoardIssues)\s*\(", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"BoardRules\.Refusal\(", RegexOptions.CultureInvariant)]
+    private static partial Regex BoardRefusalCall();
+
+    [GeneratedRegex(@"\b(?:static|internal|private|public)\b[^;{=]*\b(?:BlankCriterion|HasFilter|BoardClasses|BoardIssues)\s*\(", RegexOptions.CultureInvariant)]
     private static partial Regex SecondDefinition();
 
     /// <summary>The entry points that must ask the shared function, and how many times at least: <c>curia search</c>, <c>curia inbox</c>, <c>curia_search</c>.</summary>
@@ -45,7 +48,7 @@ public sealed partial class SharedBoardAndBlankRulesFenceTests
     [
         ("src/Curia.Client.Cli/Program.cs", "curia search and curia inbox (SearchAsync, InboxAsync)", BlankCriterionCall, 2),
         ("src/Curia.Mcp/ForumTools.cs", "curia_search (SearchAsync)", BlankCriterionCall, 1),
-        ("src/Curia.Mcp/WriteTools.cs", "the reply tools (ReplyAsync and ReviseAsync: the board copied from a post)", BoardClassesCall, 2),
+        ("src/Curia.Mcp/WriteTools.cs", "the reply tools (ReplyAsync and ReviseAsync: the board copied from a post)", BoardRefusalCall, 2),
     ];
 
     /// <summary>NAM34: each entry point calls the shared function; red until the clients are built on it.</summary>
@@ -76,7 +79,9 @@ public sealed partial class SharedBoardAndBlankRulesFenceTests
                 var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
                 if (relative.Contains("/bin/", StringComparison.Ordinal) || relative.Contains("/obj/", StringComparison.Ordinal)) continue;
                 scanned++;
-                if (SecondDefinition().IsMatch(File.ReadAllText(file))) problems.Add($"{relative} defines its own blank-criterion or board-class function");
+                var text = File.ReadAllText(file);
+                if (SecondDefinition().IsMatch(text)) problems.Add($"{relative} defines its own blank-criterion or board-class function");
+                if (BoardClassesCall().IsMatch(text)) problems.Add($"{relative} asks BoardRules.Classes itself; the guard is BoardRules.Refusal (Q2)");
             }
         }
 

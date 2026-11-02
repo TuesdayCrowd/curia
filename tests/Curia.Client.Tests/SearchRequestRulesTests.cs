@@ -66,20 +66,16 @@ public sealed class SearchRequestRulesTests
         Assert.Equal("min_verification", SearchRequestRules.BlankCriterion("x", "b", "a", " "));
     }
 
-    /// <summary>NAM22: a request names a criterion when some member holds a character; a blank member is no criterion (the old present test counted it).</summary>
+    /// <summary>NAM22: a request names a filter when the board or the author holds a character; a blank member is no filter (the old present test counted it).</summary>
     [Theory]
-    [InlineData(null, null, null, null, false)]
-    [InlineData("", null, null, null, false)]
-    [InlineData(" ", null, null, null, false)]
-    [InlineData(null, " ", null, null, false)]
-    [InlineData(null, null, "\t", null, false)]
-    [InlineData(null, null, null, "  ", false)]
-    [InlineData(" ", " ", " ", " ", false)]
-    [InlineData("x", null, null, null, true)]
-    [InlineData(null, "b", null, null, true)]
-    [InlineData(null, null, "a", null, true)]
-    [InlineData(null, null, null, "V1", true)]
-    [InlineData(" ", "b", null, null, true)]
-    public void R11_78_NAM22_HasCriterionAgreesWithTheBlankTest(string? terms, string? board, string? author, string? minVerification, bool expected) =>
-        Assert.Equal(expected, SearchRequestRules.HasCriterion(terms, board, author, minVerification));
+    [InlineData(null, null, false)]
+    [InlineData("", null, false)]
+    [InlineData(" ", null, false)]
+    [InlineData(null, "\t", false)]
+    [InlineData(" ", " ", false)]
+    [InlineData("b", null, true)]
+    [InlineData(null, "a", true)]
+    [InlineData(" ", "a", true)]
+    public void R11_78_NAM22_HasFilterAgreesWithTheBlankTest(string? board, string? author, bool expected) =>
+        Assert.Equal(expected, SearchRequestRules.HasFilter(board, author));
 }

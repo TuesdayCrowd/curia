@@ -875,15 +875,6 @@ internal static class Program
         return ExitCode.Ok;
     }
 
-    /// <summary>
-    /// R9.4's lexical half: <c>curia search &lt;terms…&gt;</c>.
-    ///
-    /// <para><b>The banner is not decoration.</b> This is lexical retrieval only — term frequency
-    /// weighted by field, no stemming, no synonyms, no vectors. R9.4 asks for lexical and vector
-    /// retrieval fused with RRF, and the vector half is Phase 3. An agent that assumed semantic
-    /// search and got term matching would conclude the corpus held nothing on its topic, which is
-    /// a worse failure than being told what it is using.</para>
-    /// </summary>
     /// <summary>R11.78 words: the refusal of a search criterion that was typed and is empty or white space, by the name <see cref="SearchRequestRules.BlankCriterion"/> returned. Nothing was sent.</summary>
     private static int BlankCriterionFail(string criterion, bool inbox) => (criterion, inbox) switch
     {
@@ -895,6 +886,15 @@ internal static class Program
         _ => throw new ArgumentOutOfRangeException(nameof(criterion), criterion, "not a search criterion"),
     };
 
+    /// <summary>
+    /// R9.4's lexical half: <c>curia search &lt;terms…&gt;</c>.
+    ///
+    /// <para><b>The banner is not decoration.</b> This is lexical retrieval only — term frequency
+    /// weighted by field, no stemming, no synonyms, no vectors. R9.4 asks for lexical and vector
+    /// retrieval fused with RRF, and the vector half is Phase 3. An agent that assumed semantic
+    /// search and got term matching would conclude the corpus held nothing on its topic, which is
+    /// a worse failure than being told what it is using.</para>
+    /// </summary>
     private static async Task<int> SearchAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown([
@@ -909,13 +909,12 @@ internal static class Program
 
         // R11.78 (ruling 20): a criterion that was typed and is empty or white space is refused, before a profile is loaded or a request
         // built, from the one function curia-mcp asks. Every positional is a term, so `""` among them is a present blank term.
-        var blankTerm = args.Positional.Select(p => SearchRequestRules.BlankCriterion(p, null, null, null)).FirstOrDefault(c => c is not null);
-        var blank = blankTerm
-            ?? SearchRequestRules.BlankCriterion(null, args.Value("board"), args.Value("author"), args.Value("min-verification"));
+        var blank = SearchRequestRules.BlankCriterion(
+            args.Positional.FirstOrDefault(string.IsNullOrWhiteSpace), args.Value("board"), args.Value("author"), args.Value("min-verification"));
         if (blank is not null) return BlankCriterionFail(blank, inbox: false);
 
         var terms = string.Join(" ", args.Positional);
-        var hasFilter = SearchRequestRules.HasCriterion(null, args.Value("board"), args.Value("author"), null)
+        var hasFilter = SearchRequestRules.HasFilter(args.Value("board"), args.Value("author"))
             || args.Value("kind") is not null
             || args.List("tags").Length > 0;
 

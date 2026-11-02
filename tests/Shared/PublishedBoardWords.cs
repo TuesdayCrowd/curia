@@ -132,8 +132,8 @@ internal static partial class PublishedBoardWords
     /// <summary>The reply tools' sentence, with <c>&lt;post id&gt;</c> left as published.</summary>
     internal static string ReplySentence() => OneSpan(ClientAnchor, "This tool takes the board from the post it replies to");
 
-    /// <summary>The reply tools' sentence for a given post id.</summary>
-    internal static string ReplySentenceFor(string postId) => ReplySentence().Replace("<post id>", postId, StringComparison.Ordinal);
+    /// <summary>The reply tools' sentence for a given post id, which a reader writes as a display literal (errata G17).</summary>
+    internal static string ReplySentenceFor(string postId) => ReplySentence().Replace("<post id>", Curia.Canon.Json.DisplayLiteral.Of(postId), StringComparison.Ordinal);
 
     /// <summary>The <c>curia-mcp</c> version R11.78 names: the one <c>0.N.N</c> that follows "<c>curia-mcp</c>" in the sentence "The version in R11.78 is".</summary>
     internal static string Version()

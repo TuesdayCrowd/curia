@@ -118,12 +118,7 @@ public static class SubmissionBuilder
                 ClientErrors.EnvelopeInvalid($"{schemaError!.Type}: {schemaError.Title}"));
 
         if (PostEnvelope.AdmissionRefusal(read!) is { } admission)
-            return Result<SignedSubmission>.Fail(
-                ClientErrors.EnvelopeInvalid(
-                    // R8.73: the detail (a kind, or the index of each tag) says which part to correct. Never a value (R6.40).
-                    string.IsNullOrEmpty(admission.Detail)
-                        ? $"{admission.Type}: {admission.Title}"
-                        : $"{admission.Type}: {admission.Title} ({admission.Detail})"));
+            return Result<SignedSubmission>.Fail(ClientErrors.EnvelopeInvalid(admission));
 
         if (!CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out var canonError))
             return Result<SignedSubmission>.Fail(

@@ -155,8 +155,8 @@ internal sealed partial class ForumTools
             return new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = new FrameBuilder().Append($"{superseded}").ToString() }] };
 
         // R11.78: the board is copied from the post, so a stored board the grammar refuses cannot be signed for; said before anything is signed.
-        if (BoardName.Parse(post.Board, "board").IsOk && BoardRules.Classes(post.Board) is { Count: > 0 } boardClasses)
-            return ReplyBoardRefusal(post, boardClasses);
+        if (BoardRules.Refusal(post.Board) is { } boardRefusal)
+            return ReplyBoardRefusal(post, boardRefusal);
 
         var draft = new PostDraft
         {
@@ -205,8 +205,8 @@ internal sealed partial class ForumTools
                 : throw Refused(refusal!);
 
         // R11.78: the board is copied from the parent, so a stored board the grammar refuses cannot be signed for; said before anything is signed.
-        if (BoardName.Parse(post!.Board, "board").IsOk && BoardRules.Classes(post.Board) is { Count: > 0 } boardClasses)
-            return ReplyBoardRefusal(post, boardClasses);
+        if (BoardRules.Refusal(post!.Board) is { } boardRefusal)
+            return ReplyBoardRefusal(post, boardRefusal);
 
         var draft = new PostDraft
         {
@@ -646,10 +646,9 @@ internal sealed partial class ForumTools
     /// R11.78: the client's own refusal of the board (as <c>SubmissionBuilder.Build</c> words it), then the reply tools' sentence naming the post.
     /// The post is stored and is read as it is; only a new post on that name is refused.
     /// </summary>
-    private static CallToolResult ReplyBoardRefusal(ProvenancePost post, IReadOnlyList<string> classes)
+    private static CallToolResult ReplyBoardRefusal(ProvenancePost post, Error refusal)
     {
-        var refusal = ContentErrors.BoardNotCanonical(classes);
-        var error = ClientErrors.EnvelopeInvalid($"{refusal.Type}: {refusal.Title} ({refusal.Detail})");
+        var error = ClientErrors.EnvelopeInvalid(refusal);
         return new CallToolResult
         {
             IsError = true,

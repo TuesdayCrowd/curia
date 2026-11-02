@@ -299,9 +299,7 @@ public sealed record PostEnvelope(
 
         // R8.85: a board that is not a name, asked only of a board BoardName accepts (a board it refuses keeps R11.33's answer at
         // the ingest pipeline, and an empty one was Read's). Applied to a submission and never to a stored post.
-        if (!BoardName.Parse(envelope.Board, "board").IsOk) return null;
-        var classes = BoardRules.Classes(envelope.Board);
-        return classes.Count == 0 ? null : ContentErrors.BoardNotCanonical(classes);
+        return BoardRules.Refusal(envelope.Board);
     }
 
     private static Result<PostEnvelope> Fail(Error error) => Result<PostEnvelope>.Fail(error);

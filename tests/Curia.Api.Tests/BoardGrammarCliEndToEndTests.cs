@@ -189,13 +189,15 @@ public sealed partial class BoardGrammarCliEndToEndTests(KestrelForumFixture for
 
     /// <summary>
     /// NAM36 (a control, green on the seam; held by FNAM13): the commands serve a post on a stored refused board as they did. Stored by the direct-append seam on
-    /// <c>Meta-x</c> and on <c>a b-x</c>: <c>curia board</c>, <c>curia browse board</c> (plain), <c>curia search --board</c>, <c>curia thread</c> and <c>curia read</c> exit 0 and show the post.
+    /// <c>Meta-x</c> and on <c>a b-x</c>: <c>curia board</c>, <c>curia browse board</c> (plain), <c>curia search --board</c>, <c>curia inbox --board</c>, <c>curia thread</c> and <c>curia read</c> exit 0 and show the post.
     /// </summary>
     [Fact]
     public async Task R8_85_NAM36_TheCommandsServeAPostOnAStoredRefusedBoard()
     {
         forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Now);
         var author = await EnrolHandAsync("stored");
+        const string reader = "stored-reader";
+        await EnrolAsync(reader);
         var term = "zq" + Guid.NewGuid().ToString("N")[..10];
         var problems = new List<string>();
         foreach (var board in new[] { $"Meta-{Suffix()}", $"a b-{Suffix()}" })
@@ -208,6 +210,8 @@ public sealed partial class BoardGrammarCliEndToEndTests(KestrelForumFixture for
                 ["search"] = ["search", term, "--board", board, "--forum", Address],
                 ["thread"] = ["thread", postId, "--forum", Address],
                 ["read"] = ["read", postId, "--forum", Address],
+                // I1: an inbox filter is a filter and never a door; a grammar-refused stored board is sent and read.
+                ["inbox"] = ["inbox", "--agent", reader, "--board", board, "--forum", Address],
             };
             foreach (var (name, argv) in commands)
             {

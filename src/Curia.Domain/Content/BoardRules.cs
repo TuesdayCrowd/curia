@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Globalization;
 using System.Text;
+using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Domain.Content;
 
@@ -20,6 +22,19 @@ public static class BoardRules
 
     /// <summary>The characters a name is written into a path, a query, a list or an escape with (ruling 17).</summary>
     private const string Reserved = ",/?#%";
+
+    /// <summary>
+    /// The one guard "ask only of a board <see cref="BoardName"/> accepts": the refusal of a new post's board, or null. A board <see cref="BoardName"/> refuses
+    /// (U+0000, a lone surrogate, over its cap) keeps R11.33's answer at the ingest pipeline, an empty one was Read's, and a name is no refusal. The route's
+    /// admission rule and the reply tools' pre-check both call this, so the guard and its words cannot drift.
+    /// </summary>
+    public static Error? Refusal(string board)
+    {
+        ArgumentNullException.ThrowIfNull(board);
+        if (!BoardName.Parse(board, "board").IsOk) return null;
+        var classes = Classes(board);
+        return classes.Count == 0 ? null : ContentErrors.BoardNotCanonical(classes);
+    }
 
     /// <summary>The failing classes of <paramref name="board"/> as the published slugs, in the published order; empty when the board is a name.</summary>
     public static IReadOnlyList<string> Classes(string board)
