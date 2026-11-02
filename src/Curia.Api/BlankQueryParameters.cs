@@ -17,8 +17,7 @@ public enum BlankQueryRoute
 /// R9.54 (errata G56): a parameter that is present and blank is refused rather than dropped. Public, the shape of
 /// <see cref="SearchQueryParameters"/>, so a fact can read the types and the closed lists without a new <c>InternalsVisibleTo</c> (CS-5).
 ///
-/// <para><b>Seam.</b> <see cref="Check"/> refuses nothing at this stage; <see cref="IsBlank"/> is the one definition the route's
-/// <c>Nullable</c> already used, named so the refusal and the drop cannot read it two ways.</para>
+/// <para><see cref="IsBlank"/> is the one definition the route's <c>Nullable</c> uses, so the refusal and the drop cannot read it two ways.</para>
 /// </summary>
 public static class BlankQueryParameters
 {
@@ -41,11 +40,20 @@ public static class BlankQueryParameters
     /// <summary>White space is what <see cref="string.IsNullOrWhiteSpace(string?)"/> decides: the test the route drops a blank by.</summary>
     public static bool IsBlank(string? value) => string.IsNullOrWhiteSpace(value);
 
-    /// <summary>Null at this stage; otherwise the refusal naming each present blank parameter of <paramref name="route"/>.</summary>
+    /// <summary>
+    /// Null when no parameter of <paramref name="route"/>'s closed list is present and blank; otherwise the refusal naming each one, in the
+    /// published order and spelled as published whatever the case of the request's spelling (the query reads names without regard to case).
+    /// A parameter given twice is read as the route reads it, joined with a comma. The value is never echoed.
+    /// </summary>
     public static Error? Check(IQueryCollection query, BlankQueryRoute route)
     {
         ArgumentNullException.ThrowIfNull(query);
-        _ = route;
-        return null;
+
+        var names = route is BlankQueryRoute.Inbox ? InboxParameters : SearchParameters;
+        var blank = names.Where(n => query.ContainsKey(n) && IsBlank(query[n].ToString())).ToArray();
+        if (blank.Length == 0) return null;
+
+        var type = route is BlankQueryRoute.Inbox ? InboxType : SearchType;
+        return new Error(type, Title, "parameter=" + string.Join(", ", blank));
     }
 }

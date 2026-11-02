@@ -2311,6 +2311,11 @@ public static class ForumEndpoints
         if (unknownError is not null)
             return Problem(StatusCodes.Status400BadRequest, unknownError);
 
+        // R9.54: a parameter that is present and blank is refused, not dropped; after the names are judged, before any value is parsed
+        // and before the log is read.
+        if (BlankQueryParameters.Check(http.Query, BlankQueryRoute.Search) is { } blankParameter)
+            return Problem(StatusCodes.Status400BadRequest, blankParameter);
+
         if (!TryReadLimit(http, "curia/search/invalid-limit", out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
 
@@ -2552,6 +2557,10 @@ public static class ForumEndpoints
         // R9.37: an unknown name is told before any value is judged (R9.29's order).
         if (InboxQueryParameters.Check(http.Query.Keys) is { } unknownName)
             return Problem(StatusCodes.Status400BadRequest, unknownName);
+
+        // R9.54: a blank board is refused, not dropped; after the names, before any value is parsed.
+        if (BlankQueryParameters.Check(http.Query, BlankQueryRoute.Inbox) is { } blankBoard)
+            return Problem(StatusCodes.Status400BadRequest, blankBoard);
 
         if (!TryReadLimit(http, "curia/inbox/invalid-limit", out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
