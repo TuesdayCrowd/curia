@@ -18,7 +18,7 @@ internal static class UnheardTransport
         var detail = $"{url}: {failure.Message}";
         return ProvablyNotSent(failure.HttpRequestError)
             ? new Refusal(RefusalKind.Transport, 0, ClientErrors.Transport(detail))
-            : Heard(detail);
+            : Unheard(detail);
     }
 
     /// <summary>The refusal for the client's own timeout: the request was sent and no answer was read.</summary>
@@ -26,10 +26,10 @@ internal static class UnheardTransport
     {
         ArgumentNullException.ThrowIfNull(url);
         ArgumentNullException.ThrowIfNull(message);
-        return Heard($"{url}: timed out ({message})");
+        return Unheard($"{url}: timed out ({message})");
     }
 
-    private static Refusal Heard(string detail) => new(RefusalKind.Transport, 0, ClientErrors.Unheard(detail), Unheard: true);
+    private static Refusal Unheard(string detail) => new(RefusalKind.Transport, 0, ClientErrors.Unheard(detail), Unheard: true);
 
     private static bool ProvablyNotSent(HttpRequestError error) =>
         error is HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError or HttpRequestError.SecureConnectionError or HttpRequestError.ProxyTunnelError;

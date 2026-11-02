@@ -69,12 +69,15 @@ admin (pgvector is needed by `db/0003`).
   `VectorIndexCaughtUp`, `VectorIndexRetryFailed`, `VectorIndexCatchUpFailed`, `VectorIndexCheckOwed`, `VectorIndexCheckFound`,
   `VectorIndexCheckFailed`, `AppendConfirmed` and `AppendNotConfirmed` (the confirm of a faulted append, ids 5004 and 5005). A log
   holding none of the eleven prints each as 0 and exits 0.
-- `burst.sh <n>` (needs `FH_DB`, `FH_AGENT`; optional `FH_CURIA`, `FH_BOARD`): `n` simultaneous `curia ask` of one enrolled agent, one process
-  each. Prints per request the exit code, the status (read from the CLI's text) and the client's wall time, then how many answered
-  `curia/budget/agent-in-flight` and the burst's wall time. Exit 2 for `n` below 1. The times are the client's, not the Forum's.
+- `burst.sh <n>` (needs `FH_DB`, `FH_AGENT`; optional `FH_CURIA`, `FH_BOARD`, `FH_FORUM`): `n` simultaneous `curia ask` of one enrolled agent, one process
+  each, to `FH_FORUM` (default `$CURIA_FORUM`, then `http://localhost:5000`), passed to every `curia` as `--forum`. Prints per request the exit code, the status (read from the CLI's text) and the client's wall time, then how many answered
+  `curia/budget/agent-in-flight` and the burst's wall time. Exit 2 for `n` below 1 or **above 64** (the cap; R7.27 queues 16 per agent) and for a Forum whose host is
+  not loopback (`127.0.0.1`, `::1`, `localhost`): nothing is sent. `FH_DB` is checked as ever; the script cannot tell a harness Forum on loopback
+  from another Forum on loopback. A `curia` that cannot start is a line `exit -1 status error: <name>`. The times are the client's, not the Forum's.
 - `killat.sh <seconds> -- <command> [args...]`: runs the command and kills it (SIGKILL to its process group) after the stated seconds,
   printing the start and the kill as epoch milliseconds, so a client can disappear at a known instant. Exit 0 when it killed the command,
-  3 when the command ended first, 2 for a bad argument. It touches no database.
+  3 when the command ended first, 2 for a bad argument, `<seconds>` above 86400 or a command that cannot start. It touches no database. The command's
+  process group is killed on every way out (the instant, the command ending first, SIGINT, SIGTERM, SIGHUP); only SIGKILL of `killat.sh` itself leaves it.
 - `common.sh`: the shared configuration and guard (sourced, not run).
 
 ## The unindexed count

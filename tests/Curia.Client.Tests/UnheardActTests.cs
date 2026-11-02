@@ -44,7 +44,11 @@ public sealed partial class UnheardActTests
 
     private static readonly string[] AskArgs = ["ask", "--agent", "alice", "--board", "b", "--title", "A title?", "--body", "A body."];
 
-    private static Func<Uri, HttpClient> ShortTimeout => forum => new HttpClient { BaseAddress = forum, Timeout = TimeSpan.FromMilliseconds(300) };
+    /// <summary>300 ms for the write and the reads, not for the token step (Q10: a stalled machine must not turn an unheard row into a not-sent one).</summary>
+    private static Func<Uri, HttpClient> ShortTimeout => ShortTimeoutHandler.Client;
+
+    /// <summary>300 ms for every request, the token step included: the one fact whose stub stalls the token.</summary>
+    private static Func<Uri, HttpClient> ShortTimeoutEvenForTheToken => forum => new HttpClient { BaseAddress = forum, Timeout = TimeSpan.FromMilliseconds(300) };
 
     /// <summary>What a run of the command printed.</summary>
     private sealed record Printed(int Exit, string Text);
@@ -247,7 +251,7 @@ public sealed partial class UnheardActTests
         // a resolve or a flag"), and the title is not among what it forbids. A read, the token step and a verb that signs no post keep the old title.
         async Task CheckAsync(string name, RawStubForum stub, params string[] args)
         {
-            var run = await RunAsync(stub.Address, ShortTimeout, args);
+            var run = await RunAsync(stub.Address, stub.StallToken ? ShortTimeoutEvenForTheToken : ShortTimeout, args);
             var facts = Read(run.Text);
             var titleAllowed = args[0] is "resolve" or "flag";
             if (facts.Sentence || facts.ActLines > 0 || (facts.UnheardTitle && !titleAllowed)) problems.Add($"{name}: {facts.Says}");

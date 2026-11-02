@@ -128,15 +128,18 @@ public sealed partial class OweAfterConfirmTests
         var confirmAt = block.IndexOf("AppendConfirmation.ConfirmAsync(", StringComparison.Ordinal);
         var oweAt = OweCall().Match(block);
         var after = confirmAt >= 0 && oweAt.Success && oweAt.Index > confirmAt;
-        var inFound = oweAt.Success && EnclosingHeaders(endpoints, open, close, open + oweAt.Index).Any(h => h.Contains("Found", StringComparison.Ordinal));
+        var headers = oweAt.Success ? EnclosingHeaders(endpoints, open, close, open + oweAt.Index).ToArray() : [];
+        var inFound = headers.Any(h => h.Contains("Found", StringComparison.Ordinal));
+        var inNotFound = headers.Any(h => h.Contains("confirmed is null", StringComparison.Ordinal));
 
         var expected = "1 call site of Owe in src, inside the catch around PersistAsync, 1 call after the confirm call, none in the branch that continues with a found post";
         var actual = $"{total} call site{(total == 1 ? string.Empty : "s")} of Owe in src" +
             (total > 1 ? " (" + string.Join(", ", calls.Select(c => $"{c.File} x{c.Count}")) + ")" : string.Empty) +
             (block.Length == 0 ? ", no catch around PersistAsync was found" : oweAt.Success ? ", inside the catch around PersistAsync" : ", none inside the catch around PersistAsync") +
             (after ? ", 1 call after the confirm call" : ", 0 call sites after the confirm call") +
-            (inFound ? ", one in the branch that continues with a found post" : ", none in the branch that continues with a found post");
-        if (total == 1 && block.Length > 0 && oweAt.Success && after && !inFound) actual = expected;
+            (inFound ? ", one in the branch that continues with a found post" : ", none in the branch that continues with a found post") +
+            (inNotFound ? string.Empty : ", not inside the block of a post not found");
+        if (total == 1 && block.Length > 0 && oweAt.Success && after && !inFound && inNotFound) actual = expected;
         if (!string.Equals(expected, actual, StringComparison.Ordinal))
             throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }

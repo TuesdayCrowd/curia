@@ -563,7 +563,7 @@ public sealed class FaultedAppendIsConfirmedTests(ConfirmFixture forum) : IClass
 
     /// <summary>
     /// AFC15. Any exception. An exception nothing names after the commit is answered 201; before the commit, <c>500 curia/server/fault</c> and the confirm ran (one forward read,
-    /// nothing found); a <c>log/unreadable</c> before PERSIST (AUTHORIZE's read) makes no confirm and is answered as nothing recorded (control).
+    /// nothing found); a <c>log/unreadable</c> before PERSIST (AUTHORIZE's read) is answered as nothing recorded (control for the answer; it makes no confirm, but the fault mode does not count reads for it, so the leg does not measure that).
     /// </summary>
     [Fact]
     public async Task R8_84_AFC15_AnyExceptionIsConfirmedAndAReadFaultBeforePersistIsNot()
@@ -580,13 +580,13 @@ public sealed class FaultedAppendIsConfirmedTests(ConfirmFixture forum) : IClass
         var beforeReads = host.Store.ForwardReadsAfterFault;
         var beforeRows = (await Afc.StoredAsync(forum, d2, Ct)).Count;
 
-        var (a3, w3, t3, _) = await AskerAsync(host);
+        var (a3, w3, t3, d3) = await AskerAsync(host);
         var read = await SendUnderAsync(host, EventStoreFault.ThrowUnreadable, a3, w3, t3);
-        var readReads = host.Store.ReadsAfterFault;
+        var readRows = (await Afc.StoredAsync(forum, d3, Ct)).Count;
 
         Said(
-            $"after the commit, unnamed: 201 (1 stored); before it, unnamed: 500 {PublishedStoreFaults.FaultType} (0 stored, 1 forward read); a read fault before PERSIST: 503 {PublishedStoreFaults.LogUnreadableType} and no confirm",
-            $"after the commit, unnamed: {Answered(after)} ({afterRows} stored); before it, unnamed: {Answered(before)} ({beforeRows} stored, {beforeReads} forward read{(beforeReads == 1 ? string.Empty : "s")}); a read fault before PERSIST: {Answered(read)} and {(readReads == 0 ? "no confirm" : "a confirm")}");
+            $"after the commit, unnamed: 201 (1 stored); before it, unnamed: 500 {PublishedStoreFaults.FaultType} (0 stored, 1 forward read); a read fault before PERSIST: 503 {PublishedStoreFaults.LogUnreadableType} (0 stored)",
+            $"after the commit, unnamed: {Answered(after)} ({afterRows} stored); before it, unnamed: {Answered(before)} ({beforeRows} stored, {beforeReads} forward read{(beforeReads == 1 ? string.Empty : "s")}); a read fault before PERSIST: {Answered(read)} ({readRows} stored)");
     }
 
     /// <summary>

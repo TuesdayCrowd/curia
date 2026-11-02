@@ -58,6 +58,7 @@
     <Compile Include="../Shared/PublishedClientWords.cs" Link="Shared/PublishedClientWords.cs" />
     <Compile Include="../Shared/PublishedConfirmWords.cs" Link="Shared/PublishedConfirmWords.cs" />
     <Compile Include="../Shared/ReceivedAct.cs" Link="Shared/ReceivedAct.cs" />
+    <Compile Include="../Shared/ShortTimeoutHandler.cs" Link="Shared/ShortTimeoutHandler.cs" />
   </ItemGroup>
 
 </Project>

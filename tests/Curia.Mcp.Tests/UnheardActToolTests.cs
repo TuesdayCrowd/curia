@@ -100,7 +100,7 @@ public sealed partial class UnheardActToolTests : IDisposable
         _homes.Add(home);
         _owned.Add(agent!);
         var handler = new EndingHandler(log.RawClient(), fate, everyWrite);
-        var http = new HttpClient(handler) { BaseAddress = StubLog.Forum, Timeout = TimeSpan.FromMilliseconds(300) };
+        var http = new HttpClient(new ShortTimeoutHandler(handler)) { BaseAddress = StubLog.Forum, Timeout = TimeSpan.FromSeconds(30) };
         _owned.Add(http);
         var client = new ForumClient(http, StubLog.Forum);
         var session = new ForumSession(client, agent!, log.Store, TimeProvider.System);

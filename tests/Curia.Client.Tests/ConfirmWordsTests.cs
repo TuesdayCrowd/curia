@@ -84,6 +84,10 @@ public sealed partial class ConfirmWordsTests
         if (withoutIt.Length > 0) problems.Add($"the help of {withoutIt.Length} of {verbs.Length} writing verbs lacks the sentence ({string.Join(' ', withoutIt)})");
         if (old is not null) problems.Add($"G53's span still holds a store sentence{(withOld.Length > 0 ? $", carried by the help of {withOld.Length} verbs" : string.Empty)}");
         if (missingClauses.Length > 0) problems.Add($"{missingClauses.Length} of the 3 clauses are not printed");
+        // Ruling 23, the hand-written leg (not read from the errata): the printed sentence claims a finished look only conditionally, and never the unconditional form.
+        if (!printed.Contains("where that read finished", StringComparison.Ordinal)) problems.Add("the refusal lacks \"where that read finished\"");
+        if (!printed.Contains("a read that did not finish says nothing", StringComparison.Ordinal)) problems.Add("the refusal lacks \"a read that did not finish says nothing\"");
+        if (printed.Contains("read its own log for the act's digest and did not find", StringComparison.Ordinal)) problems.Add("the refusal states the look as having finished");
         Said(expected, problems.Count == 0 ? expected : string.Join("; ", problems));
     }
 

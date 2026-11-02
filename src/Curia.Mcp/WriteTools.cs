@@ -435,7 +435,7 @@ internal sealed partial class ForumTools
         // R11.72 (errata G52), R11.77 (errata G55): what follows the refusal of a signed post (the unheard sentence, the act line naming the digest to ask curia_recheck
         // about) is StoreWording's one definition, computed over the bytes signed here. Nothing is resent or asked here (R11.64).
         if (StoreWording.AfterRefusal(refusal!, submission.PrefixedDigest) is { Count: > 0 } following)
-            throw new McpException($"{refused.Message} {string.Join(' ', following)}");
+            throw new McpException($"{refused.Message} {string.Join('\n', following)}");
 
         if (revisionParent is not null
             && string.Equals(refusal!.Error.Type, ParentErrors.NotAQuestionType, StringComparison.Ordinal)

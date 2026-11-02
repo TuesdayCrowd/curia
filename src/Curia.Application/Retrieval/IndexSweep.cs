@@ -140,14 +140,14 @@ public sealed class IndexSweep
     }
 
     /// <summary>Registers <paramref name="digest"/> as a post whose index step (or confirm) is running in this process; registrations nest and each needs its own end.</summary>
-    public void BeginIndexing(string digest)
+    internal void BeginIndexing(string digest)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
         lock (_gate) _inFlight[digest] = _inFlight.GetValueOrDefault(digest) + 1;
     }
 
     /// <summary>Ends one registration of <paramref name="digest"/>; the digest is in flight until every registration has ended.</summary>
-    public void EndIndexing(string digest)
+    internal void EndIndexing(string digest)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
         lock (_gate)

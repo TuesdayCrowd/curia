@@ -1088,7 +1088,7 @@ public static class ForumEndpoints
                 // The host's token, not the caller's: a client that has gone is the case that leaves a committed post. Total: it returns an outcome and never throws.
                 var outcome = await AppendConfirmation.ConfirmAsync(
                     events, log.Count == 0 ? EventSequence.Zero : log[^1].Seq, digest, indexer.Clock, AppendConfirmation.ConfirmBound, indexer.Shutdown).ConfigureAwait(false);
-                var confirmed = outcome as ConfirmOutcome.Found;
+                var confirmed = outcome.Match<ConfirmOutcome.Found?>(found => found, () => null, () => null, () => null, () => null);
                 if (confirmed is null)
                 {
                     if (PostKinds.IsDiscussion(v.Envelope.Kind))
