@@ -38,6 +38,7 @@ public sealed class VerifyRefusalsTests
                 var t when t == typeof(PostKind) => PostKind.Question,
                 var t when t == typeof(string) => "x",
                 var t when t == typeof(IReadOnlyList<int>) => (IReadOnlyList<int>)[0],
+                var t when t == typeof(IReadOnlyList<string>) => (IReadOnlyList<string>)["control"],
                 _ => throw new InvalidOperationException($"{method.Name} takes a {p.ParameterType.Name}; teach this test to build it"),
             }).ToArray();
 

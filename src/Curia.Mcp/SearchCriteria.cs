@@ -38,7 +38,7 @@ namespace Curia.Mcp;
 /// </summary>
 internal sealed record SearchCriteria
 {
-    /// <summary>Free text. Absent returns everything the corpus matches, paged (R9.25).</summary>
+    /// <summary>Free text. Absent returns everything the corpus matches, paged (R9.25); present and empty or blank is refused by name (R11.78).</summary>
     [JsonPropertyName("query")]
     public string? Query { get; init; }
 
