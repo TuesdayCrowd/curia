@@ -1,3 +1,4 @@
+using Curia.Application.Ports;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 
@@ -9,7 +10,7 @@ namespace Curia.Application.Ingest;
 /// <para><b>What the signatures alone guarantee.</b> Every method's input type is the previous
 /// method's output type, and there is no overload taking anything else. So:</para>
 /// <list type="bullet">
-/// <item><see cref="PersistAsync"/> cannot be called with something unverified, because a
+/// <item><see cref="PersistAsync(ScreenedSubmission, CancellationToken)"/> cannot be called with something unverified, because a
 /// <see cref="ScreenedSubmission"/> can only be built from a <see cref="VerifiedSubmission"/>;</item>
 /// <item>a <see cref="VerifiedSubmission"/> can only be built from an
 /// <see cref="AdmittedSubmission"/>, which only <see cref="Admit"/> produces;</item>
@@ -63,5 +64,15 @@ public interface IIngestPipeline
     /// </summary>
     Task<Result<PostAccepted>> PersistAsync(
         ScreenedSubmission screened,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// PERSIST with the append's guard (R6.60, R8.86; errata G57): the same append, carrying <paramref name="guard"/>, which the store evaluates inside the
+    /// log's lock. The submit route calls this one; the overload above stays for the fixtures that store what the door now refuses (trap 119) and is
+    /// held away from the route by a fence.
+    /// </summary>
+    Task<Result<PostAccepted>> PersistAsync(
+        ScreenedSubmission screened,
+        AppendGuard guard,
         CancellationToken cancellationToken = default);
 }

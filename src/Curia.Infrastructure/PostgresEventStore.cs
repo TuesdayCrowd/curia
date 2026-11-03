@@ -97,6 +97,19 @@ public sealed class PostgresEventStore : IEventStore
         return AppendCoreAsync(aggregateId, expectedVersion, events, condition, cancellationToken);
     }
 
+    // R6.60 (errata G57): the guard is counted, read and evaluated inside AppendCoreAsync, under the log's lock.
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition,
+        AppendGuard guard,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(guard);
+        return AppendCoreAsync(aggregateId, expectedVersion, events, condition, cancellationToken, guard);
+    }
+
     /// <summary>
     /// The one core every INSERT into <c>events</c> passes (R4.38 (add.)): the lifecycle gate is asked
     /// after the batch is admitted and before a connection is opened, so a refused append costs no round
@@ -134,7 +147,8 @@ public sealed class PostgresEventStore : IEventStore
         AggregateVersion expectedVersion,
         IReadOnlyList<DomainEvent> events,
         StreamCondition? condition,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AppendGuard? guard = null)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -222,6 +236,20 @@ public sealed class PostgresEventStore : IEventStore
             }
         }
 
+        // R6.60 (errata G57): the guard is judged here -- under the lock, after the stream checks, before the INSERT -- so a commit that
+        // landed after the caller's read and before this lock was taken is in the delta. An empty delta proves only that nothing changed
+        // since the read and calls nothing. A delta over the cap is counted (a count limited to cap + 1 rows, which
+        // returns one scalar; whether the plan is index-only is P4's measurement and no test's) and refused before the function is called (LCB9).
+        if (guard is not null)
+        {
+            var refusal = await EvaluateGuardAsync(connection, transaction, guard, cancellationToken).ConfigureAwait(false);
+            if (refusal is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return Result<IReadOnlyList<AppendedEvent>>.Fail(refusal);
+            }
+        }
+
         var serverTimestamp = ServerTimestamp.At(_clock.GetUtcNow());
 
         var appended = new List<AppendedEvent>(events.Count);
@@ -240,6 +268,54 @@ public sealed class PostgresEventStore : IEventStore
         // sorting again here costs nothing and removes any doubt for a reader of this method.
         appended.Sort(static (a, b) => a.Seq.CompareTo(b.Seq));
         return Result<IReadOnlyList<AppendedEvent>>.Ok(appended);
+    }
+
+    /// <summary>
+    /// R6.60: the events after the guard's position, counted then read on the append's own connection and transaction, and the verdict of the guard's function
+    /// over them. Returns the error to answer when the append must not go on, or <see langword="null"/> to proceed. A throw leaves the method and the caller's
+    /// transaction is disposed (rolled back); it is never read as a pass.
+    /// </summary>
+    [SuppressMessage(
+        "Reliability",
+        "CA2007:Consider calling ConfigureAwait on the awaited task",
+        Justification = "See AppendCoreAsync's identical suppression: the flags left are `await using`'s compiler-generated DisposeAsync() awaits.")]
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "The only interpolated text is _qualifiedTable and the SelectColumns constant; every per-call value is a bound parameter.")]
+    private async Task<Error?> EvaluateGuardAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        AppendGuard guard,
+        CancellationToken cancellationToken)
+    {
+        long delta;
+        await using (var countCommand = new NpgsqlCommand(
+            $"SELECT count(*) FROM (SELECT 1 FROM {_qualifiedTable} WHERE seq > @after LIMIT @cap) d;", connection, transaction))
+        {
+            countCommand.Parameters.Add(new NpgsqlParameter("after", NpgsqlDbType.Bigint) { Value = guard.After.Value });
+            countCommand.Parameters.Add(new NpgsqlParameter("cap", NpgsqlDbType.Bigint) { Value = (long)AppendGuard.DeltaCap + 1 });
+            delta = (long)(await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+        }
+
+        if (delta == 0)
+            return null;
+
+        if (delta > AppendGuard.DeltaCap)
+            return DomainErrors.AppendDeltaTooLarge();
+
+        IReadOnlyList<AppendedEvent> events;
+        await using (var readCommand = new NpgsqlCommand(
+            $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE seq > @after ORDER BY seq;", connection, transaction))
+        {
+            readCommand.Parameters.Add(new NpgsqlParameter("after", NpgsqlDbType.Bigint) { Value = guard.After.Value });
+            events = await ReadRowsAsync(readCommand, cancellationToken).ConfigureAwait(false);
+        }
+
+        return guard.Evaluate(events).Match<Error?>(
+            proceed: () => null,
+            refuse: error => error,
+            redecide: DomainErrors.AppendRedecide);
     }
 
     [SuppressMessage(

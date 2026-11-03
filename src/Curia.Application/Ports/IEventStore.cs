@@ -190,6 +190,23 @@ public interface IEventStore : IEventReader
         IReadOnlyList<DomainEvent> events,
         StreamCondition condition,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// R6.60 (errata G57): the append of <see cref="AppendAsync(AggregateId, AggregateVersion, IReadOnlyList{DomainEvent}, StreamCondition, CancellationToken)"/>
+    /// (the condition optional here) that also asks <paramref name="guard"/> whether the caller's decision still holds. Inside the log's lock, after the
+    /// version and condition checks and before the INSERT, the store reads the events after <see cref="AppendGuard.After"/> and, when there are any, calls
+    /// <see cref="AppendGuard.Evaluate"/> once: <see cref="GuardVerdict.Proceed"/> goes on, <see cref="GuardVerdict.Refuse"/> rolls back and returns the
+    /// caller's error unchanged, <see cref="GuardVerdict.Redecide"/> rolls back and returns <see cref="DomainErrors.AppendRedecide"/>; a delta over
+    /// <see cref="AppendGuard.DeltaCap"/> (2,000 events, which is not the reader's page) is not read and returns <see cref="DomainErrors.AppendDeltaTooLarge"/>. A throw rolls back and propagates. Both
+    /// adapters evaluate it identically; every other promise of the overloads above holds, and their failures keep their precedence over the guard.
+    /// </summary>
+    Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition,
+        AppendGuard guard,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

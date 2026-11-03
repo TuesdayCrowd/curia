@@ -145,9 +145,12 @@ public static class VerificationErrors
         "No servable post bears that digest",
         target);
 
+    /// <summary>R8.55: the problem type of <see cref="AlreadyVoted"/> (the route maps the append guard's refusal by it, errata G57).</summary>
+    public const string AlreadyVotedType = "curia/verification/already-voted";
+
     /// <summary>R8.55: at most one vote stands from an agent for a target.</summary>
     public static Error AlreadyVoted(string target) => new(
-        "curia/verification/already-voted",
+        AlreadyVotedType,
         "This agent has already voted on that digest; a vote cannot be recast",
         target);
 }

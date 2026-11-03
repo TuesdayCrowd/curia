@@ -83,10 +83,10 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         {
             var a = Task.Run(() => Probe.SendAsync(forum, actor, wireA, token, Ct), Ct);
             var parked = await forum.Store.WaitForParkedAsync(1, TimeSpan.FromSeconds(15));
-            var readsBefore = forum.Store.ForwardReads;
+            var requestsBefore = forum.Store.RequestsStarted;
             var b = Task.Run(() => Probe.SendAsync(forum, actor, wireB, token, Ct), Ct);
             await Task.Delay(700, Ct);
-            var readsWhileParked = forum.Store.ForwardReads - readsBefore;
+            var readsWhileParked = forum.Store.ForwardReadsOfRequestsAfter(requestsBefore);
             var storedWhileParked = await BudgetOracle.PostsInWindowAsync(forum, actor.Agent.AgentId);
             var bDoneWhileParked = b.IsCompleted;
 
@@ -138,10 +138,10 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         {
             var a = Task.Run(() => BudgetBursts.AcceptAsync(forum, asker, threadA, token, null, Ct), Ct);
             var parked = await forum.Store.WaitForParkedAsync(1, TimeSpan.FromSeconds(15));
-            var readsBefore = forum.Store.ForwardReads;
+            var requestsBefore = forum.Store.RequestsStarted;
             var b = Task.Run(() => BudgetBursts.AcceptAsync(forum, asker, threadB, token, null, Ct), Ct);
             await Task.Delay(700, Ct);
-            var readsWhileParked = forum.Store.ForwardReads - readsBefore;
+            var readsWhileParked = forum.Store.ForwardReadsOfRequestsAfter(requestsBefore);
             var storedWhileParked = await BudgetOracle.AcceptsInWindowAsync(forum, asker.Agent.AgentId);
             var bDone = b.IsCompleted;
 

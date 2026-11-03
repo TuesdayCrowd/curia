@@ -275,10 +275,16 @@ public sealed class Program
 
         // R10.35's flag path. Holds IEventStore for the reason EnrollAgent does, and the private
         // store because a flag's post, raiser and rationale are never an event (R10.62, R11.32).
-        builder.Services.AddSingleton(sp => new RaiseFlag(
-            sp.GetRequiredService<IEventStore>(),
-            sp.GetRequiredService<IFlagDetailStore>(),
-            sp.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(sp =>
+        {
+            // R10.94 (errata G57): a flag decided again is logged (5007) with its pass count and nothing else.
+            var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("Curia.Api.AppendGuard");
+            return new RaiseFlag(
+                sp.GetRequiredService<IEventStore>(),
+                sp.GetRequiredService<IFlagDetailStore>(),
+                sp.GetRequiredService<TimeProvider>(),
+                onRedecided: (pass, passes) => AppendGuardLog.Redecided(log, pass, passes));
+        });
 
         // R10.59's writer, reached by no HTTP route: registered so the end-to-end fixture withholds
         // through the same object the operator tool builds, never by hand-building the event.

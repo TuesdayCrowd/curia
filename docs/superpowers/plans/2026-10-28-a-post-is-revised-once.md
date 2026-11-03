@@ -296,6 +296,6 @@ As #130: every .NET assembly in Release (`ScreeningCostTests` excluded; Postgres
 
 **Left open by this PR:** D88 (a fresh T0 author's eight concurrent comments all store against a budget of three; recommended before the ninth exercise); a fork already in a log is read, not repaired, and a moderator's restore of a withheld branch can still make one (FORKED tells it); R8.78's check is not atomic with the append for the kinds with no gate (tolerance makes it harmless); the second full-log read under the hold (2.3 s at 100,000 events at Task 0; the remedy, a narrower reader port, needs an index and a `db/` change, and its trigger is ruling 20's); an idempotent `200` for a retry, instead of `409 already-recorded`, is named and not built; the curia skill's `references/cli.md` (outside this repository) is the controller's.
 
-The PR is #131, on `main` at ________.
+The PR is #131, on `main` at 46c4dff1.
 
 Final whole run on the finished code (f6db0db1's code; docs only after it), 2026-10-28, Release with 0 warnings: Api 1081 of 1081 (29 m 39 s, the request fuzzer included, its ledger empty), Client 1116, Domain 840, Mcp 636 and 1 skipped, Application 547, Canon 329, Infrastructure 168, AuthN 140, Domain.Primitives 64, Architecture 65 in Release and Debug, Canon.Sodium 32; the locked restore, `cargo fmt --check`, clippy and `cargo test --locked`, the differential gate (0 classes), `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red, and `conformance/` clean.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# fault.sh status | vector-on | vector-off | insert-on | insert-off | log-on | log-off | cut-on <p> | cut-off | all-off
+# fault.sh status | vector-on | vector-off | insert-on | insert-off | log-on | log-off | cut-on <p> | cut-off | hold-on <seconds> <name> | hold-off <name> | all-off
 # Faults are REVOKE/GRANT on the throwaway database's events and post_embeddings tables for FH_ROLE, plus the proxy's mode file.
 # Nothing else: no server setting, no backend termination, no role limit, no restart.
 # Needs FH_DB and FH_ROLE (see common.sh); refuses (exit 2, nothing touched) unless they pass check_pair.
@@ -24,9 +24,9 @@ status(){
   [ "$(privs post_embeddings)" = "tttf" ] || { open="$open post_embeddings(vector)"; rc=1; }
   [ "$mode" = "passthru" ] || { open="$open proxy($mode)"; rc=1; }
   # which window was opened, and for how long (from faults.log; the privileges above are the truth)
-  for pair in "vector-on:vector-off" "insert-on:insert-off" "log-on:log-off" "cut-on:cut-off"; do
+  for pair in "vector-on:vector-off" "insert-on:insert-off" "log-on:log-off" "cut-on:cut-off" "hold-on:hold-off"; do
     on=${pair%%:*}; off=${pair#*:}
-    last=$(awk -v on="$on" -v off="$off" '$2==on||$2==off{l=$0} END{print l}' "$FH_DIR/faults.log" 2>/dev/null || true)
+    last=$(awk -v on="$on" -v off="$off" '$2==on||$2==off||$2=="all-off"{l=$0} END{print l}' "$FH_DIR/faults.log" 2>/dev/null || true)
     case "$last" in *" $on "*) ts=${last%% *}; age=$(( ($(now_ms) - ts) / 1000 )); echo "  open: $on for ${age}s"; [ $age -gt 480 ] && echo "  WARNING over 8 minutes: $on";; esac
   done
   if [ $rc -ne 0 ]; then echo "FAULT OPEN:$open"; else echo "original: events SELECT+INSERT, post_embeddings SELECT+INSERT+UPDATE, proxy passthru"; fi
@@ -44,9 +44,25 @@ cut-on)
   p=${2:-}; python3 -I -c "import sys;v=float(sys.argv[1]);assert 0<v<=1" "$p" 2>/dev/null || { echo "usage: fault.sh cut-on <p> with 0 < p <= 1" >&2; exit 2; }
   mk c1-open; "$FH_SRC/proxy.sh" p "$p" >/dev/null; log "cut-on"; echo "cut-on p=$p" ;;
 cut-off) "$FH_SRC/proxy.sh" mode passthru >/dev/null; log cut-off; mk c1-close; echo "cut-off" ;;
+hold-on)
+  # A late commit: every simple-query COMMIT through the proxy is held <seconds>, then forwarded even if the client has gone.
+  hs=${2:-}; hn=${3:-}
+  python3 -I -c "import sys;v=float(sys.argv[1]);assert 0<v<=900" "$hs" 2>/dev/null || { echo "usage: fault.sh hold-on <seconds> <name> with 0 < seconds <= 900" >&2; exit 2; }
+  [[ "$hn" =~ ^[a-z0-9]+$ ]] || { echo "usage: fault.sh hold-on <seconds> <name> (name: lower-case letters and digits)" >&2; exit 2; }
+  # The proxy has one mode file: a hold would replace any other mode (cutcommit, dropcancel, another hold) without a word.
+  cur=$(cat "$FH_DIR/pgproxy.mode" 2>/dev/null || echo passthru)
+  [ "$cur" = "passthru" ] || die "proxy mode is '$cur', not passthru (the modes are exclusive); turn it off first"
+  mk "$hn-open"; "$FH_SRC/proxy.sh" mode "delaycommit:$hs" >/dev/null; echo "$(now_ms) hold-on $FH_DB $hn delaycommit:$hs" >> "$FH_DIR/faults.log"; echo "hold-on delaycommit:$hs $hn" ;;
+hold-off)
+  hn=${2:-}; [[ "$hn" =~ ^[a-z0-9]+$ ]] || { echo "usage: fault.sh hold-off <name>" >&2; exit 2; }
+  cur=$(cat "$FH_DIR/pgproxy.mode" 2>/dev/null || echo passthru)
+  case "$cur" in delaycommit:*) ;; *) die "no hold is on (proxy mode is '$cur')";; esac
+  last=$(awk '$2=="hold-on"||$2=="hold-off"{l=$0} END{print l}' "$FH_DIR/faults.log" 2>/dev/null || true)
+  case "$last" in *" hold-on $FH_DB $hn "*) ;; *) die "the open hold was not opened under the name '$hn'";; esac
+  "$FH_SRC/proxy.sh" mode passthru >/dev/null; echo "$(now_ms) hold-off $FH_DB $hn" >> "$FH_DIR/faults.log"; mk "$hn-close"; echo "hold-off $hn" ;;
 all-off)
   $PSQL -c "GRANT INSERT, UPDATE ON post_embeddings TO $FH_ROLE" -c "GRANT INSERT ON events TO $FH_ROLE" -c "GRANT SELECT ON events TO $FH_ROLE"
   "$FH_SRC/proxy.sh" mode passthru >/dev/null
   log all-off; status; exit $? ;;
-*) echo "usage: fault.sh status|vector-on|vector-off|insert-on|insert-off|log-on|log-off|cut-on <p>|cut-off|all-off" >&2; exit 2 ;;
+*) echo "usage: fault.sh status|vector-on|vector-off|insert-on|insert-off|log-on|log-off|cut-on <p>|cut-off|hold-on <seconds> <name>|hold-off <name>|all-off" >&2; exit 2 ;;
 esac

@@ -938,11 +938,13 @@ public static class ForumEndpoints
         // R8.77 (errata G45): a revision is entered under a gate on its prev. After AUTHORIZE (a stranger is told 403 and never holds the gate or
         // learns a successor) and before the parent checks, the near-duplicate check, SCREEN and PERSIST. The log AUTHORIZE read is older than any
         // hold, so the checks are made again on a log read under the hold, and the hold is released when the attempt ends on any path (the
-        // `await using`), after PERSIST has committed or refused. Try, never wait: a held gate is 409 revision-in-flight.
+        // `await using`), after PERSIST has committed or refused. Try, never wait: a held gate is 409 revision-in-flight. The gate is the fast path and not the
+        // guarantee (errata G57): a commit the Forum gave up on can land after the hold is released, so every post's append also carries the digest, successor
+        // and vote checks as a guard the store judges inside the log's lock (R6.60, R8.86), and a flag's append sends its decision back (R10.94).
         BudgetEntry BudgetAfter(DateTimeOffset act) => BudgetReadout.After(BudgetKinds.Posting, postLimit, postInstants, act, now);
 
         if (v.Envelope.Kind is not PostKind.Revision || v.Envelope.Prev is not { Length: > 0 } prevDigest)
-            return await PersistSubmissionAsync(v, log, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, DecidedLog.Of(log), pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
 
         var entered = await revisionGate.TryEnterAsync(prevDigest, cancellationToken).ConfigureAwait(false);
         if (!entered.TryGetValue(out var held, out var gateError))
@@ -961,11 +963,32 @@ public static class ForumEndpoints
             if (!read.TryGetValue(out var fresh, out var readError))
                 return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
 
-            if (RevisionRefusal(fresh!, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
+            var freshLog = DecidedLog.Of(fresh!);
+            // An original absent from freshLog.Facts is answered 503 here; the guard built from the same facts in PersistSubmissionAsync therefore always has its original (SubmissionGuard.ForRevision, ruling 49(c)).
+            if (RevisionRefusal(freshLog.Facts, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
                 return refusal;
 
-            return await PersistSubmissionAsync(v, fresh!, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, freshLog, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// One read of the log and the facts folded from that very read (errata G57, review M3): the pair is made in one place, so the checks and the guard
+    /// built for PERSIST cannot be handed facts of one read and the position of another.
+    /// </summary>
+    private sealed class DecidedLog
+    {
+        private DecidedLog(IReadOnlyList<AppendedEvent> log, LogFacts facts)
+        {
+            Log = log;
+            Facts = facts;
+        }
+
+        public IReadOnlyList<AppendedEvent> Log { get; }
+
+        public LogFacts Facts { get; }
+
+        public static DecidedLog Of(IReadOnlyList<AppendedEvent> log) => new(log, LogFacts.Of(log));
     }
 
     /// <summary>
@@ -974,23 +997,14 @@ public static class ForumEndpoints
     /// first served successor in log order. "Served" is <see cref="CorrectionIndex.For"/>'s alone (through <see cref="Servable"/>), so this check, a
     /// post's <c>superseded_by</c> and the batch's <c>successors</c> cannot answer differently (R9.32); a successor the Forum does not serve does not count.
     /// </summary>
-    private static IResult? RevisionRefusal(IReadOnlyList<AppendedEvent> fresh, string prevDigest, string digest)
-    {
-        if (AlreadyRecordedPost(fresh, digest) is { } recordedPostId)
-            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(recordedPostId));
-
-        var posts = PostProjector.Fold(fresh);
-        var original = posts.FirstOrDefault(p => string.Equals(p.Digest, prevDigest, StringComparison.Ordinal));
-
-        // AUTHORIZE found this post in a log that has only grown, so its absence is a log this Forum cannot read now, never a pass.
-        if (original is null)
-            return Problem(StatusCodes.Status503ServiceUnavailable, IngestErrors.RevisionCheckUnavailable());
-
-        var served = CorrectionIndex.Fold(posts, Servable(fresh)).For(original).FirstOrDefault(successor => successor.PostId is not null);
-        return served is { PostId: { } successorPostId }
-            ? Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRevised(successorPostId))
+    private static IResult? RevisionRefusal(LogFacts facts, string prevDigest, string digest) =>
+        SubmissionChecks.RevisionRefusal(facts, prevDigest, digest) is { } refusal
+            ? Problem(
+                string.Equals(refusal.Type, IngestErrors.RevisionCheckUnavailableType, StringComparison.Ordinal)
+                    ? StatusCodes.Status503ServiceUnavailable
+                    : StatusCodes.Status409Conflict,
+                refusal)
             : null;
-    }
 
     /// <summary>
     /// The rest of <see cref="SubmitAttemptAsync"/>, decided on <paramref name="log"/>: the parent checks, the signal refusal, the near-duplicate
@@ -998,7 +1012,7 @@ public static class ForumEndpoints
     /// </summary>
     private static async Task<IResult?> PersistSubmissionAsync(
         VerifiedSubmission v,
-        IReadOnlyList<AppendedEvent> log,
+        DecidedLog decided,
         IIngestPipeline pipeline,
         IEventReader events,
         IndexStep indexer,
@@ -1007,6 +1021,9 @@ public static class ForumEndpoints
         Func<DateTimeOffset, BudgetEntry> budgetAfter,
         CancellationToken cancellationToken)
     {
+        var log = decided.Log;
+        var facts = decided.Facts;
+
         // R8.70 (errata G38): an answer's parent is a question that exists and a comment's is a post that exists. After the
         // authorization above, so a caller denied by tier is never told whether a post exists; before the signal refusal, the
         // duplicate check, SCREEN and PERSIST, so nothing is screened or stored for a post that is refused. An unreadable log is
@@ -1028,7 +1045,7 @@ public static class ForumEndpoints
             // parent checks (a withheld comment as an answer's parent is `parent-not-a-question`, the stored kind), after AUTHORIZE
             // (an under-tier caller is told the tier and never the post's state), before SCREEN and PERSIST (nothing stored, no
             // budget spent). `servable` is built from the log read above, so there is no second read and no caching (R7.4).
-            if (parentFacts is not null && !Servable(log)(parentFacts.PostId))
+            if (parentFacts is not null && !facts.Servable(parentFacts.PostId))
                 return Problem(StatusCodes.Status400BadRequest, ParentErrors.Withheld(submittedParent));
         }
 
@@ -1036,7 +1053,7 @@ public static class ForumEndpoints
         // target) is decided in the domain before anything is written. Here rather than in VERIFY
         // because the rules need the log; here rather than after SCREEN because a refused signal
         // should not be screened for content it will never persist.
-        if (PostKinds.RequiresTarget(v.Envelope.Kind) && SignalRefusal(log, v) is { } refused)
+        if (PostKinds.RequiresTarget(v.Envelope.Kind) && SignalRefusal(log, facts, v) is { } refused)
             return refused;
 
         // §8.5 (R8.17, R8.18; errata G10): the near-duplicate check, in the same place and for the
@@ -1070,13 +1087,16 @@ public static class ForumEndpoints
         // (and a revision's gate, which the caller's `await using` keeps), by reading the events after its own read for the act's digest. Found: it goes on as for
         // any committed post, and owes nothing. Not found, or the confirm could not learn: the original exception is rethrown (never the confirm's) and a check is
         // owed, set here, the one place it is set. The digest is registered as in flight from before the confirm until the index step has run, on every exit.
+        // The guard is built before the try: a fault in building it is not a faulted append, and must not be confirmed, owe a check or be logged as one.
+        // For a revision, `facts` are the facts RevisionRefusal ran on, which answered 503 for an original they lack, so ForRevision never meets an absent original from here.
+        var guard = SubmissionGuard.For(facts, v);
         IDisposable? confirming = null;
         try
         {
             Result<PostAccepted> accepted;
             try
             {
-                accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
+                accepted = await pipeline.PersistAsync(s!, guard, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1141,6 +1161,19 @@ public static class ForumEndpoints
     }
 
     /// <summary>
+    /// R6.60, R8.86 (errata G57): the one place a failed append's error is given the status of a guard's answer: the three refusals are <c>409</c> as the route's own
+    /// checks answer them, a delta over the cap is <c>503</c>, anything else is not a guard's (<see langword="null"/>).
+    /// The route's own <c>revision-check-unavailable</c> (<c>503</c>) is not mapped because a guard cannot return it: a guard whose original is not among the facts it was
+    /// built from proceeds (there is nothing a refusal could be made from), and one whose original is there only adds to what it checks.
+    /// </summary>
+    private static int? GuardRefusalStatus(Error error) => error.Type switch
+    {
+        IngestErrors.AlreadyRecordedType or IngestErrors.AlreadyRevisedType or VerificationErrors.AlreadyVotedType => StatusCodes.Status409Conflict,
+        DomainErrors.AppendDeltaTooLargeType => StatusCodes.Status503ServiceUnavailable,
+        _ => null,
+    };
+
+    /// <summary>
     /// What follows PERSIST, for a post the route appended or the confirm found: <see langword="null"/> when the append found the author's stream moved (R6.56), a 500
     /// for any other failed result, otherwise the vector index step and the 201 (R8.81).
     /// </summary>
@@ -1155,8 +1188,31 @@ public static class ForumEndpoints
         {
             // R6.56: the author's stream moved since VERIFY read it. Nothing was written; the caller
             // decides again from VERIFY (null answers "again").
-            return string.Equals(persistError!.Type, DomainErrors.ConditionConflictType, StringComparison.Ordinal)
-                ? null
+            if (string.Equals(persistError!.Type, DomainErrors.ConditionConflictType, StringComparison.Ordinal))
+                return null;
+
+            // R6.60, R8.86 (errata G57): a check the route made on an older read failed inside the log's lock. Nothing was stored; the refusal is the route's own.
+            if (GuardRefusalStatus(persistError) is { } guardStatus)
+            {
+                if (guardStatus == StatusCodes.Status409Conflict)
+                {
+                    try
+                    {
+                        AppendGuardLog.Refused(indexer.Log, PostKinds.Wire(v.Envelope.Kind), persistError.Type);
+                    }
+#pragma warning disable CA1031 // R8.86: the refusal is the answer; a log sink that fails must not change it.
+                    catch (Exception)
+#pragma warning restore CA1031
+                    {
+                    }
+                }
+
+                return Problem(guardStatus, persistError);
+            }
+
+            // R6.60: a submission never asks to decide again, so a Redecide that reaches it is a fault of the Forum, served as the unnamed fault (the type is in no response).
+            return string.Equals(persistError.Type, DomainErrors.AppendRedecideType, StringComparison.Ordinal)
+                ? StoreFaults.Fault(persistError.Type)
                 : Problem(StatusCodes.Status500InternalServerError, persistError);
         }
 
@@ -1359,6 +1415,9 @@ public static class ForumEndpoints
         // The private store could not be written; nothing was, in either store (R10.62).
         "curia/flag/detail-store-unavailable" => StatusCodes.Status503ServiceUnavailable,
         "curia/flag/raiser-gate-unavailable" => StatusCodes.Status503ServiceUnavailable,
+
+        // R10.94 (errata G57): the log kept changing for every pass; nothing was recorded and the flag may be sent again. Served without a detail (a 503).
+        FlagErrors.ContendedType => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest,
     };
 
@@ -2255,7 +2314,7 @@ public static class ForumEndpoints
 
     /// <summary>R8.78: the id of the first stored post (served or not) whose digest is <paramref name="digest"/>, in log order; <see langword="null"/> when none.</summary>
     private static string? AlreadyRecordedPost(IReadOnlyList<AppendedEvent> log, string digest) =>
-        PostProjector.FirstWithDigest(log, digest)?.Post.PostId;
+        SubmissionChecks.AlreadyRecorded(log, digest);
 
     private static bool RevisesOwnPost(IReadOnlyList<AppendedEvent> log, string? prev, string author)
     {
@@ -2699,11 +2758,11 @@ public static class ForumEndpoints
     /// unattested submitter, not a result, another board -- are <see cref="VerificationPolicy.Refusal"/>'s,
     /// decided in the domain; this only gathers the facts it needs from the log.</para>
     /// </summary>
-    private static IResult? SignalRefusal(IReadOnlyList<AppendedEvent> log, VerifiedSubmission v)
+    private static IResult? SignalRefusal(IReadOnlyList<AppendedEvent> log, LogFacts facts, VerifiedSubmission v)
     {
         var target = v.Envelope.Target!;
-        var posts = PostProjector.Fold(log);
-        var servable = Servable(log);
+        var posts = facts.Posts;
+        var servable = facts.Servable;
         var standings = AgentStandingProjector.Fold(log);
 
         var targetPost = posts.FirstOrDefault(p =>
@@ -2722,10 +2781,8 @@ public static class ForumEndpoints
         // superseded by the same agent's later one (R8.56); a vote may not be recast, because a vote
         // that could be changed after the tally is visible is the thing epoch sealing exists to stop.
         if (v.Envelope.Kind is PostKind.Vote
-            && posts.Any(p => string.Equals(p.Author, v.AuthorAgentId.Value, StringComparison.Ordinal)
-                && servable(p.PostId)
-                && string.Equals(VerificationProjector.TargetOf(p), target, StringComparison.Ordinal)))
-            return Problem(StatusCodes.Status409Conflict, VerificationErrors.AlreadyVoted(target));
+            && SubmissionChecks.AlreadyVoted(facts, v.AuthorAgentId.Value, target) is { } alreadyVoted)
+            return Problem(StatusCodes.Status409Conflict, alreadyVoted);
 
         return null;
     }

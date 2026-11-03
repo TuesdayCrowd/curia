@@ -73,12 +73,32 @@ internal sealed class ContendedEventStore(IEventStore inner) : IEventStore
         CancellationToken cancellationToken = default) =>
         inner.AppendAsync(aggregateId, expectedVersion, events, cancellationToken);
 
-    public async Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
         AggregateId aggregateId,
         AggregateVersion expectedVersion,
         IReadOnlyList<DomainEvent> events,
         StreamCondition condition,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ContendAsync(aggregateId, expectedVersion, events, condition, guard: null, cancellationToken);
+
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition,
+        AppendGuard guard,
+        CancellationToken cancellationToken = default) =>
+        condition is null
+            ? inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken)
+            : ContendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken);
+
+    private async Task<Result<IReadOnlyList<AppendedEvent>>> ContendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition condition,
+        AppendGuard? guard,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(condition);
 
@@ -100,7 +120,9 @@ internal sealed class ContendedEventStore(IEventStore inner) : IEventStore
         if (interfere is not null)
             await interfere(cancellationToken).ConfigureAwait(false);
 
-        return await inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken).ConfigureAwait(false);
+        return guard is null
+            ? await inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken).ConfigureAwait(false)
+            : await inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken).ConfigureAwait(false);
     }
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(

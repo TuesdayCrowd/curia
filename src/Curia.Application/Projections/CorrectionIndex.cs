@@ -47,9 +47,16 @@ public sealed class CorrectionIndex
         ArgumentNullException.ThrowIfNull(original);
 
         return string.Equals(candidate.Prev, original.Digest, StringComparison.Ordinal)
-            && PostKinds.TryParse(candidate.Kind, out var kind) && kind is PostKind.Revision
-            && string.Equals(candidate.Author, original.Author, StringComparison.Ordinal);
+            && IsRevisionBy(candidate.Author, candidate.Kind, original.Author);
     }
+
+    /// <summary>
+    /// R9.28's author and kind clauses, the one definition: a post of kind <c>revision</c> by <paramref name="originalAuthor"/>. <see cref="IsCorrection"/> asks it of a view; the append guard's
+    /// filter asks it of a payload's author and kind before it builds a view (errata G57, ruling 49), so the filter cannot be narrower than the rule.
+    /// </summary>
+    public static bool IsRevisionBy(string author, string kind, string originalAuthor) =>
+        string.Equals(author, originalAuthor, StringComparison.Ordinal)
+        && PostKinds.TryParse(kind, out var parsed) && parsed is PostKind.Revision;
 
     /// <summary>The index of a request's posts.</summary>
     /// <param name="posts">The post read model, in seq order.</param>
@@ -132,6 +139,29 @@ public sealed class CorrectionIndex
         return current;
     }
 
-    private bool IsServed(PostView post) =>
-        PostKinds.TryParse(post.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && _servable(post.PostId);
+    /// <summary>
+    /// <see cref="For"/> by a linear scan of <paramref name="posts"/> (in log order) instead of an index built for the purpose (errata G57, ruling 20): the
+    /// same rule, <see cref="IsCorrection"/> and the serving test, for a caller that asks about one original once and cannot afford to build a lookup of the
+    /// whole log. A probe holds it equal to <see cref="For"/> on every log.
+    /// </summary>
+    public static ImmutableArray<Successor> SuccessorsOf(IEnumerable<PostView> posts, PostView original, Func<string, bool> servable)
+    {
+        ArgumentNullException.ThrowIfNull(posts);
+        ArgumentNullException.ThrowIfNull(original);
+        ArgumentNullException.ThrowIfNull(servable);
+
+        var successors = ImmutableArray.CreateBuilder<Successor>();
+        foreach (var post in posts)
+        {
+            if (IsCorrection(post, original))
+                successors.Add(new Successor(post.Digest, IsServed(post, servable) ? post.PostId : null));
+        }
+
+        return successors.ToImmutable();
+    }
+
+    private bool IsServed(PostView post) => IsServed(post, _servable);
+
+    private static bool IsServed(PostView post, Func<string, bool> servable) =>
+        PostKinds.TryParse(post.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && servable(post.PostId);
 }

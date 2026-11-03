@@ -108,38 +108,52 @@ public static class FlagProjector
     /// <summary>A committed flag's commitment (R10.62).</summary>
     public const string CommitmentField = "commitment";
 
-    /// <summary>Folds a seq-ordered event list into per-post moderation state.</summary>
-    public static ImmutableDictionary<string, PostModeration> Fold(IReadOnlyList<AppendedEvent> eventsInSeqOrder)
-    {
-        ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
+    /// <summary>
+    /// Folds a seq-ordered event list into per-post moderation state. Defined as <see cref="Extend"/> of nothing, so the whole fold and the incremental one are
+    /// one code path and a second implementation of the order of actions cannot exist (errata G57, ruling 20).
+    /// </summary>
+    public static ImmutableDictionary<string, PostModeration> Fold(IReadOnlyList<AppendedEvent> eventsInSeqOrder) =>
+        Extend(ImmutableDictionary<string, PostModeration>.Empty.WithComparers(StringComparer.Ordinal), eventsInSeqOrder);
 
-        var actions = new Dictionary<string, ImmutableArray<ModerationAction>.Builder>(StringComparer.Ordinal);
+    /// <summary>
+    /// <paramref name="state"/> with the moderation records of <paramref name="delta"/> appended to their posts' histories, in sequence order (errata G57,
+    /// ruling 20). A post the delta does not name keeps its entry untouched. The delta is checked as <see cref="Fold"/> checks a list; its first event lying
+    /// above the last one <paramref name="state"/> was folded from is the caller's to hold (<c>LogFacts.Extend</c> refuses a delta that does not).
+    /// </summary>
+    public static ImmutableDictionary<string, PostModeration> Extend(
+        ImmutableDictionary<string, PostModeration> state,
+        IReadOnlyList<AppendedEvent> delta)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(delta);
+
+        var touched = new Dictionary<string, ImmutableArray<ModerationAction>.Builder>(StringComparer.Ordinal);
         var lastSeq = EventSequence.Zero;
 
-        foreach (var appended in eventsInSeqOrder)
+        foreach (var appended in delta)
         {
             if (appended.Seq < lastSeq)
                 throw new ArgumentException(
                     "Events must arrive in ascending seq order; every IEventReader this solution " +
                     "ships already guarantees that, so a violation means the caller did not get " +
                     "these from a store's forward scan.",
-                    nameof(eventsInSeqOrder));
+                    nameof(delta));
 
             lastSeq = appended.Seq;
 
             if (appended.Event.Type.Value != ModerationAppliedType) continue;
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
 
-            ApplyModeration(actions, Members(payload), appended);
+            ApplyModeration(state, touched, Members(payload), appended);
         }
 
-        return actions.ToImmutableDictionary(
-            entry => entry.Key,
-            entry => new PostModeration(entry.Key, entry.Value.ToImmutable()),
-            StringComparer.Ordinal);
+        return touched.Count == 0
+            ? state
+            : state.SetItems(touched.Select(entry => KeyValuePair.Create(entry.Key, new PostModeration(entry.Key, entry.Value.ToImmutable()))));
     }
 
     private static void ApplyModeration(
+        ImmutableDictionary<string, PostModeration> state,
         Dictionary<string, ImmutableArray<ModerationAction>.Builder> actions,
         Dictionary<string, JsonValue> fields,
         AppendedEvent appended)
@@ -163,7 +177,9 @@ public static class FlagProjector
 
         if (!actions.TryGetValue(postId, out var builder))
         {
-            builder = ImmutableArray.CreateBuilder<ModerationAction>();
+            builder = state.TryGetValue(postId, out var existing)
+                ? existing.History.ToBuilder()
+                : ImmutableArray.CreateBuilder<ModerationAction>();
             actions[postId] = builder;
         }
 

@@ -231,5 +231,8 @@ internal sealed class KeyActHarness
 
         public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition condition, CancellationToken cancellationToken = default) =>
             inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken);
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition? condition, AppendGuard guard, CancellationToken cancellationToken = default) =>
+            inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken);
     }
 }
