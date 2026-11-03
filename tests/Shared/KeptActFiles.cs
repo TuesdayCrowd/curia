@@ -15,7 +15,7 @@ internal static class KeptActFiles
     /// <summary>Writes the file for <paramref name="submission"/> under <paramref name="actsDirectory"/> and returns its path.</summary>
     internal static string Plant(
         string actsDirectory, SignedSubmission submission, string kind = "question", string forum = "http://forum.test", string author = "https://agents.example/alice",
-        int attempts = 0, string? lastAnswer = null, string? name = null, string? digest = null)
+        int attempts = 0, string? lastAnswer = null, string? name = null, string? digest = null, string board = "b")
     {
         ArgumentNullException.ThrowIfNull(submission);
         Directory.CreateDirectory(actsDirectory);
@@ -26,7 +26,7 @@ internal static class KeptActFiles
             ["v"] = 1,
             ["digest"] = digest ?? submission.PrefixedDigest,
             ["kind"] = kind,
-            ["board"] = "b",
+            ["board"] = board,
             ["forum"] = forum,
             ["author"] = author,
             ["kept_at"] = now,

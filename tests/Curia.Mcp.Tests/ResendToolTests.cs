@@ -354,7 +354,7 @@ public sealed partial class ResendToolTests : IDisposable
 
     /// <summary>
     /// The hold on <c>curia_acts</c> that the Forum-text frame gates cannot give it (it reaches no Forum): a kept file's header is written by this host and can be rewritten by a person or
-    /// another process, so each value it prints (the kind, the board, the last answer) is a display literal and none can begin a line of what the tool tells the model. Control: the same
+    /// another process, so each value it prints (the kind, the board, the last answer: each planted hostile below) is a display literal and none can begin a line of what the tool tells the model. Control: the same
     /// header with plain values lists the act.
     /// </summary>
     [Fact]
@@ -366,7 +366,7 @@ public sealed partial class ResendToolTests : IDisposable
         var plain = Plant(kit);
         var hostile = SubmissionBuilder.Build(kit.Agent, new PostDraft { Kind = PostKind.Question, Board = "b", Title = "A title?", Body = "A hostile header " + Guid.NewGuid().ToString("N") }, DateTimeOffset.UtcNow);
         Assert.True(hostile.TryGetValue(out var signed, out var error), error?.Type);
-        KeptActFiles.Plant(kit.ActsDirectory, signed!, kind: "question\n" + Forged, lastAnswer: "503\n" + Forged, attempts: 1, forum: HeadStore.Origin(StubLog.Forum), author: kit.Agent.Profile.AgentId);
+        KeptActFiles.Plant(kit.ActsDirectory, signed!, kind: "question\n" + Forged, lastAnswer: "503\n" + Forged, board: "b\n" + Forged, attempts: 1, forum: HeadStore.Origin(StubLog.Forum), author: kit.Agent.Profile.AgentId);
 
         var relayed = (await kit.Tools.ActsAsync(Ct)).Content.OfType<TextContentBlock>().Select(b => b.Text).Single();
 
