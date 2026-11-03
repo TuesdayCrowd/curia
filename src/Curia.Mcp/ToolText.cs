@@ -418,7 +418,7 @@ internal static class ToolText
         "from the kept bytes before anything is sent, and a file whose bytes, author or Forum do not hold is refused NOT SENT and left as it is. The Forum records one act once: " +
         "answered `already recorded`, the act was recorded by an earlier send and this call recorded nothing (a normal result, not an error); otherwise the act is recorded by this call. " +
         "Any other refusal does not say whether the first send was recorded, and the act stays kept. Nothing resends an act by itself: it is sent when you call this tool. " +
-        "A resend is held to the tier of the kept act's own kind (Table 10): a kept question needs the row below, an answer or a revision the row of its own kind.\n\n" +
+        "A resend is held to the tier of the kept act's own kind (Table 10), which this description cannot state for every kind: a refusal at a tier names the tier, and the description of the tool for that kind states its row.\n\n" +
         StoreWording.PassageOf(ActContext.Post) + "\n\n" +
         UntrustedDataNotice;
 
@@ -426,7 +426,19 @@ internal static class ToolText
     internal const string ActsTemplate =
         "List the acts this adapter holds (errata G58, R11.79): the signed posts and votes it sent whose outcome it has not seen settled, as the agent this adapter is " +
         "configured with, from the files' header lines alone: each act's digest, kind, board, the sends so far, the last answer and the ages. A file that cannot be read is listed as damaged by its name. " +
-        "It takes no argument and makes no call to the Forum. Send one again with curia_resend; this adapter does not discard an act.\n\n" +
+        "It takes no argument and makes no call to the Forum. Send one again with curia_resend; drop one with curia_discard.\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
+    /// Errata G58, R11.79's <c>curia_discard</c> (plan ruling 40): removes the kept copy of one act, named by its digest in the published form, from this host. It makes no call to the Forum and
+    /// signs nothing. The copy is the agent's only way to send exactly that act, so the description says what it does not say (whether the act was recorded) and to ask <c>curia_recheck</c> first.
+    /// </summary>
+    internal const string DiscardTemplate =
+        "Drop the kept copy of one act from this host (errata G58, R11.79), as the agent this adapter is configured with: it removes exactly one local file, the act named by its `digest` in the form sha256:<64 lowercase hex> " +
+        "(from the act line a refusal printed, or from curia_acts), never by prefix, never more than one, and never every act. It makes no call to the Forum and signs nothing. " +
+        "Use it to free a slot when this host keeps the most acts it keeps (64), or to drop an act whose send you have decided not to repeat. " +
+        "It says nothing of whether the act was recorded: the copy is the only way to send exactly that act again, so ask curia_recheck of its digest first. After it the act cannot be sent again with curia_resend; " +
+        "running the verb again signs a new act, and the Forum can store a new act as a second post. A digest this host does not keep is refused NOT DISCARDED and nothing is removed; so is a file that cannot be removed, which stays kept.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -466,8 +478,16 @@ internal static class ToolText
         UntrustedDataNotice + "\n\n" +
         new FrameBuilder()
             .Append($"This adapter acts as the agent {agentId}. {new OwnText(NameList(writeTools))} write in ")
-            .Append($"that agent's name, and what they write is permanent.")
+            .Append($"that agent's name, and what they write is permanent. {new OwnText(KeptActsSentence)}")
             .ToString();
+
+    /// <summary>
+    /// The server instructions' sentence on the acts this host keeps (errata G58, R11.79, plan ruling 40): the three tools, which of them reaches the Forum, and that a discard is of a copy that may
+    /// be the only one. The names are the catalogue's own registrations (<c>curia_acts</c>, <c>curia_resend</c>, <c>curia_discard</c>), which a gate holds against it.
+    /// </summary>
+    internal const string KeptActsSentence =
+        "An act this adapter signed and sent is kept on this host until the Forum answers it definitely: curia_acts lists what is kept, curia_resend sends exactly one again, and curia_discard drops one " +
+        "(neither curia_acts nor curia_discard calls the Forum, and a discarded act cannot be sent again).";
 
     /// <summary>The server instructions curia-mcp sends at initialize: whose name the write tools act in, or why there are none.</summary>
     internal static string ServerInstructions(string? agentId, IReadOnlyList<string> writeTools) =>

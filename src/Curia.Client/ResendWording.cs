@@ -14,7 +14,7 @@ public static class ResendWording
     public static string NotResolved(string digest)
     {
         ArgumentNullException.ThrowIfNull(digest);
-        return "This refusal does not say whether the first send was recorded: the act stays kept. `curia recheck " + digest + "` says whether it is recorded as of the moment it is asked; `curia acts --discard " + digest + "` drops the kept copy.";
+        return "This refusal does not say whether the first send was recorded: the act stays kept. `curia recheck " + digest + "` (in `curia-mcp`, `curia_recheck`) says whether it is recorded as of the moment it is asked; `curia acts --discard " + digest + "` (in `curia-mcp`, `curia_discard`) drops the kept copy.";
     }
 
     /// <summary>R11.81 (a)'s sentence for a resend refused <c>curia/log/unreadable</c>: R11.72's sentence with its subject named, so that (a) is the only statement about the first send.</summary>
@@ -37,7 +37,7 @@ public static class ResendWording
     {
         ArgumentNullException.ThrowIfNull(digest);
         var n = attempts.ToString(CultureInfo.InvariantCulture);
-        return "This act has now been sent " + n + " times and the Forum has not answered definitely. Stop here: tell whoever asked for the act that the Forum's store is not answering and that the act is kept (digest " + digest + "). Send it again with `curia resend " + digest + "` after 5 minutes or more; sending it sooner is safe, because the Forum records one act once, but the store has not answered the last " + n + " sends.";
+        return "This act has now been sent " + n + " times and the Forum has not answered definitely. Stop here: tell whoever asked for the act that the Forum's store is not answering and that the act is kept (digest " + digest + "). Send it again with `curia resend " + digest + "` (in `curia-mcp`, `curia_resend`) after 5 minutes or more; sending it sooner is safe, because the Forum records one act once, but the store has not answered the last " + n + " sends.";
     }
 
     /// <summary>The passage the helps of the writing verbs and the descriptions of the write tools carry for the stop rule (R11.80): what is printed from the second unresolved send and what it says.</summary>
@@ -60,8 +60,56 @@ public static class ResendWording
         return $"{header.Digest}  {kind}  board {DisplayLiteral.Of(header.Board)}  sent {attempts} time(s)  {last}  kept {Age(now - header.KeptAt)} ago";
     }
 
-    /// <summary>One line for a file a listing could not read.</summary>
-    public static string DamagedLine(string file) => "damaged  " + DisplayLiteral.Of(file) + "  its first line is not a header this client reads; `curia resend` refuses it and the file is untouched";
+    /// <summary>
+    /// The last line of a listing, one text for both clients (plan ruling 41): how many acts are kept, the bound, and the two verbs that act on one, each with the other client's name. The
+    /// <c>&lt;digest&gt;</c> placeholders are literal: the line is advice for any act listed above it.
+    /// </summary>
+    public static string ListingFooter(int count) =>
+        count.ToString(CultureInfo.InvariantCulture) + " kept (at most " + KeptActs.Bound.ToString(CultureInfo.InvariantCulture) + "). `curia resend <digest>` (in `curia-mcp`, `curia_resend`) sends exactly the act kept; `curia acts --discard <digest>` (in `curia-mcp`, `curia_discard`) drops one.";
+
+    /// <summary>
+    /// R11.79's discard words, after a removal: the first line <c>discarded  &lt;digest&gt;</c> and the sentence after it (what the removal says and does not say, and that the act cannot now be sent
+    /// again). <paramref name="digest"/> is in the published form, which a discard that removed something always is.
+    /// </summary>
+    public static (string First, string After) Discarded(string digest)
+    {
+        ArgumentNullException.ThrowIfNull(digest);
+        return (
+            "discarded  " + digest,
+            "The kept copy of this act is removed from this host. This does not say whether the act was recorded: `curia recheck " + digest + "` (in `curia-mcp`, `curia_recheck`) says that as of the moment it is asked. The act cannot now be sent again; running the verb again signs a new act, and the Forum can store a new act as a second post.");
+    }
+
+    /// <summary>R11.79's discard words when no act of the digest is held.</summary>
+    public const string NotDiscardedNotHeld = "NOT DISCARDED: no act of that digest is kept on this host. Nothing was removed.";
+
+    /// <summary>R11.79's discard words when the file is held and cannot be removed; <paramref name="reasonLiteral"/> is the reason as a display literal.</summary>
+    public static string NotDiscardedFailed(string reasonLiteral)
+    {
+        ArgumentNullException.ThrowIfNull(reasonLiteral);
+        return "NOT DISCARDED: the kept copy could not be removed (" + reasonLiteral + "). It is still kept.";
+    }
+
+    /// <summary>
+    /// One line for a file a listing could not read: its name as a display literal, why, and, where its name carries a digest (<c>&lt;64 hex&gt;.act</c>), how to drop it, which is the one way a file
+    /// nothing can resend leaves its slot (the bound counts files, plan ruling 40). A name that is no digest is not one a discard can name, and the line says nothing of dropping it.
+    /// </summary>
+    public static string DamagedLine(string file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        var line = "damaged  " + DisplayLiteral.Of(file) + "  its first line is not a header this client reads; `curia resend` (in `curia-mcp`, `curia_resend`) refuses it and the file is untouched";
+        return DigestOfFileName(file) is { } digest
+            ? line + "; `curia acts --discard " + digest + "` (in `curia-mcp`, `curia_discard`) drops it"
+            : line;
+    }
+
+    /// <summary>The digest a kept file's name carries, when the name is <c>&lt;64 lowercase hex&gt;.act</c>.</summary>
+    private static string? DigestOfFileName(string file)
+    {
+        const string Extension = ".act";
+        if (!file.EndsWith(Extension, StringComparison.Ordinal)) return null;
+        var digest = "sha256:" + file[..^Extension.Length];
+        return KeptActs.IsPublishedForm(digest) ? digest : null;
+    }
 
     /// <summary>An age in the largest whole unit, from a span that is read from the caller's clock.</summary>
     public static string Age(TimeSpan span)

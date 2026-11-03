@@ -194,7 +194,7 @@ public sealed partial class ResendVerbTests
 
     /// <summary>
     /// ASA17. <c>curia acts</c> lists digest, kind, board (a display literal), attempts and last answer, one line per act; <c>--discard &lt;digest&gt;</c> removes one and only that one; a
-    /// digest not held is <c>NOT SENT</c>, exit 1. Predicted red: <c>unknown command acts</c> (on the seam: <c>NOT SENT: not built</c> for the listing).
+    /// digest not held is <c>NOT DISCARDED</c> (R11.79's words), exit 1. Predicted red: <c>unknown command acts</c> (on the seam: <c>NOT SENT: not built</c> for the listing).
     /// </summary>
     [Fact]
     public async Task R11_79_ASA17_ActsListsWhatIsHeldAndDiscardRemovesOneAndOnlyThatOne()
@@ -219,8 +219,13 @@ public sealed partial class ResendVerbTests
         if (!File.Exists(kit.FileOf(two))) problems.Add("--discard removed the other act too");
 
         var unknown = await CliKit.RunAsync(kit, "acts", "--discard", "sha256:" + new string('e', 64));
-        if (unknown.Exit != 1 || !unknown.Text.Contains("NOT SENT", StringComparison.Ordinal)) problems.Add($"a digest not held: exit {unknown.Exit}, \"{unknown.Text}\"; expected NOT SENT, exit 1");
-        Red.None(problems, "both acts listed with kind and board, --discard removing one, an unheld digest NOT SENT exit 1");
+        if (unknown.Exit != 1 || !unknown.Text.Contains(Fold(PublishedResendWords.NotHeldWords), StringComparison.Ordinal)) problems.Add($"a digest not held: exit {unknown.Exit}, \"{unknown.Text}\"; expected the published NOT DISCARDED words, exit 1");
+
+        // R11.79's discard words after a removal: the published first line and sentence, with the digest filled in (one definition for both clients, plan ruling 40).
+        var (publishedFirst, publishedAfter) = PublishedResendWords.DiscardedWords;
+        if (!Fold(discarded.Stdout).Contains(Fold(publishedFirst.Replace("<digest>", one.PrefixedDigest, StringComparison.Ordinal)), StringComparison.Ordinal)) problems.Add($"--discard's first line is not the published one (\"{Fold(discarded.Stdout)}\")");
+        if (!discarded.Text.Contains(Fold(publishedAfter.Replace("<digest>", one.PrefixedDigest, StringComparison.Ordinal)), StringComparison.Ordinal)) problems.Add("--discard lacks the published sentence after the first line");
+        Red.None(problems, "both acts listed with kind and board, --discard removing one in the published words, an unheld digest NOT DISCARDED exit 1");
     }
 
     /// <summary>

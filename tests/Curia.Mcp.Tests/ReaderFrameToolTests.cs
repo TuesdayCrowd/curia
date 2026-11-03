@@ -579,6 +579,7 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_budget" => await tools.BudgetAsync(ct),
                 "curia_acts" => await tools.ActsAsync(ct),
                 "curia_resend" => await tools.ResendAsync(PlantKeptAct(log, agent), ct),
+                "curia_discard" => await tools.DiscardAsync(PlantKeptAct(log, agent), ct),
                 _ => throw new InvalidOperationException(
                     $"{name} is registered and this gate does not know how to call it. Add the call: a tool this gate never calls is a tool whose output nothing checks."),
             });
@@ -644,7 +645,9 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
 
                 // NAMED EXEMPTION (errata G58, Task 3): curia_acts reaches no Forum, so these gates (which make what the Forum serves hostile, and fail a tool served no string) cannot hold it.
                 // What it prints from a file's header, which a person or another process can write, is held by ResendToolTests's hostile-header fact instead.
-                .Where(name => name != "curia_acts")
+                // The same row for curia_discard (plan ruling 40): it reaches no Forum either, and what it prints is this adapter's own words and a digest in the published form it just removed
+                // (a digest of any other form is never echoed), which ResendToolTests's ASA45 holds with a hostile argument.
+                .Where(name => name is not ("curia_acts" or "curia_discard"))
                 .Order(StringComparer.Ordinal)
                 .ToArray();
             Assert.NotEmpty(names);

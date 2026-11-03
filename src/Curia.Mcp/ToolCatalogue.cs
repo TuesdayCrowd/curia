@@ -155,6 +155,20 @@ internal static class ToolCatalogue
                 Idempotent = true,
                 OpenWorld = false,
             });
+
+        // Errata G58, R11.79 (plan ruling 40): drops one kept act by its digest. Local: no Forum call. It writes nothing to the Forum, so like curia_acts it is not among WriteToolNames; it is
+        // destructive of the one local file (the only copy from which exactly that act can be sent), idempotent (a second call finds none held), and has no Table 10 row, so no tier span.
+        yield return McpServerTool.Create(
+            tools.DiscardAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_discard",
+                Description = ToolText.Compose(ToolText.DiscardTemplate, string.Empty),
+                ReadOnly = false,
+                Destructive = true,
+                Idempotent = true,
+                OpenWorld = false,
+            });
     }
 
     private static IEnumerable<McpServerTool> WriteTools(ForumTools tools)
@@ -253,15 +267,14 @@ internal static class ToolCatalogue
             });
 
         // Errata G58, R11.79: sends exactly the bytes of a kept act. Idempotent in the Forum's own sense (R8.78, R8.86: it records one act once), and not destructive.
-        // The seam's tier sentence is (question, create)'s; the stage that builds the tool composes it from the kept act's kind.
+        // No tier span (plan ruling 44, M8): the Table 10 row it is held to is the kept act's own kind's, which a static description cannot state, so the description says that a refusal at a tier
+        // names the tier (Refusal.Summary does, ruling 39) and carries no row of one kind for every kind.
         yield return McpServerTool.Create(
             tools.ResendAsync,
             new McpServerToolCreateOptions
             {
                 Name = "curia_resend",
-                Description = ToolText.Compose(
-                    ToolText.ResendTemplate,
-                    TierSpan.For(ResourceKind.Question, ActionKind.Create)),
+                Description = ToolText.Compose(ToolText.ResendTemplate, string.Empty),
                 ReadOnly = false,
                 Destructive = false,
                 Idempotent = true,

@@ -59,6 +59,22 @@ public sealed record KeptActHeader(
     DateTimeOffset? LastAttemptAt,
     string? LastAnswer);
 
+/// <summary>What <see cref="KeptActs.Discard"/> did (plan ruling 40): removed the one file, found none, or could not remove it.</summary>
+public enum DiscardStatus
+{
+    /// <summary>The file of exactly that digest was removed.</summary>
+    Removed,
+
+    /// <summary>No act of that digest is kept here (a digest not in the published form is never held): nothing was removed.</summary>
+    NotHeld,
+
+    /// <summary>A file is held and could not be removed: it is still kept. <see cref="DiscardOutcome.Reason"/> names the failure.</summary>
+    Failed,
+}
+
+/// <summary>The outcome of a discard: the status and, for <see cref="DiscardStatus.Failed"/>, the name of the failure (a type name, never text a file or the Forum wrote).</summary>
+public readonly record struct DiscardOutcome(DiscardStatus Status, string? Reason = null);
+
 /// <summary>A kept act: its header and the exact signed bytes.</summary>
 public sealed record KeptAct(KeptActHeader Header, ReadOnlyMemory<byte> Wire);
 
@@ -183,7 +199,7 @@ public sealed class KeptActs
             }
 
             if (Count() >= Bound)
-                return Result<KeptAct>.Fail(new Error(KeptActsFullType, "NOT SENT: this host already keeps the most acts it keeps", $"{Bound.ToString(CultureInfo.InvariantCulture)} acts are kept and none was answered definitely; `curia acts` lists them. Nothing was sent."));
+                return Result<KeptAct>.Fail(new Error(KeptActsFullType, "NOT SENT: this host already keeps the most acts it keeps", $"{Bound.ToString(CultureInfo.InvariantCulture)} acts are kept and none was answered definitely; `curia acts` (in `curia-mcp`, `curia_acts`) lists them; `curia acts --discard <digest>` (in `curia-mcp`, `curia_discard`) drops one. Nothing was sent."));
 
             var text = HeaderLine(header);
             if (Encoding.UTF8.GetByteCount(text) >= HeaderBlockBytes) return Result<KeptAct>.Fail(NotKept("the header is longer than the block a listing reads"));
@@ -221,7 +237,7 @@ public sealed class KeptActs
         foreach (var listed in List().Where(l => l.Header is not null && string.Equals(l.Header.Digest, digest, StringComparison.Ordinal)))
             return Result<KeptAct>.Fail(Damaged(listed.Name ?? string.Empty, "the file's name does not name the digest in its header"));
 
-        return Result<KeptAct>.Fail(new Error(NoKeptActType, "NOT SENT: no act of that digest is kept on this host", "`curia acts` lists the acts this host keeps"));
+        return Result<KeptAct>.Fail(new Error(NoKeptActType, "NOT SENT: no act of that digest is kept on this host", "`curia acts` (in `curia-mcp`, `curia_acts`) lists the acts this host keeps"));
     }
 
     private static Error Damaged(string file, string why) =>
@@ -392,17 +408,27 @@ public sealed class KeptActs
         return newline < 0 || !ParseHeader(block.AsSpan(0, newline)).TryGetValue(out var header, out _) ? null : header;
     }
 
-    /// <summary>Removes the kept act of exactly <paramref name="digest"/>: true when a file was removed, false when none is held. Never by prefix, never more than one.</summary>
-    public bool Discard(string digest)
+    /// <summary>
+    /// Removes the kept act of exactly <paramref name="digest"/> and no other (never by prefix, never more than one), and never throws (plan ruling 40, the review's M3b): the outcome says
+    /// whether the file was removed, none is held, or the file is held and could not be removed. Whether the act was recorded is not said here and not known here.
+    /// </summary>
+    public DiscardOutcome Discard(string digest)
     {
         ArgumentNullException.ThrowIfNull(digest);
-        if (!IsPublishedForm(digest)) return false;
+        if (!IsPublishedForm(digest)) return new DiscardOutcome(DiscardStatus.NotHeld);
 
         var path = PathOf(digest);
-        if (!File.Exists(path)) return false;
+        try
+        {
+            if (!File.Exists(path)) return new DiscardOutcome(DiscardStatus.NotHeld);
 
-        File.Delete(path);
-        return true;
+            File.Delete(path);
+            return new DiscardOutcome(DiscardStatus.Removed);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new DiscardOutcome(DiscardStatus.Failed, ex.GetType().Name);
+        }
     }
 
     private int Count() => Directory.Exists(ActsDirectory) ? Directory.EnumerateFiles(ActsDirectory, "*" + Extension).Count() : 0;

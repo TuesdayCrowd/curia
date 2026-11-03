@@ -168,9 +168,7 @@ public sealed class ToolDescriptionTests
         "curia_budget" => (ResourceKind.Budget, ActionKind.Read),
         "curia_comment" => (ResourceKind.Comment, ActionKind.Create),
 
-        // Errata G58, R11.79: the seam's tier sentences. curia_resend carries (question, create)'s until the stage that composes it from the kept act's kind; curia_acts is
-        // local and carries the own-budget row's, which an identity needs.
-        "curia_resend" => (ResourceKind.Question, ActionKind.Create),
+        // Errata G58, R11.79: curia_acts is local and carries the own-budget row's tier sentence, which an identity needs. curia_resend and curia_discard have no pair here: see NoRowTools.
         "curia_acts" => (ResourceKind.Budget, ActionKind.Read),
         "curia_resolve" => (ResourceKind.Answer, ActionKind.Accept),
         "curia_revise" => (ResourceKind.Revision, ActionKind.Create),
@@ -179,8 +177,15 @@ public sealed class ToolDescriptionTests
             "row pass without checking what the description claims about authority."),
     };
 
+    /// <summary>
+    /// Tools whose Table 10 row depends on the act they act on or that have none (plan rulings 40 and 44, M8): <c>curia_resend</c> sends an act of any kind, so a static description cannot state
+    /// one row and says that a refusal at a tier names the tier; <c>curia_discard</c> removes a local file and has no row. Neither carries a composed tier span, and neither is mapped to a pair.
+    /// </summary>
+    private static readonly string[] NoRowTools = ["curia_resend", "curia_discard"];
+
     private static string SpanFor(string name)
     {
+        if (NoRowTools.Contains(name)) return string.Empty;
         var (resource, action) = PairFor(name);
         return TierSpan.For(resource, action);
     }
@@ -230,7 +235,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_acts", "curia_answer", "curia_ask", "curia_budget", "curia_comment", "curia_flag", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
+            ["curia_acts", "curia_answer", "curia_ask", "curia_budget", "curia_comment", "curia_discard", "curia_flag", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 
@@ -350,6 +355,7 @@ public sealed class ToolDescriptionTests
         var checkedOne = false;
         foreach (var (name, description) in Registered())
         {
+            if (NoRowTools.Contains(name)) continue;
             var (resource, action) = PairFor(name);
             var qualifier = ResourceActionModel.RowFor(resource, action).Match(r => r.Qualifier, e => throw new InvalidOperationException(e.Title));
             if (qualifier is GrantQualifier.None) continue;
@@ -379,7 +385,7 @@ public sealed class ToolDescriptionTests
     [Fact]
     public void R11_30_EveryWritePairATierZeroPrincipalHoldsHasATool()
     {
-        var exercised = Registered().Select(t => PairFor(t.Name)).ToHashSet();
+        var exercised = Registered().Where(t => !NoRowTools.Contains(t.Name)).Select(t => PairFor(t.Name)).ToHashSet();
 
         var t0Writes = ResourceActionModel.ModelledPairs
             .Where(p => !ActionKinds.IsRead(p.Action))
@@ -479,7 +485,7 @@ public sealed class ToolDescriptionTests
     {
         var read = RegisteredTools(withIdentity: false).Select(t => t.ProtocolTool.Name).ToHashSet();
         // curia_budget needs the session's token and is registered with the write tools under the one gate, but it writes nothing and is not named as a tool that writes (errata G49).
-        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n) && n != "curia_budget" && n != "curia_acts").ToArray();
+        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n) && n != "curia_budget" && n != "curia_acts" && n != "curia_discard").ToArray();
         Assert.NotEmpty(writeTools);
 
         // The names the instructions are composed from are the catalogue's own, whatever the identity.

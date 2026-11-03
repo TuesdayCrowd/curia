@@ -117,6 +117,55 @@ internal static partial class PublishedResendWords
         }
     }
 
+    // ----- R11.79 discard words -----
+
+    /// <summary>R11.79 discard words, after a removal: the first line (<c>discarded &lt;digest&gt;</c>, whitespace folded) and the sentence after it, with <c>&lt;digest&gt;</c> left in.</summary>
+    internal static (string First, string After) DiscardedWords
+    {
+        get
+        {
+            var parts = Between(Paragraph("R11.79 discard words"), "After a removal: `", "` When no act of the digest is held").Split("` then `");
+            return parts.Length == 2 ? (parts[0], parts[1]) : throw new InvalidOperationException($"{Errata}: the removal words are not a first line and a sentence ({parts.Length} parts)");
+        }
+    }
+
+    /// <summary>R11.79 discard words when no act of the digest is held.</summary>
+    internal static string NotHeldWords => Between(Paragraph("R11.79 discard words"), "When no act of the digest is held: `", "` When the file cannot be removed");
+
+    /// <summary>R11.79 discard words when the file cannot be removed, with <c>&lt;reason as a display literal&gt;</c> left in.</summary>
+    internal static string RemovalFailedWords => Between(Paragraph("R11.79 discard words"), "When the file cannot be removed: `", "` A listing's last line");
+
+    /// <summary>R11.79 discard words, a listing's last line, with <c>&lt;n&gt;</c> and the <c>&lt;digest&gt;</c> placeholders left in.</summary>
+    internal static string ListingFooterWords => Between(Paragraph("R11.79 discard words"), "A listing's last line: `", "` A damaged file's line");
+
+    /// <summary>
+    /// Plan ruling 41's rule, held over a printed text: every verb of the CLI the text names (<c>curia resend</c>, <c>curia recheck</c>, <c>curia acts</c>, <c>curia acts --discard</c>) is followed by
+    /// <c>(in `curia-mcp`, `curia_x`)</c> with the tool that is that verb's, and no tool name stands outside such a qualifier. Returns the problems found, none when the text holds.
+    /// </summary>
+    internal static List<string> VerbQualificationProblems(string text)
+    {
+        var problems = new List<string>();
+        var qualified = 0;
+        foreach (Match verb in CliVerb().Matches(text))
+        {
+            var tool = verb.Groups["v"].Value switch
+            {
+                "resend" => "curia_resend",
+                "recheck" => "curia_recheck",
+                "acts --discard" => "curia_discard",
+                "acts" => "curia_acts",
+                _ => throw new InvalidOperationException(verb.Value),
+            };
+            var qualifier = " (in `curia-mcp`, `" + tool + "`)";
+            if (text[(verb.Index + verb.Length)..].StartsWith(qualifier, StringComparison.Ordinal)) qualified++;
+            else problems.Add($"{verb.Value} is not followed by{qualifier}");
+        }
+
+        var tools = McpTool().Count(text);
+        if (tools != qualified) problems.Add($"{tools} tool name(s) against {qualified} qualifier(s): a tool name stands outside a qualifier");
+        return problems;
+    }
+
     // ----- R10.95 words -----
 
     /// <summary>R10.95: the <c>unknown</c> line after the digest, with <c>&lt;instant&gt;</c> and <c>&lt;digest&gt;</c> left in.</summary>
@@ -221,6 +270,12 @@ internal static partial class PublishedResendWords
 
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex Whitespace();
+
+    [GeneratedRegex(@"`curia (?<v>acts --discard|resend|recheck|acts)(?: [^`]*)?`", RegexOptions.CultureInvariant)]
+    private static partial Regex CliVerb();
+
+    [GeneratedRegex(@"\bcuria_(?:resend|recheck|discard|acts)\b", RegexOptions.CultureInvariant)]
+    private static partial Regex McpTool();
 
     [GeneratedRegex(@"`([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex BacktickSpan();

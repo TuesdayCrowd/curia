@@ -1594,7 +1594,7 @@ internal static class Program
 
     /// <summary>
     /// Errata G58, R11.79: <c>curia acts [--discard &lt;digest&gt;]</c>. Lists what this host keeps, from the files' header lines alone (no Forum call, no identity): the digest, the kind, the
-    /// board as a display literal, the sends so far, the last answer and the ages. <c>--discard</c> removes the act of exactly that digest and no other; a digest that is not held is <c>NOT SENT</c>, exit 1.
+    /// board as a display literal, the sends so far, the last answer and the ages. <c>--discard</c> removes the act of exactly that digest and no other; a digest that is not held, or a file that cannot be removed, is <c>NOT DISCARDED</c>, exit 1.
     /// </summary>
     private static int Acts(Args args)
     {
@@ -1618,11 +1618,18 @@ internal static class Program
             if (string.IsNullOrWhiteSpace(discard))
                 return Output.Fail("error: --discard needs the digest of the act to drop; nothing was removed.", ExitCode.Usage);
 
-            if (!acts.Discard(discard))
-                return Output.Fail($"error: NOT SENT: no act of the digest {new OwnText(DisplayLiteral.Of(discard))} is kept on this host. Nothing was removed and nothing was sent.", ExitCode.Usage);
+            // R11.79's discard words, one definition for both clients (plan ruling 40): a removal, no act held, or a file that could not be removed. Exit 0 only for a removal.
+            var outcome = acts.Discard(discard);
+            if (outcome.Status == DiscardStatus.Removed)
+            {
+                var (first, after) = ResendWording.Discarded(discard);
+                Output.Line($"{new OwnText(first)}");
+                Output.Line($"{new OwnText(after)}");
+                return ExitCode.Ok;
+            }
 
-            Output.Line($"discarded {new OwnText(discard)}: the kept copy is removed; nothing was sent. If the first send was recorded, the post stays; `curia recheck` says.");
-            return ExitCode.Ok;
+            var refusedText = outcome.Status == DiscardStatus.NotHeld ? ResendWording.NotDiscardedNotHeld : ResendWording.NotDiscardedFailed(DisplayLiteral.Of(outcome.Reason ?? string.Empty));
+            return Output.Fail($"{new OwnText(refusedText)}", ExitCode.Usage);
         }
 
         var listed = acts.List();
@@ -1636,7 +1643,7 @@ internal static class Program
         foreach (var entry in listed)
             Output.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty))}");
 
-        Output.Line($"{new OwnText($"{listed.Count} kept (at most {KeptActs.Bound}). `curia resend <digest>` sends exactly the act kept; `curia acts --discard <digest>` drops one.")}");
+        Output.Line($"{new OwnText(ResendWording.ListingFooter(listed.Count))}");
         return ExitCode.Ok;
     }
 

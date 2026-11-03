@@ -73,6 +73,9 @@ public sealed class PropertyP22ToolResultTests : IDisposable
         ["curia_acts"] = null,
         ["curia_resend"] = null,
 
+        // Errata G58, plan ruling 40: a removal and its refusals hold this adapter's own words and no text an author wrote.
+        ["curia_discard"] = null,
+
         // Receipts. A comment reads its parent for the board and returns none of it; an acceptance
         // reports the answer's id, its thread and the instant, and none of the answer (errata G26).
         ["curia_comment"] = null,
@@ -334,6 +337,7 @@ public sealed class PropertyP22ToolResultTests : IDisposable
             "curia_budget" => await tools.BudgetAsync(ct),
             "curia_acts" => await tools.ActsAsync(ct),
             "curia_resend" => await tools.ResendAsync("sha256:" + new string('0', 64), ct),
+            "curia_discard" => await tools.DiscardAsync("sha256:" + new string('0', 64), ct),
             _ => throw new InvalidOperationException(
                 $"{name} is classified for P22 and this gate does not know how to call it. Add the "
                 + "call: a classification whose tool is never invoked asserts nothing."),

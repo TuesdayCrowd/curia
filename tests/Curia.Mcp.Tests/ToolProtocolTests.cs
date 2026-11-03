@@ -60,6 +60,7 @@ public sealed class ToolProtocolTests : IDisposable
         ["curia_budget"] = ([], []),
         ["curia_acts"] = ([], []),
         ["curia_resend"] = (["digest"], []),
+        ["curia_discard"] = (["digest"], []),
         ["curia_revise"] = (["postId", "body"], ["title", "tags", "refs"]),
     };
 
@@ -835,6 +836,7 @@ public sealed class ToolProtocolTests : IDisposable
         "curia_budget" => new(),
         "curia_acts" => new(),
         "curia_resend" => new() { ["digest"] = "sha256:" + new string('0', 64) },
+        "curia_discard" => new() { ["digest"] = "sha256:" + new string('0', 64) },
         _ => throw new InvalidOperationException($"{tool} has no minimal call: add a row to Table and to this switch"),
     };
 

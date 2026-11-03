@@ -9,8 +9,9 @@ using ModelContextProtocol.Protocol;
 namespace Curia.Mcp;
 
 /// <summary>
-/// Errata G58, R11.79 to R11.81's two tools: <c>curia_resend</c> (send exactly an act this host kept) and <c>curia_acts</c> (list what it holds). The kept files are the CLI's own
-/// (<see cref="KeptActs"/>, in the agent's directory), so an act kept by <c>curia</c> is resent here and the other way round. <c>curia_acts</c> never reaches the Forum.
+/// Errata G58, R11.79 to R11.81's three tools: <c>curia_resend</c> (send exactly an act this host kept), <c>curia_acts</c> (list what it holds) and <c>curia_discard</c> (drop one, plan ruling 40: without
+/// it the cap of 64 locks out an agent whose only host is this adapter). The kept files are the CLI's own (<see cref="KeptActs"/>, in the agent's directory), so an act kept by <c>curia</c> is resent
+/// here and the other way round. <c>curia_acts</c> and <c>curia_discard</c> never reach the Forum.
 /// <c>curia_resend</c> sends once and never by itself (R11.64); a refusal is worded by <see cref="Refusal.Summary"/> from the act it refused and nothing is added here.
 /// </summary>
 internal sealed partial class ForumTools
@@ -56,9 +57,42 @@ internal sealed partial class ForumTools
         foreach (var entry in listed)
             frame.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty))}");
 
-        frame.Line($"{new OwnText($"{listed.Count} kept (at most {KeptActs.Bound}). curia_resend sends exactly the act kept; this adapter does not discard one.")}");
+        frame.Line($"{new OwnText(ResendWording.ListingFooter(listed.Count))}");
         return Task.FromResult(Said(frame.ToString()));
     }
+
+    /// <summary>
+    /// R11.79's <c>curia_discard</c> (plan ruling 40): removes the kept act of exactly <paramref name="digest"/> and no other, with no call to the Forum and no signer. A removal is a normal result whose first
+    /// line is <c>discarded  &lt;digest&gt;</c>; an act not held and a file that cannot be removed are <c>isError</c> results in R11.79's words (a failure of the removal is an outcome, never an exception). The
+    /// schema (a required <c>digest</c>) is checked by R11.37's gate and a blank one by R11.43's guard before this runs; a digest not in the published form is not held.
+    /// </summary>
+    internal Task<CallToolResult> DiscardAsync(string digest, CancellationToken cancellationToken)
+    {
+        if (ArgumentGuards.Identifier(digest, nameof(digest)) is { } refused) return Task.FromResult(refused);
+        var writer = Writer();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var outcome = writer.Session.Acts.Discard(digest);
+        switch (outcome.Status)
+        {
+            case DiscardStatus.Removed:
+                var (first, after) = ResendWording.Discarded(digest);
+                return Task.FromResult(Said(new FrameBuilder().Line($"{new OwnText(first)}").Line($"{new OwnText(after)}").ToString()));
+
+            case DiscardStatus.NotHeld:
+                return Task.FromResult(NotDiscarded(ResendWording.NotDiscardedNotHeld));
+
+            case DiscardStatus.Failed:
+                return Task.FromResult(NotDiscarded(ResendWording.NotDiscardedFailed(DisplayLiteral.Of(outcome.Reason ?? string.Empty))));
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(digest), outcome.Status, "Not a discard status");
+        }
+    }
+
+    /// <summary>R11.79's <c>NOT DISCARDED</c> words as an <c>isError</c> result: this adapter's own sentence, with a display literal only where the words hold one.</summary>
+    private static CallToolResult NotDiscarded(string text) =>
+        new() { IsError = true, Content = [new TextContentBlock { Text = new FrameBuilder().Append($"{new OwnText(text)}").ToString() }] };
 
     /// <summary>A kept-act refusal of the read, as the guards give one: an <c>isError</c> result beginning <c>NOT SENT</c> (the title says so), naming the digest, saying nothing was sent.</summary>
     private static CallToolResult KeptRefusal(Error error) =>

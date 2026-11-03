@@ -294,11 +294,11 @@ public sealed partial class ResendToolTests : IDisposable
         var first = await CallAsync(() => kit.Tools.ResendAsync(act.PrefixedDigest, Ct));
         var second = await CallAsync(() => kit.Tools.ResendAsync(act.PrefixedDigest, Ct));
 
-        var stop = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", act.PrefixedDigest, StringComparison.Ordinal)).Replace("`curia resend ", "`curia_resend ", StringComparison.Ordinal);
+        var stop = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", act.PrefixedDigest, StringComparison.Ordinal));
         var (count, unit) = PublishedResendWords.StopWait;
         var problems = new List<string>();
         if (first.Text.Contains(Fold(PublishedResendWords.StopWords)[..30], StringComparison.Ordinal)) problems.Add("the first unresolved resend printed the stop sentence");
-        if (!second.Text.Contains(stop[..60], StringComparison.Ordinal)) problems.Add("no stop sentence");
+        if (!second.Text.Contains(stop, StringComparison.Ordinal)) problems.Add("no stop sentence");
         if (!second.Text.Contains($"{count} {unit}", StringComparison.Ordinal)) problems.Add("the published wait is not in the result");
         if (!File.Exists(Path.Combine(kit.ActsDirectory, act.Digest + ".act"))) problems.Add("the file was not kept");
         None(problems, "no stop sentence on the first unresolved resend; on the second, the published sentence with 2 attempts and the published wait; the act kept");
@@ -482,6 +482,23 @@ public sealed partial class ResendToolTests : IDisposable
         }
 
         None(problems, "a resend refused at a tier, a budget, not-an-answer or an unreadable log says (a) once and none of the first send's words, the tier leg names the tier");
+    }
+
+    /// <summary>
+    /// ASA44's description leg (plan ruling 44, M8). The description of <c>curia_resend</c> carries no tier row (a static description cannot state the row of the kept act's own kind, and
+    /// (question, create)'s is false for a vote or an answer) and says that a refusal at a tier names the tier. Predicted red: <c>carries (question, create)'s row for every kind</c>.
+    /// </summary>
+    [Fact]
+    public void R11_36_ASA44_TheResendDescriptionCarriesNoRowOfOneKindForEveryKind()
+    {
+        using var log = new StubLog();
+        var kit = KitOver(log);
+        var description = Fold(ToolCatalogue.Build(kit.Tools).Single(t => t.ProtocolTool.Name == "curia_resend").ProtocolTool.Description ?? string.Empty);
+
+        var problems = new List<string>();
+        if (!description.Contains("a refusal at a tier names the tier", StringComparison.Ordinal)) problems.Add("the description does not say that a refusal at a tier names the tier");
+        if (description.Contains(Fold(TierSpan.For(ResourceKind.Question, ActionKind.Create)), StringComparison.Ordinal)) problems.Add("the description carries (question, create)'s row for every kind");
+        None(problems, "no row of one kind for every kind, and the statement that a refusal at a tier names the tier");
     }
 
     /// <summary>
