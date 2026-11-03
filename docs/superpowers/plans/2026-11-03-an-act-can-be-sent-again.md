@@ -172,6 +172,22 @@ Written by `curia-architect` after reading Task 1's report (`.superpowers/sdd/20
     - **Task 4:** `Refusal.Summary` builds ruling 23's cause table **as amended by 34** (the own-words class and `raise-in-flight`), composes (a) for `Resend` and no (c) clause or act line, and prints `This resend recorded nothing` for a resend's `curia/log/unreadable`; ASA43's oracle is the phrase count (34), ASA15 and ASA24 follow; the fixed (e) is `<title> (curia/flag/contended): the flag may be sent again once the log is quieter. This is neither a tier denial nor a spent budget.` Tasks 3 and 4 add no verb- or tool-side composition of (a) (a `git grep` finds one site). Neither `agent-in-flight`'s nor `revision-in-flight`'s existing `Summary` arm is edited by this PR except that no clause is appended (the `agent-in-flight` near-doubling is a G48 lead for Task 9).
     - **Task 9:** file the leads: the `agent-in-flight` doubled statement; the quarantine leg if Task 2 could not build it.
 
+## Amendment 3 (2026-11-03): ruling 38
+
+38. **`already-recorded` on a first send says an earlier call recorded the act and never says `nothing was stored`; R11.81 (c) governs, R11.61's first form is withdrawn.**
+*The conflict:* R11.61 (G45) worded `already-recorded` "nothing was stored or spent"; ruling 23 and ruling 34 (R11.81 (c)) say a refusal that says an earlier call recorded the act never says it, counted as the phrases `nothing was recorded` and `nothing was stored`. The builder kept R11.61 and set ASA43 to 1 for that row.
+*Decided by the reader:* an agent told its act is already held is, often, the agent whose first send went unheard (the case G58 exists for). "Nothing was stored" beside a held post reads as "my act was not recorded", and the agent sends again or signs a new act (trap 136). What is true of this call (it added nothing, spent nothing) is kept, said in words the count does not match, and whose recording it was is added.
+*G58 now says:* R11.61 (rev.) and decision 13; G45's R11.61 paragraph carries a pointer to it; the index row names G58 (rev.). Published words (a first send): `The Forum already holds the post just sent: post <post id>. An earlier call recorded it, and that post is the one just sent; this call added nothing and spent no budget: read it, and do not send it again. This is neither a tier denial nor a spent budget, and sending it again will not change it.`
+`already-revised` ("Nothing was stored or spent.") and `revision-in-flight` keep their words: neither says an earlier call recorded the act sent; ASA43 stays 1 for them.
+
+*The fix round changes:*
+- `src/Curia.Client/ForumResult.cs` (the `AlreadyRecordedType` arm of `Refusal.Summary`): replace `That post is the one just sent, and {NothingStoredOrSpent}: {Remedy}.` with the published words above; add a constant for "An earlier call recorded it" and "this call added nothing and spent no budget" in `RevisionWording.cs`. `NothingStoredOrSpent` stays (revision-in-flight uses it); `Refusal.WithNothingRecorded` still adds no clause to this row.
+- `tests/Curia.Client.Tests/RevisionRefusalWordsTests.cs:104` (RVO50) stops requiring `NothingStoredOrSpent` for `already-recorded` and requires the two new phrases and the post id; the same in `tests/Curia.Mcp.Tests` if it reads that row.
+- ASA43: the `already-recorded` row expects 0 again (remove the builder's comment); ASA28/PublishedResendWords: add the `R11.61 (rev.) words` paragraph to the published-words reader so the probe reads the words from the errata, not the code.
+- Falsification (FASA): restore "nothing was stored" in the arm, ASA43 and RVO50 must go red (count 1); remove "An earlier call recorded it", the new RVO50 must go red.
+- Check the Forum's own `already-recorded` detail (`post=<id>`) is not printed with a title containing either phrase; the count is over the printed line.
+- Docs task: README/CLAUDE.md wording of R11.61 if quoted.
+
 ## Tasks
 
 ### Task 0: Re-read, operate the unmodified tree, write the rules first
