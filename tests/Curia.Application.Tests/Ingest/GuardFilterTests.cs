@@ -56,6 +56,8 @@ public sealed class GuardFilterTests
         var log = new LateCommitLog();
         var digestOf = new Dictionary<string, string> { ["P000"] = OriginalDigest };
         var posts = new List<string> { "P000" };
+        var originalRevisions = new List<string>();
+        var withheld = new List<string>();
         await log.AppendPostAsync("P000", "question", Sub, "{\"kind\":\"question\"}", OriginalDigest);
         var members = new[] { "post_id", "canonical", "signature", "digest", "author", "board", "kind" };
 
@@ -79,7 +81,7 @@ public sealed class GuardFilterTests
                 case 2: await Add("revision", Other, LateCommitLog.RevisionCanonical(Other, "board", Prev())); break;
                 case 3: await Add("vote", Sub, LateCommitLog.VoteCanonical(Sub, "board", Prev(), "n" + i)); break;
                 case 4: await Add("vote", Other, LateCommitLog.VoteCanonical(Other, "board", Prev(), "n" + i)); break;
-                case 5: await log.AppendModerationAsync(earlier, ModerationEffects.Wire(ModerationEffect.Withhold)); break;
+                case 5: await log.AppendModerationAsync(earlier, ModerationEffects.Wire(ModerationEffect.Withhold)); withheld.Add(earlier); break;
                 case 6: await log.AppendModerationAsync(earlier, ModerationEffects.Wire(ModerationEffect.Restore)); break;
                 case 7: await Add("comment", Sub, LateCommitLog.RevisionCanonical(Sub, "board", OriginalDigest)); break;
                 case 8:
@@ -108,9 +110,30 @@ public sealed class GuardFilterTests
                 case 9: await log.AppendOtherAsync("test.unrelated"); break;
                 case 10: await Add("revision", Sub, "not json {{{"); break;
                 case 11: await log.AppendModerationAsync("ZZZ-" + i, ModerationEffects.Wire(ModerationEffect.Withhold)); break;
-                case 12: await Add("revision", Sub, LateCommitLog.RevisionCanonical(Sub, "board", OriginalDigest)); break;
+                case 12: await Add("revision", Sub, LateCommitLog.RevisionCanonical(Sub, "board", OriginalDigest)); originalRevisions.Add(id); break;
                 case 13: await Add("revision", Other, LateCommitLog.RevisionCanonical(Other, "board", OriginalDigest)); break;
-                default: await Add("question", Other, "{\"kind\":\"question\"}", submissionDigest); break;
+                case 14: await Add("question", Other, "{\"kind\":\"question\"}", submissionDigest); break;
+
+                // the composite operations: the states the route's checks and the guard disagree over if "served" is read from the wrong moderation
+                case 15:
+                    // a revision of the original by the submitter, withheld at once
+                    await Add("revision", Sub, LateCommitLog.RevisionCanonical(Sub, "board", OriginalDigest));
+                    originalRevisions.Add(id);
+                    await log.AppendModerationAsync(id, ModerationEffects.Wire(ModerationEffect.Withhold));
+                    withheld.Add(id);
+                    break;
+                case 16:
+                    // the restore of the post withheld last (of any post, when none was withheld)
+                    var restored = withheld.Count > 0 ? withheld[^1] : earlier;
+                    withheld.Remove(restored);
+                    await log.AppendModerationAsync(restored, ModerationEffects.Wire(ModerationEffect.Restore));
+                    break;
+                default:
+                    // the withhold of the first revision of the original by the submitter (of any post, when there is none): a fork loses its first branch
+                    var first = originalRevisions.Count > 0 ? originalRevisions[0] : earlier;
+                    await log.AppendModerationAsync(first, ModerationEffects.Wire(ModerationEffect.Withhold));
+                    withheld.Add(first);
+                    break;
             }
         }
 
@@ -120,7 +143,7 @@ public sealed class GuardFilterTests
     /// <summary>
     /// LCB34. The guard's answer is the cold route's answer. Over generated logs (the submitter's and others' revisions, votes, comments and questions; withhold and restore records for posts of the read and
     /// of the delta and for posts that do not exist; a revision by someone else naming the same <c>prev</c>; post events that miss each required member in turn; a canonical text that does not parse; a
-    /// post bearing the submission's own digest), split at every position into a read and a delta, both legs' verdict (and the refusal's error) equals
+    /// post bearing the submission's own digest; and three composite operations, a revision withheld at once, the restore of the post withheld last and the withhold of the first revision of the original, so that the read's candidates are withheld, restored and forked across the seam), split at every position into a read and a delta, both legs' verdict (and the refusal's error) equals
     /// <c>RevisionRefusal(LogFacts.Of(read ++ delta), prev, digest)</c> and <c>AlreadyVoted(LogFacts.Of(read ++ delta), author, target)</c>, the route's own checks on the whole list: a different path from
     /// the filtered view and the candidates. <b>Green on the built tree</b> (the built legs are correct): it is the regression guard the filter must not break, and says so. A split whose read already holds
     /// the submission's digest is skipped for the successor leg (the route refuses that before a guard exists).
@@ -131,10 +154,11 @@ public sealed class GuardFilterTests
         var submission = await SubmissionOf.KindAsync(PostKind.Revision, Sub);
         var digest = Digests.Sha256(submission.Canonical).ToPrefixed();
         var scripts = new List<List<(int Op, int Pick)>>();
-        Gen.Select(Gen.Int[0, 14], Gen.Int[0, 50]).List[0, 13].Sample(scripts.Add, iter: 70, seed: "0pj9aDvFX1M7");
+        Gen.Select(Gen.Int[0, 17], Gen.Int[0, 50]).List[0, 13].Sample(scripts.Add, iter: 150, seed: "0pj9aDvFX1M7");
 
         var problems = new List<string>();
         var splits = 0;
+        int restoreInDelta = 0, withholdInDelta = 0, forkAcrossSeam = 0;
         foreach (var script in scripts)
         {
             var log = await BuildMixedAsync(script, digest);
@@ -151,6 +175,16 @@ public sealed class GuardFilterTests
                 {
                     var actual = Word(SubmissionGuard.For(readFacts, submission).Evaluate(delta));
                     if (actual != expectedRevision) problems.Add($"successor leg, split {k} of {log.Count}: the whole says {expectedRevision}, the guard {actual}");
+
+                    // the hard classes, by what the read and the whole say of the read's candidates (the submitter's revisions of the original)
+                    const string marker = "successor=";
+                    var named = expectedRevision.Contains(marker, StringComparison.Ordinal) ? expectedRevision[(expectedRevision.IndexOf(marker, StringComparison.Ordinal) + marker.Length)..] : null;
+                    var candidates = readFacts.Posts.Where(p => p.Prev == OriginalDigest && p.Author == Sub && p.Kind == "revision").Select(p => p.PostId).ToArray();
+                    if (named is not null && candidates.Contains(named) && !readFacts.Servable(named)) restoreInDelta++;
+                    if (named is not null && candidates.Any(c => c != named && readFacts.Servable(c) && !whole.Servable(c))) withholdInDelta++;
+                    if (named is not null && candidates.Contains(named)
+                        && whole.Posts.Any(p => p.Prev == OriginalDigest && p.Author == Sub && p.Kind == "revision" && !candidates.Contains(p.PostId) && whole.Servable(p.PostId)))
+                        forkAcrossSeam++;
                 }
 
                 foreach (var author in new[] { Sub, Other })
@@ -163,7 +197,9 @@ public sealed class GuardFilterTests
             }
         }
 
-        Said($"both legs answer as the whole log does at {splits} splits", problems.Count == 0 ? $"both legs answer as the whole log does at {splits} splits" : $"{problems.Count} differences, the first: {problems[0]}");
+        var classes = $"; already-revised through a restore in the delta {(restoreInDelta > 0 ? "reached" : "NOT REACHED")}, through a withhold in the delta that moves the name {(withholdInDelta > 0 ? "reached" : "NOT REACHED")}, through a fork across the read and the delta {(forkAcrossSeam > 0 ? "reached" : "NOT REACHED")}";
+        var said = $"both legs answer as the whole log does at {splits} splits" + classes;
+        Said(said.Replace("NOT REACHED", "reached", StringComparison.Ordinal), problems.Count == 0 ? said : $"{problems.Count} differences, the first: {problems[0]}");
     }
 
     // ---- LCB35 and LCB36
@@ -353,8 +389,7 @@ public sealed class GuardFilterTests
 
     /// <summary>
     /// LCB37. The successor leg's candidates, named and not left to the generator. (i) a candidate the read held withheld and the delta restores: refuse naming it; (ii) a candidate the delta withholds: proceed;
-    /// (iii) a revision of the original by its author in the delta: refuse naming it; (iv) a revision of it by another author in the delta, and a comment naming the digest: proceed; (v) a fork, with a candidate and a
-    /// delta revision both served: the first in log order is named; (vi) a moderation record in the delta naming another post: no change; (vii) the original absent from the facts: no throw, no refusal; (viii) a
+    /// (iii) a revision of the original by its author in the delta: refuse naming it; (iv) a revision of it by another author in the delta, and a comment naming the digest: proceed; (v) the reachable fork: a candidate withheld in the read, a delta revision by the same author and the candidate's restore in the delta: the candidate (the first in log order) is named; (vi) a moderation record in the delta naming another post, with the read's only candidate withheld: proceed; (vii) the original absent from the facts: no throw, no refusal; (viii) a
     /// revision in the delta that a later record of the delta withholds: proceed. <b>Green on the built tree</b> where the built leg answers so (the candidates form must keep every one of these).
     /// </summary>
     [Fact]
@@ -368,8 +403,8 @@ public sealed class GuardFilterTests
             "(ii) " + await SuccessorAsync(async l => { await Original(l); await Revision(l, "P001", Sub); }, l => l.AppendModerationAsync("P001", withhold)),
             "(iii) " + await SuccessorAsync(Original, l => Revision(l, "P002", Sub)),
             "(iv) " + await SuccessorAsync(Original, async l => { await Revision(l, "P002", Other); await l.AppendPostAsync("P003", "comment", Sub, LateCommitLog.RevisionCanonical(Sub, "board", OriginalDigest)); }),
-            "(v) " + await SuccessorAsync(async l => { await Original(l); await Revision(l, "P001", Sub); }, l => Revision(l, "P002", Sub)),
-            "(vi) " + await SuccessorAsync(async l => { await Original(l); await Revision(l, "P001", Sub); await l.AppendPostAsync("P003", "question", Other, "{\"kind\":\"question\"}"); }, l => l.AppendModerationAsync("P003", withhold)),
+            "(v) " + await SuccessorAsync(async l => { await Original(l); await Revision(l, "P001", Sub); await l.AppendModerationAsync("P001", withhold); }, async l => { await Revision(l, "P003", Sub); await l.AppendModerationAsync("P001", restore); }),
+            "(vi) " + await SuccessorAsync(async l => { await Original(l); await Revision(l, "P001", Sub); await l.AppendModerationAsync("P001", withhold); await l.AppendPostAsync("P004", "question", Other, "{\"kind\":\"question\"}"); }, l => l.AppendModerationAsync("P004", withhold)),
             "(vii) " + await SuccessorAsync(l => l.AppendPostAsync("P005", "question", Other, "{\"kind\":\"question\"}"), l => Revision(l, "P002", Sub)),
             "(viii) " + await SuccessorAsync(Original, async l => { await Revision(l, "P002", Sub); await l.AppendModerationAsync("P002", withhold); }),
         };
@@ -382,7 +417,7 @@ public sealed class GuardFilterTests
                 "(iii) " + AlreadyRevised("P002"),
                 "(iv) proceed",
                 "(v) " + AlreadyRevised("P001"),
-                "(vi) " + AlreadyRevised("P001"),
+                "(vi) proceed",
                 "(vii) proceed",
                 "(viii) proceed",
             ]),
