@@ -80,19 +80,21 @@ internal sealed partial class ForumTools
                 return Task.FromResult(Said(new FrameBuilder().Line($"{new OwnText(first)}").Line($"{new OwnText(after)}").ToString()));
 
             case DiscardStatus.NotHeld:
-                return Task.FromResult(NotDiscarded(ResendWording.NotDiscardedNotHeld));
-
             case DiscardStatus.Failed:
-                return Task.FromResult(NotDiscarded(ResendWording.NotDiscardedFailed(DisplayLiteral.Of(outcome.Reason ?? string.Empty))));
+                return Task.FromResult(NotDiscarded(outcome));
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(digest), outcome.Status, "Not a discard status");
         }
     }
 
-    /// <summary>R11.79's <c>NOT DISCARDED</c> words as an <c>isError</c> result: this adapter's own sentence, with a display literal only where the words hold one.</summary>
-    private static CallToolResult NotDiscarded(string text) =>
-        new() { IsError = true, Content = [new TextContentBlock { Text = new FrameBuilder().Append($"{new OwnText(text)}").ToString() }] };
+    /// <summary>R11.79's <c>NOT DISCARDED</c> words as an <c>isError</c> result: this adapter's own sentence for the outcome, with a display literal only where the words hold one (the reason of a failure).</summary>
+    private static CallToolResult NotDiscarded(DiscardOutcome outcome) =>
+        new()
+        {
+            IsError = true,
+            Content = [new TextContentBlock { Text = new FrameBuilder().Append($"{new OwnText(outcome.Status == DiscardStatus.NotHeld ? ResendWording.NotDiscardedNotHeld : ResendWording.NotDiscardedFailed(DisplayLiteral.Of(outcome.Reason ?? string.Empty)))}").ToString() }],
+        };
 
     /// <summary>A kept-act refusal of the read, as the guards give one: an <c>isError</c> result beginning <c>NOT SENT</c> (the title says so), naming the digest, saying nothing was sent.</summary>
     private static CallToolResult KeptRefusal(Error error) =>

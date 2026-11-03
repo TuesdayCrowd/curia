@@ -36,7 +36,7 @@ public sealed partial class ResendToolTests
         var tool = ToolCatalogue.Build(kit.Tools).SingleOrDefault(t => t.ProtocolTool.Name == "curia_discard");
         if (tool is null) { problems.Add("tool not found: curia_discard"); None(problems, "curia_discard registered"); }
         var hints = tool!.ProtocolTool.Annotations;
-        if (hints?.ReadOnlyHint != false || hints.DestructiveHint != true || hints.IdempotentHint != true || hints.OpenWorldHint != false)
+        if (hints is not { ReadOnlyHint: false, DestructiveHint: true, IdempotentHint: true, OpenWorldHint: false })
             problems.Add($"annotations are ReadOnly={hints?.ReadOnlyHint}, Destructive={hints?.DestructiveHint}, Idempotent={hints?.IdempotentHint}, OpenWorld={hints?.OpenWorldHint}; expected false, true, true, false");
 
         var before = KeptNames(kit);
