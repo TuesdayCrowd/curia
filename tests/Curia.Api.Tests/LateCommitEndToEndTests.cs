@@ -449,6 +449,34 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
         Said(string.Join(" | ", expected), string.Join(" | ", said));
     }
 
+    /// <summary>
+    /// LCB14 (withheld vote). A vote the Forum does not serve does not stand, at the route's own check and not only in the guard: an agent votes on a target, moderation withholds that vote, and the same
+    /// agent votes on that target again: <c>201</c>. Control: the earlier vote served, the same agent's second vote is <c>409 curia/verification/already-voted</c>. Red under FLCB27's first form (the
+    /// route keeping its own copy of the check that ignores servability).
+    /// </summary>
+    [Fact]
+    public async Task R8_86_LCB14_AWithheldVoteDoesNotStandAtTheRoute()
+    {
+        var board = RevisionProbe.Board();
+        var voter = await T2Async(board);
+        var author = await T2Async(board);
+        var question = await AskAsync(author, board);
+        var withheldTarget = await AnswerAsync(author, board, question);
+        var servedTarget = await AnswerAsync(author, board, question);
+        var now = _forum.Now;
+
+        var first = await RevisionProbe.SendAsync(_forum, voter, voter.Agent.SignVote(board, withheldTarget.Digest, now), cancellationToken: Ct);
+        await _forum.WithholdAsync(first.PostId!, Ct);
+        var again = await RevisionProbe.SendAsync(_forum, voter, voter.Agent.SignVote(board, withheldTarget.Digest, now), cancellationToken: Ct);
+
+        var kept = await RevisionProbe.SendAsync(_forum, voter, voter.Agent.SignVote(board, servedTarget.Digest, now), cancellationToken: Ct);
+        var keptAgain = await RevisionProbe.SendAsync(_forum, voter, voter.Agent.SignVote(board, servedTarget.Digest, now), cancellationToken: Ct);
+
+        Said(
+            "the first votes: 201 and 201 | the earlier vote withheld, the same agent votes again: 201 | control, the earlier vote served: 409 curia/verification/already-voted",
+            $"the first votes: {first.Status} and {kept.Status} | the earlier vote withheld, the same agent votes again: {again.Says} | control, the earlier vote served: {Slug(keptAgain)}");
+    }
+
     // ------------------------------------------------------------------------------------------------------------------------------------------------------------
     // LCB15 to LCB17: the flag
     // ------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -572,6 +600,13 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
     // LCB18 to LCB22: what must not change, the mapping, every exit
     // ------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+    /// <summary>The search response's <c>vector_check_due_at</c> as served (<c>null</c> where nothing is owed), read as the Forum states it.</summary>
+    private async Task<string> VectorCheckDueAsync()
+    {
+        using var response = await _forum.Client.GetAsync(new Uri("/v1/search?q=quokka", UriKind.Relative), Ct);
+        return IndexLag.Member(await response.Content.ReadAsStringAsync(Ct), "vector_check_due_at");
+    }
+
     /// <summary>
     /// LCB18. A refusal changes nothing it should not, and logs once. A digest refusal (the shape the other two share): the events count and the highest sequence are those of the holder's
     /// commit and nothing more (SQL), <c>budget.used</c> is unchanged by the refused request, neither <c>AppendConfirmed</c> nor <c>AppendNotConfirmed</c> is logged, and exactly one
@@ -588,8 +623,10 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
         var late = LatePost(wire);
         var usedBefore = (await BudgetReadouts.ReadAsync(_forum, sender)).Entry("posting").GetProperty("used").GetInt32();
         var mark = _forum.Log.Mark();
+        var dueBefore = await VectorCheckDueAsync();
 
         var sent = await SendBehindAsync(sender, wire, holder => InsertAsync(holder, late));
+        var dueAfter = await VectorCheckDueAsync();
         var eventsAfterCommit = await EventsAsync();
         var highest = await HighestAsync();
         var usedAfter = (await BudgetReadouts.ReadAsync(_forum, sender)).Entry("posting").GetProperty("used").GetInt32();
@@ -600,8 +637,8 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
             || e.Values.Any(v => (v.Value?.ToString() ?? string.Empty).Contains(canary, StringComparison.Ordinal)));
 
         Said(
-            $"{refused.Name} logged 1 ({refused.Message.Replace("<Kind>", "question", StringComparison.Ordinal).Replace("<RefusalType>", PublishedLateCommitWords.Refusals()[0].Type, StringComparison.Ordinal)}), no digest or post id or text in the log, 0 confirm lines, the table holds 1 of the digest (409 {PublishedLateCommitWords.Refusals()[0].Type}), budget used moved by 0",
-            $"{refused.Name} logged {guardLines.Count}{(guardLines.Count == 1 ? $" ({guardLines[0].Message})" : string.Empty)}, {(leak ? "the log carries a digest, post id or text" : "no digest or post id or text in the log")}, {confirmLines} confirm lines, the table holds {await WithDigestAsync(late.Digest)} of the digest ({Slug(sent)}), budget used moved by {usedAfter - usedBefore - 1}");
+            $"{refused.Name} logged 1 ({refused.Message.Replace("<Kind>", "question", StringComparison.Ordinal).Replace("<RefusalType>", PublishedLateCommitWords.Refusals()[0].Type, StringComparison.Ordinal)}), no digest or post id or text in the log, 0 confirm lines, the table holds 1 of the digest (409 {PublishedLateCommitWords.Refusals()[0].Type}), budget used moved by 0, vector_check_due_at null before and null after",
+            $"{refused.Name} logged {guardLines.Count}{(guardLines.Count == 1 ? $" ({guardLines[0].Message})" : string.Empty)}, {(leak ? "the log carries a digest, post id or text" : "no digest or post id or text in the log")}, {confirmLines} confirm lines, the table holds {await WithDigestAsync(late.Digest)} of the digest ({Slug(sent)}), budget used moved by {usedAfter - usedBefore - 1}, vector_check_due_at {dueBefore} before and {dueAfter} after");
         Assert.True(eventsAfterCommit > 0 && highest > 0);
     }
 
@@ -769,7 +806,7 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
 
     /// <summary>
     /// LCB23. The oracle has a positive control (vacuity question 1: a passing and an absent probe must differ). The queries of <c>tools/fault-harness/forks.sh</c>, read from the script itself and run on this database
-    /// after a seed made through the direct-append seam (two revisions of one <c>prev</c>, one digest stored twice, a flag recorded twice, a vote cast twice), return exactly the seeded rows; on the same
+    /// after a seed made through the direct-append seam (two revisions of one <c>prev</c>, one digest stored twice, a flag recorded twice, a vote cast twice, and two orphan private flag rows with no entry), return exactly the seeded rows (an entry-less row is no flag); on the same
     /// database with the mark taken after the seed they return none; and the fork the SQL finds is the fork <c>CorrectionIndex</c> finds on the same log (two artifacts, one input).
     /// </summary>
     [Fact]
@@ -796,6 +833,17 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
             await LateFlagAsync(holder, p.PostId, sender.Agent.AgentId, "spam");
             await LateFlagAsync(holder, p.PostId, sender.Agent.AgentId, "spam");
             await holder.CommitAsync(Ct);
+        }
+
+        // two orphan private rows (a flag_details row whose event never committed, D97's shape) by one raiser against one post: a triple query that counts an entry-less row finds a pair
+        await using (var orphans = await LateCommitHolder.BeginAsync(_forum.AppRole, "public", Ct))
+        {
+            for (var i = 0; i < 2; i++)
+                await orphans.ExecuteAsync(
+                    "INSERT INTO flag_details (event_id, post_id, raised_by, rationale, salt) VALUES (@id, @post, @raiser, @rationale, @salt);",
+                    Ct,
+                    ("id", Require(new UlidGenerator(_forum.Clock).Next()).ToString()), ("post", p.PostId), ("raiser", other.Agent.AgentId), ("rationale", "an orphan of the late-commit probe"), ("salt", FlagSalt.New()));
+            await orphans.CommitAsync(Ct);
         }
 
         var queries = new[] { "revision forks", "digests stored twice", "flag triples recorded twice", "votes by one author" };
