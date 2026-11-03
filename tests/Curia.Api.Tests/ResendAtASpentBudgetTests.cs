@@ -132,8 +132,9 @@ public sealed class ResendAtASpentBudgetTests : IClassFixture<LateCommitForumFix
 
     /// <summary>
     /// ASA32. Only the posting budget gives way, a control (green on the seam; red under FASA14): a tier denial (a T0 agent's own recorded answer, sent again) stays <c>403</c> with its own reason,
-    /// and an own-resource denial (an agent's revision of another's post, recorded, sent again) stays <c>403</c> with its own. (A quarantined credential has no seam in this fixture: FASA14's
-    /// two forms are the tier and the whole set.)
+    /// and an own-resource denial (an agent's revision of another's post, recorded, sent again) stays <c>403</c> with its own. (The quarantined-credential leg cannot be built in this fixture, and Task 2 found why: no log event produces a quarantined
+    /// credential (the standing fold reads <c>agent.enrolled</c> alone), so seeding one is a production change. R7.32's <c>Active</c> clause is therefore implemented and not discharged by a probe
+    /// at the route; the policy's order (the posting budget before the quarantine intersection) is what makes the clause necessary.)
     /// </summary>
     [Fact]
     public async Task R7_32_ASA32_NoOtherDenialGivesWayToTheDigest()
