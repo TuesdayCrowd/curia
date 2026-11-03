@@ -31,9 +31,10 @@ public sealed class HarnessRehearsalTests
         return Path.Combine(dir!.FullName, "tools", "fault-harness");
     }
 
-    private async Task<(int Exit, string Output)> RunAsync(string script, string[] args, IDictionary<string, string> env)
+    private static async Task<(int Exit, string Output)> RunAsync(string script, string[] args, IDictionary<string, string> env)
     {
-        var admin = new NpgsqlConnectionStringBuilder(_fixture.AdminDataSource.ConnectionString);
+        // The resolved string and not the data source's: Npgsql strips the password from a data source's ConnectionString, and CI's server requires one.
+        var admin = new NpgsqlConnectionStringBuilder(PostgresTestEnvironment.ResolveAdminConnectionString());
         var info = new ProcessStartInfo("bash") { RedirectStandardOutput = true, RedirectStandardError = true };
         info.ArgumentList.Add(Path.Combine(Harness(), script));
         foreach (var a in args) info.ArgumentList.Add(a);
@@ -69,7 +70,7 @@ public sealed class HarnessRehearsalTests
                 await create.ExecuteNonQueryAsync(Ct);
             }
 
-            var target = new NpgsqlConnectionStringBuilder(_fixture.AdminDataSource.ConnectionString) { Database = db, Password = new NpgsqlConnectionStringBuilder(_fixture.AdminDataSource.ConnectionString).Password };
+            var target = new NpgsqlConnectionStringBuilder(PostgresTestEnvironment.ResolveAdminConnectionString()) { Database = db };
             await using (var source = new NpgsqlDataSourceBuilder(target.ConnectionString).Build())
             await using (var apply = source.CreateCommand(SchemaMigrations.RenderAll(role, password)))
                 await apply.ExecuteNonQueryAsync(Ct);
