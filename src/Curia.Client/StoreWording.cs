@@ -143,7 +143,7 @@ public static class StoreWording
 
     /// <summary>
     /// What follows a refusal of a signed post, given the digest of the act the client signed (null where no signed post's digest is held: a read, a resolve, a flag):
-    /// the act line for <see cref="StoreUnavailableType"/>; the unheard sentence and then the act line for an unheard refusal (R11.77); nothing otherwise. The one
+    /// the act line for <see cref="StoreUnavailableType"/> and for any refusal that leaves the act kept (R11.80, plan ruling 43); the unheard sentence and then the act line for an unheard refusal (R11.77); nothing otherwise. The one
     /// definition both printers call, so neither compares a problem type itself and neither can add a line the other does not. It calls nothing and waits for nothing (R11.64).
     /// </summary>
     public static IReadOnlyList<string> AfterRefusal(Refusal refusal, string? actDigest)
@@ -156,8 +156,10 @@ public static class StoreWording
         var lines = new List<string>();
         if (refusal.Act != ActContext.Resend)
         {
+            // Plan ruling 43 (R11.80): the act line follows every refusal of a signed post that leaves the act kept (the session sets KeptAttempts only then), whatever the status and whether or not the Forum
+            // named a problem type: the file is kept, the slot is held, and the agent is told the digest. `curia/store/unavailable` is the same condition and stays named.
             if (refusal.Unheard) lines.AddRange([UnheardSentence, ActLine(actDigest, refusal.ActKind)]);
-            else if (string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal)) lines.Add(ActLine(actDigest, refusal.ActKind));
+            else if (string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) || refusal.KeptAttempts >= 1) lines.Add(ActLine(actDigest, refusal.ActKind));
         }
 
         if (refusal.KeptAttempts >= ResendWording.StopFromAttempts) lines.Add(ResendWording.Stop(refusal.KeptAttempts, actDigest));

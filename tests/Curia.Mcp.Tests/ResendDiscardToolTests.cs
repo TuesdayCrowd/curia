@@ -1,6 +1,6 @@
 #pragma warning disable CA1416 // modes are set and read as PrivateFiles does (R11.79: 0600 and 0700)
 
-using System.Globalization;
+using System.Text.RegularExpressions;
 using Curia.Client;
 using Curia.Tests.Shared;
 using ModelContextProtocol.Protocol;
@@ -218,5 +218,62 @@ public sealed partial class ResendToolTests
         }
 
         None(problems, "every verb with its qualifier, no tool name outside one, the published sentences present");
+    }
+
+    /// <summary>
+    /// ASA51, the tools' half (plan ruling 43). A first send answered <c>500</c>, <c>502</c>, <c>504</c>, <c>413</c> or <c>429</c> (typeless and a problem document) through <c>curia_ask</c> relays one act line naming
+    /// the digest of the bytes the stub received, keeps the file, and says nothing of nothing recorded or stored; a <c>400</c> removes the file and has none; a resend answered <c>500</c> has (a) and no act line.
+    /// Predicted red: <c>0 act lines</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_80_ASA51_AnActLineFollowsEveryRefusalThatLeavesTheActKeptInTheToolsToo()
+    {
+        var problems = new List<string>();
+        var actLine = Fold(PublishedResendWords.ActWords);
+        var marker = actLine[..actLine.IndexOf("<digest>", StringComparison.Ordinal)];
+
+        foreach (var status in new[] { 500, 502, 504, 413, 429 })
+        {
+            foreach (var typeless in new[] { true, false })
+            {
+                var name = $"{status} {(typeless ? "typeless" : "a problem document")}";
+                using var log = new StubLog();
+                var kit = KitOver(log);
+                kit.Handler.Intercept = (r, _) => Task.FromResult<HttpResponseMessage?>(IsSubmission(r)
+                    ? (typeless ? new HttpResponseMessage((System.Net.HttpStatusCode)status) { Content = new StringContent("upstream said no") } : Problem(status, "curia/server/fault", "A fault"))
+                    : null);
+                var relayed = await CallAsync(() => kit.Tools.AskAsync("b", "A title?", "A body.", null, null, Ct));
+                var received = kit.Handler.Bodies.LastOrDefault(ReceivedAct.IsSubmission);
+                if (received is null) { problems.Add($"{name}: no submission received"); continue; }
+
+                var lines = Regex.Count(relayed.Text, Regex.Escape(marker), RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+                if (lines != 1) problems.Add($"{name}: {lines} act lines, expected 1 (\"{relayed.Text}\")");
+                else if (!relayed.Text.Contains(ActLine(ReceivedAct.DigestOf(received), false), StringComparison.Ordinal)) problems.Add($"{name}: the act line does not name the digest of the bytes signed");
+                if (Directory.GetFiles(kit.ActsDirectory).Length != 1) problems.Add($"{name}: the act was not kept");
+                var said = Regex.Count(relayed.Text, "nothing was (?:recorded|stored)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
+                if (said != 0) problems.Add($"{name}: says nothing was recorded or stored {said} time(s)");
+            }
+        }
+
+        using (var log = new StubLog())
+        {
+            var kit = KitOver(log);
+            kit.Handler.Intercept = (r, _) => Task.FromResult(IsSubmission(r) ? Problem(400, "curia/admit/invalid-envelope", "A refusal") : null);
+            var relayed = await CallAsync(() => kit.Tools.AskAsync("b", "A title?", "A body.", null, null, Ct));
+            if (Directory.Exists(kit.ActsDirectory) && Directory.GetFiles(kit.ActsDirectory).Length != 0) problems.Add("400: the file was kept");
+            if (relayed.Text.Contains(marker, StringComparison.Ordinal)) problems.Add("400: an act line follows a refusal the client removed the act for");
+        }
+
+        using (var log = new StubLog())
+        {
+            var kit = KitOver(log);
+            var act = Plant(kit);
+            kit.Handler.Intercept = (r, _) => Task.FromResult(IsSubmission(r) ? Problem(500, "curia/server/fault", "A fault") : null);
+            var relayed = await CallAsync(() => kit.Tools.ResendAsync(act.PrefixedDigest, Ct));
+            if (relayed.Text.Contains(marker, StringComparison.Ordinal)) problems.Add("a resend answered 500: an act line follows it");
+            if (!relayed.Text.Contains(Substitute(PublishedResendWords.ResendRefusalWords, act.PrefixedDigest), StringComparison.Ordinal)) problems.Add("a resend answered 500: R11.81 (a) is absent");
+        }
+
+        None(problems, "one act line naming the digest of the bytes signed after every refusal that leaves the act kept, none after a removal or a resend, and no phrase of nothing recorded");
     }
 }
