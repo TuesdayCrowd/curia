@@ -45,16 +45,18 @@ public sealed class InMemoryAppendGuardTests : AppendGuardContractTests
             return GuardVerdict.Proceed;
         });
 
-        var first = Task.Run(async () => Require(await store.AppendAsync(Require(AggregateId.Create("lcb8-first")), AggregateVersion.New, [Ev("lcb8-first")], null, guard, ct)), ct);
-        var enteredInTime = await Task.WhenAny(entered.Task, Task.Delay(TimeSpan.FromSeconds(3), ct)) == entered.Task;
+        // Dedicated threads, not the pool's: the guard blocks its thread, and the pool is shared with every parallel test of the assembly (a 3-second wait for a pool thread flaked under load).
+        var first = Task.Factory.StartNew(() => Require(store.AppendAsync(Require(AggregateId.Create("lcb8-first")), AggregateVersion.New, [Ev("lcb8-first")], null, guard, ct).GetAwaiter().GetResult()),
+            ct, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        var enteredInTime = await Task.WhenAny(entered.Task, Task.Delay(TimeSpan.FromSeconds(30), ct)) == entered.Task;
         Task? second = null;
         if (enteredInTime)
         {
-            second = Task.Run(async () =>
+            second = Task.Factory.StartNew(() =>
             {
-                Require(await store.AppendAsync(Require(AggregateId.Create("lcb8-second")), AggregateVersion.New, [Ev("lcb8-second")], ct));
+                Require(store.AppendAsync(Require(AggregateId.Create("lcb8-second")), AggregateVersion.New, [Ev("lcb8-second")], ct).GetAwaiter().GetResult());
                 lock (order) order.Add("second append done");
-            }, ct);
+            }, ct, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             await Task.Delay(TimeSpan.FromMilliseconds(500), ct);
         }
 

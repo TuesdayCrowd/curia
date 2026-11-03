@@ -290,7 +290,7 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
             var sent = await SendBehindAsync(sender, wire, holder => InsertAsync(holder, late));
             var stored = await WithDigestAsync(late.Digest);
             var authored = await RevisionProbe.PostsByAsync(_forum, sender.Agent.AgentId) - before;
-            expected.Add($"{kind}: {refusal.Status} {refusal.Type} post={late.PostId}, {1} event of the digest, {1} new post by the author (the holder's)");
+            expected.Add($"{kind}: {refusal.Status} {refusal.Type} post={late.PostId}, {1} event of the digest, {1} new post by the author");
             said.Add($"{kind}: {Slug(sent)}{(sent.Detail is null ? string.Empty : " " + sent.Detail)}, {stored} event of the digest, {authored} new post by the author");
         }
 
@@ -334,7 +334,7 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
         Assert.Equal(201, first.Status);
         var mark2 = _forum.Log.Mark();
         var b = await RevisionProbe.ReviseAsync(_forum, author, board, p2, "Second " + RevisionProbe.Unrelated(), cancellationToken: Ct);
-        expected.Add($"(b) {revised.Status} {revised.Type} successor={first.PostId}, {refused.Name} logged 0 (the route's own check)");
+        expected.Add($"(b) {revised.Status} {revised.Type} successor={first.PostId}, {refused.Name} logged 0");
         said.Add($"(b) {Slug(b)}{(b.Detail is null ? string.Empty : " " + b.Detail)}, {refused.Name} logged {LinesOf(mark2, refused.Id)}");
 
         // controls
@@ -600,7 +600,7 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
             || e.Values.Any(v => (v.Value?.ToString() ?? string.Empty).Contains(canary, StringComparison.Ordinal)));
 
         Said(
-            $"{refused.Name} logged 1 naming the kind question and the type already-recorded, no digest or post id or text in the log, no confirm lines, the table holds the holder's event only (1 of the digest), budget used moved by the holder's post only",
+            $"{refused.Name} logged 1 ({refused.Message.Replace("<Kind>", "question", StringComparison.Ordinal).Replace("<RefusalType>", PublishedLateCommitWords.Refusals()[0].Type, StringComparison.Ordinal)}), no digest or post id or text in the log, 0 confirm lines, the table holds 1 of the digest (409 {PublishedLateCommitWords.Refusals()[0].Type}), budget used moved by 0",
             $"{refused.Name} logged {guardLines.Count}{(guardLines.Count == 1 ? $" ({guardLines[0].Message})" : string.Empty)}, {(leak ? "the log carries a digest, post id or text" : "no digest or post id or text in the log")}, {confirmLines} confirm lines, the table holds {await WithDigestAsync(late.Digest)} of the digest ({Slug(sent)}), budget used moved by {usedAfter - usedBefore - 1}");
         Assert.True(eventsAfterCommit > 0 && highest > 0);
     }

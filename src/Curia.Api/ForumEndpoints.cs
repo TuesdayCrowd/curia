@@ -1134,6 +1134,17 @@ public static class ForumEndpoints
     }
 
     /// <summary>
+    /// R6.60, R8.86 (errata G57): the one place a failed append's error is given the status of a guard's answer: the three refusals are <c>409</c> as the route's own
+    /// checks answer them, a delta over the cap is <c>503</c>, anything else is not a guard's (<see langword="null"/>).
+    /// </summary>
+    private static int? GuardRefusalStatus(Error error) => error.Type switch
+    {
+        IngestErrors.AlreadyRecordedType or IngestErrors.AlreadyRevisedType or VerificationErrors.AlreadyVotedType => StatusCodes.Status409Conflict,
+        DomainErrors.AppendDeltaTooLargeType => StatusCodes.Status503ServiceUnavailable,
+        _ => null,
+    };
+
+    /// <summary>
     /// What follows PERSIST, for a post the route appended or the confirm found: <see langword="null"/> when the append found the author's stream moved (R6.56), a 500
     /// for any other failed result, otherwise the vector index step and the 201 (R8.81).
     /// </summary>
@@ -1148,8 +1159,31 @@ public static class ForumEndpoints
         {
             // R6.56: the author's stream moved since VERIFY read it. Nothing was written; the caller
             // decides again from VERIFY (null answers "again").
-            return string.Equals(persistError!.Type, DomainErrors.ConditionConflictType, StringComparison.Ordinal)
-                ? null
+            if (string.Equals(persistError!.Type, DomainErrors.ConditionConflictType, StringComparison.Ordinal))
+                return null;
+
+            // R6.60, R8.86 (errata G57): a check the route made on an older read failed inside the log's lock. Nothing was stored; the refusal is the route's own.
+            if (GuardRefusalStatus(persistError) is { } guardStatus)
+            {
+                if (guardStatus == StatusCodes.Status409Conflict)
+                {
+                    try
+                    {
+                        AppendGuardLog.Refused(indexer.Log, PostKinds.Wire(v.Envelope.Kind), persistError.Type);
+                    }
+#pragma warning disable CA1031 // R8.86: the refusal is the answer; a log sink that fails must not change it.
+                    catch (Exception)
+#pragma warning restore CA1031
+                    {
+                    }
+                }
+
+                return Problem(guardStatus, persistError);
+            }
+
+            // R6.60: a submission never asks to decide again, so a Redecide that reaches it is a fault of the Forum, served as the unnamed fault (the type is in no response).
+            return string.Equals(persistError.Type, DomainErrors.AppendRedecideType, StringComparison.Ordinal)
+                ? StoreFaults.Fault(persistError.Type)
                 : Problem(StatusCodes.Status500InternalServerError, persistError);
         }
 

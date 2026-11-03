@@ -139,32 +139,94 @@ public sealed class LogFactsTests
         var log = new LateCommitLog();
         await log.AppendPostAsync("P000", "question", Author, "{\"kind\":\"question\"}");
         var read = await log.ReadAsync();
+        var small = await LateDeltaAsync(log, read.Count, 2);
+        var large = await LateDeltaAsync(log, read.Count + 2, 18);
         var said = new List<string>();
         var expected = new List<string>();
 
         foreach (var (kind, folds) in new[] { (PostKind.Question, false), (PostKind.Revision, true), (PostKind.Vote, true) })
         {
-            var facts = LogFacts.Of(read);
+            // The read is armed after the guard is built: the function may not touch it (a throw on access is the probe's evidence), and the delta's events are counted at 2 and at 20.
+            var armed = new ArmedList(read);
+            var facts = LogFacts.Of(armed);
             var submission = await SubmissionOf.KindAsync(kind, Author);
             var guard = SubmissionGuard.For(facts, submission);
             expected.Add($"{kind}: fold {(folds ? "made when the guard is built" : "never made")}");
             said.Add($"{kind}: fold {(facts.IsFolded ? "made when the guard is built" : "never made")}");
-            var delta = LateDelta();
-            var counting = new CountingList(delta);
-            _ = guard.Evaluate(counting);
-            expected.Add($"{kind}: the function inspected at most {delta.Count} events");
-            said.Add($"{kind}: the function inspected {(counting.Reads <= delta.Count ? "at most " + delta.Count : counting.Reads.ToString(System.Globalization.CultureInfo.InvariantCulture))} events");
+
+            armed.Arm();
+            var countingSmall = new CountingList(small);
+            var countingLarge = new CountingList([.. small, .. large]);
+            string touchedTheRead = "never";
+            try
+            {
+                _ = guard.Evaluate(countingSmall);
+                _ = guard.Evaluate(countingLarge);
+            }
+            catch (InvalidOperationException)
+            {
+                touchedTheRead = "touched";
+            }
+
+            expected.Add($"{kind}: the function never touched the read");
+            said.Add($"{kind}: the function {(touchedTheRead == "never" ? "never touched" : "touched")} the read");
+            // Linear in the delta: 18 more events cost a whole number of passes over them (the two endpoint reads of Extend are a constant), and the passes are few.
+            var extra = countingLarge.Reads - countingSmall.Reads;
+            var passes = extra % 18 == 0 ? extra / 18 : -1;
+            expected.Add($"{kind}: a fixed number of passes (0 to 4) over the delta");
+            said.Add($"{kind}: {(passes is >= 0 and <= 4 ? "a fixed number of passes (0 to 4)" : $"{extra} more inspections for 18 more events")} over the delta");
         }
 
         Said(string.Join(" | ", expected), string.Join(" | ", said));
     }
 
-    private static IReadOnlyList<AppendedEvent> LateDelta()
+    /// <summary>
+    /// <paramref name="count"/> unrelated events appended to the same log after the read: a delta that lies above the facts' position, as a late commit does (changed from a delta built on a fresh
+    /// log, whose sequences began at 1 and so lay at or below the position, which Extend refuses).
+    /// </summary>
+    private static async Task<IReadOnlyList<AppendedEvent>> LateDeltaAsync(LateCommitLog log, int skip, int count)
     {
-        var log = new LateCommitLog();
-        log.AppendOtherAsync("test.unrelated").GetAwaiter().GetResult();
-        log.AppendOtherAsync("test.unrelated").GetAwaiter().GetResult();
-        return log.ReadAsync().GetAwaiter().GetResult();
+        for (var i = 0; i < count; i++) await log.AppendOtherAsync("test.unrelated");
+        return [.. (await log.ReadAsync()).Skip(skip)];
+    }
+
+    /// <summary>A list that throws on any access once armed: the evidence that the guard's function never reads the route's read.</summary>
+    private sealed class ArmedList(IReadOnlyList<AppendedEvent> inner) : IReadOnlyList<AppendedEvent>
+    {
+        private volatile bool _armed;
+
+        internal void Arm() => _armed = true;
+
+        private void Check()
+        {
+            if (_armed) throw new InvalidOperationException("the guard's function touched the read");
+        }
+
+        public AppendedEvent this[int index]
+        {
+            get
+            {
+                Check();
+                return inner[index];
+            }
+        }
+
+        public int Count
+        {
+            get
+            {
+                Check();
+                return inner.Count;
+            }
+        }
+
+        public IEnumerator<AppendedEvent> GetEnumerator()
+        {
+            Check();
+            return inner.GetEnumerator();
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private sealed class CountingList(IReadOnlyList<AppendedEvent> inner) : IReadOnlyList<AppendedEvent>

@@ -51,6 +51,17 @@ internal static partial class VectorIndexLog
 }
 
 /// <summary>
+/// R8.86 (errata G57): the log line of a post's append refused by the guard, id 5006, as R8.86 words publishes it. It carries the post's kind and the refusal's type
+/// and never a digest, a post id or any text a post carried.
+/// </summary>
+internal static partial class AppendGuardLog
+{
+    [LoggerMessage(EventId = 5006, EventName = "AppendGuardRefused", Level = LogLevel.Warning,
+        Message = "A {Kind} post's append was refused inside the log's lock by a check the route had made on an older read ({RefusalType}); nothing was stored")]
+    internal static partial void Refused(ILogger logger, string kind, string refusalType);
+}
+
+/// <summary>
 /// R8.84 (errata G55): the log lines of the confirm of a faulted append, ids 5004 and 5005 as R8.84 words publishes them. They carry the post's kind, the exception's type
 /// and the confirm's outcome and never any text a post carried; the confirmed line carries the exception itself.
 /// </summary>
