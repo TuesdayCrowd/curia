@@ -51,10 +51,36 @@ public static class SubmissionChecks
     {
         ArgumentNullException.ThrowIfNull(facts);
 
-        return facts.Posts.Any(p => string.Equals(p.Author, author, StringComparison.Ordinal)
-                && facts.Servable(p.PostId)
-                && string.Equals(VerificationProjector.TargetOf(p), target, StringComparison.Ordinal))
+        return StandingVote(facts.Posts, facts.Servable, author, target);
+    }
+
+    /// <summary>
+    /// The one definition of a standing vote (R8.55, trap 96): a post of <paramref name="posts"/> by <paramref name="author"/> that names <paramref name="target"/> and that
+    /// <paramref name="servable"/> says the Forum serves. The route asks it of the facts of its read; the append's guard asks it of the read's candidates
+    /// (<see cref="VotesFor"/>) followed by the delta's posts, with "served" read after the delta's moderation (errata G57, ruling 31).
+    /// </summary>
+    public static Error? StandingVote(IEnumerable<PostView> posts, Func<string, bool> servable, string author, string target)
+    {
+        ArgumentNullException.ThrowIfNull(posts);
+        ArgumentNullException.ThrowIfNull(servable);
+
+        return posts.Any(p => IsVoteFor(p, author, target) && servable(p.PostId))
             ? VerificationErrors.AlreadyVoted(target)
             : null;
     }
+
+    /// <summary>
+    /// The posts of <paramref name="facts"/> by <paramref name="author"/> that name <paramref name="target"/>, served or not: the votes a delta can make stand again (a restore) and no
+    /// others. Made outside the log's lock, where the guard is built (errata G57, ruling 31).
+    /// </summary>
+    public static ImmutableArray<PostView> VotesFor(LogFacts facts, string author, string target)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+
+        return [.. facts.Posts.Where(p => IsVoteFor(p, author, target))];
+    }
+
+    private static bool IsVoteFor(PostView post, string author, string target) =>
+        string.Equals(post.Author, author, StringComparison.Ordinal)
+        && string.Equals(VerificationProjector.TargetOf(post), target, StringComparison.Ordinal);
 }

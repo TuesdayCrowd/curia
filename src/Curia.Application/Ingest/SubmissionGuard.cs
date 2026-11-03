@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Curia.Application.Projections;
 using Curia.Application.Ports;
 using Curia.Canon;
@@ -12,9 +13,11 @@ namespace Curia.Application.Ingest;
 /// argument to get wrong (finding 5): <see cref="AppendGuard.After"/> is <see cref="LogFacts.Position"/>.
 ///
 /// <para>Three legs, each by <see cref="SubmissionChecks"/>' own function (trap 96), over what was appended since the route read: the digest leg (every kind)
-/// over the delta alone; a revision's served-successor leg and a vote's one-per-target leg over the route's facts followed by the delta, which is the
-/// incremental fold (<see cref="LogFacts.Extend"/>). The facts of a revision or a vote are folded when <see cref="For"/> is called, outside the log's lock; the
-/// function folds nothing but the delta, and a kind that checks only a digest builds no fold at all.</para>
+/// over the delta alone; a revision's served-successor leg over the route's facts followed by the delta, which is the incremental fold
+/// (<see cref="LogFacts.Extend"/>); and a vote's one-per-target leg over the read's candidates (the author's votes for the target, served or not, found when
+/// <see cref="For"/> is called) followed by the delta's posts, with "served" read after the delta's moderation (errata G57, ruling 31), so it reads no post of the
+/// read under the lock. The facts of a revision or a vote are folded when <see cref="For"/> is called, outside the log's lock; the function folds nothing but the
+/// delta, and a kind that checks only a digest builds no fold at all.</para>
 ///
 /// <para>A <see cref="GuardVerdict.Refuse"/> carries the error the route's own check returns, so the append answers it as the route would have.</para>
 /// </summary>
@@ -48,8 +51,13 @@ public static class SubmissionGuard
     internal static AppendGuard ForVote(LogFacts facts, string digest, string author, string target)
     {
         facts.Force();
+        var candidates = SubmissionChecks.VotesFor(facts, author, target);
         return new AppendGuard(facts.Position, delta =>
-            Verdict(RecordedIn(delta, digest) ?? SubmissionChecks.AlreadyVoted(facts.Extend(delta), author, target)));
+            Verdict(RecordedIn(delta, digest) ?? SubmissionChecks.StandingVote(
+                candidates.Concat(PostProjector.Extend(ImmutableArray<PostView>.Empty, delta)),
+                facts.ServableAfter(delta),
+                author,
+                target)));
     }
 
     private static GuardVerdict Verdict(Error? refusal) => refusal is null ? GuardVerdict.Proceed : GuardVerdict.Refuse(refusal);

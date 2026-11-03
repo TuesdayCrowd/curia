@@ -63,14 +63,37 @@ public sealed class LogFacts
         ArgumentNullException.ThrowIfNull(delta);
         if (delta.Count == 0) return this;
 
-        if (delta[0].Seq <= Position)
-            throw new ArgumentException(
-                "A delta must begin above the position of the facts it extends: the guard's events are those appended after the read.",
-                nameof(delta));
+        CheckAbovePosition(delta);
 
         var basis = _state.Value;
         var extended = new State(PostProjector.Extend(basis.Posts, delta), FlagProjector.Extend(basis.Moderation, delta));
         return new LogFacts(delta[^1].Seq, new Lazy<State>(() => extended));
+    }
+
+    /// <summary>
+    /// R10.36's serving filter, by post id, over these facts followed by <paramref name="delta"/>: the moderation extended by the delta's records only (persistent, so no copy of
+    /// the read's), and nothing of the posts (errata G57, ruling 31). The delta is held to the same rule as <see cref="Extend"/>.
+    /// </summary>
+    public Func<string, bool> ServableAfter(IReadOnlyList<AppendedEvent> delta)
+    {
+        ArgumentNullException.ThrowIfNull(delta);
+
+        var moderation = Moderation;
+        if (delta.Count > 0)
+        {
+            CheckAbovePosition(delta);
+            moderation = FlagProjector.Extend(moderation, delta);
+        }
+
+        return postId => !moderation.TryGetValue(postId, out var state) || state.MayServe;
+    }
+
+    private void CheckAbovePosition(IReadOnlyList<AppendedEvent> delta)
+    {
+        if (delta[0].Seq <= Position)
+            throw new ArgumentException(
+                "A delta must begin above the position of the facts it extends: the guard's events are those appended since the read.",
+                nameof(delta));
     }
 
     /// <summary>Forces the fold now. Called outside the log's lock, by the code that builds a guard needing the facts.</summary>
