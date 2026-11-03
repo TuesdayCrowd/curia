@@ -229,8 +229,8 @@ public sealed partial class UnheardActToolTests : IDisposable
         var descriptions = ToolCatalogue.Build(tools).ToDictionary(t => t.ProtocolTool.Name, t => Fold(t.ProtocolTool.Description ?? string.Empty), StringComparer.Ordinal);
         var sentence = Fold(PublishedConfirmWords.StoreSentence);
         var missing = names.Where(n => !descriptions.TryGetValue(n, out var d) || !d.Contains(sentence, StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray();
-        var expected = $"R11.76's sentence is in the description of 6 write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))})";
-        var actual = names.Count == 6 && missing.Length == 0
+        var expected = $"R11.76's sentence is in the description of 7 write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))})";
+        var actual = names.Count == 7 && missing.Length == 0
             ? expected
             : $"{names.Count} write tools; R11.76's sentence is absent from the description of {missing.Length} ({string.Join(' ', missing)})";
         Said(expected, actual);

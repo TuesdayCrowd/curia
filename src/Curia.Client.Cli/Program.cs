@@ -80,6 +80,8 @@ internal static class Program
                 "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
                 "flags" => await FlagsAsync(args, cts.Token).ConfigureAwait(false),
                 "budget" => await BudgetAsync(args, cts.Token).ConfigureAwait(false),
+                "resend" => ResendNotBuilt(args),
+                "acts" => ActsNotBuilt(args),
                 "keys" => await KeysAsync(args, cts.Token).ConfigureAwait(false),
                 "rotate" => await RotateAsync(args, cts.Token).ConfigureAwait(false),
                 "retire" => await RetireAsync(args, cts.Token).ConfigureAwait(false),
@@ -505,7 +507,7 @@ internal static class Program
             var client = new ForumClient(http, forum);
             var session = new ForumSession(client, agent, store, TimeProvider.System);
 
-            var posted = await session.SubmitAsync(submission.Wire, ct).ConfigureAwait(false);
+            var posted = await session.SubmitAsync(submission, MarkingMode.None, ct).ConfigureAwait(false);
             if (!posted.TryGetValue(out var receipt, out var refusal))
             {
                 // R10.71: the refusal goes whole through RefusedAsync, which verifies a duplicate refusal's answers;
@@ -1524,6 +1526,36 @@ internal static class Program
     }
 
     /// <summary>
+    /// Errata G58, R11.79: <c>curia resend &lt;digest&gt;</c>. <b>The seam:</b> the verb is registered, takes its flags and answers <c>NOT SENT: not built</c> (exit 1,
+    /// nothing sent); the stage that builds the kept act replaces the body.
+    /// </summary>
+    private static int ResendNotBuilt(Args args)
+    {
+        if (args.Unknown(["agent", "marking", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        // The flags are read so the seam's verb takes what its help names; none is used before the stage that builds the verb.
+        _ = (args.Value("agent"), args.Value("marking"), args.Value("forum"));
+        return args.Positional.Length != 1
+            ? Output.Fail("error: usage: curia resend <digest> [--marking datamark|delimiters|none] [--agent <name>] [--forum <url>]", ExitCode.Usage)
+            : Output.Fail("NOT SENT: not built", ExitCode.Usage);
+    }
+
+    /// <summary>
+    /// Errata G58, R11.79: <c>curia acts [--discard &lt;digest&gt;]</c>. <b>The seam:</b> registered, answers <c>NOT SENT: not built</c> (exit 1).
+    /// </summary>
+    private static int ActsNotBuilt(Args args)
+    {
+        if (args.Unknown(["agent", "discard"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        _ = (args.Value("agent"), args.Value("discard"));
+        return args.Positional.Length != 0
+            ? Output.Fail("error: usage: curia acts [--discard <digest>] [--agent <name>]", ExitCode.Usage)
+            : Output.Fail("NOT SENT: not built", ExitCode.Usage);
+    }
+
+    /// <summary>
     /// R9.50, R11.65: <c>curia budget</c>, the agent's own budgets as the Forum states them, one line each, the snapshot sentence last. An authenticated
     /// read in the shape of <c>curia flags</c>: exit 0 on a readout, 4 on a 403, 8 on a fault of the Forum or the transport, 1 on a usage fault. It
     /// sends exactly one request and takes no argument but the agent and the Forum.
@@ -2045,7 +2077,7 @@ internal static class Program
     /// The factory every verb builds its client with (<see cref="HttpFor"/>). <b>The seam of errata G55's PR (R11.77):</b> a test replaces it to give the client a short
     /// timeout and restores it; the shipped client has no flag or environment variable for one, and its default builds the 30-second client.
     /// </summary>
-    internal static Func<Uri, HttpClient> HttpClientFactory { get; set; } = static forum => new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
+    internal static Func<Uri, HttpClient> HttpClientFactory { get; set; } = static forum => new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(ForumSession.WriteBoundSeconds) };
 
     internal static HttpClient HttpFor(Uri forum) => HttpClientFactory(forum);
 

@@ -167,6 +167,11 @@ public sealed class ToolDescriptionTests
         // Errata G49: the readout of the agent's own budgets, Table 10's own `budget`/`read` (own) row.
         "curia_budget" => (ResourceKind.Budget, ActionKind.Read),
         "curia_comment" => (ResourceKind.Comment, ActionKind.Create),
+
+        // Errata G58, R11.79: the seam's tier sentences. curia_resend carries (question, create)'s until the stage that composes it from the kept act's kind; curia_acts is
+        // local and carries the own-budget row's, which an identity needs.
+        "curia_resend" => (ResourceKind.Question, ActionKind.Create),
+        "curia_acts" => (ResourceKind.Budget, ActionKind.Read),
         "curia_resolve" => (ResourceKind.Answer, ActionKind.Accept),
         "curia_revise" => (ResourceKind.Revision, ActionKind.Create),
         _ => throw new InvalidOperationException(
@@ -225,7 +230,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_answer", "curia_ask", "curia_budget", "curia_comment", "curia_flag", "curia_read", "curia_recheck", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
+            ["curia_acts", "curia_answer", "curia_ask", "curia_budget", "curia_comment", "curia_flag", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 
@@ -474,7 +479,7 @@ public sealed class ToolDescriptionTests
     {
         var read = RegisteredTools(withIdentity: false).Select(t => t.ProtocolTool.Name).ToHashSet();
         // curia_budget needs the session's token and is registered with the write tools under the one gate, but it writes nothing and is not named as a tool that writes (errata G49).
-        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n) && n != "curia_budget").ToArray();
+        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n) && n != "curia_budget" && n != "curia_acts").ToArray();
         Assert.NotEmpty(writeTools);
 
         // The names the instructions are composed from are the catalogue's own, whatever the identity.

@@ -141,6 +141,20 @@ internal static class ToolCatalogue
                 Idempotent = true,
                 OpenWorld = true,
             });
+
+        // Errata G58, R11.79: the kept acts, listed from the host's own files. Local: no Forum call, so not open-world.
+        yield return McpServerTool.Create(
+            tools.ActsAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_acts",
+                Description = ToolText.Compose(
+                    ToolText.ActsTemplate,
+                    TierSpan.For(ResourceKind.Budget, ActionKind.Read)),
+                ReadOnly = true,
+                Idempotent = true,
+                OpenWorld = false,
+            });
     }
 
     private static IEnumerable<McpServerTool> WriteTools(ForumTools tools)
@@ -235,6 +249,22 @@ internal static class ToolCatalogue
                 ReadOnly = false,
                 Destructive = false,
                 Idempotent = false,
+                OpenWorld = true,
+            });
+
+        // Errata G58, R11.79: sends exactly the bytes of a kept act. Idempotent in the Forum's own sense (R8.78, R8.86: it records one act once), and not destructive.
+        // The seam's tier sentence is (question, create)'s; the stage that builds the tool composes it from the kept act's kind.
+        yield return McpServerTool.Create(
+            tools.ResendAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_resend",
+                Description = ToolText.Compose(
+                    ToolText.ResendTemplate,
+                    TierSpan.For(ResourceKind.Question, ActionKind.Create)),
+                ReadOnly = false,
+                Destructive = false,
+                Idempotent = true,
                 OpenWorld = true,
             });
     }

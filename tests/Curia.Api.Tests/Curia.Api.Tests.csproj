@@ -88,6 +88,7 @@
     <Compile Include="../Shared/PermissiveLifecycleAppendGate.cs" Link="Shared/PermissiveLifecycleAppendGate.cs" />
     <Compile Include="../Shared/PublishedLateCommitWords.cs" Link="Shared/PublishedLateCommitWords.cs" />
     <Compile Include="../Shared/LateCommit.cs" Link="Shared/LateCommit.cs" />
+    <Compile Include="../Shared/KeptActFiles.cs" Link="Shared/KeptActFiles.cs" />
     <!-- Errata G52 (the D95 PR's seam): the decorators that fail a store when armed, and the words of the entry read from the errata. -->
     <Compile Include="../Shared/FaultableStore.cs" Link="Shared/FaultableStore.cs" />
     <Compile Include="../Shared/PublishedStoreFaults.cs" Link="Shared/PublishedStoreFaults.cs" />

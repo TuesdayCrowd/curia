@@ -266,9 +266,9 @@ public sealed partial class StoreWordsToolTests : IDisposable
         var descriptions = ToolCatalogue.Build(tools).ToDictionary(t => t.ProtocolTool.Name, t => Fold(t.ProtocolTool.Description ?? string.Empty), StringComparer.Ordinal);
         var sentence = Fold(PublishedStoreFaults.RepeatSentence);
         var missing = names.Where(n => !descriptions.TryGetValue(n, out var d) || !d.Contains(sentence, StringComparison.Ordinal)).ToArray();
-        var expected = $"the repeat sentence is in the description of 6 write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))})";
+        var expected = $"the repeat sentence is in the description of 7 write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))})";
 
-        var actual = names.Count == 6 && missing.Length == 0
+        var actual = names.Count == 7 && missing.Length == 0
             ? expected
             : $"{names.Count} write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))}); the sentence is absent from the description of {missing.Length} ({string.Join(' ', missing)})";
         if (!string.Equals(expected, actual, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");

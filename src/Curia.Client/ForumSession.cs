@@ -33,13 +33,25 @@ public sealed class ForumSession
     /// </summary>
     public const int AccessTokenLifetimeSeconds = 300;
 
+    /// <summary>
+    /// Errata G58, R11.79: the seconds after which the send of a signed post or vote ends in both clients (the CLI's own <c>HttpClient</c> timeout, which this names, and the one
+    /// <c>curia-mcp</c> applies in the stage that builds the bound): one figure, as the errata publishes it.
+    /// </summary>
+    public const int WriteBoundSeconds = 30;
+
     private readonly ForumClient _client;
     private readonly EnrolledAgent _agent;
     private readonly ProfileStore _store;
     private readonly TimeProvider _clock;
     private readonly DpopSigner _signer;
 
-    public ForumSession(ForumClient client, EnrolledAgent agent, ProfileStore store, TimeProvider clock)
+    /// <summary>
+    /// Errata G58, plan ruling 24: the bound on the send of a signed post or vote, or null for none. <b>The seam carries the option and applies it nowhere</b> (the send is
+    /// unbounded by default and until the stage that builds R11.79's bound); an injectable value lets a probe give it a small figure.
+    /// </summary>
+    public TimeSpan? WriteBound { get; }
+
+    public ForumSession(ForumClient client, EnrolledAgent agent, ProfileStore store, TimeProvider clock, TimeSpan? writeBound = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(agent);
@@ -51,7 +63,12 @@ public sealed class ForumSession
         _store = store;
         _clock = clock;
         _signer = new DpopSigner(agent);
+        WriteBound = writeBound;
+        Acts = new KeptActs(store, agent.Profile.Slug);
     }
+
+    /// <summary>The acts this agent has kept on this host (R11.79).</summary>
+    public KeptActs Acts { get; }
 
     public Uri TokenEndpoint => _client.UrlFor("/oauth/token");
 
@@ -108,7 +125,7 @@ public sealed class ForumSession
     /// session that could change them between signing and sending.
     /// </summary>
     public Task<ForumResult<PostReceipt>> SubmitAsync(ReadOnlyMemory<byte> wire, CancellationToken ct) =>
-        WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct);
+        WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct, act: ActContext.Post);
 
     /// <summary>
     /// Posts an already-signed submission, asking the serving boundary for <paramref name="marking"/>.
@@ -124,7 +141,27 @@ public sealed class ForumSession
     /// </summary>
     public Task<ForumResult<PostReceipt>> SubmitAsync(
         ReadOnlyMemory<byte> wire, MarkingMode marking, CancellationToken ct) =>
-        WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct, ForumClient.MarkingQueryFor(marking));
+        WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct, ForumClient.MarkingQueryFor(marking), act: ActContext.Post);
+
+    /// <summary>
+    /// Errata G58, R11.79: sends a signed act, the one way a client outside this assembly reaches the wire with a post or a vote. <b>The seam:</b> it takes the
+    /// <see cref="SignedSubmission"/> and calls the path the raw-bytes overload calls; keeping the act, settling it and the bound are the stage after.
+    /// </summary>
+    public Task<ForumResult<PostReceipt>> SubmitAsync(SignedSubmission submission, MarkingMode marking, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(submission);
+        return SubmitAsync(submission.Wire, marking, ct);
+    }
+
+    /// <summary>
+    /// Errata G58, R11.79: sends the bytes of a kept act exactly, with a fresh proof, and signs nothing. <b>The seam:</b> it calls the same path a first send does and
+    /// settles nothing.
+    /// </summary>
+    public Task<ForumResult<PostReceipt>> ResendAsync(KeptAct kept, MarkingMode marking, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(kept);
+        return SubmitAsync(kept.Wire, marking, ct);
+    }
 
     /// <summary>
     /// R10.35: raises a typed flag against a post. Named <c>FlagAsync</c> rather than
@@ -161,7 +198,7 @@ public sealed class ForumSession
         // identifier interpolated raw into a URL is one identifier-format change away from being a
         // path traversal, and Table 9 already types one identifier in this system as a URI.
         return WriteAsync(
-            $"/v1/posts/{Uri.EscapeDataString(postId)}/flags", body, ForumDocuments.ReadFlagReceipt, ct);
+            $"/v1/posts/{Uri.EscapeDataString(postId)}/flags", body, ForumDocuments.ReadFlagReceipt, ct, act: ActContext.Flag);
     }
 
     /// <summary>
@@ -180,7 +217,8 @@ public sealed class ForumSession
             $"/v1/posts/{Uri.EscapeDataString(answerId)}/accept",
             System.Text.Encoding.UTF8.GetBytes("{}"),
             ForumDocuments.ReadAcceptance,
-            ct);
+            ct,
+            act: ActContext.Resolve);
     }
 
     /// <summary>
@@ -358,14 +396,20 @@ public sealed class ForumSession
     /// part a client either gets right once or fails intermittently on forever, and two copies of
     /// it is two chances to get it right — which is one more than this is worth.</para>
     /// </summary>
-    private Task<ForumResult<T>> WriteAsync<T>(
+    private async Task<ForumResult<T>> WriteAsync<T>(
         string path,
         ReadOnlyMemory<byte> body,
         Func<JsonValue.Object, Result<T>> read,
         CancellationToken ct,
         string query = "",
-        string? proofTarget = null) =>
-        WithRemintAsync(() => WriteOnceAsync(path, body, read, query, proofTarget, ct));
+        string? proofTarget = null,
+        ActContext act = ActContext.Other)
+    {
+        var result = await WithRemintAsync(() => WriteOnceAsync(path, body, read, query, proofTarget, ct)).ConfigureAwait(false);
+
+        // Errata G58, R11.80: the refusal is told which act it refused, here, where the call is known.
+        return result.Refusal is { } refusal ? ForumResult<T>.Refused(refusal with { Act = act }) : result;
+    }
 
     /// <summary>
     /// R5.22: the Forum refuses a token with <c>401</c> and <c>curia/authn/token-key-not-live</c> or

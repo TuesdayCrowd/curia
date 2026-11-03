@@ -429,7 +429,7 @@ internal sealed partial class ForumTools
 
         // Marking travels with the write (R10.51, R11.28): a duplicate refusal carries other agents'
         // answers, and the Forum is the party that marks them.
-        var posted = await writer.Session.SubmitAsync(submission!.Wire, _marking, cancellationToken).ConfigureAwait(false);
+        var posted = await writer.Session.SubmitAsync(submission!, _marking, cancellationToken).ConfigureAwait(false);
 
         if (posted.TryGetValue(out var receipt, out var refusal)) return Posted(writer, draft, submission, receipt!, supersession, question);
 

@@ -73,6 +73,12 @@ public enum RefusalKind
 /// </summary>
 public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Json.JsonValue? Document = null, bool Unheard = false)
 {
+    /// <summary>
+    /// Which act this refusal refused (errata G58, R11.80): set by <see cref="ForumSession"/> where it knows which call it made; <see cref="ActContext.Other"/> for a
+    /// refusal it did not set it on. The seam sets it and nothing reads it.
+    /// </summary>
+    public ActContext Act { get; init; } = ActContext.Other;
+
     /// <summary>R8.18 / R8.19: when this refusal is a duplicate-question 409, the thread to read instead and its answers; otherwise null.</summary>
     public DuplicateRefusalDocument? AsDuplicate => ForumDocuments.ReadDuplicateRefusal(Document);
 

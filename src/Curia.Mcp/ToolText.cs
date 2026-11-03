@@ -409,6 +409,22 @@ internal static class ToolText
         UntrustedDataNotice;
 
     /// <summary>
+    /// Errata G58, R11.79's <c>curia_resend</c>. <b>The seam's words:</b> the tool is registered and answers NOT SENT: not built; the stage that builds the kept act
+    /// replaces this with the published words. It is a write tool, so it carries the store sentence every write tool's description carries (R11.72).
+    /// </summary>
+    internal static readonly string ResendTemplate =
+        "Send again exactly an act this adapter kept (errata G58, R11.79): the signed bytes of a post or vote it sent, named by the act's digest, with a fresh proof, " +
+        "as the agent this adapter is configured with. It takes the act's `digest` and signs nothing. Not built yet: it answers NOT SENT: not built and sends nothing.\n\n" +
+        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>Errata G58, R11.79's <c>curia_acts</c>: the acts this adapter holds. <b>The seam's words:</b> not built yet; it makes no call to the Forum.</summary>
+    internal const string ActsTemplate =
+        "List the acts this adapter holds (errata G58, R11.79): the signed posts and votes it sent whose outcome it has not seen settled, as the agent this adapter is " +
+        "configured with. It takes no argument and makes no call to the Forum. Not built yet: it answers NOT SENT: not built.\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
     /// R11.17's <c>curia_flag</c>, and the plan's instruction for it: "publishes the Forum's seven
     /// categories, not the local board's four". Only <c>incorrect</c> overlaps, so a model carrying
     /// the local board's vocabulary would be refused on three of four spellings with no way to tell

@@ -12,8 +12,20 @@ namespace Curia.Mcp;
 /// by a 300-second token and it is freely rotatable, and delegating it would put a signer round trip
 /// on every request, the nonce retry included. <c>EnrolledAgent</c>'s remarks carry that argument.</para>
 /// </summary>
-internal sealed class ForumWriter(EnrolledAgent agent, ForumSession session, TimeProvider clock)
+internal sealed class ForumWriter(EnrolledAgent agent, ForumSession session, TimeProvider clock, TimeSpan? writeBound = null)
 {
+    /// <summary>
+    /// Errata G58, plan ruling 24: the bound on the send of a signed post or vote, or null for none (the default, and the only value until the stage that builds R11.79's
+    /// bound). The session carries the same option; a probe injects a small figure on both.
+    /// </summary>
+    internal TimeSpan? WriteBound { get; } = writeBound ?? session.WriteBound;
+
+    /// <summary>
+    /// The bound <c>Program</c> composes the session and the writer with: <see langword="null"/> (unbounded) at the seam, and the published
+    /// <see cref="ForumSession.WriteBoundSeconds"/> in the stage that applies it (plan ruling 24).
+    /// </summary>
+    internal static TimeSpan? ConfiguredWriteBound => null;
+
     internal EnrolledAgent Agent { get; } = agent;
 
     internal ForumSession Session { get; } = session;

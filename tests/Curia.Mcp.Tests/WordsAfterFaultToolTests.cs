@@ -99,7 +99,7 @@ public sealed class WordsAfterFaultToolTests : IDisposable
         var tools = AliceTools(log);
         var names = ToolCatalogue.WriteToolNames(tools);
         var missing = names.Where(n => !Fold(DescriptionOf(tools, n)).Contains(sentence, StringComparison.Ordinal)).ToArray();
-        if (names.Count != 6) problems.Add($"{names.Count} write tools, expected 6 ({string.Join(' ', names.Order(StringComparer.Ordinal))})");
+        if (names.Count != 7) problems.Add($"{names.Count} write tools, expected 7 ({string.Join(' ', names.Order(StringComparer.Ordinal))})");
         if (missing.Length > 0) problems.Add($"the sentence is absent from the description of {missing.Length} write tool(s) ({string.Join(' ', missing)})");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));

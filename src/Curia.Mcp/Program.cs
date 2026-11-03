@@ -53,7 +53,7 @@ if (config.Agent is { } slug)
         return 1;
     }
 
-    writer = new ForumWriter(identity!, new ForumSession(client, identity!, store, TimeProvider.System), TimeProvider.System);
+    writer = new ForumWriter(identity!, new ForumSession(client, identity!, store, TimeProvider.System, ForumWriter.ConfiguredWriteBound), TimeProvider.System, ForumWriter.ConfiguredWriteBound);
 }
 
 using var owned = identity;

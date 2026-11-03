@@ -1,0 +1,256 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+
+namespace Curia.Tests.Shared;
+
+/// <summary>
+/// The words and figures of errata G58 (R7.32, R10.95, R11.79, R11.80, R11.81) as the errata publishes them, read at test time from <c>curia-whitepaper-ERRATA-AND-ADDENDUM.md</c> and
+/// never from the code a probe is about. Every value is read from its requirement's paragraph in context, and each parse asserts its count before it returns: an edit that removes
+/// or duplicates a span turns a probe red by name and does not shrink what it compares (trap 78's device). The figures a probe needs are here and not in the code: the bound of
+/// 30 seconds and the 64 kept acts (R11.79), the 5 minutes of the stop sentence (R11.80), and the cause list of R11.81 (c). Self-contained; whitespace is folded to single spaces.
+/// </summary>
+internal static partial class PublishedResendWords
+{
+    private const string Errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
+
+    // ----- R11.79 -----
+
+    /// <summary>R11.79: the seconds after which the send of a signed post or vote ends in the clients ("within 30 seconds"), as published.</summary>
+    internal static int WriteBoundSeconds =>
+        int.Parse(One(BoundPhrase().Matches(Requirement("R11.79")), "the write bound in seconds").Groups[1].Value, CultureInfo.InvariantCulture);
+
+    /// <summary>R11.79: the most acts kept for one agent ("at most 64 acts"), as published.</summary>
+    internal static int KeptActBound =>
+        int.Parse(One(ActsBoundPhrase().Matches(Requirement("R11.79")), "the bound on kept acts").Groups[1].Value, CultureInfo.InvariantCulture);
+
+    // ----- R11.80 words -----
+
+    /// <summary>The four clauses of the store sentence: post, resolve, flag, other. Each is the span between its backticks.</summary>
+    internal static (string Post, string Resolve, string Flag, string Other) Clauses() =>
+        (Span("R11.80 clause words (post)"), Span("R11.80 clause words (resolve)"), Span("R11.80 clause words (flag)"), Span("R11.80 clause words (other)"));
+
+    /// <summary>The act line, with <c>&lt;digest&gt;</c> left in where the printer substitutes.</summary>
+    internal static string ActWords => Span("R11.80 act words");
+
+    /// <summary>The kind words appended to the act line for a <c>revision</c> and an <c>endorse</c> only.</summary>
+    internal static string KindWords => Span("R11.80 kind words", "only: `");
+
+    /// <summary>The unheard sentence.</summary>
+    internal static string UnheardWords => Span("R11.80 unheard words");
+
+    /// <summary>The stop sentence, with <c>&lt;n&gt;</c> and <c>&lt;digest&gt;</c> left in.</summary>
+    internal static string StopWords => Span("R11.80 stop words");
+
+    /// <summary>The stop wait, as published: the figure and its unit ("5 minutes").</summary>
+    internal static (int Count, string Unit) StopWait
+    {
+        get
+        {
+            var m = One(StopWaitPhrase().Matches(Paragraph("R11.80 stop words")), "the stop wait");
+            return (int.Parse(m.Groups["n"].Value, CultureInfo.InvariantCulture), m.Groups["unit"].Value);
+        }
+    }
+
+    // ----- R11.81 words -----
+
+    /// <summary>R11.81 (a): the sentence after the refusal of a resend that does not resolve the first send.</summary>
+    internal static string ResendRefusalWords => Between(Words81(), "(a) `", "` (b) ");
+
+    /// <summary>R11.81 (b): the first line of an <c>already recorded</c> answer to a resend, with <c>&lt;post id&gt;</c> left in, and the sentence after it.</summary>
+    internal static (string FirstLine, string After) AlreadyRecordedWords
+    {
+        get
+        {
+            var text = Between(Words81(), "(b) `", "` (c) ");
+            var m = One(AlreadyRecordedPhrase().Matches(text), "the already-recorded lines");
+            return (m.Groups["first"].Value, m.Groups["after"].Value);
+        }
+    }
+
+    /// <summary>R11.81 (c): the clause a refusal says once, trimmed.</summary>
+    internal static string NothingRecordedClause => Between(Words81(), "(c) `", "` (d) ").Trim();
+
+    /// <summary>R11.81 (d): the capitalised last sentence of <c>already-revised</c>, and the clause after the single-successor <c>NOT SENT</c> text.</summary>
+    internal static (string Last, string Superseded) RevisionWords
+    {
+        get
+        {
+            var text = Between(Words81(), "(d) `", "` (e) ");
+            var m = One(RevisionPhrase().Matches(text), "the revision words");
+            return (m.Groups["last"].Value, m.Groups["after"].Value.Trim());
+        }
+    }
+
+    /// <summary>R11.81 (e): the contended flag's words, with <c>&lt;title&gt;</c> left in.</summary>
+    internal static string ContendedWords
+    {
+        get
+        {
+            var text = Words81();
+            var start = text.IndexOf("(e) `", StringComparison.Ordinal);
+            if (start < 0) throw new InvalidOperationException($"{Errata}: R11.81 words has no (e)");
+            var rest = text[(start + "(e) `".Length)..];
+            var end = rest.LastIndexOf('`');
+            return end < 0 ? rest : rest[..end];
+        }
+    }
+
+    /// <summary>
+    /// R11.81 (c)'s causes, read from the requirement's own list: the classes that say the clause once, the refusals whose own words already say it (not said twice), the refusals that
+    /// never say it, and whether the refusal of a resend says (a) in its place.
+    /// </summary>
+    internal static (string[] Says, string[] NotTwice, string[] Never, bool ResendSaysAInstead) ClauseCauses()
+    {
+        var text = Requirement("R11.81");
+        var start = text.IndexOf("(c) every refusal", StringComparison.Ordinal);
+        var end = text.IndexOf("(d) `already-revised`", StringComparison.Ordinal);
+        if (start < 0 || end < 0 || end < start) throw new InvalidOperationException($"{Errata}: R11.81 (c) is not found in order");
+        var c = text[start..end];
+
+        var says = One(SaysPhrase().Matches(c), "the causes that say it");
+        var twice = One(NotTwicePhrase().Matches(c), "the refusals that do not say it again");
+        var never = One(NeverPhrase().Matches(c), "the refusals that never say it");
+        var resend = One(ResendInPlacePhrase().Matches(c), "the resend's refusal in place");
+
+        return (
+            [.. Backticked(says.Groups[1].Value), "a content refusal", "a not-found refusal", "an authorization refusal", "a budget refusal"],
+            Backticked(twice.Groups[1].Value),
+            Backticked(never.Groups[1].Value),
+            resend.Success);
+    }
+
+    // ----- R10.95 words -----
+
+    /// <summary>R10.95: the <c>unknown</c> line after the digest, with <c>&lt;instant&gt;</c> and <c>&lt;digest&gt;</c> left in.</summary>
+    internal static string UnknownLine => Between(Paragraph("R10.95 words"), "after the digest: `", "`. The closing line");
+
+    /// <summary>R10.95: the closing line on standard error when the batch exits 5.</summary>
+    internal static string ClosingLine
+    {
+        get
+        {
+            var text = Paragraph("R10.95 words");
+            var start = text.IndexOf("exits 5: `", StringComparison.Ordinal);
+            if (start < 0) throw new InvalidOperationException($"{Errata}: R10.95 words has no closing line");
+            var rest = text[(start + "exits 5: `".Length)..];
+            return rest[..rest.LastIndexOf('`')];
+        }
+    }
+
+    // ----- text helpers -----
+
+    private static string Words81() => Paragraph("R11.81 words");
+
+    /// <summary>
+    /// The span after <c>**{name}.**</c> (after <paramref name="opening"/> where the paragraph states one), between its backticks: from the opening backtick to the closing one, which is
+    /// the first backtick followed by the end of the text, by a full stop and the end or a space, or by a space and a capital letter. Backticks inside a span name a command and are
+    /// followed by a lower-case word, a bracket or a colon. Whitespace folded; the span must be there.
+    /// </summary>
+    internal static string Span(string name, string? opening = null)
+    {
+        var text = Paragraph(name);
+        var anchor = $"**{name}.**";
+        var rest = text[(text.IndexOf(anchor, StringComparison.Ordinal) + anchor.Length)..];
+        var next = rest.IndexOf("**", StringComparison.Ordinal);
+        if (next >= 0) rest = rest[..next];
+        rest = rest.Trim();
+        if (opening is not null)
+        {
+            var at = rest.IndexOf(opening, StringComparison.Ordinal);
+            if (at < 0) throw new InvalidOperationException($"{Errata}: \"{name}\" has no \"{opening}\"");
+            rest = rest[(at + opening.Length - 1)..];
+        }
+
+        if (rest.Length < 2 || rest[0] != '`') throw new InvalidOperationException($"{Errata}: \"{name}\" is not a span between backticks");
+        for (var i = 1; i < rest.Length; i++)
+        {
+            if (rest[i] != '`') continue;
+            var after = rest[(i + 1)..];
+            var closes = after.Length == 0
+                || (after[0] == '.' && (after.Length == 1 || after[1] == ' '))
+                || (after[0] == ' ' && after.Length > 1 && char.IsUpper(after[1]));
+            if (closes) return rest[1..i];
+        }
+
+        throw new InvalidOperationException($"{Errata}: \"{name}\" has no closing backtick");
+    }
+
+    /// <summary>The paragraph that begins <c>**{name}.**</c>, to its blank line, whitespace folded. Exactly one must exist.</summary>
+    internal static string Paragraph(string name) => FoldedParagraph($"**{name}.**");
+
+    /// <summary>The requirement's own paragraph, which begins <c>**{id}** </c>. Exactly one must exist.</summary>
+    internal static string Requirement(string id) => FoldedParagraph($"**{id}** ");
+
+    private static string FoldedParagraph(string anchor)
+    {
+        var text = ErrataText();
+        var start = text.IndexOf(anchor, StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException($"{Errata} has no paragraph that begins \"{anchor}\"");
+        if (text.IndexOf(anchor, start + anchor.Length, StringComparison.Ordinal) >= 0)
+            throw new InvalidOperationException($"{Errata} has more than one paragraph that begins \"{anchor}\"");
+
+        var end = text.IndexOf("\n\n", start + anchor.Length, StringComparison.Ordinal);
+        return Whitespace().Replace(text[start..(end < 0 ? text.Length : end)], " ");
+    }
+
+    private static string Between(string text, string from, string to)
+    {
+        var start = text.IndexOf(from, StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException($"{Errata}: no \"{from}\" in the paragraph");
+        start += from.Length;
+        var end = text.IndexOf(to, start, StringComparison.Ordinal);
+        if (end < 0) throw new InvalidOperationException($"{Errata}: no \"{to}\" after \"{from}\"");
+        return text[start..end];
+    }
+
+    private static string[] Backticked(string text) => [.. BacktickSpan().Matches(text).Select(m => m.Groups[1].Value)];
+
+    private static Match One(MatchCollection matches, string what) =>
+        matches.Count == 1
+            ? matches[0]
+            : throw new InvalidOperationException($"{Errata} yields {matches.Count} readings of {what}, expected one");
+
+    private static string ErrataText()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, Errata)))
+            dir = dir.Parent;
+
+        return dir is null
+            ? throw new InvalidOperationException($"{Errata} not found above {AppContext.BaseDirectory}")
+            : File.ReadAllText(Path.Combine(dir.FullName, Errata));
+    }
+
+    [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
+    private static partial Regex Whitespace();
+
+    [GeneratedRegex(@"`([^`]+)`", RegexOptions.CultureInvariant)]
+    private static partial Regex BacktickSpan();
+
+    [GeneratedRegex(@"not answered within (\d+) seconds", RegexOptions.CultureInvariant)]
+    private static partial Regex BoundPhrase();
+
+    [GeneratedRegex(@"SHALL keep at most (\d+) acts", RegexOptions.CultureInvariant)]
+    private static partial Regex ActsBoundPhrase();
+
+    [GeneratedRegex(@"The wait is `(?<n>\d+) (?<unit>[a-z]+)`", RegexOptions.CultureInvariant)]
+    private static partial Regex StopWaitPhrase();
+
+    [GeneratedRegex(@"^(?<first>already recorded <post id>)` then `(?<after>.+)$", RegexOptions.CultureInvariant)]
+    private static partial Regex AlreadyRecordedPhrase();
+
+    [GeneratedRegex(@"^(?<last>Nothing was stored or spent\.)` and, after the existing remedy of the single-successor `NOT SENT` text, ` (?<after>.+)$", RegexOptions.CultureInvariant)]
+    private static partial Regex RevisionPhrase();
+
+    [GeneratedRegex(@"by the refusal's cause: a content, not-found, authorization or budget refusal, and a `409` that means nothing was counted or stored \(([^)]*)\), say it", RegexOptions.CultureInvariant)]
+    private static partial Regex SaysPhrase();
+
+    [GeneratedRegex(@"a refusal whose own words already say nothing was stored or spent \(([^)]*)\) does not say it again", RegexOptions.CultureInvariant)]
+    private static partial Regex NotTwicePhrase();
+
+    [GeneratedRegex(@"a refusal that says an earlier call recorded the act \(([^)]*)\) never says it", RegexOptions.CultureInvariant)]
+    private static partial Regex NeverPhrase();
+
+    [GeneratedRegex(@"the refusal of a resend says \(a\) in its place", RegexOptions.CultureInvariant)]
+    private static partial Regex ResendInPlacePhrase();
+}

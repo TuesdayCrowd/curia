@@ -576,6 +576,8 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
                 "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
                 "curia_budget" => await tools.BudgetAsync(ct),
+                "curia_acts" => await tools.ActsAsync(ct),
+                "curia_resend" => await tools.ResendAsync("sha256:" + new string('0', 64), ct),
                 _ => throw new InvalidOperationException(
                     $"{name} is registered and this gate does not know how to call it. Add the call: a tool this gate never calls is a tool whose output nothing checks."),
             });
@@ -629,8 +631,12 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
             var writer = new ForumWriter(agent!, new ForumSession(log.Client(), agent!, log.Store, TimeProvider.System), TimeProvider.System);
             var names = ToolCatalogue.Build(new ForumTools(log.Client(), MarkingMode.None, new HeadStore(home), writer))
                 .Select(t => t.ProtocolTool.Name)
+                .Where(name => name is not ("curia_resend" or "curia_acts"))
                 .Order(StringComparer.Ordinal)
                 .ToArray();
+
+            // SEAM EXEMPTION (errata G58, Task 1): curia_resend and curia_acts answer "NOT SENT: not built" and reach no Forum, so nothing they print is served text for these gates to
+            // make hostile. The stage that builds them (Task 3) removes this filter and gives the gates their calls, so that both are held like every other tool.
             Assert.NotEmpty(names);
             return names;
         }
