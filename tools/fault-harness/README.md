@@ -1,14 +1,16 @@
 # Fault harness
 
-Scripts that put a Forum's database through the faults the tenth exercise used: a vector index that cannot be written, an event log that
-cannot be written or read, and a commit that lands while its answer is lost. They are for a **throwaway** database and application role
+Scripts that put a Forum's database through the faults the tenth and eleventh exercises used: a vector index that cannot be written, an
+event log that cannot be written or read, a commit that lands while its answer is lost, and a commit that is held past the Forum's command
+timeout and lands later (the late commit of D107). They are for a **throwaway** database and application role
 you create for the purpose. Nothing here touches a server setting, restarts anything, or ends a backend: a fault is a `REVOKE`/`GRANT`
 on the named tables for the named role, or a mode file read by the proxy.
 
 ## Safety rules
 
 - `fault.sh` and `proxy.sh` refuse (exit 2, nothing touched) unless **both** `FH_DB` and `FH_ROLE` are set. The read-only scripts
-  (`mark.sh`, `counts.sh`, `census.sh`) and `burst.sh` need `FH_DB` and apply the database rule.
+  (`mark.sh`, `counts.sh`, `census.sh`, `landing.sh`, `forks.sh`, `reconcile.py`) and `burst.sh` need `FH_DB` and apply the database rule.
+  `latecommit.sh` needs both and applies the pair rule.
 - The database name must match `curia_[a-z0-9_]+`. It is refused if it matches `curia_e2e_*`, is `postgres`, or is a template; and
   `current_database()` on the connection must equal `FH_DB`.
 - The role's name must begin with `FH_DB` (a `curia_*` database on a shared server is never touched with an unrelated role). The role
@@ -41,12 +43,18 @@ admin (pgvector is needed by `db/0003`).
 
 ## Scripts
 
-- `fault.sh status | vector-on | vector-off | insert-on | insert-off | log-on | log-off | cut-on <p> | cut-off | all-off`
+- `fault.sh status | vector-on | vector-off | insert-on | insert-off | log-on | log-off | cut-on <p> | cut-off | hold-on <seconds> <name> | hold-off <name> | all-off`
   - `vector-on`: revoke `INSERT, UPDATE` on `post_embeddings` (a post commits, its vector cannot be stored). `insert-on`: revoke `INSERT` on
     `events` (a write is refused before it commits). `log-on`: revoke `SELECT` on `events` (the log cannot be read). `*-off` grant back.
   - `cut-on <p>` (0 < p <= 1): proxy mode `cutcommit:<p>`; `cut-off`: back to `passthru`. `all-off` restores every grant and the mode, then
     prints `status`.
-  - Each action takes a mark (`v-open`/`v-close`, `c2-open`/`c2-close`, `l-open`/`l-close`, `c1-open`/`c1-close`) and appends to `faults.log`;
+  - `hold-on <seconds> <name>` (0 < seconds <= 900; the name is lower-case letters and digits): proxy mode `delaycommit:<seconds>`, marks
+    `<name>-open` and `<name>-close`, a line in `faults.log`. It is **exclusive with every other proxy mode** (the proxy has one mode file):
+    it refuses (exit 2, nothing touched) when the mode is not `passthru`, so a `cut-on` set during a hold, or a second hold, is never
+    replaced silently. `hold-off <name>` returns the mode to `passthru` and refuses (exit 2) when no hold is on or the open hold was not
+    opened under that name. Both exit 2 for a bad argument. **A driver must check the exit status of `hold-on` and stop on a non-zero
+    one**: a driver that ignores the exit 2 of a bad name runs a drill with no hold and reports a quiet pass (it happened once).
+  - Each action takes a mark (`v-open`/`v-close`, `c2-open`/`c2-close`, `l-open`/`l-close`, `c1-open`/`c1-close`, `<name>-open`/`<name>-close`) and appends to `faults.log`;
     `status` prints each open window's age and warns past 8 minutes.
 - `proxy.sh start | stop | status | mode <mode> | p <0..1>`: the fault proxy (`pgproxy.py`, run with `python3 -I`). `p 0` is `passthru`.
   Modes, re-read per packet from `$FH_DIR/pgproxy.mode`. **The modes are exclusive:** the file holds one value, so no two can be
@@ -65,7 +73,9 @@ admin (pgvector is needed by `db/0003`).
     write inside the window is held too: warm the token (one call that mints it) before the window opens.
 - `mark.sh <name>`: `marks/<name>` holds `epoch_ms`, `seq` (max event seq), `forum_log_lines`, `pgproxy_log_lines`.
 - `counts.sh [mark]`: events since the mark by actor and type; **unindexed**; `answer.accepted` since the mark and in 24 hours; posts per
-  author in 24 hours; flags; digests stored twice.
+  author in 24 hours; flags; digests stored twice. **It is digest-only for duplicates**: it sees a digest stored twice and nothing else. It
+  does not see a revision fork, a flag recorded twice by one raiser, or two votes by one author for one target; `forks.sh` does. They are
+  different instruments (a census of what happened, an oracle for what must be unique) and `counts.sh` is not extended.
 - `census.sh [mark]`: from `FH_FORUMLOG` since the mark's line: `Request finished` by status, body-less 5xx, and eleven counts of log events,
   each matched by its message text (the console logger prints no event name): `StoreFault`, `UnhandledFault`, `VectorIndexPending`,
   `VectorIndexCaughtUp`, `VectorIndexRetryFailed`, `VectorIndexCatchUpFailed`, `VectorIndexCheckOwed`, `VectorIndexCheckFound`,
@@ -80,7 +90,62 @@ admin (pgvector is needed by `db/0003`).
   printing the start and the kill as epoch milliseconds, so a client can disappear at a known instant. Exit 0 when it killed the command,
   3 when the command ended first, 2 for a bad argument, `<seconds>` above 86400 or a command that cannot start. It touches no database. The command's
   process group is killed on every way out (the instant, the command ending first, SIGINT, SIGTERM, SIGHUP); only SIGKILL of `killat.sh` itself leaves it.
+- `landing.sh <sha256:digest>...` (read-only; `LAND_DEADLINE` seconds, default 150, at most 3600): polls `events` every 100 ms and prints, per
+  digest, `first_seen_ms=<epoch ms>` (the poll that first saw its `post.accepted`, good to about 100 ms plus one `psql` round trip) with the
+  row's sequence and `server_ts`, or `absent`. The digest is matched on `payload->>'digest'` of a `post.accepted`. Standalone (it needs
+  only `common.sh`). Exit 2 for a bad digest.
+- `forks.sh [mark]` (read-only; exit 1 if any row, 0 if none, 2 on a bad pair or mark): the oracle for what the Forum states as unique. It is
+  SQL on `events` and `flag_details` and never the Forum's answer. Five sections, each printed with its heading: **revision forks**
+  (revisions sharing one `prev`, post ids and sequences), **digests stored twice**, **flag triples recorded twice** (private rows joined to
+  their `flag.committed` entries on `event_id`, grouped by post, raiser and kind; the raiser is printed because the harness is for a
+  throwaway database and the admin session may read the private store), **votes by one author for one target more than once**, and, as
+  information only (not in the exit), **private flag rows with no entry**. With a mark only groups whose newest member is after the mark's
+  sequence are printed, so a drill is judged on its own rows. **The `prev` and the vote's `target` are read from the signed canonical text by
+  a pattern, never by a `jsonb` cast**: a stored post whose text holds a U+0000 (the eleventh exercise's dump does) fails the cast. The cost
+  is that a change of the canonical key order or spacing would break the pattern, so the oracle needs a positive control: a drill on the
+  unmodified tree must return rows (`latecommit.sh` does), and a clean database returns none.
+- `reconcile.py <digests-file> [mark]` (run as `python3 -I reconcile.py ...`; read-only): for each digest, one line, `stored x<n>` with each
+  sequence, aggregate id and `server_ts`, or `absent`, and a total. **Attributed by digest only**, never by a time window and never by
+  `server_ts`. Exit 0 when it ran; 2 for a bad argument, digest or database.
+- `latecommit.sh revision|digest|flag|vote` (needs `FH_DB`, `FH_ROLE`, `FH_AGENT`, and `FH_POST`, `FH_TARGET` or `FH_SENDER` by kind; see
+  its header): the late-commit drill described below. Exit 0 the oracle found nothing, 1 the oracle found a row, 2 refused.
 - `common.sh`: the shared configuration and guard (sourced, not run).
+
+## The late-commit drill (`latecommit.sh`)
+
+`fault.sh hold-on <s> <name>` holds the `COMMIT` of the writing transaction `s` seconds and forwards it even if the client has gone. With the
+Forum's `Command Timeout=2` and a 6 s hold, measured on 2026-11-02 (the eleventh exercise's drill, repeated):
+
+| instant (from A's send) | what happens |
+|---|---|
+| +0.45 s | A's transaction has taken the log's append lock and inserted; its `COMMIT` is held |
+| +2 s | the Forum's command timeout; the cancel is forwarded and does nothing (the commit is already in flight) |
+| +4.0 to +4.3 s | the Forum answers A `503`; the client sees it by +4.5 s; the gate A held is released |
+| +6.4 to +6.6 s | the held `COMMIT` is forwarded and A's act **lands** (the hold runs from A's `COMMIT`, not from the send) |
+
+Act B, sent between about +3.2 and +6.1 s, checks the log before A has landed, queues behind A's lock and is stored after it: a revision
+beside A's (a fork), the same signed bytes twice (a digest stored twice), a flag of the same type by the same raiser twice, a second vote by
+one agent for one target. Sent after the landing (about +6.6 s) it meets the Forum's ordinary check and is refused. The window's lower edge was
+not probed below +3.2 s; before A's `503` the Forum's gates (`revision-in-flight`, a flag's try-only gate) answer instead, which is the fast path
+working. `latecommit.sh` sends B at `FH_B_DELAY` (timing a, default 3 s; 4.6 s for a flag) or, in timing b, as soon as A is answered with the
+hold released just before. Things the drill depends on:
+
+- **`delaycommit` holds every simple-query `COMMIT` of every session through the proxy**, not only A's. B's own `COMMIT` is held too in
+  timing a, so B's answer comes late (B's time is measured from B's own send), and a token mint inside the window is held as well, so the
+  drill warms the token first.
+- **Release a hold only after the held commit's client is gone.** The proxy decides whether to keep a held `COMMIT` alive when the client
+  socket closes: if the mode is then no longer `delaycommit` it closes the server socket and the commit never lands. `latecommit.sh` timing b
+  therefore releases the hold only after A has been answered (the Forum has closed A's connection by then). A hold released earlier makes a
+  run that looks like a pass and is a lost commit.
+- **`server_ts` is the INSERT's instant, taken after the lock is acquired**, not the instant the request began or the commit landed. For the
+  second request of a drill it is after the first has landed. Never attribute a row to a request by `server_ts`; use `landing.sh` and the
+  digest, and `reconcile.py`.
+- **The control rule.** A leg whose breach is not reproduced on the unmodified tree, in a fresh database, is not a live gate: report it as "not
+  reproduced on the control" and let its in-process probe carry it. An oracle that returns no rows proves nothing unless the same drill on the
+  control returned rows. `latecommit.sh` refuses (exit 2, nothing sent) a hold under twice the command timeout (`FH_COMMAND_TIMEOUT`, default
+  2) and a Forum whose host is not loopback, and releases the hold on every way out.
+- The digest drill's sender is a throwaway (`FH_SENDER prepare` signs one wire and prints `digest=sha256:...`; `FH_SENDER send` sends the same
+  bytes) until the client has a resend verb.
 
 ## The unindexed count
 
