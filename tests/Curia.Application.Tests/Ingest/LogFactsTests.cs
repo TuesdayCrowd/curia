@@ -127,7 +127,7 @@ public sealed class LogFactsTests
                     Assert.NotNull(overlap);
                 }
             }
-        }, iter: 60);
+        }, iter: 60, threads: 1);
 
         Said("every split equals the whole", problems.Count == 0 ? "every split equals the whole" : $"{problems.Count} splits differ, the first: {problems[0]}");
     }
@@ -173,7 +173,7 @@ public sealed class LogFactsTests
             for (var k = 0; k < log.Count; k++)
                 if (LeanMismatch([.. log.Take(k)], [.. log.Skip(k)], whole, whole.Posts, [Voter, Voter2, Author]) is { } difference)
                     problems.Add($"split {k} of {log.Count}: {difference}");
-        }, iter: 80);
+        }, iter: 80, threads: 1);
 
         Said("every split equals the whole", problems.Count == 0 ? "every split equals the whole" : $"{problems.Count} splits differ, the first: {problems[0]}");
     }
@@ -467,7 +467,7 @@ public sealed class LogFactsTests
                 var actual = found is null ? "none" : found.PostId;
                 if (expected != actual) problems.Add($"{digest}: whole fold {expected}, digest-only {actual}");
             }
-        }, iter: 80);
+        }, iter: 80, threads: 1);
 
         Said("the same post for every digest", problems.Count == 0 ? "the same post for every digest" : $"{problems.Count} differences, the first: {problems[0]}");
     }

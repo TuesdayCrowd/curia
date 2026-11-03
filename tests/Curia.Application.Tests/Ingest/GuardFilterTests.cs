@@ -154,7 +154,7 @@ public sealed class GuardFilterTests
         var submission = await SubmissionOf.KindAsync(PostKind.Revision, Sub);
         var digest = Digests.Sha256(submission.Canonical).ToPrefixed();
         var scripts = new List<List<(int Op, int Pick)>>();
-        Gen.Select(Gen.Int[0, 17], Gen.Int[0, 50]).List[0, 13].Sample(scripts.Add, iter: 150, seed: "0pj9aDvFX1M7");
+        Gen.Select(Gen.Int[0, 17], Gen.Int[0, 50]).List[0, 13].Sample(scripts.Add, iter: 150, seed: "0pj9aDvFX1M7", threads: 1);
 
         var problems = new List<string>();
         var splits = 0;
@@ -501,7 +501,7 @@ public sealed class GuardFilterTests
                     }
                 }
             }
-        }, iter: 60, seed: "0pj9aDvFX1M7");
+        }, iter: 60, seed: "0pj9aDvFX1M7", threads: 1);
 
         Said($"the filtered extension equals the unfiltered one restricted, and refuses {swaps} swapped lists", problems.Count == 0 ? $"the filtered extension equals the unfiltered one restricted, and refuses {swaps} swapped lists" : $"{problems.Count} differences, the first: {problems[0]}");
     }
