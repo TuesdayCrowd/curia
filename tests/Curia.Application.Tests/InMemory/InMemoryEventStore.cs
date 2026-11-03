@@ -59,7 +59,7 @@ internal sealed class InMemoryEventStore : IEventStore
         return AppendCore(aggregateId, expectedVersion, events, condition);
     }
 
-    // R6.60 (errata G57), the seam: the guard is accepted and not yet evaluated, so this append is the one above.
+    // R6.60 (errata G57): the guard is evaluated inside AppendCore's critical section, after the stream checks and before the log grows.
     public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
         AggregateId aggregateId,
         AggregateVersion expectedVersion,
@@ -69,14 +69,15 @@ internal sealed class InMemoryEventStore : IEventStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(guard);
-        return AppendCore(aggregateId, expectedVersion, events, condition);
+        return AppendCore(aggregateId, expectedVersion, events, condition, guard);
     }
 
     private Task<Result<IReadOnlyList<AppendedEvent>>> AppendCore(
         AggregateId aggregateId,
         AggregateVersion expectedVersion,
         IReadOnlyList<DomainEvent> events,
-        StreamCondition? condition)
+        StreamCondition? condition,
+        AppendGuard? guard = null)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -156,6 +157,23 @@ internal sealed class InMemoryEventStore : IEventStore
                 {
                     return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
                         DomainErrors.ConditionConflict(condition.Aggregate, condition.Expected, conditionVersion)));
+                }
+            }
+
+            // R6.60: the same evaluation Postgres makes under its lock. The in-memory log has no gaps and its sequence is the index plus one, so the delta is the
+            // tail of the log above the position. Over the cap it is refused unread; empty it calls nothing; a throw leaves before anything is written.
+            if (guard is not null)
+            {
+                var deltaCount = _log.Count - guard.After.Value;
+                if (deltaCount > AppendGuard.DeltaCap)
+                    return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(DomainErrors.AppendDeltaTooLarge()));
+
+                if (deltaCount > 0)
+                {
+                    IReadOnlyList<AppendedEvent> delta = [.. _log.Where(e => e.Seq.Value > guard.After.Value)];
+                    var refusal = guard.Evaluate(delta).Match<Error?>(proceed: () => null, refuse: error => error, redecide: DomainErrors.AppendRedecide);
+                    if (refusal is not null)
+                        return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(refusal));
                 }
             }
 

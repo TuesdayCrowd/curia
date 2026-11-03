@@ -101,8 +101,7 @@ public abstract class AppendGuardContractTests
     [Fact]
     public async Task R6_60_LCB1_TheDeltaIsExactlyTheEventsAfterThePosition()
     {
-        var store = CreateStore();
-        var seqs = await SeedAsync(store, 25, 6);
+        var seqs = await SeedAsync(CreateStore(), 25, 6);
         var cases = new (string Name, long After, long[] Expected)[]
         {
             ("the start", 0, [.. seqs]),
@@ -115,6 +114,9 @@ public abstract class AppendGuardContractTests
         var expected = new List<string>();
         foreach (var (name, after, want) in cases)
         {
+            // A fresh, identically seeded store per case: the probing append of one case must not be in the next case's delta.
+            var store = CreateStore();
+            await SeedAsync(store, 25, 6);
             var (guard, calls) = Recording(Seq(after));
             Require(await store.AppendAsync(Agg("probe-" + name.Replace(' ', '-')), AggregateVersion.New, [Ev("lcb1-" + Guid.NewGuid().ToString("N"))], null, guard, Ct));
             expected.Add($"{name}: " + (want.Length == 0 ? "the guard was not called" : "delta " + Range(want)));
