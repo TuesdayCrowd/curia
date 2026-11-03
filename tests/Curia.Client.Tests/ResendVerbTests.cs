@@ -280,7 +280,7 @@ public sealed partial class ResendVerbTests
     }
 
     /// <summary>
-    /// ASA40. The resend is the first caller of <c>already-recorded</c> (item 105): the verb (a first send answered <c>already-recorded</c>) keeps the old refusal text and exit 3
+    /// ASA40. The resend is the first caller of <c>already-recorded</c> (item 105): the verb (a first send answered <c>already-recorded</c>) keeps the refusal text (ruling 38: an earlier call recorded it) and exit 3
     /// (the control: green on the seam); the resend answers it as the <c>already recorded</c> line, exit 0. Predicted red: <c>exit 3 for a resend</c>.
     /// </summary>
     [Fact]
@@ -293,7 +293,7 @@ public sealed partial class ResendVerbTests
             verb.Forum.OnPost = (_, _, _) => Task.FromResult(AlreadyRecorded());
             var run = await CliKit.RunAsync(verb, "ask", "--board", "b", "--title", "A title?", "--body", "A body.");
             if (run.Exit != 3) problems.Add($"the verb answered already-recorded exits {run.Exit}, expected 3 (control)");
-            if (!run.Text.Contains("That post is the one just sent", StringComparison.Ordinal)) problems.Add("the verb's refusal text is not the old one (control)");
+            if (!run.Text.Contains("An earlier call recorded it", StringComparison.Ordinal)) problems.Add("the verb's refusal text is not the R11.61 (rev.) words (control)");
         }
 
         using var kit = new SessionKit();
@@ -302,7 +302,7 @@ public sealed partial class ResendVerbTests
         kit.Forum.OnPost = (_, _, _) => Task.FromResult(AlreadyRecorded());
         var resend = await CliKit.RunAsync(kit, "resend", act.PrefixedDigest);
         if (resend.Exit != 0) problems.Add($"exit {resend.Exit} for a resend, expected 0");
-        if (resend.Text.Contains("That post is the one just sent", StringComparison.Ordinal)) problems.Add("the resend printed the verb's refusal text");
+        if (resend.Text.Contains("An earlier call recorded it", StringComparison.Ordinal)) problems.Add("the resend printed the verb's refusal text");
         Red.None(problems, "the verb: the old refusal, exit 3; the resend: the already recorded line, exit 0");
     }
 }
