@@ -401,6 +401,6 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 
 **Next:** the eleventh five-agent exercise (the owner has authorized it to begin after this PR merges), carrying the four cold reads (PR 1's L7, PR 2's L5, PR 3's L6, this PR's L5) and the commit-cut, late-commit, unheard and board windows with the expected results named in advance; then PR 5 (D105; G57; waits on a ranking fixture).
 
-The PR is #143, on `main` at ________.
+The PR is #143, on `main` at f4f8d899.
 
 Final whole run (2026-11-02, on the docs commit): Release build 0 warnings; Api 1,432, Application 629, Architecture 92 (and 92 in Debug), AuthN 140, Canon.Sodium 32, Canon 329, Client 1,409, Domain.Primitives 64, Domain 950, Infrastructure 214, Mcp 828 (2 skipped), every one passed; locked restore, `cargo fmt`, clippy and `cargo test` clean; the differential comparison 0 divergence classes; spec checks clean and all four falsified.

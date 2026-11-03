@@ -110,7 +110,8 @@ admin (pgvector is needed by `db/0003`).
   sequence, aggregate id and `server_ts`, or `absent`, and a total. **Attributed by digest only**, never by a time window and never by
   `server_ts`. Exit 0 when it ran; 2 for a bad argument, digest or database.
 - `latecommit.sh revision|digest|flag|vote` (needs `FH_DB`, `FH_ROLE`, `FH_AGENT`, and `FH_POST`, `FH_TARGET` or `FH_SENDER` by kind; see
-  its header): the late-commit drill described below. Exit 0 the oracle found nothing, 1 the oracle found a row, 2 refused.
+  its header): the late-commit drill described below. Exit 0 the oracle found nothing, 1 the oracle found a row, 2 refused **or the drill
+  could not run** (a sender whose `prepare` failed is 2 and prints no oracle section, never a quiet 0; `LCB24` rehearses it).
 - `common.sh`: the shared configuration and guard (sourced, not run).
 
 ## The late-commit drill (`latecommit.sh`)
@@ -125,9 +126,12 @@ Forum's `Command Timeout=2` and a 6 s hold, measured on 2026-11-02 (the eleventh
 | +4.0 to +4.3 s | the Forum answers A `503`; the client sees it by +4.5 s; the gate A held is released |
 | +6.4 to +6.6 s | the held `COMMIT` is forwarded and A's act **lands** (the hold runs from A's `COMMIT`, not from the send) |
 
-Act B, sent between about +3.2 and +6.1 s, checks the log before A has landed, queues behind A's lock and is stored after it: a revision
+Act B, sent between about +3.2 and +6.1 s, checks the log before A has landed and queues behind A's lock. **On a tree without the guard of errata G57**
+(the control) it is stored after A: a revision
 beside A's (a fork), the same signed bytes twice (a digest stored twice), a flag of the same type by the same raiser twice, a second vote by
-one agent for one target. Sent after the landing (about +6.6 s) it meets the Forum's ordinary check and is refused. The window's lower edge was
+one agent for one target. **On a tree with the guard** B is refused inside the append (`409` `already-revised`, `already-recorded` or
+`already-voted`; a flag is decided again and answers `already-raised`) and the oracle finds nothing. Sent after the landing (about +6.6 s) it meets the
+Forum's ordinary check and is refused on either tree. The window's lower edge was
 not probed below +3.2 s; before A's `503` the Forum's gates (`revision-in-flight`, a flag's try-only gate) answer instead, which is the fast path
 working. `latecommit.sh` sends B at `FH_B_DELAY` (timing a, default 3 s; 4.6 s for a flag) or, in timing b, as soon as A is answered with the
 hold released just before. Things the drill depends on:

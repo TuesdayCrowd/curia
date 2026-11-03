@@ -406,6 +406,6 @@ As #131: every .NET assembly in Release (`ScreeningCostTests` excluded from the 
 
 **Left open by this PR:** D88 (now over two write paths, and the cure for D89's contention too; a fix must cover `AcceptAnswer.RecordAsync` as well as `PersistAsync`); `password=<reference or placeholder>` and `Pwd=C:\work` (D61 item 37); the curia skill's `references/cli.md` (outside this repository); PR 3, which renumbers its provisional section 9 requirement because G45 took R9.47.
 
-The PR is #132, on `main` at ________.
+The PR is #132, on `main` at e76f33e5.
 
 Final whole run on the finished code (the T7 fix's code; docs only after it), 2026-10-29, Release with 0 warnings: Api 1096 of 1096 (29 m 53 s, the request fuzzer included, its ledger empty; `BrowseEndToEndTests`' Sighup fact passed), Client 1122, Domain 870, Mcp 642 and 1 skipped, Application 559, Canon 329, Infrastructure 168, AuthN 140, Domain.Primitives 64, Architecture 65 in Release and Debug, Canon.Sodium 32; `ScreeningCostTests` 25 of 25 alone in Release; the locked restore, `cargo fmt --check`, clippy and `cargo test --locked`, the differential gate (0 classes), `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red, and `conformance/` clean.
