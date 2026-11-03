@@ -149,7 +149,7 @@ public sealed partial class ResendToolTests : IDisposable
 
     /// <summary>
     /// ASA2, the tools' half. A kept act is private (directory 0700, file 0600) and no kept byte appears in what a tool relays: after <c>curia_ask</c> is answered <c>503</c> one
-    /// file of mode 0600 holds the wire, and the relayed text holds neither its base64 nor the body only the kept act carries. Predicted red: <c>expected mode 0600, no file</c>.
+    /// file of mode 0600 holds the wire, and the relayed text holds neither its base64 nor the body, title or board only the kept act carries. Predicted red: <c>expected mode 0600, no file</c>.
     /// </summary>
     [Fact]
     public async Task R11_79_ASA2_AKeptActIsPrivateAndNoKeptByteIsRelayed()
@@ -157,7 +157,7 @@ public sealed partial class ResendToolTests : IDisposable
         using var log = new StubLog();
         var kit = KitOver(log);
         kit.Handler.Intercept = (r, _) => Task.FromResult(IsSubmission(r) ? Problem(503, "curia/store/unavailable") : null);
-        var relayed = await CallAsync(() => kit.Tools.AskAsync("b", "A title?", "A body only the kept act carries: ASA2-TOOL-MARKER.", null, null, Ct));
+        var relayed = await CallAsync(() => kit.Tools.AskAsync("asa2-board", "An ASA2 tool title marker", "A body only the kept act carries: ASA2-TOOL-MARKER.", null, null, Ct));
 
         var problems = new List<string>();
         var files = Directory.Exists(kit.ActsDirectory) ? Directory.GetFiles(kit.ActsDirectory) : [];
@@ -168,6 +168,8 @@ public sealed partial class ResendToolTests : IDisposable
             if (File.GetUnixFileMode(kit.ActsDirectory) != (UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute)) problems.Add($"expected directory mode 0700, was {File.GetUnixFileMode(kit.ActsDirectory)}");
             var base64 = (await File.ReadAllLinesAsync(files[0], Ct))[1];
             if (relayed.Text.Contains(base64[..80], StringComparison.Ordinal)) problems.Add("the relayed text holds kept bytes");
+            foreach (var (name, value) in new[] { ("the body", "ASA2-TOOL-MARKER"), ("the title", "ASA2 tool title marker"), ("the board", "asa2-board") })
+                if (relayed.Text.Contains(value, StringComparison.Ordinal)) problems.Add($"the relayed text holds {name} of the kept act");
         }
 
         None(problems, "one kept file of mode 0600 in a directory of mode 0700 and no kept byte in the relayed text");
@@ -276,7 +278,15 @@ public sealed partial class ResendToolTests : IDisposable
         if (!relayed.Text.Contains(Fold(firstLine.Replace("<post id>", literal, StringComparison.Ordinal)), StringComparison.Ordinal)) problems.Add("lacks the published first line");
         if (!relayed.Text.Contains(Fold(after.Replace("<post id>", literal, StringComparison.Ordinal)).Replace("`curia read ", "`curia_read ", StringComparison.Ordinal)[..40], StringComparison.Ordinal)) problems.Add("lacks the published sentence after it");
         if (File.Exists(Path.Combine(kit.ActsDirectory, act.Digest + ".act"))) problems.Add("the file was not removed");
-        None(problems, "a normal result: already recorded, the id quoted, nothing recorded by this tool, the file removed");
+
+        // The other answer a resend wants: 201 (the stub records it) is a posted receipt and removes the file, as 409 already-recorded does (R11.79's table).
+        using var recordingLog = new StubLog();
+        var recording = KitOver(recordingLog);
+        var recorded = Plant(recording, attempts: 1, lastAnswer: "503");
+        var posted = await CallAsync(() => recording.Tools.ResendAsync(recorded.PrefixedDigest, Ct));
+        if (posted.IsError || !posted.Text.StartsWith("POSTED", StringComparison.Ordinal)) problems.Add($"a 201 to the resend is not a posted result ({posted.Text})");
+        if (File.Exists(Path.Combine(recording.ActsDirectory, recorded.Digest + ".act"))) problems.Add("the file was not removed after a 201");
+        None(problems, "a normal result: already recorded, the id quoted, nothing recorded by this tool, the file removed; and a 201 posted and the file removed");
     }
 
     /// <summary>
@@ -297,11 +307,29 @@ public sealed partial class ResendToolTests : IDisposable
         var stop = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", act.PrefixedDigest, StringComparison.Ordinal));
         var (count, unit) = PublishedResendWords.StopWait;
         var problems = new List<string>();
-        if (first.Text.Contains(Fold(PublishedResendWords.StopWords)[..30], StringComparison.Ordinal)) problems.Add("the first unresolved resend printed the stop sentence");
+        if (first.Text.Contains(Fold(PublishedResendWords.StopWords[..PublishedResendWords.StopWords.IndexOf("<n>", StringComparison.Ordinal)]), StringComparison.Ordinal)) problems.Add("the first unresolved resend printed the stop sentence");
         if (!second.Text.Contains(stop, StringComparison.Ordinal)) problems.Add("no stop sentence");
         if (!second.Text.Contains($"{count} {unit}", StringComparison.Ordinal)) problems.Add("the published wait is not in the result");
         if (!File.Exists(Path.Combine(kit.ActsDirectory, act.Digest + ".act"))) problems.Add("the file was not kept");
-        None(problems, "no stop sentence on the first unresolved resend; on the second, the published sentence with 2 attempts and the published wait; the act kept");
+
+        // The nonce challenge's retry is not an attempt (R11.79): a challenged resend answered 503 is one more send, so the file says 2 and the sentence says 2.
+        using var challengedLog = new StubLog();
+        var challenged = KitOver(challengedLog);
+        var asked = Plant(challenged, attempts: 1, lastAnswer: "503");
+        var requests = 0;
+        challenged.Handler.Intercept = (r, _) => Task.FromResult(IsSubmission(r)
+            ? requests++ == 0
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized) { Headers = { { "DPoP-Nonce", "n1" } }, Content = new StringContent("{}") }
+                : Problem(503, "curia/store/unavailable", "A store fault")
+            : null);
+        var afterChallenge = await CallAsync(() => challenged.Tools.ResendAsync(asked.PrefixedDigest, Ct));
+        var recorded = (await File.ReadAllLinesAsync(Path.Combine(challenged.ActsDirectory, asked.Digest + ".act"), Ct))[0];
+        if (requests != 2) problems.Add($"the challenged resend made {requests} requests, expected 2");
+        if (!recorded.Contains("\"attempts\":2", StringComparison.Ordinal)) problems.Add($"after a nonce challenge the file's header is {recorded}, expected attempts 2");
+        var stopAfterChallenge = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", asked.PrefixedDigest, StringComparison.Ordinal));
+        if (!afterChallenge.Text.Contains(stopAfterChallenge, StringComparison.Ordinal)) problems.Add("after a nonce challenge the stop sentence does not say 2 sends");
+
+        None(problems, "no stop sentence on the first unresolved resend; on the second, the published sentence with 2 attempts and the published wait; the act kept; a nonce challenge's retry not counted");
     }
 
     /// <summary>
@@ -349,6 +377,11 @@ public sealed partial class ResendToolTests : IDisposable
         var acts = await session.CallAsync("curia_acts", []);
         if (acts.IsError || !acts.Text.Contains(held.PrefixedDigest, StringComparison.Ordinal)) problems.Add($"curia_acts does not list the held act (\"{acts.Text}\")");
         if (kit.Handler.Requests.Count != before) problems.Add("curia_acts called the Forum");
+        // A second host over the same directory (another process, or this one after a restart) resends what the first kept: the act is on disk, not in a tool's memory.
+        var second = KitOver(log);
+        var secondSent = await CallAsync(() => second.Tools.ResendAsync(held.PrefixedDigest, Ct));
+        if (second.Handler.Bodies.Where(ReceivedAct.IsSubmission).Distinct(StringComparer.Ordinal).Count() != 1) problems.Add($"a second host over the directory did not resend the kept act (\"{secondSent.Text}\")");
+
         None(problems, "both tools listed, gated by the schema, NOT SENT by name for a bad digest, described with the stop passage, curia_acts listing the held act with no Forum call");
     }
 
@@ -374,6 +407,39 @@ public sealed partial class ResendToolTests : IDisposable
         if (relayed.Split('\n').Any(line => line.TrimStart().StartsWith("VERIFIED", StringComparison.Ordinal))) problems.Add("a header value began a line of the tool's result");
         if (!relayed.Contains(plain.PrefixedDigest, StringComparison.Ordinal)) problems.Add("the plain act is not listed (control)");
         None(problems, "no header value begins a line of what curia_acts prints, and the plain act is listed");
+    }
+
+    /// <summary>
+    /// ASA4, the tools' half. A write tool whose request ended with no answer (the transport throws: the shape of a process that exits) keeps the act, and a second host over the same
+    /// directory lists it and resends exactly its bytes: the act is on disk and not in the tool's memory (FASA19). Predicted red: <c>expected 1 kept file</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_79_ASA4_AnActTheToolSentWithNoAnswerIsKeptOnDiskAndAnotherHostResendsIt()
+    {
+        using var log = new StubLog();
+        var kit = KitOver(log);
+        kit.Handler.Intercept = (r, _) => IsSubmission(r) ? throw new HttpRequestException(HttpRequestError.Unknown, "the process exited") : Task.FromResult<HttpResponseMessage?>(null);
+        await CallAsync(() => kit.Tools.AskAsync("b", "A title?", "A body that is kept.", null, null, Ct));
+
+        var problems = new List<string>();
+        var files = Directory.Exists(kit.ActsDirectory) ? Directory.GetFiles(kit.ActsDirectory) : [];
+        if (files.Length != 1) problems.Add($"expected 1 kept file, was {files.Length}");
+        var sent = kit.Handler.Bodies.LastOrDefault(ReceivedAct.IsSubmission);
+        if (sent is null) problems.Add("the stub received no submission");
+        else
+        {
+            var digest = ReceivedAct.DigestOf(sent);
+            var second = KitOver(log);
+            await using var session = await McpProtocolSession.StartAsync(second.Tools, "urn:curia:agent:alice");
+            var listed = await session.CallAsync("curia_acts", []);
+            if (listed.IsError || !listed.Text.Contains(digest, StringComparison.Ordinal)) problems.Add($"a second host does not list the kept act (\"{listed.Text}\")");
+            var resent = await CallAsync(() => second.Tools.ResendAsync(digest, Ct));
+            var secondBody = second.Handler.Bodies.LastOrDefault(ReceivedAct.IsSubmission);
+            if (secondBody is null) problems.Add($"a second host sent nothing (\"{resent.Text}\")");
+            else if (!string.Equals(secondBody, sent, StringComparison.Ordinal)) problems.Add("a second host sent other bytes than the first kept");
+        }
+
+        None(problems, "one kept file, listed by a second host, which resends exactly the bytes the first sent");
     }
 
     /// <summary>
@@ -428,7 +494,18 @@ public sealed partial class ResendToolTests : IDisposable
             if (!revised.Text.EndsWith(PublishedResendWords.RevisionWords.Last, StringComparison.Ordinal)) problems.Add($"curia_revise, already-revised: does not end \"{PublishedResendWords.RevisionWords.Last}\" (\"{revised.Text[^40..]}\")");
         }
 
-        None(problems, "the clause on a rationale too long, R11.81 (e) on contended, the capitalised last sentence on already-revised");
+        // curia_revise of a post the Forum serves as superseded: NOT SENT, the successor named, and the published clause (the successor may be the text just sent; curia read).
+        using (var log = new StubLog())
+        {
+            log.SupersededBy = [new Successor("sha256:" + new string('7', 64), "01REVISIONID00000000000001")];
+            var kit = KitOver(log);
+            var revised = await CallAsync(() => kit.Tools.ReviseAsync(StubLog.PostId, "A corrected body.", null, null, null, Ct));
+            var pattern = "NOT SENT.*" + Regex.Escape(Fold(PublishedResendWords.RevisionWords.Superseded)).Replace(Regex.Escape("<post id>"), ".+?", StringComparison.Ordinal);
+            if (!revised.IsError || !Regex.IsMatch(revised.Text, pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)))
+                problems.Add($"curia_revise of a superseded post: NOT SENT lacks the published clause (the successor may be the text just sent; curia read) (\"{revised.Text}\")");
+        }
+
+        None(problems, "the clause on a rationale too long, R11.81 (e) on contended, the capitalised last sentence on already-revised, the superseded clause on a refused revision");
     }
 
     /// <summary>
@@ -452,6 +529,7 @@ public sealed partial class ResendToolTests : IDisposable
             ("acceptance budget", 403, "curia/authz/denied", "table-11/accept-budget-exhausted next_slot_at=2026-11-03T00:00:00Z"),
             ("not an answer", 400, "curia/accept/not-an-answer", "post=01TESTRECEIPTPOST000000000A kind=comment"),
             ("log unreadable", 503, "curia/log/unreadable", string.Empty),
+            ("store unavailable", 503, "curia/store/unavailable", string.Empty),
         };
 
         foreach (var (name, status, type, detail) in cases)
@@ -581,26 +659,53 @@ public sealed partial class ResendToolTests : IDisposable
     public async Task R11_81_ASA43_TheToolsSayTheClauseOnceWhereTheErrataSaysAndNeverOnAnEarlierRecording()
     {
         var problems = new List<string>();
-        var clause = PublishedResendWords.NothingRecordedClause;
-        var cases = new (string Name, int Status, string Type, string? Detail, int Says)[]
+        const string screeningTitle = "Credential material detected; it cannot be redacted after signing, so nothing was stored.";
+        const string inFlightDetail = "nothing was recorded, counted or spent; send it again";
+        const string budget = "table-11/rate-budget-exhausted next_slot_at=2026-01-01T00:00:00Z";
+        var (contendedType, contendedStatus, contendedTitle) = PublishedLateCommitWords.Contended();
+        var resendWords = Fold(PublishedResendWords.ResendRefusalWords);
+        var firstClause = resendWords[..(resendWords.IndexOf("the act stays kept.", StringComparison.Ordinal) + "the act stays kept.".Length)];
+
+        // The refusals through curia_flag, curia_ask and curia_resend, each counted over the text the tool relays: the phrase once where the errata says it, never where an earlier call recorded
+        // the act, and a resend says (a) in its place. The three flag forms of FASA37 (contended, raise-in-flight) and the post forms (screening-rejected, agent-in-flight) are cases here.
+        var cases = new (string Tool, string Name, int Status, string Type, string Title, string? Detail, int Says)[]
         {
-            ("rationale too long", 400, "curia/flag/rationale-too-long", "4097 bytes", 1),
-            ("no such post", 404, "curia/flag/no-such-post", "x", 1),
-            ("tier denial", 403, "curia/authz/denied", "table-10/denied", 1),
-            ("already raised", 409, "curia/flag/already-raised", "kind=spam raised_at=2026-01-01T00:00:00Z", 0),
-            ("a Forum fault", 503, "curia/store/unavailable", null, 0),
+            ("flag", "rationale too long", 400, "curia/flag/rationale-too-long", "A refusal", "4097 bytes", 1),
+            ("flag", "no such post", 404, "curia/flag/no-such-post", "A refusal", "x", 1),
+            ("flag", "tier denial", 403, "curia/authz/denied", "A refusal", "table-10/denied", 1),
+            ("flag", "already raised", 409, "curia/flag/already-raised", "A refusal", "kind=spam raised_at=2026-01-01T00:00:00Z", 0),
+            ("flag", "raise in flight", 409, "curia/flag/raise-in-flight", "A refusal", null, 1),
+            ("flag", "contended", contendedStatus, contendedType, contendedTitle, null, 1),
+            ("flag", "a Forum fault", 503, "curia/store/unavailable", "A refusal", null, 0),
+            ("ask", "screening rejected", 400, "curia/ingest/screening-rejected", screeningTitle, "credential@12", 1),
+            ("ask", "agent in flight", 409, "curia/budget/agent-in-flight", "A refusal", inFlightDetail, 1),
+            ("ask", "posting budget", 403, "curia/authz/denied", "A refusal", budget, 1),
+            ("resend", "budget", 403, "curia/authz/denied", "A refusal", budget, 0),
+            ("resend", "content", 400, "curia/admit/invalid-envelope", "A refusal", "x", 0),
+            ("resend", "a Forum fault", 503, "curia/store/unavailable", "A refusal", null, 0),
+            ("resend", "agent in flight", 409, "curia/budget/agent-in-flight", "A refusal", inFlightDetail, 1),
         };
 
-        foreach (var (name, status, type, detail, says) in cases)
+        foreach (var (tool, name, status, type, title, detail, says) in cases)
         {
             using var log = new StubLog();
             var kit = KitOver(log);
-            kit.Handler.Intercept = (r, _) => Task.FromResult(r.RequestUri!.AbsolutePath.EndsWith("/flags", StringComparison.Ordinal) && r.Method == HttpMethod.Post ? Problem(status, type, "A refusal", detail) : null);
-            var relayed = await CallAsync(() => kit.Tools.FlagAsync(StubLog.PostId, "spam", "a rationale", Ct));
+            var act = tool == "resend" ? Plant(kit) : null;
+            kit.Handler.Intercept = (r, _) => Task.FromResult(tool == "flag"
+                ? r.RequestUri!.AbsolutePath.EndsWith("/flags", StringComparison.Ordinal) && r.Method == HttpMethod.Post ? Problem(status, type, title, detail) : null
+                : IsSubmission(r) ? Problem(status, type, title, detail) : null);
+            var relayed = await CallAsync(() => tool switch
+            {
+                "flag" => kit.Tools.FlagAsync(StubLog.PostId, "spam", "a rationale", Ct),
+                "ask" => kit.Tools.AskAsync("b", "A title?", "A body.", null, null, Ct),
+                _ => kit.Tools.ResendAsync(act!.PrefixedDigest, Ct),
+            });
             var found = Regex.Count(relayed.Text, "nothing was (?:recorded|stored)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
-            if (found != says) problems.Add($"curia_flag, {name}: expected {says} occurrence{(says == 1 ? string.Empty : "s")} of the phrase, found {found}");
+            if (found != says) problems.Add($"curia_{tool}, {name}: expected {says} occurrence{(says == 1 ? string.Empty : "s")} of the phrase, found {found} (\"{relayed.Text}\")");
+            if (tool == "resend" && Regex.Count(relayed.Text, Regex.Escape(firstClause), RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)) != 1)
+                problems.Add($"curia_resend, {name}: a resend's refusal does not say (a) exactly once");
         }
 
-        None(problems, "the clause once for a content, not-found or authorization refusal and never for already-raised or a Forum fault");
+        None(problems, "the clause once for a refusal of a write that stored nothing, never for already-raised or a Forum fault, and on a resend (a) in its place");
     }
 }
