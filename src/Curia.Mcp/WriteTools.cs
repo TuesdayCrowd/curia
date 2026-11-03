@@ -564,7 +564,18 @@ internal sealed partial class ForumTools
     /// reason R11.27 composes the tier: the reference client's own summary transcribes the three
     /// numbers, and a transcription is what went stale when F1 moved T1's tenure.</para>
     /// </summary>
-    internal static McpException WriteRefused(Refusal refusal, ResourceKind resource, ActionKind action) => refusal.Kind switch
+    internal static McpException WriteRefused(Refusal refusal, ResourceKind resource, ActionKind action)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+
+        // Plan ruling 39 (the review's I-1): a resend's refusal is worded by Refusal.Summary whatever its kind (R11.81 (a), one definition for both clients). The arms below are a first
+        // send's words: they say "Retrying will not change this" and "Nothing was recorded", which a resend's refusal does not say because it does not say where the first send stands.
+        if (refusal.Act == ActContext.Resend) return new McpException(refusal.Summary);
+
+        return FirstSendRefused(refusal, resource, action);
+    }
+
+    private static McpException FirstSendRefused(Refusal refusal, ResourceKind resource, ActionKind action) => refusal.Kind switch
     {
         // The Forum's title and detail are quoted (R10.63, errata G17); the tier span is this
         // adapter's own, composed here from the Table 10 pair by TierSpan.For (R11.26). It takes

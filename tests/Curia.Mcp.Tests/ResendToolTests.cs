@@ -5,6 +5,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using Curia.Client;
+using Curia.Domain.Authorization;
 using Curia.Domain.Content;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
@@ -428,6 +429,59 @@ public sealed partial class ResendToolTests : IDisposable
         }
 
         None(problems, "the clause on a rationale too long, R11.81 (e) on contended, the capitalised last sentence on already-revised");
+    }
+
+    /// <summary>
+    /// ASA44 (plan ruling 39, the review's I-1). A resend refused at a tier denial, the posting budget, the flag budget, the acceptance budget, <c>curia/accept/not-an-answer</c> or
+    /// <c>curia/log/unreadable</c> is worded by <see cref="Refusal.Summary"/> whatever its kind: R11.81 (a)'s first clause occurs exactly once, none of the first send's words
+    /// (<c>nothing was recorded</c>, <c>nothing was stored</c>, <c>Retrying will not change this</c>) occurs, the log's own sentence says <c>This resend recorded nothing</c>, the file is kept,
+    /// and the tier leg still names the tier (the description of <c>curia_resend</c> says so, since a static description cannot state a row that depends on the act it sends). Control: the same
+    /// refusals to a first send (<c>curia_ask</c>) are the first-send words and never (a). Predicted red: <c>REFUSED at this agent's trust tier ... Retrying will not change this</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_81_ASA44_AResendRefusedAtATierOrABudgetSaysTheFirstSendIsUnresolved()
+    {
+        var problems = new List<string>();
+        var resendClause = Fold(PublishedResendWords.ResendRefusalWords);
+        var firstClause = resendClause[..(resendClause.IndexOf("the act stays kept.", StringComparison.Ordinal) + "the act stays kept.".Length)];
+        var cases = new (string Name, int Status, string Type, string Detail)[]
+        {
+            ("tier denial", 403, "curia/authz/denied", "table-10/denied"),
+            ("posting budget", 403, "curia/authz/denied", "table-11/rate-budget-exhausted next_slot_at=2026-11-03T00:00:00Z"),
+            ("flag budget", 403, "curia/authz/denied", "table-11/flag-budget-exhausted next_slot_at=2026-11-03T00:00:00Z"),
+            ("acceptance budget", 403, "curia/authz/denied", "table-11/accept-budget-exhausted next_slot_at=2026-11-03T00:00:00Z"),
+            ("not an answer", 400, "curia/accept/not-an-answer", "post=01TESTRECEIPTPOST000000000A kind=comment"),
+            ("log unreadable", 503, "curia/log/unreadable", string.Empty),
+        };
+
+        foreach (var (name, status, type, detail) in cases)
+        {
+            using var log = new StubLog();
+            var kit = KitOver(log);
+            var act = Plant(kit);
+            kit.Handler.Intercept = (r, _) => Task.FromResult(IsSubmission(r) ? Problem(status, type, "A refusal", detail.Length == 0 ? null : detail) : null);
+            var resent = await CallAsync(() => kit.Tools.ResendAsync(act.PrefixedDigest, Ct));
+
+            var said = Regex.Count(resent.Text, Regex.Escape(firstClause), RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+            if (said != 1) problems.Add($"{name}: R11.81 (a)'s first clause occurs {said} times, expected 1 (\"{resent.Text}\")");
+            foreach (var forbidden in new[] { "nothing was recorded", "nothing was stored", "Retrying will not change this" })
+                if (resent.Text.Contains(forbidden, StringComparison.OrdinalIgnoreCase)) problems.Add($"{name}: says \"{forbidden}\" of a resend");
+            if (name == "log unreadable" && !resent.Text.Contains("This resend recorded nothing", StringComparison.Ordinal)) problems.Add($"{name}: lacks \"This resend recorded nothing\"");
+            if (name == "tier denial" && !resent.Text.Contains("trust tier", StringComparison.Ordinal)) problems.Add($"{name}: does not name the tier");
+            if (!File.Exists(Path.Combine(kit.ActsDirectory, act.Digest + ".act"))) problems.Add($"{name}: the file was not kept");
+        }
+
+        // The control: a first send refused the same way is worded as a first send's refusal, never as (a).
+        using (var log = new StubLog())
+        {
+            var kit = KitOver(log);
+            kit.Handler.Intercept = (r, _) => Task.FromResult(IsSubmission(r) ? Problem(403, "curia/authz/denied", "A refusal", "table-10/denied") : null);
+            var first = await CallAsync(() => kit.Tools.AskAsync("b", "A title?", "A body.", null, null, Ct));
+            if (first.Text.Contains(firstClause, StringComparison.Ordinal)) problems.Add("control: a first send's refusal says (a)");
+            if (!first.Text.Contains("Retrying will not change this", StringComparison.Ordinal)) problems.Add("control: a first send's tier refusal lost its own words");
+        }
+
+        None(problems, "a resend refused at a tier, a budget, not-an-answer or an unreadable log says (a) once and none of the first send's words, the tier leg names the tier");
     }
 
     /// <summary>

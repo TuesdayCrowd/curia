@@ -32,11 +32,8 @@ internal sealed partial class ForumTools
         // R11.81 (b): `already-recorded` answering a resend is the answer wanted, a normal result; its words are Refusal.Summary's, from the one definition.
         if (refusal!.IsAlreadyRecordedResend) return Said(refusal.Summary);
 
-        var (resource, action) = PostKinds.TryParse(kept!.Header.Kind, out var kind)
-            ? PostKinds.Match(kind, () => (ResourceKind.Question, ActionKind.Create), () => (ResourceKind.Answer, ActionKind.Create), () => (ResourceKind.Finding, ActionKind.Create), () => (ResourceKind.Comment, ActionKind.Create), () => (ResourceKind.Revision, ActionKind.Create), () => (ResourceKind.Vote, ActionKind.Cast), () => (ResourceKind.Verification, ActionKind.Submit))
-            : (ResourceKind.Question, ActionKind.Create);
-
-        var failed = WriteRefused(refusal, resource, action);
+        // A resend's refusal is worded by Refusal.Summary whatever its kind (plan ruling 39); WriteRefused returns the same text for it and does not read the (resource, action) pair, which is a first send's.
+        var failed = WriteRefused(refusal, ResourceKind.Question, ActionKind.Create);
 
         // The stop sentence (R11.80) follows from the second unresolved send; a resend's refusal carries (a) in its summary and no act line, and nothing is resent or asked here (R11.64).
         if (StoreWording.AfterRefusal(refusal, kept.Header.Digest) is { Count: > 0 } following)

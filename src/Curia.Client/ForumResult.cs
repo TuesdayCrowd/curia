@@ -135,7 +135,8 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     }
 
     private bool NothingRecordedApplies =>
-        IsOfAWrite
+        Act != ActContext.Resend
+        && IsOfAWrite
         && Kind switch
         {
             RefusalKind.Content or RefusalKind.NotFound or RefusalKind.Authorization or RefusalKind.RateBudget => true,
