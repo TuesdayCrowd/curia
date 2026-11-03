@@ -79,6 +79,9 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// </summary>
     public ActContext Act { get; init; } = ActContext.Other;
 
+    /// <summary>The kind of the signed act this refusal refused, as its envelope spells it (<c>revision</c> and <c>vote</c> add words to the act line, R11.80); null for a call that signed nothing. Set by the session.</summary>
+    public string? ActKind { get; init; }
+
     /// <summary>The digest of the signed act this refusal refused, as this client computed it from the bytes (R11.79); null for a call that signed nothing. Set by the session.</summary>
     public string? ActDigest { get; init; }
 
@@ -113,7 +116,43 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// wrote into a post, for one -- so each is a display literal and none can begin a line of the
     /// frame this summary is printed into. The remedy after it is this client's own.</para>
     /// </summary>
-    public string Summary => Act == ActContext.Resend ? ResendSummary : CauseSummary;
+    public string Summary => Act == ActContext.Resend ? ResendSummary : WithNothingRecorded(CauseSummary);
+
+    /// <summary>R11.81 (c): the clause a refusal of a write that stored nothing says once.</summary>
+    public const string NothingRecordedClause = "Nothing was recorded by this call.";
+
+    /// <summary>
+    /// R11.81 (c): the line, with the clause added where the refusal is of a write the Forum refused before it stored anything and the words already in the line do not say so. The measure
+    /// is a count over the line as printed (the phrases <c>nothing was recorded</c> and <c>nothing was stored</c>, without case, once): where the Forum's title or detail or this client's
+    /// sentence for the cause says it, that is the once and nothing is added; a refusal that says an earlier call recorded the act (<c>already-raised</c>, <c>already-recorded</c>), a fault of the Forum
+    /// and a refusal that is not of a write never say it. A resend's refusal says R11.81 (a) in its place (<see cref="ResendSummary"/>). Public because <c>curia-mcp</c> words a few refusals
+    /// itself (the tier span, the budgets) and says the clause from this one definition.
+    /// </summary>
+    public string WithNothingRecorded(string line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        return NothingRecordedApplies && !SaysNothingWasRecorded(line) ? line + " " + NothingRecordedClause : line;
+    }
+
+    private bool NothingRecordedApplies =>
+        IsOfAWrite
+        && Kind switch
+        {
+            RefusalKind.Content or RefusalKind.NotFound or RefusalKind.Authorization or RefusalKind.RateBudget => true,
+            RefusalKind.Conflict => Error.Type is "curia/flag/raise-in-flight" or BudgetWording.AgentInFlightType or RevisionWording.RevisionInFlightType,
+            RefusalKind.Local or RefusalKind.Transport or RefusalKind.Malformed or RefusalKind.Authentication or RefusalKind.ServerFault => false,
+            _ => false,
+        };
+
+    /// <summary>Whether the refusal is of a write: an act the session set (a post, a vote, a resolve, a flag), or a problem type only a write route issues.</summary>
+    private bool IsOfAWrite =>
+        Act is ActContext.Post or ActContext.Flag or ActContext.Resolve
+        || Error.Type.StartsWith("curia/flag/", StringComparison.Ordinal)
+        || Error.Type.StartsWith("curia/ingest/", StringComparison.Ordinal)
+        || Error.Type.StartsWith("curia/accept/", StringComparison.Ordinal);
+
+    private static bool SaysNothingWasRecorded(string line) =>
+        line.Contains("nothing was recorded", StringComparison.OrdinalIgnoreCase) || line.Contains("nothing was stored", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// R11.81 (a) and (b), composed here for the one act that is a resend (plan ruling 35): <c>already recorded</c> and what it means when the Forum already held the act; otherwise the cause's own
@@ -166,7 +205,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         RefusalKind.Conflict when Error.Type == RevisionWording.AlreadyRevisedType => new FrameBuilder()
             .Append($"{new OwnText(RevisionWording.AlreadyRevisedCause)}: successor {NamedPostId("successor=")}. ")
             .Append($"{new OwnText(RevisionWording.AlreadyRevisedRemedy)}. Your text may be the one already there ({new OwnText(RevisionWording.AlreadyRevisedSameText)} when the successor carries it). ")
-            .Append($"{new OwnText(RevisionWording.NothingStoredOrSpent)}.")
+            .Append($"{new OwnText(RevisionWording.NothingStoredOrSpentSentence)}")
             .ToString(),
         // R8.77, R11.61: another revision of this post is being recorded. Retryable, and not final: read the post, then decide.
         RefusalKind.Conflict when Error.Type == RevisionWording.RevisionInFlightType => new FrameBuilder()
@@ -200,6 +239,10 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         RefusalKind.Malformed => Said($"{Error.Title}{Detailed}"),
         // R8.79 (errata G46): the Forum declined to keep trying an acceptance whose thread kept moving. Told apart by the type it issues. Nothing was
         // recorded and the same acceptance may be sent again; this is neither a tier denial nor a spent budget. Shared by `curia` and `curia-mcp`.
+        // R11.81 (e) (errata G58): the Forum's title already says nothing was recorded (G57), so it is printed once, and this client says the flag may be sent again and what the refusal is not.
+        RefusalKind.ServerFault when Error.Type == FlagContendedType => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Type}){Detailed}: the flag may be sent again once the log is quieter. This is neither a tier denial nor a spent budget.")
+            .ToString(),
         RefusalKind.ServerFault when Error.Type == AcceptContendedType => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Type}){Detailed}. Nothing was recorded: the acceptance may be sent again. ")
             .Append($"This is neither a tier denial nor a spent budget.")
@@ -211,7 +254,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .ToString(),
         // R11.72 (errata G52): a fault of a store the Forum owns, told by the type it issues (the token endpoint's code is its type), in the one
         // published sentence for that type, after the title and the type, as the gate's own sentence follows its. Shared by `curia` and `curia-mcp`.
-        RefusalKind.ServerFault when StoreWording.Sentence(Error.Type) is { Length: > 0 } sentence => new FrameBuilder()
+        RefusalKind.ServerFault when StoreWording.Sentence(Error.Type, Act) is { Length: > 0 } sentence => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Type}){Detailed}: {new OwnText(sentence)}.")
             .ToString(),
         RefusalKind.ServerFault => Said($"{Error.Title} ({Error.Type}){Detailed}"),
@@ -221,6 +264,8 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
 
     /// <summary>The post id a <c>post=</c> or <c>successor=</c> detail names, or the whole detail where it is not in that form; the caller quotes it.</summary>
     private const string AcceptContendedType = "curia/accept/contended";
+
+    private const string FlagContendedType = "curia/flag/contended";
 
     private string? NamedPostId(string prefix) =>
         Error.Detail is { } d && d.StartsWith(prefix, StringComparison.Ordinal) ? d[prefix.Length..] : Error.Detail;

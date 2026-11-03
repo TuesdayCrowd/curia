@@ -31,6 +31,9 @@ public static class RevisionWording
     /// <summary>What <c>already-recorded</c> did: nothing.</summary>
     public const string NothingStoredOrSpent = "nothing was stored or spent";
 
+    /// <summary>R11.81 (d): the same words as a sentence of their own, for the place where one begins (the last sentence of <c>already-revised</c>).</summary>
+    public const string NothingStoredOrSpentSentence = "Nothing was stored or spent.";
+
     /// <summary>What to do about <c>already-recorded</c>.</summary>
     public const string AlreadyRecordedRemedy = "read it, and do not send it again";
 

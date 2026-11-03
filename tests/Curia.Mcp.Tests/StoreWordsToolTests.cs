@@ -196,9 +196,9 @@ public sealed partial class StoreWordsToolTests : IDisposable
         var problems = new List<string>();
         if (act.Length == 0) problems.Add("no act line was relayed");
         if (!act.Contains("as of the moment it is asked", StringComparison.Ordinal)) problems.Add("the act line lacks \"as of the moment it is asked\"");
-        if (act.Contains(PublishedClientWords.Wait, StringComparison.Ordinal) || act.Contains("seconds", StringComparison.Ordinal)) problems.Add("the act line carries a wait");
-        if (act.Contains("send", StringComparison.Ordinal)) problems.Add("the act line carries an instruction to send");
-        if (!relayed.Contains(PublishedClientWords.Wait, StringComparison.Ordinal)) problems.Add("the store sentence beside it does not carry the wait");
+        if (act.Contains("seconds", StringComparison.Ordinal)) problems.Add("the act line carries a wait");
+        if (!act.Contains("Send exactly this act again", StringComparison.Ordinal)) problems.Add("the act line carries no instruction to send the act again (errata G58)");
+        if (relayed.Contains("seconds old", StringComparison.Ordinal)) problems.Add("the store sentence beside it carries a wait, which errata G58 withdrew");
 
         Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Relayed: \"{relayed}\"");
     }
@@ -215,7 +215,7 @@ public sealed partial class StoreWordsToolTests : IDisposable
     public async Task R11_72_ULG57_NoToolPrintsAnActLineWhereThereIsNoActToAskAbout(string name)
     {
         using var log = new StubLog();
-        var carriesStoreSentence = false;
+        string? carriesStoreSentence = null;
         switch (name)
         {
             case "log-unreadable": log.RefusesSubmissionsAs = StubIngestRefusal.LogUnreadable; break;
@@ -223,7 +223,7 @@ public sealed partial class StoreWordsToolTests : IDisposable
             case "gate-unavailable": log.RefusesSubmissionsAs = StubIngestRefusal.GateUnavailable; break;
             default:
                 log.RefusesSubmissionsAs = StubIngestRefusal.StoreUnavailable;
-                carriesStoreSentence = true;
+                carriesStoreSentence = name == "resolve" ? PublishedResendWords.Clauses().Resolve : PublishedResendWords.Clauses().Flag;
                 break;
         }
 
@@ -247,7 +247,7 @@ public sealed partial class StoreWordsToolTests : IDisposable
         text = Fold(text);
         var problems = new List<string>();
         if (text.Contains(ActLead(), StringComparison.Ordinal)) problems.Add("prints an act line");
-        if (carriesStoreSentence && !text.Contains(Fold(PublishedStoreFaults.StoreUnavailableSentence), StringComparison.Ordinal)) problems.Add("lacks the store sentence");
+        if (carriesStoreSentence is not null && !text.Contains(Fold(carriesStoreSentence), StringComparison.Ordinal)) problems.Add("lacks the store sentence of its act");
         if (!text.StartsWith("error: ", StringComparison.Ordinal)) problems.Add("not relayed as an error");
 
         Assert.True(problems.Count == 0, $"{name}: {string.Join("; ", problems)}. Relayed: \"{text}\"");
@@ -264,8 +264,9 @@ public sealed partial class StoreWordsToolTests : IDisposable
         var tools = AliceTools(log);
         var names = ToolCatalogue.WriteToolNames(tools);
         var descriptions = ToolCatalogue.Build(tools).ToDictionary(t => t.ProtocolTool.Name, t => Fold(t.ProtocolTool.Description ?? string.Empty), StringComparer.Ordinal);
-        var sentence = Fold(PublishedStoreFaults.RepeatSentence);
-        var missing = names.Where(n => !descriptions.TryGetValue(n, out var d) || !d.Contains(sentence, StringComparison.Ordinal)).ToArray();
+        // Errata G58 (R11.80): the description of a tool carries the clause of its own act.
+        string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWords.Clauses().Resolve : tool == "curia_flag" ? PublishedResendWords.Clauses().Flag : PublishedResendWords.Clauses().Post);
+        var missing = names.Where(n => !descriptions.TryGetValue(n, out var d) || !d.Contains(ClauseOf(n), StringComparison.Ordinal)).ToArray();
         var expected = $"the repeat sentence is in the description of 7 write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))})";
 
         var actual = names.Count == 7 && missing.Length == 0

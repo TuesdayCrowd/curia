@@ -681,11 +681,15 @@ internal static class Program
 
         // A FAILED line is a check that ran and did not hold (the served canonical form does not hash to the digest asked about): exit 6,
         // ranked first as it is for the other readers (a check that failed outranks 8, 9 and the citations to drop).
-        return report.Failed ? ExitCode.Unverified
+        var exit = report.Failed ? ExitCode.Unverified
             : report.Lines.Any(l => l.Malformed) ? ExitCode.Rejected
             : report.Lines.Any(l => l.Gone) ? ExitCode.NotFound
             : report.Lines.Any(l => l.Disputed) ? ExitCode.Disputed
             : ExitCode.Ok;
+
+        // R10.95: exit 5 is explained where it is printed, on standard error, once, after every line; stdout's lines are unchanged.
+        if (exit == ExitCode.NotFound) Output.Error(new FrameBuilder().Line($"{new OwnText(CitationLines.ClosingLine)}"));
+        return exit;
     }
 
     /// <summary>

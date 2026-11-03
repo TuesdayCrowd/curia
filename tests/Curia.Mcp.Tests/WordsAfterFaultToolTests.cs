@@ -60,8 +60,8 @@ public sealed class WordsAfterFaultToolTests : IDisposable
         if (Regex.IsMatch(description, @"\bunknown\b['""`]?\s+(says|means)\s+(to\s+)?drop", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase))
             problems.Add("ToolText.cs: \"'unknown' says to drop the citation\"");
         if (!description.Contains("names no post", StringComparison.Ordinal)) problems.Add("lacks \"names no post\"");
-        var clause = $"{PublishedClientWords.UnknownClauses()[1]} {PublishedClientWords.Wait} old";
-        if (!description.Contains(clause, StringComparison.Ordinal)) problems.Add($"lacks the wait in its clause \"{clause}\"");
+        if (!description.Contains("curia_resend", StringComparison.Ordinal)) problems.Add("lacks curia_resend for an act this host kept (R10.95)");
+        if (Regex.IsMatch(description, @"\d+\s+seconds", RegexOptions.CultureInvariant)) problems.Add("carries a wait in seconds, which errata G58 withdrew");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
@@ -98,7 +98,8 @@ public sealed class WordsAfterFaultToolTests : IDisposable
         using var log = new StubLog();
         var tools = AliceTools(log);
         var names = ToolCatalogue.WriteToolNames(tools);
-        var missing = names.Where(n => !Fold(DescriptionOf(tools, n)).Contains(sentence, StringComparison.Ordinal)).ToArray();
+string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWords.Clauses().Resolve : tool == "curia_flag" ? PublishedResendWords.Clauses().Flag : PublishedResendWords.Clauses().Post);
+        var missing = names.Where(n => !Fold(DescriptionOf(tools, n)).Contains(ClauseOf(n), StringComparison.Ordinal)).ToArray();
         if (names.Count != 7) problems.Add($"{names.Count} write tools, expected 7 ({string.Join(' ', names.Order(StringComparer.Ordinal))})");
         if (missing.Length > 0) problems.Add($"the sentence is absent from the description of {missing.Length} write tool(s) ({string.Join(' ', missing)})");
 

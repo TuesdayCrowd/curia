@@ -80,7 +80,7 @@ public sealed class PublishedCheckWordsTests
         var (indexed, pending, notApplicable) = PublishedIndexLag.Values();
         var pairs = new (string What, string Published, string Printed)[]
         {
-            ("the store sentence", PublishedStoreFaults.StoreUnavailableSentence, StoreWording.Sentence(StoreWording.StoreUnavailableType)),
+            ("the store sentence", PublishedStoreFaults.StoreUnavailableSentence, StoreWording.Sentence(StoreWording.StoreUnavailableType, ActContext.Post)),
             ("the act line", PublishedStoreFaults.ActLine(digest), StoreWording.ActLine(digest)),
             ("the stored receipt line", PublishedIndexLag.ReceiptLine(indexed), IndexWording.ReceiptLine(VectorIndexState.Indexed)),
             ("the pending receipt line", PublishedIndexLag.ReceiptLine(pending), IndexWording.ReceiptLine(VectorIndexState.Pending)),

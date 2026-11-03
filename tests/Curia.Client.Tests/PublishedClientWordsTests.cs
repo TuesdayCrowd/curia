@@ -27,17 +27,16 @@ public sealed class PublishedClientWordsTests
     [Fact]
     public void R11_74_WAF28_EverySpanTheProbesReadIsInG53WithItsCountAsserted()
     {
-        Assert.Equal(3, PublishedClientWords.UnknownClauses().Length);
+        Assert.Equal(2, PublishedClientWords.UnknownClauses().Length);
         Assert.Equal(2, PublishedClientWords.ReadingPairs().Length);
         Assert.Equal(3, PublishedClientWords.WhenForms().Length);
-        Assert.Equal(3, PublishedClientWords.WaitFigures().Length);
         Assert.Equal(2, PublishedClientWords.InclusionFragments().Length);
 
         string[] spans =
         [
             PublishedClientWords.UnknownLine, PublishedClientWords.StoreSentence, PublishedClientWords.EqualHeadLine, PublishedClientWords.NotStatedLine,
             PublishedClientWords.PastHeadClosing, PublishedClientWords.AnotherCheckSuffix, PublishedClientWords.TokenSentence, PublishedClientWords.WhoamiExpired,
-            PublishedClientWords.Wait, PublishedClientWords.ResolveCondition, PublishedClientWords.OtherKindClause,
+            PublishedClientWords.ResolveCondition, PublishedClientWords.OtherKindClause,
             PublishedClientWords.SecondInstantExample, PublishedClientWords.MillisecondInstantExample,
         ];
         Assert.All(spans, span => Assert.True(span.Length > 4, $"a span was parsed as a bare token: \"{span}\""));
@@ -106,19 +105,13 @@ public sealed class PublishedClientWordsTests
     }
 
     /// <summary>
-    /// WAF33. The wait is one number in three published places and the clients print it. <c>PublishedClientWords</c> reads the figure of R10.93 wait, of R10.93 words
-    /// and of R11.73 words (three places, the same figure), and the line <c>recheck</c> prints for an unknown digest and the store sentence a refusal prints each hold
-    /// it in its own place: the unknown line's wait clause and the sentence's "when the refusal is" clause, each followed by the figure and "old".
+    /// WAF33 (as moved to errata G58). The sixty-second wait is withdrawn, and no client prints one: the line <c>recheck</c> prints for an unknown digest and the store sentence a
+    /// refusal prints, for every act, carry no figure of seconds, and the unknown line names the resend (R10.95, R11.80).
     /// </summary>
     [Fact]
-    public async Task R10_93_WAF33_TheWaitIsOneFigureInThreePublishedPlacesAndTheClientsPrintIt()
+    public async Task R10_93_WAF33_NoSentenceTheClientsPrintCarriesAWaitInSeconds()
     {
-        var figures = PublishedClientWords.WaitFigures();
-        Assert.Equal(3, figures.Length);
-        Assert.True(figures.Distinct().Count() == 1, $"the wait is {string.Join(", ", figures)} in the three published places");
-
         var problems = new List<string>();
-        var wait = PublishedClientWords.Wait;
 
         using var log = new StubLog();
         var digest = "sha256:" + new string('d', 64);
@@ -126,11 +119,14 @@ public sealed class PublishedClientWordsTests
         var served = await log.Client().BatchAsync([digest], MarkingMode.None, TestContext.Current.CancellationToken);
         Assert.True(served.TryGetValue(out var items, out var refusal), refusal?.Summary);
         var line = Fold(Assert.Single(CitationLines.For([digest], items, DateTimeOffset.UnixEpoch).Lines).Text.Text);
-        var waitClause = $"{Fold(PublishedClientWords.UnknownClauses()[1])} {wait} old";
-        if (!line.Contains(waitClause, StringComparison.Ordinal)) problems.Add($"the unknown line lacks \"{waitClause}\"");
+        if (!line.Contains("curia resend", StringComparison.Ordinal)) problems.Add("the unknown line does not name the resend");
 
-        var sentence = Fold(StoreWording.Sentence(StoreWording.StoreUnavailableType));
-        if (!sentence.Contains($"when the refusal is {wait} old", StringComparison.Ordinal)) problems.Add($"the store sentence lacks \"when the refusal is {wait} old\"");
+        var printed = new List<string> { line };
+        foreach (var act in new[] { ActContext.Post, ActContext.Resolve, ActContext.Flag, ActContext.Other })
+            printed.Add(Fold(StoreWording.Sentence(StoreWording.StoreUnavailableType, act)));
+
+        foreach (var text in printed)
+            if (System.Text.RegularExpressions.Regex.IsMatch(text, @"\d+\s+seconds", System.Text.RegularExpressions.RegexOptions.CultureInvariant)) problems.Add($"\"{text[..Math.Min(60, text.Length)]}...\" carries a wait in seconds");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }

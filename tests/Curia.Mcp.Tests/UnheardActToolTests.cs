@@ -227,8 +227,9 @@ public sealed partial class UnheardActToolTests : IDisposable
 
         var names = ToolCatalogue.WriteToolNames(tools);
         var descriptions = ToolCatalogue.Build(tools).ToDictionary(t => t.ProtocolTool.Name, t => Fold(t.ProtocolTool.Description ?? string.Empty), StringComparer.Ordinal);
-        var sentence = Fold(PublishedConfirmWords.StoreSentence);
-        var missing = names.Where(n => !descriptions.TryGetValue(n, out var d) || !d.Contains(sentence, StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray();
+        // Errata G58 (R11.80): the description of a tool carries the clause of its own act.
+        string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWords.Clauses().Resolve : tool == "curia_flag" ? PublishedResendWords.Clauses().Flag : PublishedResendWords.Clauses().Post);
+        var missing = names.Where(n => !descriptions.TryGetValue(n, out var d) || !d.Contains(ClauseOf(n), StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray();
         var expected = $"R11.76's sentence is in the description of 7 write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))})";
         var actual = names.Count == 7 && missing.Length == 0
             ? expected

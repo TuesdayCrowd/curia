@@ -15,69 +15,53 @@ internal static partial class PublishedClientWords
 {
     private const string Errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
 
-    // ----- R10.93 wait, and the three places the figure is published -----
+    // ----- R10.95 words (errata G58, which replaced G53's R10.93 words and R10.93 wait): the unknown line -----
 
-    /// <summary>R10.93 wait: the whole wait, "60 seconds" as published.</summary>
-    internal static string Wait => One(Group(WaitPhrase(), Paragraph("R10.93 wait"), "R10.93 wait's figure")).Trim();
-
-    /// <summary>The number of seconds in <see cref="Wait"/>.</summary>
-    internal static int WaitSeconds => int.Parse(Digits().Match(Wait).Value, CultureInfo.InvariantCulture);
-
-    /// <summary>
-    /// The figure each of the three published places states, in order: R10.93 wait, R10.93 words, R11.76 words. The count is asserted: three, and each a
-    /// whole-number of seconds.
-    /// </summary>
-    internal static int[] WaitFigures()
-    {
-        var figures = new[]
-        {
-            WaitSeconds,
-            int.Parse(One(Group(AskAgainPhrase(), Paragraph("R10.93 words"), "R10.93 words' wait")), CultureInfo.InvariantCulture),
-            int.Parse(One(Group(RefusalAgePhrase(), Paragraph("R11.76 words"), "R11.76 words' wait")), CultureInfo.InvariantCulture),
-        };
-
-        return figures.Length == 3 ? figures : throw new InvalidOperationException($"{Errata} publishes the wait in {figures.Length} places, expected three");
-    }
-
-    // ----- R10.93 words: the unknown line -----
-
-    /// <summary>The <c>unknown</c> line after its digest, with <c>&lt;instant&gt;</c> left in, from "The `unknown` line, after the digest: `...`".</summary>
-    internal static string UnknownLine => One(Group(UnknownLinePhrase(), Paragraph("R10.93 words"), "R10.93's unknown line"));
+    /// <summary>The <c>unknown</c> line after its digest, with <c>&lt;instant&gt;</c> and <c>&lt;digest&gt;</c> left in (R10.95 words).</summary>
+    internal static string UnknownLine => PublishedResendWords.UnknownLine;
 
     /// <summary>The line with <c>&lt;instant&gt;</c> replaced by <paramref name="instant"/>.</summary>
     internal static string UnknownLineAt(string instant) => UnknownLine.Replace("<instant>", instant, StringComparison.Ordinal);
 
-    /// <summary>The three clauses' starts, in the order the entry gives them: resend, wait, spelling. The count is asserted.</summary>
+    /// <summary>The two clauses' starts, in the order the entry gives them: resend, spelling. The count is asserted.</summary>
     internal static string[] UnknownClauses()
     {
-        var paragraph = Paragraph("R10.93 words");
-        var starts = new[]
-        {
-            One(Group(ResendStartPhrase(), paragraph, "the resend clause's start")),
-            One(Group(WaitStartPhrase(), paragraph, "the wait clause's start")),
-            One(Group(SpellingStartPhrase(), paragraph, "the spelling clause's start")),
-        };
-
-        return starts.Length == 3 ? starts : throw new InvalidOperationException($"{Errata} yields {starts.Length} clause starts, expected three");
+        var line = UnknownLine;
+        var starts = new[] { "If it is the digest of an act this host kept", "If you meant to cite a post" };
+        return starts.All(start => line.Contains(start, StringComparison.Ordinal))
+            ? starts
+            : throw new InvalidOperationException($"{Errata}'s R10.95 unknown line does not hold its two clauses: {string.Join(", ", starts.Where(start => !line.Contains(start, StringComparison.Ordinal)))}");
     }
 
-    /// <summary>The published form of the instant, from "in the form `2026-11-01T09:30:00Z`".</summary>
-    internal static string SecondInstantExample => One(Group(SecondInstantPhrase(), Paragraph("R10.93 words"), "R10.93's instant form"));
+    /// <summary>The published form of the instant: a second, UTC, ending Z. G58's R10.95 words state <c>&lt;instant&gt;</c> and the form of G53's example is kept.</summary>
+    internal static string SecondInstantExample => "2026-11-01T09:30:00Z";
 
-    // ----- R11.73 words: the store sentence and its pairs -----
+    // ----- R11.80 clause words (errata G58): the store sentence and its pairs -----
 
-    /// <summary>The store sentence (the first backtick span of R11.76 words, errata G55, which replaced R11.73 words'), whitespace folded.</summary>
-    internal static string StoreSentence => One(Group(StoreSentencePhrase(), Paragraph("R11.76 words"), "R11.76's store sentence"));
+    /// <summary>The store sentence for a signed post or vote: R11.80 clause words (post), whitespace folded.</summary>
+    internal static string StoreSentence => PublishedResendWords.Clauses().Post;
 
     /// <summary>
-    /// The reading pairs: the phrase a replayed resolve prints and the phrase the refusal of a repeated flag prints, each with the meaning the entry gives it, in
+    /// The reading pairs: the phrase a replayed resolve prints and the phrase the refusal of a repeated flag prints, each with the meaning the clause gives it, in
     /// that order. The count is asserted: two.
     /// </summary>
     internal static (string Phrase, string Meaning)[] ReadingPairs()
     {
-        var matches = PairPhrase().Matches(Paragraph("R11.73 words"));
-        if (matches.Count != 2) throw new InvalidOperationException($"{Errata}'s R11.73 words yield {matches.Count} reading pairs, expected two");
-        return [.. matches.Select(m => (m.Groups["phrase"].Value, m.Groups["meaning"].Value))];
+        var (_, resolve, flag, _) = PublishedResendWords.Clauses();
+        var pairs = new[]
+        {
+            Pair(resolve, @"""(?<phrase>[^""]+)"" means (?<meaning>[^,]+?)(?:,|\.)"),
+            Pair(flag, @"""(?<phrase>[^""]+)"" means (?<meaning>[^,]+?)(?:,|\.)"),
+        };
+        return pairs;
+
+        static (string Phrase, string Meaning) Pair(string clause, string pattern)
+        {
+            var matches = Regex.Matches(clause, pattern, RegexOptions.CultureInvariant);
+            return matches.Count == 1
+                ? (matches[0].Groups["phrase"].Value, matches[0].Groups["meaning"].Value)
+                : throw new InvalidOperationException($"{Errata}'s R11.80 clause words yield {matches.Count} reading pairs in a clause, expected one");
+        }
     }
 
     /// <summary>The phrase a replayed resolve prints.</summary>
@@ -86,11 +70,19 @@ internal static partial class PublishedClientWords
     /// <summary>The phrase the refusal of a repeated flag prints.</summary>
     internal static string FlagRepeatPhrase => ReadingPairs()[1].Phrase;
 
-    /// <summary>The condition a resolve's reading holds under, from "a resolve's reading holds only if ...", up to the next comma: one reading.</summary>
-    internal static string ResolveCondition => One(Group(ConditionPhrase(), Paragraph("R11.76 words"), "R11.76's condition"));
+    /// <summary>The condition a resolve's reading holds under: the last sentence of the resolve clause.</summary>
+    internal static string ResolveCondition
+    {
+        get
+        {
+            var clause = PublishedResendWords.Clauses().Resolve;
+            var at = clause.IndexOf("This reading holds only if", StringComparison.Ordinal);
+            return at >= 0 ? clause[at..] : throw new InvalidOperationException($"{Errata}'s R11.80 clause words (resolve) have no condition");
+        }
+    }
 
-    /// <summary>The clause that says an answer of any other kind says nothing of the first call.</summary>
-    internal static string OtherKindClause => One(Group(OtherKindPhrase(), Paragraph("R11.76 words"), "R11.76's other-kind clause"));
+    /// <summary>The clause for a request that is none of the others: R11.80 clause words (other).</summary>
+    internal static string OtherKindClause => PublishedResendWords.Clauses().Other;
 
     // ----- R11.74 words: the verification, the token and whoami -----
 
@@ -195,44 +187,18 @@ internal static partial class PublishedClientWords
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex Whitespace();
 
-    [GeneratedRegex(@"\d+", RegexOptions.CultureInvariant)]
-    private static partial Regex Digits();
 
-    [GeneratedRegex(@"The wait is `(\d+ seconds)`", RegexOptions.CultureInvariant)]
-    private static partial Regex WaitPhrase();
 
-    [GeneratedRegex(@"ask again when the refusal is (\d+) seconds old", RegexOptions.CultureInvariant)]
-    private static partial Regex AskAgainPhrase();
 
-    [GeneratedRegex(@"only if the Forum still does not know it when the refusal is (\d+) seconds old", RegexOptions.CultureInvariant)]
-    private static partial Regex RefusalAgePhrase();
 
-    [GeneratedRegex(@"The `unknown` line, after the digest: `([^`]+)`", RegexOptions.CultureInvariant)]
-    private static partial Regex UnknownLinePhrase();
 
-    [GeneratedRegex(@"The resend clause begins `([^`]+)`", RegexOptions.CultureInvariant)]
-    private static partial Regex ResendStartPhrase();
 
-    [GeneratedRegex(@"the wait clause begins `([^`]+)`", RegexOptions.CultureInvariant)]
-    private static partial Regex WaitStartPhrase();
 
-    [GeneratedRegex(@"the spelling clause begins `([^`]+)`", RegexOptions.CultureInvariant)]
-    private static partial Regex SpellingStartPhrase();
 
-    [GeneratedRegex(@"in the form `(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)`", RegexOptions.CultureInvariant)]
-    private static partial Regex SecondInstantPhrase();
 
-    [GeneratedRegex(@"\*\*R11\.76 words\.\*\* The store sentence, replacing the sentence of R11\.73 words for `curia/store/unavailable`: `([^`]+)`", RegexOptions.CultureInvariant)]
-    private static partial Regex StoreSentencePhrase();
 
-    [GeneratedRegex(@"`(?<phrase>[^`]+)` means (?<meaning>the first call was recorded)", RegexOptions.CultureInvariant)]
-    private static partial Regex PairPhrase();
 
-    [GeneratedRegex(@"a resolve's reading holds only if (no other call changed the thread's accepted answer between the two calls)", RegexOptions.CultureInvariant)]
-    private static partial Regex ConditionPhrase();
 
-    [GeneratedRegex(@"(an answer of any other kind says nothing of the first call)", RegexOptions.CultureInvariant)]
-    private static partial Regex OtherKindPhrase();
 
     [GeneratedRegex(@"The equal-head line: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex EqualHeadPhrase();

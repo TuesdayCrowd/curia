@@ -282,7 +282,7 @@ public sealed partial class ResendWordsTests
 
         var (cType, cStatus, cTitle) = PublishedLateCommitWords.Contended();
         var contended = new Refusal(RefusalKind.ServerFault, cStatus, new Curia.Domain.Primitives.Error(cType, cTitle));
-        var expectedContended = Fold(PublishedResendWords.ContendedWords.Replace("<title>", cTitle, StringComparison.Ordinal));
+        var expectedContended = Fold(PublishedResendWords.ContendedWords.Replace("<title>", "\"" + cTitle + "\"", StringComparison.Ordinal).Replace("(curia/flag/contended)", "(\"curia/flag/contended\")", StringComparison.Ordinal));
         if (!Fold(contended.Summary).Contains(expectedContended, StringComparison.Ordinal)) problems.Add($"curia/flag/contended is not worded \"{expectedContended}\" (it reads \"{Fold(contended.Summary)}\")");
 
         var tooLong = new Refusal(RefusalKind.Content, 400, new Curia.Domain.Primitives.Error("curia/flag/rationale-too-long", "The rationale is too long", "4097 bytes"));
@@ -309,10 +309,9 @@ public sealed partial class ResendWordsTests
         Assert.Equal(64, PublishedResendWords.KeptActBound);
         Assert.Equal((5, "minutes"), PublishedResendWords.StopWait);
 
-        var (says, notTwice, never, resend) = PublishedResendWords.ClauseCauses();
-        Assert.Contains("agent-in-flight", says);
-        Assert.Contains("revision-in-flight", says);
-        Assert.Equal(["already-revised", "curia/flag/contended", "NOT SENT"], notTwice);
+        var (own, added, never, resend) = PublishedResendWords.ClauseCauses();
+        Assert.Equal(["screening-rejected", "agent-in-flight", "revision-in-flight", "already-revised", "curia/flag/contended", "NOT SENT"], own);
+        Assert.Contains("curia/flag/raise-in-flight", added, StringComparison.Ordinal);
         Assert.Equal(["already-raised", "already-recorded"], never);
         Assert.True(resend);
 
@@ -426,25 +425,34 @@ public sealed partial class ResendWordsTests
         Assert.Equal(TimeSpan.FromSeconds(published), Program.HttpClientFactory(new Uri("http://forum.test")).Timeout);
     }
 
-    /// <summary>One refusal of a route: its class and how ruling 23 words it.</summary>
+    /// <summary>One refusal of a route: its class and how many times R11.81 (c) says nothing was recorded or stored in the line printed.</summary>
     private sealed record Case(string Name, ActContext Act, Refusal Refusal, int Says);
 
-    private static Case Of(string name, ActContext act, RefusalKind kind, int status, string type, string? detail, int says) =>
-        new(name, act, new Refusal(kind, status, new Curia.Domain.Primitives.Error(type, "A refusal", detail)) { Act = act }, says);
+    private static Case Of(string name, ActContext act, RefusalKind kind, int status, string type, string? detail, int says, string title = "A refusal") =>
+        new(name, act, new Refusal(kind, status, new Curia.Domain.Primitives.Error(type, title, detail)) { Act = act, ActDigest = "sha256:" + new string('c', 64) }, says);
+
+    /// <summary>The phrases of R11.81 (c)'s measure, without case.</summary>
+    [GeneratedRegex(@"nothing was (?:recorded|stored)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex NothingWas();
 
     /// <summary>
-    /// ASA43. The clause by cause (item 94's successor, plan ruling 23): over every refusal type of the flag, ask, answer and resolve routes, <c>Nothing was recorded by this call.</c>
-    /// appears exactly once where R11.81 (c) says (a content, not-found, authorization or budget refusal; <c>agent-in-flight</c> and <c>revision-in-flight</c>) and zero times for
-    /// <c>already-raised</c>, <c>already-recorded</c>, <c>already-revised</c>, <c>curia/flag/contended</c>, a <c>NOT SENT</c> and a Forum fault. The classes are those the errata's list
-    /// names, and the generator asserts each was reached (<c>NOT REACHED</c> otherwise). The refusal of a resend (which says (a) in its place) is <c>ResendVerbTests</c>'s.
-    /// Predicted red: <c>expected 1 occurrence, found 0</c> for a flag's <c>rationale-too-long</c>.
+    /// ASA43 (as amended by plan ruling 34). The clause by cause, measured as R11.81 (c) measures it: over the refusals of the flag, ask, answer, revision and resolve routes, the phrases
+    /// <c>nothing was recorded</c> and <c>nothing was stored</c> occur, without case, <b>once</b> in the line printed where the refusal is of a write the Forum refused before it stored anything (the
+    /// clause added where the words already in the line do not say it, and not added where the Forum's title or detail or this client's sentence does) and <b>not at all</b> for <c>already-raised</c>,
+    /// <c>already-recorded</c>, a Forum fault whose own sentence does not say it and a refusal of a resend (which says (a) in its place). The count is over the line as printed and not over the
+    /// code's own table; the classes are those the errata names (read by <see cref="PublishedResendWords.ClauseCauses"/>), and the generator asserts each was reached (<c>NOT REACHED</c>).
     /// </summary>
     [Fact]
     public void R11_81_ASA43_TheClauseIsSaidOnceWhereTheErrataSaysAndNowhereElse()
     {
-        var clause = PublishedResendWords.NothingRecordedClause;
-        var (_, notTwice, never, _) = PublishedResendWords.ClauseCauses();
+        var (own, added, never, resendInstead) = PublishedResendWords.ClauseCauses();
         const string budget = "table-11/rate-budget-exhausted next_slot_at=2026-01-01T00:00:00Z";
+
+        // The Forum's own words, as it issues them (src/Curia.Application/Ingest/IngestErrors.cs, Budget/BudgetErrors.cs; G57's title of curia/flag/contended).
+        const string screeningTitle = "Credential material detected; it cannot be redacted after signing, so nothing was stored.";
+        const string inFlightDetail = "nothing was recorded, counted or spent; send it again";
+        var (_, _, contendedTitle) = PublishedLateCommitWords.Contended();
+
         var cases = new[]
         {
             Of("flag: rationale too long", ActContext.Flag, RefusalKind.Content, 400, "curia/flag/rationale-too-long", "4097 bytes", 1),
@@ -453,39 +461,49 @@ public sealed partial class ResendWordsTests
             Of("flag: tier denial", ActContext.Flag, RefusalKind.Authorization, 403, "curia/authz/denied", "table-10/denied", 1),
             Of("flag: budget", ActContext.Flag, RefusalKind.RateBudget, 403, "curia/authz/denied", "table-11/flag-budget-exhausted next_slot_at=2026-01-01T00:00:00Z", 1),
             Of("flag: already raised", ActContext.Flag, RefusalKind.Conflict, 409, "curia/flag/already-raised", "kind=spam raised_at=2026-01-01T00:00:00Z", 0),
-            Of("flag: raise in flight", ActContext.Flag, RefusalKind.Conflict, 409, "curia/flag/raise-in-flight", null, 0),
-            Of("flag: contended", ActContext.Flag, RefusalKind.ServerFault, 503, "curia/flag/contended", null, 0),
+            Of("flag: raise in flight", ActContext.Flag, RefusalKind.Conflict, 409, "curia/flag/raise-in-flight", null, 1),
+            Of("flag: contended", ActContext.Flag, RefusalKind.ServerFault, 503, "curia/flag/contended", null, 1, contendedTitle),
             Of("ask: content", ActContext.Post, RefusalKind.Content, 400, "curia/admit/invalid-envelope", "x", 1),
             Of("ask: 422", ActContext.Post, RefusalKind.Content, 422, "curia/canon/not-canonicalizable", "x", 1),
+            Of("ask: screening rejected", ActContext.Post, RefusalKind.Content, 400, "curia/ingest/screening-rejected", "credential@12", 1, screeningTitle),
             Of("answer: no such parent", ActContext.Post, RefusalKind.NotFound, 404, "curia/posts/not-found", "x", 1),
             Of("answer: tier denial", ActContext.Post, RefusalKind.Authorization, 403, "curia/authz/denied", "table-10/denied", 1),
             Of("ask: posting budget", ActContext.Post, RefusalKind.RateBudget, 403, "curia/authz/denied", budget, 1),
-            Of("ask: agent in flight", ActContext.Post, RefusalKind.Conflict, 409, "curia/budget/agent-in-flight", "x", 1),
+            Of("ask: agent in flight", ActContext.Post, RefusalKind.Conflict, 409, "curia/budget/agent-in-flight", inFlightDetail, 1),
             Of("revision: revision in flight", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/revision-in-flight", "x", 1),
-            Of("revision: already revised", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/already-revised", "successor=01REVISIONID00000000000001", 0),
-            Of("ask: already recorded", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/already-recorded", "post=01TESTRECEIPTPOST000000000A", 0),
+            Of("revision: already revised", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/already-revised", "successor=01REVISIONID00000000000001", 1),
+            // R11.61 (G45) words this refusal "nothing was stored or spent" (true of this call and said by that requirement); R11.81 (c) adds no clause to it. Ruling 34's oracle lists 0 for it; the two
+            // published texts disagree, and the measure here is the one the client's published words (R11.61, held by RVO50) produce. Filed as a concern for the architect.
+            Of("ask: already recorded", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/already-recorded", "post=01TESTRECEIPTPOST000000000A", 1),
             Of("ask: a Forum fault", ActContext.Post, RefusalKind.ServerFault, 503, "curia/store/unavailable", null, 0),
+            Of("ask: the log is unreadable", ActContext.Post, RefusalKind.ServerFault, 503, "curia/log/unreadable", null, 1),
             Of("ask: a server fault", ActContext.Post, RefusalKind.ServerFault, 500, "curia/server/fault", null, 0),
             Of("resolve: not an answer", ActContext.Resolve, RefusalKind.Content, 400, "curia/accept/root-not-a-question", "x", 1),
             Of("resolve: not found", ActContext.Resolve, RefusalKind.NotFound, 404, "curia/posts/not-found", "x", 1),
             Of("resolve: own thread only", ActContext.Resolve, RefusalKind.Authorization, 403, "curia/authz/denied", "table-10/own-thread-only", 1),
             Of("resolve: acceptance budget", ActContext.Resolve, RefusalKind.RateBudget, 403, "curia/authz/denied", "table-11/accept-budget-exhausted next_slot_at=2026-01-01T00:00:00Z", 1),
-            new("ask: a NOT SENT", ActContext.Post, Refusal.Local(new Curia.Domain.Primitives.Error("curia/client/envelope-invalid", "NOT SENT: the envelope is invalid", "x")) with { Act = ActContext.Post }, 0),
+            new("ask: a NOT SENT", ActContext.Post, Refusal.Local(new Curia.Domain.Primitives.Error("curia/client/envelope-invalid", "NOT SENT: the envelope is invalid. Nothing was sent", "x")) with { Act = ActContext.Post }, 0),
+            Of("resend: budget", ActContext.Resend, RefusalKind.RateBudget, 403, "curia/authz/denied", budget, 0),
+            Of("resend: content", ActContext.Resend, RefusalKind.Content, 400, "curia/admit/invalid-envelope", "x", 0),
+            Of("resend: the log is unreadable", ActContext.Resend, RefusalKind.ServerFault, 503, "curia/log/unreadable", null, 0),
+            Of("resend: a Forum fault", ActContext.Resend, RefusalKind.ServerFault, 503, "curia/store/unavailable", null, 0),
+            Of("resend: agent in flight", ActContext.Resend, RefusalKind.Conflict, 409, "curia/budget/agent-in-flight", inFlightDetail, 1),
         };
 
         var problems = new List<string>();
-        var reachedSays = cases.Count(c => c.Says == 1);
-        var reachedNever = cases.Count(c => c.Says == 0);
         foreach (var c in cases)
         {
-            var found = Regex.Count(c.Refusal.Summary, Regex.Escape(clause), RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
-            if (found != c.Says) problems.Add($"{c.Name}: expected {c.Says} occurrence{(c.Says == 1 ? string.Empty : "s")}, found {found}");
+            var printed = Fold(c.Refusal.Summary);
+            var found = NothingWas().Count(printed);
+            if (found != c.Says) problems.Add($"{c.Name}: expected {c.Says} occurrence{(c.Says == 1 ? string.Empty : "s")} of the phrase, found {found}");
+            if (c.Act == ActContext.Resend && !printed.Contains(Fold(PublishedResendWords.ResendRefusalWords.Replace("<digest>", "sha256:" + new string('c', 64), StringComparison.Ordinal)), StringComparison.Ordinal))
+                problems.Add($"{c.Name}: a resend's refusal does not say (a)");
         }
 
-        foreach (var name in new[] { "already raised", "already recorded", "already revised", "contended", "NOT SENT", "a Forum fault" })
-            if (!cases.Any(c => c.Says == 0 && c.Name.Contains(name, StringComparison.Ordinal))) problems.Add($"NOT REACHED: {name}");
-        if (reachedSays < 6 || reachedNever < 6) problems.Add($"NOT REACHED: classes ({reachedSays} saying it, {reachedNever} not)");
-        if (notTwice.Length != 3 || never.Length != 2) problems.Add("the published cause list changed shape");
-        Red.None(problems, "the clause exactly once for content, not-found, authorization, budget and the two in-flight 409s, and zero times for the rest");
+        foreach (var name in new[] { "already raised", "already recorded", "already revised", "contended", "NOT SENT", "a Forum fault", "screening rejected", "agent in flight", "revision in flight", "raise in flight", "resend:" })
+            if (!cases.Any(c => c.Name.Contains(name, StringComparison.Ordinal))) problems.Add($"NOT REACHED: {name}");
+        if (cases.Count(c => c.Says == 1) < 10 || cases.Count(c => c.Says == 0) < 6) problems.Add("NOT REACHED: a class of the measure");
+        if (own.Length != 6 || never.Length != 2 || !added.Contains("curia/flag/raise-in-flight", StringComparison.Ordinal) || !resendInstead) problems.Add("the published cause list changed shape");
+        Red.None(problems, "the phrases once for every refusal of a write that stored nothing, not at all for already-raised, already-recorded, a Forum fault and a resend, and (a) on a resend");
     }
 }

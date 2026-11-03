@@ -237,7 +237,9 @@ public sealed partial class ResendToolTests : IDisposable
             if (at.Item2 < 0) problems.Add($"{name}: expected 'curia_resend', found the old unheard sentence");
             if (at.Item3 < 0) problems.Add($"{name}: expected 'curia_resend', found no published act line");
             if (at.Item1 >= 0 && at.Item2 >= 0 && at.Item3 >= 0 && !(at.Item1 < at.Item2 && at.Item2 < at.Item3)) problems.Add($"{name}: out of order");
-            if (Seconds().IsMatch(relayed.Text)) problems.Add($"{name}: a figure of seconds appears");
+
+            // The words this client composes carry no wait: from the unheard sentence on. (The refusal's own detail before it quotes the transport's text, which may state its timeout: not a wait the client tells the agent.)
+            if (at.Item2 >= 0 && Seconds().IsMatch(relayed.Text[at.Item2..])) problems.Add($"{name}: a figure of seconds appears");
         }
 
         None(problems, "the unheard title, the published unheard sentence, the published act line, in that order, and no seconds");
@@ -413,7 +415,7 @@ public sealed partial class ResendToolTests : IDisposable
             var (type, status, title) = PublishedLateCommitWords.Contended();
             kit.Handler.Intercept = (r, _) => Task.FromResult(r.RequestUri!.AbsolutePath.EndsWith("/flags", StringComparison.Ordinal) && r.Method == HttpMethod.Post ? Problem(status, type, title) : null);
             var contended = await CallAsync(() => kit.Tools.FlagAsync(StubLog.PostId, "spam", "a rationale", Ct));
-            var expected = Fold(PublishedResendWords.ContendedWords.Replace("<title>", title, StringComparison.Ordinal));
+            var expected = Fold(PublishedResendWords.ContendedWords.Replace("<title>", "\"" + title + "\"", StringComparison.Ordinal).Replace("(curia/flag/contended)", "(\"curia/flag/contended\")", StringComparison.Ordinal));
             if (!contended.Text.Contains(expected, StringComparison.Ordinal)) problems.Add($"curia_flag, contended: not worded as R11.81 (e) (\"{contended.Text}\")");
         }
 
@@ -524,8 +526,8 @@ public sealed partial class ResendToolTests : IDisposable
             var kit = KitOver(log);
             kit.Handler.Intercept = (r, _) => Task.FromResult(r.RequestUri!.AbsolutePath.EndsWith("/flags", StringComparison.Ordinal) && r.Method == HttpMethod.Post ? Problem(status, type, "A refusal", detail) : null);
             var relayed = await CallAsync(() => kit.Tools.FlagAsync(StubLog.PostId, "spam", "a rationale", Ct));
-            var found = Regex.Count(relayed.Text, Regex.Escape(clause), RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
-            if (found != says) problems.Add($"curia_flag, {name}: expected {says} occurrence{(says == 1 ? string.Empty : "s")}, found {found}");
+            var found = Regex.Count(relayed.Text, "nothing was (?:recorded|stored)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
+            if (found != says) problems.Add($"curia_flag, {name}: expected {says} occurrence{(says == 1 ? string.Empty : "s")} of the phrase, found {found}");
         }
 
         None(problems, "the clause once for a content, not-found or authorization refusal and never for already-raised or a Forum fault");

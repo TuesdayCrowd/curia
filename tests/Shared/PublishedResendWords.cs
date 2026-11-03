@@ -82,24 +82,13 @@ internal static partial class PublishedResendWords
     }
 
     /// <summary>R11.81 (e): the contended flag's words, with <c>&lt;title&gt;</c> left in.</summary>
-    internal static string ContendedWords
-    {
-        get
-        {
-            var text = Words81();
-            var start = text.IndexOf("(e) `", StringComparison.Ordinal);
-            if (start < 0) throw new InvalidOperationException($"{Errata}: R11.81 words has no (e)");
-            var rest = text[(start + "(e) `".Length)..];
-            var end = rest.LastIndexOf('`');
-            return end < 0 ? rest : rest[..end];
-        }
-    }
+    internal static string ContendedWords => Between(Words81(), "(e) `", "` where `<title>`");
 
     /// <summary>
-    /// R11.81 (c)'s causes, read from the requirement's own list: the classes that say the clause once, the refusals whose own words already say it (not said twice), the refusals that
-    /// never say it, and whether the refusal of a resend says (a) in its place.
+    /// R11.81 (c)'s causes, read from the requirement's own list (as amended by plan ruling 34): the refusals whose own words already say nothing was recorded or stored (the once, so the
+    /// clause is not added), the classes and the type for which the clause is added, the refusals that never say it, and whether the refusal of a resend says (a) in its place.
     /// </summary>
-    internal static (string[] Says, string[] NotTwice, string[] Never, bool ResendSaysAInstead) ClauseCauses()
+    internal static (string[] OwnWords, string Added, string[] Never, bool ResendSaysAInstead) ClauseCauses()
     {
         var text = Requirement("R11.81");
         var start = text.IndexOf("(c) every refusal", StringComparison.Ordinal);
@@ -107,16 +96,12 @@ internal static partial class PublishedResendWords
         if (start < 0 || end < 0 || end < start) throw new InvalidOperationException($"{Errata}: R11.81 (c) is not found in order");
         var c = text[start..end];
 
-        var says = One(SaysPhrase().Matches(c), "the causes that say it");
-        var twice = One(NotTwicePhrase().Matches(c), "the refusals that do not say it again");
+        var own = One(OwnWordsPhrase().Matches(c), "the refusals whose own words say it");
+        var added = One(AddedPhrase().Matches(c), "the refusals the clause is added to");
         var never = One(NeverPhrase().Matches(c), "the refusals that never say it");
         var resend = One(ResendInPlacePhrase().Matches(c), "the resend's refusal in place");
 
-        return (
-            [.. Backticked(says.Groups[1].Value), "a content refusal", "a not-found refusal", "an authorization refusal", "a budget refusal"],
-            Backticked(twice.Groups[1].Value),
-            Backticked(never.Groups[1].Value),
-            resend.Success);
+        return (Backticked(own.Groups[1].Value), added.Groups[1].Value, Backticked(never.Groups[1].Value), resend.Success);
     }
 
     // ----- R10.95 words -----
@@ -242,11 +227,11 @@ internal static partial class PublishedResendWords
     [GeneratedRegex(@"^(?<last>Nothing was stored or spent\.)` and, after the existing remedy of the single-successor `NOT SENT` text, ` (?<after>.+)$", RegexOptions.CultureInvariant)]
     private static partial Regex RevisionPhrase();
 
-    [GeneratedRegex(@"by the refusal's cause: a content, not-found, authorization or budget refusal, and a `409` that means nothing was counted or stored \(([^)]*)\), say it", RegexOptions.CultureInvariant)]
-    private static partial Regex SaysPhrase();
+    [GeneratedRegex(@"Where the words already in the line say it \(the Forum's title or detail, or the client's sentence for that cause: ([^)]*)\) they are the once", RegexOptions.CultureInvariant)]
+    private static partial Regex OwnWordsPhrase();
 
-    [GeneratedRegex(@"a refusal whose own words already say nothing was stored or spent \(([^)]*)\) does not say it again", RegexOptions.CultureInvariant)]
-    private static partial Regex NotTwicePhrase();
+    [GeneratedRegex(@"where they do not \(([^)]*)\) the clause is added", RegexOptions.CultureInvariant)]
+    private static partial Regex AddedPhrase();
 
     [GeneratedRegex(@"a refusal that says an earlier call recorded the act \(([^)]*)\) never says it", RegexOptions.CultureInvariant)]
     private static partial Regex NeverPhrase();

@@ -33,26 +33,6 @@ public sealed partial class ConfirmWordsTests
             throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }
 
-    /// <summary>G53's store sentence while the errata still holds it, otherwise <see langword="null"/> (the span is a pointer, as the build leaves it).</summary>
-    private static string? OldStoreSentence()
-    {
-        // G53's paragraph after the build holds a pointer, not the sentence: a surviving "may or may not have been recorded" span there is the old sentence.
-        var paragraph = PublishedConfirmWords.Paragraph("R11.73 words");
-        const string Marker = "If the request was a write it may or may not have been recorded";
-        return paragraph.Contains(Marker, StringComparison.Ordinal) ? paragraph : null;
-    }
-
-    /// <summary>The phrases R11.76's sentence carries from G53's (R11.73 words: its fault clause, the instruction not to run the verb again, the recheck, the reason for the wait, the repeat of a resolve or a flag and the clause on any other answer).</summary>
-    private static readonly string[] SharedPhrases =
-    [
-        "a fault of the Forum, not of the request",
-        "do not run the verb again to find out",
-        "ask the Forum's recheck about the digest of the act sent, which is printed with this refusal",
-        "because a store that timed out can record the act after it answered",
-        "a repeat of a resolve or of a flag is safe",
-        "an answer of any other kind says nothing of the first call",
-    ];
-
     private static async Task<string> PrintedAsync(Action<ListenerForum> arrange, params string[] verbArgs)
     {
         using var forum = new ListenerForum();
@@ -71,40 +51,32 @@ public sealed partial class ConfirmWordsTests
     }
 
     /// <summary>
-    /// AFC17. The sentence, on every surface of the command. A <c>503 curia/store/unavailable</c> is printed with R11.76's sentence; the help of every verb that writes
-    /// (derived from the dispatch) carries it; no surface carries G53's sentence beside it; G53's span is a pointer after the build; the resolve, flag and other-kind
-    /// clauses stand verbatim in what is printed; none of G53's phrases is repeated in it.
+    /// AFC17 (as moved to errata G58). The clause, on every surface of the command: a <c>503 curia/store/unavailable</c> to a read is printed with the clause of a request that is none of the
+    /// acts (R11.80 clause words (other)), once; the help of every verb that writes (derived from the dispatch) carries the clause of its own act (a signed post's, a resolve's, a flag's);
+    /// and no surface carries G55's sentence or its wait, which G58 replaced.
     /// </summary>
     [Fact]
-    public async Task R11_76_AFC17_TheStoreSentenceIsR1176sOnEverySurfaceOfTheCommand()
+    public async Task R11_76_AFC17_TheClauseOfEachActIsOnEverySurfaceOfTheCommand()
     {
-        var sentence = Fold(PublishedConfirmWords.StoreSentence);
-        var old = OldStoreSentence() is { } g53 ? Fold(g53) : null;
+        var (post, resolve, flag, other) = PublishedResendWords.Clauses();
         var printed = await PrintedAsync(
             f => f.Answer = (_, _) => (PublishedStoreFaults.UnavailableStatus, $"{{\"type\":\"{PublishedStoreFaults.StoreUnavailableType}\",\"title\":\"{PublishedStoreFaults.StoreUnavailableTitle}\",\"detail\":null}}"),
             "budget", "--agent", "alice");
         var verbs = WritingVerbs();
-        var withoutIt = verbs.Where(v => !Fold(Help.For(v) ?? string.Empty).Contains(sentence, StringComparison.Ordinal)).ToArray();
-        var clauses = new[] { PublishedClientWords.ResolveReplayPhrase, PublishedClientWords.FlagRepeatPhrase, PublishedClientWords.OtherKindClause };
-        var missingClauses = clauses.Where(c => !printed.Contains(Fold(c), StringComparison.Ordinal)).ToArray();
+        string ClauseOf(string verb) => Fold(verb == "resolve" ? resolve : verb == "flag" ? flag : post);
+        var withoutIt = verbs.Where(v => !Fold(Help.For(v) ?? string.Empty).Contains(ClauseOf(v), StringComparison.Ordinal)).ToArray();
 
-        var expected = "the refusal prints R11.76's sentence; the help of every verb that writes carries it; G53's sentence is on no surface and its span is a pointer; the resolve, flag and other-kind clauses are printed";
+        var expected = "the read's refusal prints the other clause once; the help of every verb that writes carries its act's clause; G55's sentence and its wait are on no surface";
         var problems = new List<string>();
-        if (!printed.Contains(sentence, StringComparison.Ordinal)) problems.Add("the refusal lacks \"has not confirmed that the act was recorded\"");
-        if (withoutIt.Length > 0) problems.Add($"the help of {withoutIt.Length} of {verbs.Length} writing verbs lacks the sentence ({string.Join(' ', withoutIt)})");
-        if (old is not null) problems.Add("G53's span still holds a store sentence");
-        // No fragment of G53's sentence is appended to R11.76's: each phrase the two share (read from R11.76 words, asserted to be there) stands once in what is printed.
-        foreach (var phrase in SharedPhrases)
+        if (Regex.Count(printed, Regex.Escape(Fold(other))) != 1) problems.Add("the refusal does not hold the other clause once");
+        if (withoutIt.Length > 0) problems.Add($"the help of {withoutIt.Length} of {verbs.Length} writing verbs lacks its act's clause ({string.Join(' ', withoutIt)})");
+        foreach (var retired in new[] { "do not run the verb again to find out, because ask, answer and comment each sign", "seconds old" })
         {
-            if (Regex.Count(sentence, Regex.Escape(phrase)) != 1) problems.Add($"R11.76 words does not hold \"{phrase}\" once");
-            var times = Regex.Count(printed, Regex.Escape(phrase));
-            if (times != 1) problems.Add($"the refusal holds \"{phrase}\" {times} times");
+            if (printed.Contains(retired, StringComparison.Ordinal)) problems.Add($"the refusal still holds \"{retired}\"");
+            foreach (var verb in verbs)
+                if (Fold(Help.For(verb) ?? string.Empty).Contains(retired, StringComparison.Ordinal)) problems.Add($"the help of {verb} still holds \"{retired}\"");
         }
-        if (missingClauses.Length > 0) problems.Add($"{missingClauses.Length} of the 3 clauses are not printed");
-        // Ruling 23, the hand-written leg (not read from the errata): the printed sentence claims a finished look only conditionally, and never the unconditional form.
-        if (!printed.Contains("where that read finished", StringComparison.Ordinal)) problems.Add("the refusal lacks \"where that read finished\"");
-        if (!printed.Contains("a read that did not finish says nothing", StringComparison.Ordinal)) problems.Add("the refusal lacks \"a read that did not finish says nothing\"");
-        if (printed.Contains("read its own log for the act's digest and did not find", StringComparison.Ordinal)) problems.Add("the refusal states the look as having finished");
+
         Said(expected, problems.Count == 0 ? expected : string.Join("; ", problems));
     }
 

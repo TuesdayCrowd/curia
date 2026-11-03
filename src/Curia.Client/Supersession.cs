@@ -349,7 +349,7 @@ public static class Supersession
         return list.Length == 1
             ? new OwnText(list[0].PostId is null
                 ? $"NOT SENT: the Forum reports this post superseded by {named}; that revision cannot be addressed by post id and the Forum does not serve it. Nothing was sent."
-                : $"NOT SENT: the Forum reports this post superseded by {named}; revise that post instead, and read it first, since it may itself have been revised. Nothing was sent.")
+                : $"NOT SENT: the Forum reports this post superseded by {named}; revise that post instead, and read it first, since it may itself have been revised. If you sent a revision of this post a moment ago and it was answered with a fault, the post named may be that revision, and its text may be yours: read it with `curia read {named}`. Nothing was sent.")
             : new OwnText($"NOT SENT: the Forum reports this post superseded by {list.Length} revisions: {named}; the chain is already FORKED, and the Forum does not pick one. Choose which post to revise, and revise that one. Nothing was sent.");
     }
 

@@ -44,11 +44,11 @@ internal static partial class PublishedConfirmWords
 
     // ----- R11.76 words, R11.77 words -----
 
-    /// <summary>R11.76 words: the store sentence for <c>curia/store/unavailable</c>, whitespace folded.</summary>
-    internal static string StoreSentence => One(Group(StoreSentencePhrase(), Paragraph("R11.76 words"), "R11.76's store sentence"));
+    /// <summary>The store sentence for a signed post (errata G58's R11.80 clause words (post), which replaced G55's R11.76 words), whitespace folded.</summary>
+    internal static string StoreSentence => PublishedResendWords.Clauses().Post;
 
-    /// <summary>R11.77 words: the unheard sentence, whitespace folded.</summary>
-    internal static string UnheardSentence => One(Group(UnheardSentencePhrase(), Paragraph("R11.77 words"), "R11.77's unheard sentence"));
+    /// <summary>The unheard sentence (errata G58's R11.80 unheard words, which replaced G55's R11.77 words' sentence), whitespace folded.</summary>
+    internal static string UnheardSentence => PublishedResendWords.UnheardWords;
 
     /// <summary>R11.77 words: the type and the title of the client's refusal for an unheard request, in that order.</summary>
     internal static (string Type, string Title) UnheardRefusal()
