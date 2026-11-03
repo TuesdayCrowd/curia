@@ -626,4 +626,4 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 
 The PR is #144, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-11-03, the branch at 5611f933, Release, `--no-build`, `ScreeningCostTests` excluded): 6,176 passed, 0 failed, 2 skipped of 6,178 (Api 1,448 in 40 m 3 s, Application 651, Architecture 98, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,409, Domain.Primitives 64, Domain 950, Infrastructure 227, Mcp 828 + 2 skipped); 0 warnings; `restore --locked-mode`, `cargo fmt --check`, clippy and `cargo test` exit 0; the differential comparison 0 divergence classes; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red; `Curia.Architecture.Tests` in Debug 98 passed.
