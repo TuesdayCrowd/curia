@@ -114,6 +114,23 @@ public sealed partial class ResendWordsTests
         Red.None(problems, "the unheard title, the published unheard sentence, the published act line with the digest, in that order, and no seconds");
     }
 
+    /// <summary>The kept act of <paramref name="submission"/>, planted in the published form and read back as a resend reads it (Task 3: a resend sends what is kept, so the act is kept first).</summary>
+    private static KeptAct PlantedAct(SessionKit kit, SignedSubmission submission)
+    {
+        kit.Plant(submission);
+        Assert.True(kit.Session.Acts.Read(submission.PrefixedDigest).TryGetValue(out var kept, out var error), error?.Type);
+        return kept!;
+    }
+
+    /// <summary>A kept act planted and sent again: what a resend's refusal is for the session's own act value (Task 3 added <c>ActContext.Resend</c>).</summary>
+    private static async Task<ForumResult<PostReceipt>> ResendOfAsync(SessionKit kit)
+    {
+        var act = kit.Build(body: "a resend for the words");
+        kit.Plant(act);
+        Assert.True(kit.Session.Acts.Read(act.PrefixedDigest).TryGetValue(out var kept, out var error), error?.Type);
+        return await kit.Session.ResendAsync(kept!, MarkingMode.None, Ct);
+    }
+
     /// <summary>One refusal for each act the session knows, as the stub gives it.</summary>
     private static async Task<Refusal> RefusedAsync(SessionKit kit, ActContext act, string type = "curia/store/unavailable")
     {
@@ -125,6 +142,7 @@ public sealed partial class ResendWordsTests
             ActContext.Resolve => (await kit.Session.AcceptAsync("01ANSWER0000000000000000AA", Ct)).Refusal,
             ActContext.Flag => (await kit.Session.FlagAsync("01POST000000000000000000AA", "spam", "this reads as spam", Ct)).Refusal,
             ActContext.Other => (await kit.Session.BudgetAsync(Ct)).Refusal,
+            ActContext.Resend => (await ResendOfAsync(kit)).Refusal,
             _ => throw new ArgumentOutOfRangeException(nameof(act), act, null),
         };
         return refusal ?? throw new InvalidOperationException("the stub's refusal was read as a success");
@@ -169,7 +187,7 @@ public sealed partial class ResendWordsTests
 
         var expected = new Dictionary<string, ActContext>(StringComparer.Ordinal)
         {
-            ["SubmitAsync"] = ActContext.Post, ["ResendAsync"] = ActContext.Post, ["FlagAsync"] = ActContext.Flag, ["AcceptAsync"] = ActContext.Resolve,
+            ["SubmitAsync"] = ActContext.Post, ["ResendAsync"] = ActContext.Resend, ["FlagAsync"] = ActContext.Flag, ["AcceptAsync"] = ActContext.Resolve,
             ["AccessTokenAsync"] = ActContext.Other, ["RotateKeyAsync"] = ActContext.Other, ["RetireKeyAsync"] = ActContext.Other, ["InboxAsync"] = ActContext.Other, ["FlagsAsync"] = ActContext.Other, ["BudgetAsync"] = ActContext.Other,
         };
 
@@ -187,7 +205,7 @@ public sealed partial class ResendWordsTests
             var refusal = name switch
             {
                 "SubmitAsync" => (await kit.Session.SubmitAsync(submission, MarkingMode.None, Ct)).Refusal,
-                "ResendAsync" => (await kit.Session.ResendAsync(new KeptAct(new KeptActHeader(submission.PrefixedDigest, "question", "b", "http://forum.test", "a", DateTimeOffset.UtcNow, 0, null, null), submission.Wire), MarkingMode.None, Ct)).Refusal,
+                "ResendAsync" => (await kit.Session.ResendAsync(PlantedAct(kit, submission), MarkingMode.None, Ct)).Refusal,
                 "FlagAsync" => (await kit.Session.FlagAsync("01POST000000000000000000AA", "spam", "this reads as spam", Ct)).Refusal,
                 "AcceptAsync" => (await kit.Session.AcceptAsync("01ANSWER0000000000000000AA", Ct)).Refusal,
                 "AccessTokenAsync" => (await kit.Session.AccessTokenAsync(Ct)).Refusal,

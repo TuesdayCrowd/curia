@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Curia.Canon.Json;
 using Curia.Client;
+using Curia.Domain.Serving;
 using Curia.Tests.Shared;
 using Xunit;
 
@@ -393,7 +394,7 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
                 DateTimeOffset.UnixEpoch);
             Assert.True(signed.TryGetValue(out var submission, out var signError), signError?.Type);
 
-            var posted = await session.SubmitAsync(submission.Wire, ct);
+            var posted = await session.SubmitAsync(submission, MarkingMode.None, ct);
             Assert.False(posted.TryGetValue(out _, out var refusal));
             Assert.Equal(RefusalKind.Authorization, refusal.Kind);
 

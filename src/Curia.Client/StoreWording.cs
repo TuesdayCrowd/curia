@@ -127,7 +127,17 @@ public static class StoreWording
     {
         ArgumentNullException.ThrowIfNull(refusal);
         if (actDigest is null) return [];
-        if (refusal.Unheard) return [UnheardSentence, ActLine(actDigest)];
-        return string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) ? [ActLine(actDigest)] : [];
+
+        // A resend's refusal carries its own words (R11.81 (a), composed by Refusal.Summary: the unheard sentence included) and no act line, which is a first send's. From the second unresolved send
+        // of one act, either send is followed by the stop sentence (R11.80, plan ruling 13): advice that is never enforced.
+        var lines = new List<string>();
+        if (refusal.Act != ActContext.Resend)
+        {
+            if (refusal.Unheard) lines.AddRange([UnheardSentence, ActLine(actDigest)]);
+            else if (string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal)) lines.Add(ActLine(actDigest));
+        }
+
+        if (refusal.KeptAttempts >= ResendWording.StopFromAttempts) lines.Add(ResendWording.Stop(refusal.KeptAttempts, actDigest));
+        return lines;
     }
 }

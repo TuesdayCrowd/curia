@@ -34,8 +34,8 @@ public sealed class ForumSession
     public const int AccessTokenLifetimeSeconds = 300;
 
     /// <summary>
-    /// Errata G58, R11.79: the seconds after which the send of a signed post or vote ends in both clients (the CLI's own <c>HttpClient</c> timeout, which this names, and the one
-    /// <c>curia-mcp</c> applies in the stage that builds the bound): one figure, as the errata publishes it.
+    /// Errata G58, R11.79: the seconds after which the send of a signed post or vote ends in both clients (the CLI's own <c>HttpClient</c> timeout, which this names, and the bound
+    /// <c>curia-mcp</c> applies to a signed post or vote alone): one figure, as the errata publishes it.
     /// </summary>
     public const int WriteBoundSeconds = 30;
 
@@ -46,8 +46,9 @@ public sealed class ForumSession
     private readonly DpopSigner _signer;
 
     /// <summary>
-    /// Errata G58, plan ruling 24: the bound on the send of a signed post or vote, or null for none. <b>The seam carries the option and applies it nowhere</b> (the send is
-    /// unbounded by default and until the stage that builds R11.79's bound); an injectable value lets a probe give it a small figure.
+    /// Errata G58, plan ruling 24: the bound on the send of a signed post or vote, or null for none (the CLI's own <c>HttpClient</c> timeout is its bound). It is applied to the send
+    /// of a signed post or vote only, never to a read, a resolve or a flag, and what it ends is the unheard refusal of R11.77; the caller's own cancellation is not it. An injectable
+    /// value lets a probe give it a small figure.
     /// </summary>
     public TimeSpan? WriteBound { get; }
 
@@ -64,7 +65,7 @@ public sealed class ForumSession
         _clock = clock;
         _signer = new DpopSigner(agent);
         WriteBound = writeBound;
-        Acts = new KeptActs(store, agent.Profile.Slug);
+        Acts = new KeptActs(store, agent.Profile.Slug, clock, agent.Profile);
     }
 
     /// <summary>The acts this agent has kept on this host (R11.79).</summary>
@@ -120,15 +121,15 @@ public sealed class ForumSession
             : Result<string>.Fail(ClientErrors.TokenRefused("the token response carried no access_token"));
 
     /// <summary>
-    /// Posts an already-signed submission. Takes the wire bytes rather than an envelope: the
-    /// bytes are what the signature covers, and a session that could rebuild them would be a
-    /// session that could change them between signing and sending.
+    /// The raw send of bytes a caller holds. <b>Internal since R11.79</b>: a client outside this assembly cannot send bytes it did not keep, so a post or a vote reaches the wire only
+    /// through <see cref="SubmitAsync(SignedSubmission, MarkingMode, CancellationToken)"/> or <see cref="ResendAsync"/>, which keep, send and settle (the fence is ASA22 and ASA27,
+    /// and the claim is ASA1 and ASA4). Takes the wire bytes rather than an envelope: the bytes are what the signature covers.
     /// </summary>
-    public Task<ForumResult<PostReceipt>> SubmitAsync(ReadOnlyMemory<byte> wire, CancellationToken ct) =>
+    internal Task<ForumResult<PostReceipt>> SubmitAsync(ReadOnlyMemory<byte> wire, CancellationToken ct) =>
         WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct, act: ActContext.Post);
 
     /// <summary>
-    /// Posts an already-signed submission, asking the serving boundary for <paramref name="marking"/>.
+    /// The raw send, asking the serving boundary for <paramref name="marking"/>.
     ///
     /// <para><b>Why a write takes a marking at all.</b> A submission's answer is usually a receipt,
     /// which carries nothing an author wrote; but R8.19's duplicate refusal carries the canonical
@@ -139,28 +140,80 @@ public sealed class ForumSession
     /// <para>The DPoP proof's <c>htu</c> is the path without the query (RFC 9449 §4.2), which is
     /// also what the Forum compares it against.</para>
     /// </summary>
-    public Task<ForumResult<PostReceipt>> SubmitAsync(
+    internal Task<ForumResult<PostReceipt>> SubmitAsync(
         ReadOnlyMemory<byte> wire, MarkingMode marking, CancellationToken ct) =>
         WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct, ForumClient.MarkingQueryFor(marking), act: ActContext.Post);
 
     /// <summary>
-    /// Errata G58, R11.79: sends a signed act, the one way a client outside this assembly reaches the wire with a post or a vote. <b>The seam:</b> it takes the
-    /// <see cref="SignedSubmission"/> and calls the path the raw-bytes overload calls; keeping the act, settling it and the bound are the stage after.
+    /// Errata G58, R11.79: sends a signed act, the one way a client outside this assembly reaches the wire with a post or a vote. The act is <b>kept before its first byte is sent</b>
+    /// (<see cref="KeptActs.Keep"/>: an act that cannot be kept, or the 65th, is refused and nothing is sent), sent once (the DPoP nonce challenge's second request is one send), and
+    /// settled by R11.79's table from the answer (<see cref="KeptActs.Settle"/>). The caller's own cancellation is rethrown with the act kept. Nothing here resends: a refusal carries the
+    /// act's digest and, while the act is kept, its number of sends, and the clients word what to do (R11.64).
     /// </summary>
-    public Task<ForumResult<PostReceipt>> SubmitAsync(SignedSubmission submission, MarkingMode marking, CancellationToken ct)
+    public async Task<ForumResult<PostReceipt>> SubmitAsync(SignedSubmission submission, MarkingMode marking, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(submission);
-        return SubmitAsync(submission.Wire, marking, ct);
+
+        if (!Acts.Keep(submission).TryGetValue(out var kept, out var keepError))
+            return ForumResult<PostReceipt>.Refused(new Refusal(RefusalKind.Local, 0, keepError!) { Act = ActContext.Post, ActDigest = submission.PrefixedDigest });
+
+        return await SendKeptAsync(kept!, ActSend.First, marking, ct).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Errata G58, R11.79: sends the bytes of a kept act exactly, with a fresh proof, and signs nothing. <b>The seam:</b> it calls the same path a first send does and
-    /// settles nothing.
+    /// Errata G58, R11.79: sends the bytes of a kept act exactly, with a fresh proof, and signs nothing. Asked for, never by itself. The attempt is counted before the send; the answer
+    /// settles the act by the resend's row (only <c>201</c> and <c>409 already-recorded</c> remove it: every other answer leaves the first send's outcome unknown), and every refusal
+    /// it returns is <see cref="ActContext.Resend"/>, the nonce retry's included. A kept act whose file is not held on this host as given is refused and nothing is sent.
     /// </summary>
-    public Task<ForumResult<PostReceipt>> ResendAsync(KeptAct kept, MarkingMode marking, CancellationToken ct)
+    public async Task<ForumResult<PostReceipt>> ResendAsync(KeptAct kept, MarkingMode marking, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(kept);
-        return SubmitAsync(kept.Wire, marking, ct);
+
+        if (!Acts.Holds(kept))
+            return ForumResult<PostReceipt>.Refused(new Refusal(RefusalKind.Local, 0, new Error(KeptActs.NoKeptActType, "NOT SENT: no act of that digest is kept on this host", "the act is not held as given")) { Act = ActContext.Resend, ActDigest = kept.Header.Digest });
+
+        return await SendKeptAsync(Acts.Attempt(kept), ActSend.Resend, marking, ct).ConfigureAwait(false);
+    }
+
+    private async Task<ForumResult<PostReceipt>> SendKeptAsync(KeptAct kept, ActSend send, MarkingMode marking, CancellationToken ct)
+    {
+        var trace = new SendTrace();
+        ForumResult<PostReceipt> result;
+        try
+        {
+            result = await WriteAsync(
+                "/v1/posts", kept.Wire, ForumDocuments.ReadReceipt, ct, ForumClient.MarkingQueryFor(marking),
+                act: send == ActSend.First ? ActContext.Post : ActContext.Resend, bound: WriteBound, trace: trace).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // The caller's own cancellation: the act stays kept and the exception goes on (R11.79). Not the client's bound, which is an unheard refusal above.
+            Acts.Settle(kept, send, new ActAnswer(ActTransport.Cancelled));
+            throw;
+        }
+
+        if (!result.TryGetValue(out _, out var refusal))
+        {
+            var fate = Acts.Settle(kept, send, AnswerOf(refusal!, trace.Sent));
+            return ForumResult<PostReceipt>.Refused(refusal! with { ActDigest = kept.Header.Digest, KeptAttempts = fate == ActFate.Keep ? kept.Header.Attempts : 0 });
+        }
+
+        Acts.Settle(kept, send, new ActAnswer(ActTransport.Answered, 201));
+        return result;
+    }
+
+    /// <summary>What a refusal is as R11.79's table reads it: unheard, a failure that provably did not send (a transport that failed before the request was written, or a request never made because the token was refused), or a response.</summary>
+    private static ActAnswer AnswerOf(Refusal refusal, bool sent) =>
+        refusal.Unheard
+            ? new ActAnswer(ActTransport.Unheard)
+            : !sent || (refusal.Kind == RefusalKind.Transport && refusal.Status == 0)
+                ? new ActAnswer(ActTransport.ProvablyNotSent)
+                : new ActAnswer(ActTransport.Answered, refusal.Status, refusal.Error.Type, BodyReadable: refusal.Document is not null);
+
+    /// <summary>Whether the request of a signed post was written to the transport: false for a token the Forum refused, where nothing was sent to be recorded.</summary>
+    private sealed class SendTrace
+    {
+        internal bool Sent { get; set; }
     }
 
     /// <summary>
@@ -403,9 +456,11 @@ public sealed class ForumSession
         CancellationToken ct,
         string query = "",
         string? proofTarget = null,
-        ActContext act = ActContext.Other)
+        ActContext act = ActContext.Other,
+        TimeSpan? bound = null,
+        SendTrace? trace = null)
     {
-        var result = await WithRemintAsync(() => WriteOnceAsync(path, body, read, query, proofTarget, ct)).ConfigureAwait(false);
+        var result = await WithRemintAsync(() => WriteOnceAsync(path, body, read, query, proofTarget, bound, trace, ct)).ConfigureAwait(false);
 
         // Errata G58, R11.80: the refusal is told which act it refused, here, where the call is known.
         return result.Refusal is { } refusal ? ForumResult<T>.Refused(refusal with { Act = act }) : result;
@@ -438,6 +493,8 @@ public sealed class ForumSession
         Func<JsonValue.Object, Result<T>> read,
         string query,
         string? proofTarget,
+        TimeSpan? bound,
+        SendTrace? trace,
         CancellationToken ct)
     {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
@@ -450,14 +507,14 @@ public sealed class ForumSession
         var cached = _store.ReadToken(_agent.Profile.Slug);
 
         var target = path + query;
-        var first = await PostOnceAsync(target, body, token, url, cached?.Nonce, read, ct).ConfigureAwait(false);
+        var first = await PostOnceAsync(target, body, token, url, cached?.Nonce, read, bound, trace, ct).ConfigureAwait(false);
 
         if (first.Nonce is { } challenge)
         {
             // Cache before retrying: even if this retry fails for some other reason, the next
             // command should not have to spend a round-trip rediscovering the same nonce.
             RememberNonce(challenge);
-            var retry = await PostOnceAsync(target, body, token, url, challenge, read, ct).ConfigureAwait(false);
+            var retry = await PostOnceAsync(target, body, token, url, challenge, read, bound, trace, ct).ConfigureAwait(false);
             return retry.Result;
         }
 
@@ -483,9 +540,16 @@ public sealed class ForumSession
         string url,
         string? nonce,
         Func<JsonValue.Object, Result<T>> read,
+        TimeSpan? bound,
+        SendTrace? trace,
         CancellationToken ct)
     {
         var now = _clock.GetUtcNow();
+
+        // R11.79, plan ruling 24: the bound of a signed post or vote, per request, as its own token linked to the caller's. The caller's cancellation is not the bound: it is told apart
+        // below by the caller's token and still throws.
+        using var boundCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (bound is { } limit) boundCts.CancelAfter(limit);
 
         using var content = new ReadOnlyMemoryContent(wire);
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
@@ -497,7 +561,8 @@ public sealed class ForumSession
         HttpResponseMessage response;
         try
         {
-            response = await _client.Http.SendAsync(request, ct).ConfigureAwait(false);
+            if (trace is not null) trace.Sent = true;
+            response = await _client.Http.SendAsync(request, boundCts.Token).ConfigureAwait(false);
         }
         catch (HttpRequestException ex)
         {

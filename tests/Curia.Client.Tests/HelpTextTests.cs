@@ -534,8 +534,8 @@ public sealed class HelpTextTests
             "VerifyAsync", "ContractAsync", "ResolveAsync", "SearchAsync", "InboxAsync", "FlagAsync", "FlagsAsync", "BudgetAsync",
             "KeysAsync", "RotateAsync", "RetireAsync", "BrowseAsync",
 
-            // Errata G58 (the seam, Task 1): the two verbs registered to answer NOT SENT: not built; the stage that builds them renames these.
-            "ResendNotBuilt", "ActsNotBuilt",
+            // Errata G58 (R11.79): the verbs that send a kept act again and list what is kept.
+            "ResendAsync", "Acts",
         ];
         Assert.True(onlyAccepted.SetEquals(heldMethods), "methods checked under (iv): " + string.Join(", ", onlyAccepted));
         Assert.True(everyFlagNamed.SetEquals(heldMethods), "methods checked under (v): " + string.Join(", ", everyFlagNamed));

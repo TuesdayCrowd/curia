@@ -75,9 +75,21 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
 {
     /// <summary>
     /// Which act this refusal refused (errata G58, R11.80): set by <see cref="ForumSession"/> where it knows which call it made; <see cref="ActContext.Other"/> for a
-    /// refusal it did not set it on. The seam sets it and nothing reads it.
+    /// refusal it did not set it on. A resend is its own value (plan ruling 35), and <see cref="Summary"/> words it.
     /// </summary>
     public ActContext Act { get; init; } = ActContext.Other;
+
+    /// <summary>The digest of the signed act this refusal refused, as this client computed it from the bytes (R11.79); null for a call that signed nothing. Set by the session.</summary>
+    public string? ActDigest { get; init; }
+
+    /// <summary>
+    /// The number of sends of the act so far when the act is still kept after this answer (R11.80's stop rule), and 0 when it is not kept: a first send answered definitely, or a call that keeps
+    /// nothing. Set by the session; the stop sentence is printed from <see cref="ResendWording.StopFromAttempts"/>.
+    /// </summary>
+    public int KeptAttempts { get; init; }
+
+    /// <summary>R11.81 (b): a resend answered <c>already-recorded</c>. Not a refusal to the agent, which is exit 0 and a normal result; the session returns it as the Forum answered it.</summary>
+    public bool IsAlreadyRecordedResend => Act == ActContext.Resend && Status == 409 && string.Equals(Error.Type, RevisionWording.AlreadyRecordedType, StringComparison.Ordinal);
 
     /// <summary>R8.18 / R8.19: when this refusal is a duplicate-question 409, the thread to read instead and its answers; otherwise null.</summary>
     public DuplicateRefusalDocument? AsDuplicate => ForumDocuments.ReadDuplicateRefusal(Document);
@@ -101,7 +113,31 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// wrote into a post, for one -- so each is a display literal and none can begin a line of the
     /// frame this summary is printed into. The remedy after it is this client's own.</para>
     /// </summary>
-    public string Summary => Kind switch
+    public string Summary => Act == ActContext.Resend ? ResendSummary : CauseSummary;
+
+    /// <summary>
+    /// R11.81 (a) and (b), composed here for the one act that is a resend (plan ruling 35): <c>already recorded</c> and what it means when the Forum already held the act; otherwise the cause's own
+    /// line (the post's clause for <c>curia/store/unavailable</c>, R11.81's own subject for <c>curia/log/unreadable</c>, the unheard sentence for an unheard resend) and then (a), which says
+    /// the refusal does not say where the first send stands. No other clause is added to a resend's line and no act line follows it.
+    /// </summary>
+    private string ResendSummary
+    {
+        get
+        {
+            if (IsAlreadyRecordedResend)
+            {
+                var (first, after) = ResendWording.AlreadyRecorded(DisplayLiteral.Of(NamedPostId("post=") ?? string.Empty));
+                return first + "\n" + after;
+            }
+
+            var cause = string.Equals(Error.Type, StoreWording.LogUnreadableType, StringComparison.Ordinal)
+                ? new FrameBuilder().Append($"{Error.Title} ({Error.Type}){Detailed}: {new OwnText(ResendWording.LogUnreadableOfAResend)}.").ToString()
+                : CauseSummary;
+            return cause + (Unheard ? " " + StoreWording.UnheardSentence : string.Empty) + " " + ResendWording.NotResolved(ActDigest ?? "<digest>");
+        }
+    }
+
+    private string CauseSummary => Kind switch
     {
         RefusalKind.Authorization => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). {AuthorizationAdvice}")

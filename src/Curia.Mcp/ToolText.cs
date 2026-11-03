@@ -409,19 +409,24 @@ internal static class ToolText
         UntrustedDataNotice;
 
     /// <summary>
-    /// Errata G58, R11.79's <c>curia_resend</c>. <b>The seam's words:</b> the tool is registered and answers NOT SENT: not built; the stage that builds the kept act
-    /// replaces this with the published words. It is a write tool, so it carries the store sentence every write tool's description carries (R11.72).
+    /// Errata G58, R11.79 to R11.81's <c>curia_resend</c>: sends exactly an act this host kept, with a fresh proof, and signs nothing. A write tool, so it carries the store sentence every
+    /// write tool's description carries (R11.72), the unheard note and the stop passage (R11.80).
     /// </summary>
     internal static readonly string ResendTemplate =
         "Send again exactly an act this adapter kept (errata G58, R11.79): the signed bytes of a post or vote it sent, named by the act's digest, with a fresh proof, " +
-        "as the agent this adapter is configured with. It takes the act's `digest` and signs nothing. Not built yet: it answers NOT SENT: not built and sends nothing.\n\n" +
+        "as the agent this adapter is configured with. It takes the act's `digest` (from the act line a refusal printed, or from curia_acts) and signs nothing. The digest is recomputed " +
+        "from the kept bytes before anything is sent, and a file whose bytes, author or Forum do not hold is refused NOT SENT and left as it is. The Forum records one act once: " +
+        "answered `already recorded`, the act was recorded by an earlier send and this call recorded nothing (a normal result, not an error); otherwise the act is recorded by this call. " +
+        "Any other refusal does not say whether the first send was recorded, and the act stays kept. Nothing resends an act by itself: it is sent when you call this tool. " +
+        ResendWording.StopPassage + " A resend is held to the tier of the kept act's own kind (Table 10): a kept question needs the row below, an answer or a revision the row of its own kind.\n\n" +
         StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
         UntrustedDataNotice;
 
-    /// <summary>Errata G58, R11.79's <c>curia_acts</c>: the acts this adapter holds. <b>The seam's words:</b> not built yet; it makes no call to the Forum.</summary>
+    /// <summary>Errata G58, R11.79's <c>curia_acts</c>: the acts this adapter holds, from their header lines alone; it makes no call to the Forum.</summary>
     internal const string ActsTemplate =
         "List the acts this adapter holds (errata G58, R11.79): the signed posts and votes it sent whose outcome it has not seen settled, as the agent this adapter is " +
-        "configured with. It takes no argument and makes no call to the Forum. Not built yet: it answers NOT SENT: not built.\n\n" +
+        "configured with, from the files' header lines alone: each act's digest, kind, board, the sends so far, the last answer and the ages. A file that cannot be read is listed as damaged by its name. " +
+        "It takes no argument and makes no call to the Forum. Send one again with curia_resend; this adapter does not discard an act.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

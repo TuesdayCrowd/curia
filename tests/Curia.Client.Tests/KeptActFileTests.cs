@@ -352,10 +352,15 @@ public sealed class KeptActFileTests
                 kit.Plant(act, name: digest, digest: "sha256:" + digest);
             }
 
+            // A listing decodes nothing of line 2 (plan ruling 28; FASA38's second form): one file's second line is not base64 at all, and a listing that read it as a wire would call the file damaged.
+            var notBase64 = Path.Combine(kit.ActsDirectory, 0.ToString("x64", CultureInfo.InvariantCulture) + ".act");
+            var first = File.ReadAllLines(notBase64)[0];
+            File.WriteAllText(notBase64, first + "\n" + new string('!', size / 2) + "\n");
+
             var counted = new Dictionary<string, long>(StringComparer.Ordinal);
             var acts = new KeptActs(kit.Store, "alice", path => new CountingStream(File.OpenRead(path), n => counted[path] = counted.GetValueOrDefault(path) + n));
             var listed = acts.List();
-            if (listed.Count != KeptActs_Bound()) problems.Add($"{size / 1024} KiB: expected {KeptActs_Bound()} listed, found {listed.Count}");
+            if (listed.Count(l => l.Header is not null) != KeptActs_Bound()) problems.Add($"{size / 1024} KiB: expected {KeptActs_Bound()} listed with a header, found {listed.Count(l => l.Header is not null)}");
             var worst = counted.Count == 0 ? 0 : counted.Values.Max();
             if (worst > KeptActs.HeaderBlockBytes) problems.Add($"{size / 1024} KiB: bytes read {worst}, expected at most {KeptActs.HeaderBlockBytes} per file");
             perFile[size.ToString(CultureInfo.InvariantCulture)] = worst;
@@ -453,6 +458,39 @@ public sealed class KeptActFileTests
         }
 
         Red.None(problems, "identical bytes from two resends, two files for two acts, a leftover resent to already-recorded and removed");
+    }
+
+    /// <summary>
+    /// ASA14's hour leg (plan ruling 36, 3b): the kept act takes its instants from the session's clock (CS-9), so a third send after the clock moved an hour records that moment, counts
+    /// three sends, and <c>curia acts</c> words the last answer and the ages honestly from the same clock: <c>last answered</c> with the answer's type, an hour old at the next listing and
+    /// under a minute old at the moment of the send.
+    /// </summary>
+    [Fact]
+    public async Task R11_80_ASA14_TheKeptActsInstantsAndAgesComeFromTheSessionsClock()
+    {
+        var clock = new Curia.Tests.Shared.TimerManualTimeProvider(new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero));
+        using var kit = new SessionKit(clock: clock);
+        kit.Forum.OnPost = (_, _, _) => Task.FromResult(ScriptedForum.Problem(503, "curia/store/unavailable", "A store fault"));
+        var act = kit.Build();
+        await kit.Session.SubmitAsync(act, MarkingMode.None, Ct);
+        var second = kit.Session.Acts.Read(act.PrefixedDigest);
+        Assert.True(second.TryGetValue(out var firstRead, out var error), error?.Type);
+        await kit.Session.ResendAsync(firstRead!, MarkingMode.None, Ct);
+
+        clock.Advance(TimeSpan.FromHours(1));
+        var third = kit.Session.Acts.Read(act.PrefixedDigest);
+        Assert.True(third.TryGetValue(out var again, out var thirdError), thirdError?.Type);
+        var before = ResendWording.ListingLine(again!.Header, clock.GetUtcNow());
+        var refused = await kit.Session.ResendAsync(again, MarkingMode.None, Ct);
+
+        var listed = kit.Session.Acts.List().Single().Header!;
+        var problems = new List<string>();
+        if (refused.Refusal?.KeptAttempts != 3) problems.Add($"the third send was counted as {refused.Refusal?.KeptAttempts}, expected 3");
+        if (listed.Attempts != 3) problems.Add($"the file holds {listed.Attempts} sends, expected 3");
+        if (listed.LastAttemptAt != clock.GetUtcNow()) problems.Add($"the third send is stamped {listed.LastAttemptAt}, expected the clock's {clock.GetUtcNow()}");
+        if (!before.Contains("last answered \"curia/store/unavailable\" 1 h ago", StringComparison.Ordinal)) problems.Add($"before the third send the listing does not say the last answer was an hour ago: {before}");
+        if (!ResendWording.ListingLine(listed, clock.GetUtcNow()).Contains("last answered \"curia/store/unavailable\" under a minute ago", StringComparison.Ordinal)) problems.Add("after the third send the listing does not say the last answer is under a minute old");
+        Red.None(problems, "three sends counted, the third stamped with the session's clock, the last answer worded honestly from it");
     }
 
     /// <summary>

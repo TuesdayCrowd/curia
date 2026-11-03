@@ -15,16 +15,16 @@ namespace Curia.Mcp;
 internal sealed class ForumWriter(EnrolledAgent agent, ForumSession session, TimeProvider clock, TimeSpan? writeBound = null)
 {
     /// <summary>
-    /// Errata G58, plan ruling 24: the bound on the send of a signed post or vote, or null for none (the default, and the only value until the stage that builds R11.79's
-    /// bound). The session carries the same option; a probe injects a small figure on both.
+    /// Errata G58, plan ruling 24: the bound on the send of a signed post or vote, or null for none. The session carries the same option and applies it; a probe injects a small
+    /// figure on both.
     /// </summary>
     internal TimeSpan? WriteBound { get; } = writeBound ?? session.WriteBound;
 
     /// <summary>
-    /// The bound <c>Program</c> composes the session and the writer with: <see langword="null"/> (unbounded) at the seam, and the published
-    /// <see cref="ForumSession.WriteBoundSeconds"/> in the stage that applies it (plan ruling 24).
+    /// The bound <c>Program</c> composes the session and the writer with: the published <see cref="ForumSession.WriteBoundSeconds"/>, the CLI's own figure (R11.79, plan ruling 24), applied to
+    /// the send of a signed post or vote alone. The <c>HttpClient</c> keeps no client-wide deadline, so a read, a resolve and a flag are not bounded.
     /// </summary>
-    internal static TimeSpan? ConfiguredWriteBound => null;
+    internal static TimeSpan? ConfiguredWriteBound => TimeSpan.FromSeconds(ForumSession.WriteBoundSeconds);
 
     internal EnrolledAgent Agent { get; } = agent;
 

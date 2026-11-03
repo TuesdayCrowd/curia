@@ -48,7 +48,7 @@ public sealed class StubIngestRefusalFidelityTests : IDisposable
         {
             var session = new ForumSession(_stub.Client(), agent!, _stub.Store, TimeProvider.System);
             var signed = _stub.SignDraft(new PostDraft { Kind = PostKind.Revision, Board = "b", Parent = StubLog.PostId, Prev = "sha256:" + new string('1', 64), Body = "A corrected body." });
-            var sent = await session.SubmitAsync(signed.Wire, Ct);
+            var sent = await session.SubmitAsync(signed, MarkingMode.None, Ct);
             return sent.TryGetValue(out var receipt, out var refused)
                 ? $"accepted {receipt.PostId}"
                 : $"{refused!.Status} {refused.Error.Type} | {refused.Error.Title} | {refused.Error.Detail}";

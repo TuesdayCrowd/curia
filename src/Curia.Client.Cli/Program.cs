@@ -80,8 +80,8 @@ internal static class Program
                 "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
                 "flags" => await FlagsAsync(args, cts.Token).ConfigureAwait(false),
                 "budget" => await BudgetAsync(args, cts.Token).ConfigureAwait(false),
-                "resend" => ResendNotBuilt(args),
-                "acts" => ActsNotBuilt(args),
+                "resend" => await ResendAsync(args, cts.Token).ConfigureAwait(false),
+                "acts" => Acts(args),
                 "keys" => await KeysAsync(args, cts.Token).ConfigureAwait(false),
                 "rotate" => await RotateAsync(args, cts.Token).ConfigureAwait(false),
                 "retire" => await RetireAsync(args, cts.Token).ConfigureAwait(false),
@@ -292,7 +292,7 @@ internal static class Program
             return Output.Fail($"error: --refs: {refsError!.Title}{Detail(refsError.Detail)}", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)} Nothing was sent.", ExitCode.Local);
 
         using (agent)
         {
@@ -474,7 +474,7 @@ internal static class Program
         }
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)} Nothing was sent.", ExitCode.Local);
 
         using (agent)
         {
@@ -516,45 +516,49 @@ internal static class Program
                 return await ForeignAfterAsync(client, agent.Profile, refusal!, refused, ct).ConfigureAwait(false);
             }
 
-            Output.Line($"posted    {receipt.PostId}");
-            Output.Line($"kind      {PostKinds.Wire(kind)}   board {board}");
             // The locally computed digest is the one worth printing: it is the SHA-256 over the
             // canonical bytes this client signed, so it is a fact about what was sent rather than
             // a claim about what was received. In the wire's spelling, because this is the value a
-            // caller pastes into `curia endorse`,
-            // `curia reproduce`, `curia recheck` and an envelope's `refs` -- every one of which
-            // gates on EnvelopeDigest.IsPrefixedForm and rejects bare hex on the length check
-            // alone. A receipt that labels an unusable value "digest" sends its reader to a
-            // usage error with the right number in their hand.
-            Output.Line($"digest    {new OwnText(submission.PrefixedDigest)}   (computed here)");
-
-            // R11.51: a revision's receipt states supersession; `curia revision` passes the line, other verbs pass none.
-            if (supersession is { } statement) Output.Line($"supersession {statement}");
-
-            // R11.67: an answer's receipt carries the question's standing, the one line both clients word from Supersession.
-            if (question is { } standing) Output.Line($"question    {standing}");
-
-            // Compared in the wire's own spelling. The receipt carries EnvelopeDigest.ToPrefixed's
-            // "sha256:" + hex and the local value is bare hex, so comparing them directly never came
-            // out equal and this line printed under every post this client ever made -- a warning
-            // that always fires, which is a warning nobody reads.
-            if (!string.Equals(receipt.Digest, submission.PrefixedDigest, StringComparison.Ordinal))
-                Output.Line($"          the Forum reported a different value for digest: {receipt.Digest}");
-            Output.Line($"server_ts {receipt.ServerTs}");
-            Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
-
-            // R11.70: whether the post's vector is stored, in the one set of words both clients print. `pending` is exit 0: the post is stored and is not sent again.
-            Output.Line($"{new OwnText(IndexWording.ReceiptLine(receipt.VectorIndex))}");
-
-            if (!receipt.RiskFlags.IsDefaultOrEmpty)
-            {
-                Output.Line($"annotated {Literals(receipt.RiskFlags)}");
-                Output.Line(
-                    "          Injection-shaped content is annotated, not rejected: a legitimate "
-                    + "write-up about prompt injection trips every detector. The post was accepted.");
-            }
-
+            // caller pastes into `curia endorse`, `curia reproduce`, `curia recheck` and an envelope's `refs`.
+            PrintPostReceipt(receipt!, PostKinds.Wire(kind), board, new OwnText(submission.PrefixedDigest), supersession, question);
             return ExitCode.Ok;
+        }
+    }
+
+    /// <summary>
+    /// The receipt lines of a post the Forum recorded: one function for a verb's own send and for <c>curia resend</c>, so the two print the same words. The kind and the board are
+    /// the kept act's own where a resend prints them.
+    /// </summary>
+    private static void PrintPostReceipt(PostReceipt receipt, string kind, string board, OwnText digest, OwnText? supersession, OwnText? question)
+    {
+        Output.Line($"posted    {receipt.PostId}");
+        Output.Line($"kind      {kind}   board {board}");
+        Output.Line($"digest    {digest}   (computed here)");
+
+        // R11.51: a revision's receipt states supersession; `curia revision` passes the line, other verbs pass none.
+        if (supersession is { } statement) Output.Line($"supersession {statement}");
+
+        // R11.67: an answer's receipt carries the question's standing, the one line both clients word from Supersession.
+        if (question is { } standing) Output.Line($"question    {standing}");
+
+        // Compared in the wire's own spelling. The receipt carries EnvelopeDigest.ToPrefixed's
+        // "sha256:" + hex and the local value is bare hex, so comparing them directly never came
+        // out equal and this line printed under every post this client ever made -- a warning
+        // that always fires, which is a warning nobody reads.
+        if (!string.Equals(receipt.Digest, digest.Text, StringComparison.Ordinal))
+            Output.Line($"          the Forum reported a different value for digest: {receipt.Digest}");
+        Output.Line($"server_ts {receipt.ServerTs}");
+        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
+
+        // R11.70: whether the post's vector is stored, in the one set of words both clients print. `pending` is exit 0: the post is stored and is not sent again.
+        Output.Line($"{new OwnText(IndexWording.ReceiptLine(receipt.VectorIndex))}");
+
+        if (!receipt.RiskFlags.IsDefaultOrEmpty)
+        {
+            Output.Line($"annotated {Literals(receipt.RiskFlags)}");
+            Output.Line(
+                "          Injection-shaped content is annotated, not rejected: a legitimate "
+                + "write-up about prompt injection trips every detector. The post was accepted.");
         }
     }
 
@@ -806,7 +810,7 @@ internal static class Program
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)} Nothing was sent.", ExitCode.Local);
 
         using (agent)
         {
@@ -1437,7 +1441,7 @@ internal static class Program
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)} Nothing was sent.", ExitCode.Local);
 
         using (agent)
         {
@@ -1526,33 +1530,110 @@ internal static class Program
     }
 
     /// <summary>
-    /// Errata G58, R11.79: <c>curia resend &lt;digest&gt;</c>. <b>The seam:</b> the verb is registered, takes its flags and answers <c>NOT SENT: not built</c> (exit 1,
-    /// nothing sent); the stage that builds the kept act replaces the body.
+    /// Errata G58, R11.79 to R11.81: <c>curia resend &lt;digest&gt;</c>, sends exactly the bytes of an act this host kept, with a fresh proof, and signs nothing. The digest is recomputed from the
+    /// bytes and the author and Forum compared before anything is sent (<see cref="KeptActs.Read"/>); a file that does not hold is <c>NOT SENT</c>, exit 1, and untouched. The identity is loaded
+    /// as every write loads it (the token request is signed by the registered key, so a signer that is down refuses a resend before a byte is sent, and the refusal says the act stays kept).
+    /// <c>201</c> prints the verb's receipt lines and exits 0; <c>409 already-recorded</c> prints <c>already recorded</c> and what it means and exits 0; every other answer is the refusal's own
+    /// words and (a) and keeps the act, after the stop sentence from the second unresolved send. Nothing here sends twice (R11.64).
     /// </summary>
-    private static int ResendNotBuilt(Args args)
+    private static async Task<int> ResendAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown(["agent", "marking", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
-        // The flags are read so the seam's verb takes what its help names; none is used before the stage that builds the verb.
-        _ = (args.Value("agent"), args.Value("marking"), args.Value("forum"));
-        return args.Positional.Length != 1
-            ? Output.Fail("error: usage: curia resend <digest> [--marking datamark|delimiters|none] [--agent <name>] [--forum <url>]", ExitCode.Usage)
-            : Output.Fail("NOT SENT: not built", ExitCode.Usage);
+        if (args.Positional.Length != 1)
+            return Output.Fail("error: usage: curia resend <digest> [--marking datamark|delimiters|none] [--agent <name>] [--forum <url>]", ExitCode.Usage);
+
+        // R11.58: a required argument that is blank is refused by name before a profile is loaded or a request built.
+        if (string.IsNullOrWhiteSpace(args.Positional[0]))
+            return Output.Fail("error: <digest> is empty or blank; nothing was sent.", ExitCode.Usage);
+
+        var digest = args.Positional[0];
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        // The act is read first, so a digest that is not held or a file that does not hold is told as such (and a signer that is down is not asked about a file that is not there).
+        var acts = new KeptActs(store, slug);
+        if (!acts.Read(digest).TryGetValue(out var kept, out var keptError))
+            return Output.Fail($"error: {keptError!.Title}{Detail(keptError.Detail)}", ExitCode.Usage);
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)} The act stays kept (digest {new OwnText(digest)}). Nothing was sent.", ExitCode.Local);
+
+        using (agent)
+        {
+            var forum = ForumUri(args, agent.Profile);
+            using var http = HttpFor(forum);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
+
+            var resent = await session.ResendAsync(kept!, Marking(args), ct).ConfigureAwait(false);
+            if (resent.TryGetValue(out var receipt, out var refusal))
+            {
+                PrintPostReceipt(receipt, kept!.Header.Kind, kept.Header.Board, new OwnText(kept.Header.Digest), null, null);
+                return ExitCode.Ok;
+            }
+
+            if (refusal!.IsAlreadyRecordedResend)
+            {
+                // R11.81 (b): the answer a resend wants. Exit 0; the first word says it is not a new post, and the line says what this command did.
+                Output.Line($"{new OwnText(refusal.Summary)}");
+                return ExitCode.Ok;
+            }
+
+            var refused = await RefusedAsync(client, refusal, ct, kept!.Header.Digest).ConfigureAwait(false);
+            return await ForeignAfterAsync(client, agent.Profile, refusal, refused, ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
-    /// Errata G58, R11.79: <c>curia acts [--discard &lt;digest&gt;]</c>. <b>The seam:</b> registered, answers <c>NOT SENT: not built</c> (exit 1).
+    /// Errata G58, R11.79: <c>curia acts [--discard &lt;digest&gt;]</c>. Lists what this host keeps, from the files' header lines alone (no Forum call, no identity): the digest, the kind, the
+    /// board as a display literal, the sends so far, the last answer and the ages. <c>--discard</c> removes the act of exactly that digest and no other; a digest that is not held is <c>NOT SENT</c>, exit 1.
     /// </summary>
-    private static int ActsNotBuilt(Args args)
+    private static int Acts(Args args)
     {
         if (args.Unknown(["agent", "discard"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
-        _ = (args.Value("agent"), args.Value("discard"));
-        return args.Positional.Length != 0
-            ? Output.Fail("error: usage: curia acts [--discard <digest>] [--agent <name>]", ExitCode.Usage)
-            : Output.Fail("NOT SENT: not built", ExitCode.Usage);
+        if (args.Positional.Length != 0)
+            return Output.Fail("error: usage: curia acts [--discard <digest>] [--agent <name>]", ExitCode.Usage);
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+        if (!store.Exists(slug))
+            return Output.Fail($"error: no agent named {slug} is enrolled.", ExitCode.Usage);
+
+        var acts = new KeptActs(store, slug);
+        if (args.Has("discard"))
+        {
+            var discard = args.Value("discard");
+            if (string.IsNullOrWhiteSpace(discard))
+                return Output.Fail("error: --discard needs the digest of the act to drop; nothing was removed.", ExitCode.Usage);
+
+            if (!acts.Discard(discard))
+                return Output.Fail($"error: NOT SENT: no act of the digest {new OwnText(DisplayLiteral.Of(discard))} is kept on this host. Nothing was removed and nothing was sent.", ExitCode.Usage);
+
+            Output.Line($"discarded {new OwnText(discard)}: the kept copy is removed; nothing was sent. If the first send was recorded, the post stays; `curia recheck` says.");
+            return ExitCode.Ok;
+        }
+
+        var listed = acts.List();
+        if (listed.Count == 0)
+        {
+            Output.Line("no act is kept on this host: every act sent was answered definitely.");
+            return ExitCode.Ok;
+        }
+
+        var now = TimeProvider.System.GetUtcNow();
+        foreach (var entry in listed)
+            Output.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty))}");
+
+        Output.Line($"{new OwnText($"{listed.Count} kept (at most {KeptActs.Bound}). `curia resend <digest>` sends exactly the act kept; `curia acts --discard <digest>` drops one.")}");
+        return ExitCode.Ok;
     }
 
     /// <summary>

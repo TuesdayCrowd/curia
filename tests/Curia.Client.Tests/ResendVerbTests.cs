@@ -140,7 +140,6 @@ public sealed partial class ResendVerbTests
     public async Task R11_81_ASA15_ARefusedResendKeepsTheActAndSaysItResolvesNothing()
     {
         var problems = new List<string>();
-        var words = Fold(PublishedResendWords.ResendRefusalWords);
         var refusals = new (string Name, int Status, string Type, string? Detail)[]
         {
             ("403 budget", 403, "curia/authz/denied", "table-11/rate-budget-exhausted next_slot_at=2026-01-01T00:00:00Z"),
@@ -156,6 +155,8 @@ public sealed partial class ResendVerbTests
             resent.Forum.OnPost = (_, _, _) => Task.FromResult(ScriptedForum.Problem(status, type, "A refusal", detail));
             var run = await CliKit.RunAsync(resent, "resend", act.PrefixedDigest);
             if (!File.Exists(resent.FileOf(act))) problems.Add($"resend, {name}: file removed");
+            // Compared after the substitution (trap 117): the words show <digest> and the printer fills it with the digest of the act kept.
+            var words = Fold(PublishedResendWords.ResendRefusalWords.Replace("<digest>", act.PrefixedDigest, StringComparison.Ordinal));
             if (!run.Text.Contains(words, StringComparison.Ordinal)) problems.Add($"resend, {name}: lacks the published words that the refusal does not say whether the first send was recorded");
 
             // The control: the same refusal to a first send is a definite answer for it, so nothing is kept.
