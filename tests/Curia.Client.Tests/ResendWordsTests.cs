@@ -300,7 +300,7 @@ public sealed partial class ResendWordsTests
         var (post, resolve, flag, other) = PublishedResendWords.Clauses();
         string[] spans =
         [
-            post, resolve, flag, other, PublishedResendWords.ActWords, PublishedResendWords.KindWords, PublishedResendWords.UnheardWords, PublishedResendWords.StopWords,
+            post, resolve, flag, other, PublishedResendWords.ActWords, PublishedResendWords.KindWords, PublishedResendWords.UnheardWords, PublishedResendWords.StopWords, PublishedResendWords.DefiniteWords, PublishedResendWords.ListingFooterDamagedWords,
             PublishedResendWords.ResendRefusalWords, PublishedResendWords.AlreadyRecordedWords.FirstLine, PublishedResendWords.AlreadyRecordedWords.After, PublishedResendWords.NothingRecordedClause,
             PublishedResendWords.RevisionWords.Last, PublishedResendWords.RevisionWords.Superseded, PublishedResendWords.ContendedWords, PublishedResendWords.UnknownLine, PublishedResendWords.ClosingLine,
         ];
@@ -317,7 +317,9 @@ public sealed partial class ResendWordsTests
             ("act words", PublishedResendWords.ActWords, "Do not run the verb again: that signs a new act"),
             ("kind words", PublishedResendWords.KindWords, "the resend is exact for every kind"),
             ("unheard words", PublishedResendWords.UnheardWords, "a Forum still working on it can record it after this client gave up"),
-            ("stop words", PublishedResendWords.StopWords, "Stop here: tell whoever asked for the act that the Forum's store is not answering"),
+            ("stop words", PublishedResendWords.StopWords, "Stop here: tell whoever asked for the act that the Forum is not answering"),
+            ("definite words", PublishedResendWords.DefiniteWords, "that is not a fault of the Forum, and the act stays kept"),
+            ("damaged listing words", PublishedResendWords.ListingFooterDamagedWords, "A damaged file counts toward the 64 until it is dropped"),
             ("resend refusal words", PublishedResendWords.ResendRefusalWords, "This refusal does not say whether the first send was recorded"),
             ("already recorded, first line", PublishedResendWords.AlreadyRecordedWords.FirstLine, "already recorded"),
             ("already recorded, after", PublishedResendWords.AlreadyRecordedWords.After, "so this command recorded nothing"),

@@ -248,11 +248,11 @@ public sealed partial class ResendToolTests : IDisposable
         None(problems, "the unheard title, the published unheard sentence, the published act line, in that order, and no seconds");
     }
 
-    private static SignedSubmission Plant(Kit kit, string kind = "question", int attempts = 0, string? lastAnswer = null)
+    private static SignedSubmission Plant(Kit kit, string kind = "question", int attempts = 0, string? lastAnswer = null, int? unanswered = null)
     {
         var draft = new PostDraft { Kind = PostKind.Question, Board = "b", Title = "A title?", Body = "A planted act " + Guid.NewGuid().ToString("N") };
         Assert.True(SubmissionBuilder.Build(kit.Agent, draft, DateTimeOffset.UtcNow).TryGetValue(out var signed, out var error), error?.Type);
-        KeptActFiles.Plant(kit.ActsDirectory, signed!, kind, attempts: attempts, lastAnswer: lastAnswer);
+        KeptActFiles.Plant(kit.ActsDirectory, signed!, kind, attempts: attempts, lastAnswer: lastAnswer, unanswered: unanswered);
         return signed!;
     }
 
@@ -304,10 +304,10 @@ public sealed partial class ResendToolTests : IDisposable
         var first = await CallAsync(() => kit.Tools.ResendAsync(act.PrefixedDigest, Ct));
         var second = await CallAsync(() => kit.Tools.ResendAsync(act.PrefixedDigest, Ct));
 
-        var stop = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", act.PrefixedDigest, StringComparison.Ordinal));
+        var stop = Fold(PublishedResendWords.StopFor(2, 2, act.PrefixedDigest));
         var (count, unit) = PublishedResendWords.StopWait;
         var problems = new List<string>();
-        if (first.Text.Contains(Fold(PublishedResendWords.StopWords[..PublishedResendWords.StopWords.IndexOf("<n>", StringComparison.Ordinal)]), StringComparison.Ordinal)) problems.Add("the first unresolved resend printed the stop sentence");
+        if (first.Text.Contains(Fold(PublishedResendWords.StopWords[..PublishedResendWords.StopWords.IndexOf("<u>", StringComparison.Ordinal)]), StringComparison.Ordinal)) problems.Add("the first unresolved resend printed the stop sentence");
         if (!second.Text.Contains(stop, StringComparison.Ordinal)) problems.Add("no stop sentence");
         if (!second.Text.Contains($"{count} {unit}", StringComparison.Ordinal)) problems.Add("the published wait is not in the result");
         if (!File.Exists(Path.Combine(kit.ActsDirectory, act.Digest + ".act"))) problems.Add("the file was not kept");
@@ -315,7 +315,7 @@ public sealed partial class ResendToolTests : IDisposable
         // The nonce challenge's retry is not an attempt (R11.79): a challenged resend answered 503 is one more send, so the file says 2 and the sentence says 2.
         using var challengedLog = new StubLog();
         var challenged = KitOver(challengedLog);
-        var asked = Plant(challenged, attempts: 1, lastAnswer: "503");
+        var asked = Plant(challenged, attempts: 1, lastAnswer: "unheard", unanswered: 1);
         var requests = 0;
         challenged.Handler.Intercept = (r, _) => Task.FromResult(IsSubmission(r)
             ? requests++ == 0
@@ -326,7 +326,7 @@ public sealed partial class ResendToolTests : IDisposable
         var recorded = (await File.ReadAllLinesAsync(Path.Combine(challenged.ActsDirectory, asked.Digest + ".act"), Ct))[0];
         if (requests != 2) problems.Add($"the challenged resend made {requests} requests, expected 2");
         if (!recorded.Contains("\"attempts\":2", StringComparison.Ordinal)) problems.Add($"after a nonce challenge the file's header is {recorded}, expected attempts 2");
-        var stopAfterChallenge = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", asked.PrefixedDigest, StringComparison.Ordinal));
+        var stopAfterChallenge = Fold(PublishedResendWords.StopFor(2, 2, asked.PrefixedDigest));
         if (!afterChallenge.Text.Contains(stopAfterChallenge, StringComparison.Ordinal)) problems.Add("after a nonce challenge the stop sentence does not say 2 sends");
 
         None(problems, "no stop sentence on the first unresolved resend; on the second, the published sentence with 2 attempts and the published wait; the act kept; a nonce challenge's retry not counted");

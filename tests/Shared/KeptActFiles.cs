@@ -15,7 +15,7 @@ internal static class KeptActFiles
     /// <summary>Writes the file for <paramref name="submission"/> under <paramref name="actsDirectory"/> and returns its path.</summary>
     internal static string Plant(
         string actsDirectory, SignedSubmission submission, string kind = "question", string forum = "http://forum.test", string author = "https://agents.example/alice",
-        int attempts = 0, string? lastAnswer = null, string? name = null, string? digest = null, string board = "b")
+        int attempts = 0, string? lastAnswer = null, string? name = null, string? digest = null, string board = "b", int? unanswered = null)
     {
         ArgumentNullException.ThrowIfNull(submission);
         Directory.CreateDirectory(actsDirectory);
@@ -34,6 +34,7 @@ internal static class KeptActFiles
             ["last_attempt_at"] = attempts == 0 ? null : now,
             ["last_answer"] = lastAnswer,
         });
+        if (unanswered is { } count) header = header.Replace("\"last_answer\"", "\"unanswered\":" + count.ToString(CultureInfo.InvariantCulture) + ",\"last_answer\"", StringComparison.Ordinal);
         var path = Path.Combine(actsDirectory, (name ?? submission.Digest) + ".act");
         File.WriteAllText(path, header + "\n" + Convert.ToBase64String(submission.Wire.Span) + "\n");
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);

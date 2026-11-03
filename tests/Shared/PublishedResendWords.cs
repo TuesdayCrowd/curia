@@ -39,7 +39,17 @@ internal static partial class PublishedResendWords
     internal static string UnheardWords => Span("R11.80 unheard words");
 
     /// <summary>The stop sentence, with <c>&lt;n&gt;</c> and <c>&lt;digest&gt;</c> left in.</summary>
-    internal static string StopWords => Span("R11.80 stop words");
+    internal static string StopWords => Between(Paragraph("R11.80 stop words"), "**R11.80 stop words.** `", "` `<u>` is the header's");
+
+    /// <summary>The stop sentence with <c>&lt;u&gt;</c>, <c>&lt;n&gt;</c> and <c>&lt;digest&gt;</c> filled in: the last <paramref name="unanswered"/> sends unanswered, <paramref name="attempts"/> sends in all.</summary>
+    internal static string StopFor(int unanswered, int attempts, string digest) =>
+        StopWords
+            .Replace("<u>", unanswered.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("<n>", attempts.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("<digest>", digest, StringComparison.Ordinal);
+
+    /// <summary>The definite words: printed once after a resend refused by a definite answer, and never after an unanswered one (R11.80).</summary>
+    internal static string DefiniteWords => Between(Paragraph("R11.80 stop words"), "**R11.80 definite words.** `", "` Printed once after a resend");
 
     /// <summary>The stop wait, as published: the figure and its unit ("5 minutes").</summary>
     internal static (int Count, string Unit) StopWait
@@ -136,7 +146,22 @@ internal static partial class PublishedResendWords
     internal static string RemovalFailedWords => Between(Paragraph("R11.79 discard words"), "When the file cannot be removed: `", "` A listing's last line");
 
     /// <summary>R11.79 discard words, a listing's last line, with <c>&lt;n&gt;</c> and the <c>&lt;digest&gt;</c> placeholders left in.</summary>
-    internal static string ListingFooterWords => Between(Paragraph("R11.79 discard words"), "A listing's last line: `", "` A damaged file's line");
+    internal static string ListingFooterWords => Between(Paragraph("R11.79 discard words"), "A listing's last line, with no damaged file: `", "` With `<k>` damaged files");
+
+    /// <summary>
+    /// R11.79 discard words, a listing's last line with <c>&lt;k&gt;</c> damaged files (k at least 1): the published first part, <c>&lt;a&gt;</c>, <c>&lt;k&gt;</c> and <c>&lt;n&gt;</c> left in, then the
+    /// rest of the ordinary last line (the sentence about <c>curia resend</c> and <c>curia acts --discard</c>) as the ordinary last line publishes it.
+    /// </summary>
+    internal static string ListingFooterDamagedWords
+    {
+        get
+        {
+            var damaged = Between(Paragraph("R11.79 discard words"), "files in all: `", " `curia resend <digest>`").Trim();
+            var plain = ListingFooterWords;
+            var tail = plain[(plain.IndexOf("(at most 64). ", StringComparison.Ordinal) + "(at most 64). ".Length)..];
+            return damaged + " " + tail;
+        }
+    }
 
     /// <summary>
     /// Plan ruling 41's rule, held over a printed text: every verb of the CLI the text names (<c>curia resend</c>, <c>curia recheck</c>, <c>curia acts</c>, <c>curia acts --discard</c>) is followed by

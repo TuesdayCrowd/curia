@@ -183,7 +183,7 @@ public sealed partial class ResendToolTests
 
         // The published words themselves hold the rule (the list of sentences is the errata's, not the code's).
         var (discardFirst, discardAfter) = PublishedResendWords.DiscardedWords;
-        foreach (var (name, words) in new[] { ("(a)", PublishedResendWords.ResendRefusalWords), ("the stop sentence", PublishedResendWords.StopWords), ("the discard sentence", discardAfter), ("the listing's last line", PublishedResendWords.ListingFooterWords) })
+        foreach (var (name, words) in new[] { ("(a)", PublishedResendWords.ResendRefusalWords), ("the stop sentence", PublishedResendWords.StopWords), ("the definite words", PublishedResendWords.DefiniteWords), ("the discard sentence", discardAfter), ("the listing's last line", PublishedResendWords.ListingFooterWords) })
             foreach (var p in PublishedResendWords.VerbQualificationProblems(words)) problems.Add($"published {name}: {p}");
         _ = discardFirst;
 
@@ -195,7 +195,7 @@ public sealed partial class ResendToolTests
             var first = await CallAsync(() => kit.Tools.ResendAsync(act.PrefixedDigest, Ct));
             Check("curia_resend, (a)", first.Text, Substitute(PublishedResendWords.ResendRefusalWords, act.PrefixedDigest));
             var second = await CallAsync(() => kit.Tools.ResendAsync(act.PrefixedDigest, Ct));
-            Check("curia_resend, the stop sentence", second.Text, Substitute(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal), act.PrefixedDigest));
+            Check("curia_resend, the stop sentence", second.Text, Substitute(PublishedResendWords.StopFor(2, 2, "<digest>"), act.PrefixedDigest));
 
             var notKept = await CallAsync(() => kit.Tools.ResendAsync("sha256:" + new string('a', 64), Ct));
             Check("curia_resend, no act kept", notKept.Text);

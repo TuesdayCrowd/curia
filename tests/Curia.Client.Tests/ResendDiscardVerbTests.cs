@@ -104,7 +104,7 @@ public sealed class ResendDiscardVerbTests
             var first = await CliKit.RunAsync(kit, "resend", act.PrefixedDigest);
             Check("curia resend, (a)", first.Text, Sub(PublishedResendWords.ResendRefusalWords, act.PrefixedDigest));
             var second = await CliKit.RunAsync(kit, "resend", act.PrefixedDigest);
-            Check("curia resend, the stop sentence", second.Text, Sub(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal), act.PrefixedDigest));
+            Check("curia resend, the stop sentence", second.Text, Sub(PublishedResendWords.StopFor(2, 2, "<digest>"), act.PrefixedDigest));
 
             var notKept = await CliKit.RunAsync(kit, "resend", "sha256:" + new string('a', 64));
             Check("curia resend, no act kept", notKept.Text);

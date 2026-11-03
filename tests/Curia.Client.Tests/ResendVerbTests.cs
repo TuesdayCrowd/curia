@@ -102,7 +102,7 @@ public sealed partial class ResendVerbTests
     {
         var problems = new List<string>();
         // The text before the <n> placeholder, which printed text can hold (a slice running into the placeholder never matched).
-        var stopStart = Fold(PublishedResendWords.StopWords[..PublishedResendWords.StopWords.IndexOf("<n>", StringComparison.Ordinal)]);
+        var stopStart = Fold(PublishedResendWords.StopWords[..PublishedResendWords.StopWords.IndexOf("<u>", StringComparison.Ordinal)]);
         Assert.True(stopStart.Length >= 20, "the stop words begin with a placeholder, so there is no fixed text to look for");
 
         using (var inside = new SessionKit())
@@ -124,7 +124,7 @@ public sealed partial class ResendVerbTests
         if (first.Text.Contains(stopStart, StringComparison.Ordinal)) problems.Add("the first unresolved send printed the stop sentence");
         var second = await CliKit.RunAsync(kit, "resend", held.PrefixedDigest);
 
-        var stop = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", held.PrefixedDigest, StringComparison.Ordinal));
+        var stop = Fold(PublishedResendWords.StopFor(2, 2, held.PrefixedDigest));
         var (count, unit) = PublishedResendWords.StopWait;
         if (!second.Text.Contains(stop, StringComparison.Ordinal)) problems.Add("no stop sentence");
         if (!second.Text.Contains($"{count.ToString(CultureInfo.InvariantCulture)} {unit}", StringComparison.Ordinal)) problems.Add("the published wait is not in the output");
@@ -135,7 +135,7 @@ public sealed partial class ResendVerbTests
         // send, so the file says 2 and the stop sentence says 2 (a retry that counted would say 3).
         using var challenged = new SessionKit();
         var asked = challenged.Build();
-        challenged.Plant(asked, attempts: 1, lastAnswer: "503");
+        challenged.Plant(asked, attempts: 1, lastAnswer: "unheard", unanswered: 1);
         challenged.Forum.OnPost = (n, _, _) => Task.FromResult(n == 0
             ? new HttpResponseMessage(HttpStatusCode.Unauthorized) { Headers = { { "DPoP-Nonce", "n1" } }, Content = new StringContent("{}") }
             : ScriptedForum.Problem(503, "curia/store/unavailable", "A store fault"));
@@ -143,7 +143,7 @@ public sealed partial class ResendVerbTests
         var recorded = challenged.Session.Acts.List().Select(l => l.Header?.Attempts).ToArray();
         if (challenged.Forum.Posts.Count != 2) problems.Add($"the challenged resend made {challenged.Forum.Posts.Count} requests, expected 2");
         if (!recorded.SequenceEqual([2])) problems.Add($"after a nonce challenge the file counts {string.Join(",", recorded)} sends, expected 2");
-        var stopAfterChallenge = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", asked.PrefixedDigest, StringComparison.Ordinal));
+        var stopAfterChallenge = Fold(PublishedResendWords.StopFor(2, 2, asked.PrefixedDigest));
         if (!afterChallenge.Text.Contains(stopAfterChallenge, StringComparison.Ordinal)) problems.Add("after a nonce challenge the stop sentence does not say 2 sends");
 
         Red.None(problems, "no stop sentence before the second unresolved send; from it, the published sentence with 2 attempts, the file kept, exit 8; a nonce challenge's retry not counted as a send");

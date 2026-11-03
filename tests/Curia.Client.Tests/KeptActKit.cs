@@ -178,8 +178,8 @@ internal sealed class SessionKit : IDisposable
     /// <c>kept_at</c>, <c>attempts</c>, <c>last_attempt_at</c>, <c>last_answer</c>), line 2 the wire in base64, mode 0600 in a directory of mode 0700. A probe that needs a
     /// kept act the seam does not make plants one.
     /// </summary>
-    internal string Plant(SignedSubmission submission, string kind = "question", string forum = "http://forum.test", string author = "https://agents.example/alice", int attempts = 0, string? lastAnswer = null, string? name = null, string? digest = null) =>
-        KeptActFiles.Plant(ActsDirectory, submission, kind, forum, author, attempts, lastAnswer, name, digest);
+    internal string Plant(SignedSubmission submission, string kind = "question", string forum = "http://forum.test", string author = "https://agents.example/alice", int attempts = 0, string? lastAnswer = null, string? name = null, string? digest = null, int? unanswered = null) =>
+        KeptActFiles.Plant(ActsDirectory, submission, kind, forum, author, attempts, lastAnswer, name, digest, unanswered: unanswered);
 
     public void Dispose()
     {
