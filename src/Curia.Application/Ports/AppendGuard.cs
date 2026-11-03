@@ -18,11 +18,11 @@ namespace Curia.Application.Ports;
 public sealed record AppendGuard(EventSequence After, Func<IReadOnlyList<AppendedEvent>, GuardVerdict> Evaluate)
 {
     /// <summary>
-    /// R6.60: the largest delta a store reads for a guard (provisional): 5,000 events. A delta over it is refused unread with
-    /// <c>DomainErrors.AppendDeltaTooLarge</c>. It is not the page the log is read in (plan ruling 30): it is the figure at which one append's allocation and
+    /// R6.60: the largest delta a store reads for a guard (provisional): 2,000 events. A delta over it is refused unread with
+    /// <c>DomainErrors.AppendDeltaTooLarge</c>. It is not the page the log is read in (plan rulings 30 and 37): it is the figure at which one append's allocation and
     /// lock hold meet their rules, and it is defined here once.
     /// </summary>
-    public const int DeltaCap = 5_000;
+    public const int DeltaCap = 2_000;
 }
 
 /// <summary>

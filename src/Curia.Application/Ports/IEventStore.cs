@@ -197,7 +197,7 @@ public interface IEventStore : IEventReader
     /// version and condition checks and before the INSERT, the store reads the events after <see cref="AppendGuard.After"/> and, when there are any, calls
     /// <see cref="AppendGuard.Evaluate"/> once: <see cref="GuardVerdict.Proceed"/> goes on, <see cref="GuardVerdict.Refuse"/> rolls back and returns the
     /// caller's error unchanged, <see cref="GuardVerdict.Redecide"/> rolls back and returns <see cref="DomainErrors.AppendRedecide"/>; a delta over
-    /// <see cref="AppendGuard.DeltaCap"/> (5,000 events, which is not the reader's page) is not read and returns <see cref="DomainErrors.AppendDeltaTooLarge"/>. A throw rolls back and propagates. Both
+    /// <see cref="AppendGuard.DeltaCap"/> (2,000 events, which is not the reader's page) is not read and returns <see cref="DomainErrors.AppendDeltaTooLarge"/>. A throw rolls back and propagates. Both
     /// adapters evaluate it identically; every other promise of the overloads above holds, and their failures keep their precedence over the guard.
     /// </summary>
     Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(

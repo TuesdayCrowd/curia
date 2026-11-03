@@ -62,7 +62,7 @@ public static class DomainErrors
     /// <summary>R6.60: a guarded append whose delta (the events appended since the caller's read) is over the cap; the delta was not read and nothing was written.</summary>
     public static Error AppendDeltaTooLarge() => new(
         AppendDeltaTooLargeType,
-        "The log moved by more than 5,000 events while the request waited; nothing was recorded");
+        "The log moved by more than 2,000 events while the request waited; nothing was recorded");
 
     /// <summary>
     /// R4.38 (add.): the problem type the event store answers when an append carries a lifecycle kind
