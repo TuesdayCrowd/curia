@@ -109,9 +109,9 @@ public sealed class RevisionGateFenceTests
 
     /// <summary>
     /// RVO30 (its object changed by errata G57, plan Task 0c: the extraction of the checks, trap 96). The successor check goes through <c>CorrectionIndex</c> and no second "served" filter. The check is
-    /// <c>SubmissionChecks.RevisionRefusal</c>, which the submission attempt (or a <c>ForumEndpoints</c> method it calls directly) calls and the append's guard will call; it calls
-    /// <c>CorrectionIndex.SuccessorsOf</c> (the scan: <c>IsCorrection</c> and the serving test <c>For</c> applies) and refers to neither <c>PostKinds.IsServedToReaders</c> nor <c>FlagProjector</c> (the one filter is
-    /// <c>LogFacts.Servable</c>, which it may call).
+    /// <c>SubmissionChecks.RevisionRefusal</c>, which the submission attempt (or a <c>ForumEndpoints</c> method it calls directly) calls; it calls <c>SubmissionChecks.StandingSuccessor</c>, the core the append's guard
+    /// calls too (ruling 49), which calls <c>CorrectionIndex.SuccessorsOf</c> (the scan: <c>IsCorrection</c> and the serving test <c>For</c> applies); neither refers to <c>PostKinds.IsServedToReaders</c> nor
+    /// <c>FlagProjector</c> (the one filter is <c>LogFacts.Servable</c>, which the route's check may call).
     /// </summary>
     [Fact]
     public void R8_77_TheSuccessorCheckGoesThroughTheCorrectionIndexAndNoSecondServedFilter()
@@ -123,8 +123,10 @@ public sealed class RevisionGateFenceTests
         var reachable = attempt.Where(s => s.CalleeType == ForumEndpointsType).Select(s => s.CalleeMember).Append("SubmitAttemptAsync").ToHashSet(StringComparer.Ordinal);
         var callsTheCheck = sites.Any(s => reachable.Contains(s.CallerMethod) && s.CalleeType == "Curia.Application.Ingest.SubmissionChecks" && s.CalleeMember == "RevisionRefusal");
 
-        var inChecks = IlCallSites.CallSites(AssemblyOf("Curia.Application")).Where(s => s.CallerType == "Curia.Application.Ingest.SubmissionChecks" && s.CallerMethod == "RevisionRefusal").ToArray();
-        var throughIndex = inChecks.Any(s => s.CalleeType == "Curia.Application.Projections.CorrectionIndex" && s.CalleeMember is "SuccessorsOf" or "For");
+        // Errata G57, ruling 49: the route's check and the append's guard share one core, StandingSuccessor, which RevisionRefusal calls and which asks CorrectionIndex.
+        var inChecks = IlCallSites.CallSites(AssemblyOf("Curia.Application")).Where(s => s.CallerType == "Curia.Application.Ingest.SubmissionChecks" && s.CallerMethod is "RevisionRefusal" or "StandingSuccessor").ToArray();
+        var throughCore = inChecks.Any(s => s.CallerMethod == "RevisionRefusal" && s.CalleeType == "Curia.Application.Ingest.SubmissionChecks" && s.CalleeMember == "StandingSuccessor");
+        var throughIndex = throughCore && inChecks.Any(s => s.CallerMethod == "StandingSuccessor" && s.CalleeType == "Curia.Application.Projections.CorrectionIndex" && s.CalleeMember is "SuccessorsOf" or "For");
         var secondFilters = inChecks
             .Where(s => (s.CalleeType == "Curia.Domain.Content.PostKinds" && s.CalleeMember == "IsServedToReaders") || s.CalleeType == "Curia.Application.Projections.FlagProjector")
             .Select(s => $"{s.CallerMethod} calls {s.CalleeType}::{s.CalleeMember}")
