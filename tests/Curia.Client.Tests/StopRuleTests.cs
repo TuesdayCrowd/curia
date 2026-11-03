@@ -159,6 +159,10 @@ public sealed class StopRuleTests
 
         problems.AddRange(await ProblemsAsync("unanswered refusals", [ScriptedSend.Untyped(502), Store503, ScriptedSend.NoAnswer], "definite"));
 
+        // An unanswered refusal that is the first of its run (u=1) gets neither the stop sentence nor the definite words: after an answered send, and after a first send the Forum answered.
+        problems.AddRange(await ProblemsAsync("answered, then unanswered", [ScriptedSend.NoAnswer, StopRuleOracle.Budget403, Store503, ScriptedSend.NoAnswer, StopRuleOracle.Budget403, ScriptedSend.Untyped(502)], "definite"));
+        problems.AddRange(await ProblemsAsync("a first send answered 429, then unanswered", [ScriptedSend.Typed(429, "curia/rate/limited"), Store503], "definite"));
+
         var definite = Fold(PublishedResendWords.DefiniteWords);
         foreach (var first in new[] { ScriptedSend.Typed(429, "curia/rate/limited"), StopRuleOracle.Budget403 })
         {
