@@ -1538,7 +1538,7 @@ internal static class Program
     /// bytes and the author and Forum compared before anything is sent (<see cref="KeptActs.Read"/>); a file that does not hold is <c>NOT SENT</c>, exit 1, and untouched. The identity is loaded
     /// as every write loads it (the token request is signed by the registered key, so a signer that is down refuses a resend before a byte is sent, and the refusal says the act stays kept).
     /// <c>201</c> prints the verb's receipt lines and exits 0; <c>409 already-recorded</c> prints <c>already recorded</c> and what it means and exits 0; every other answer is the refusal's own
-    /// words and (a) and keeps the act, after the stop sentence from the second unresolved send. Nothing here sends twice (R11.64).
+    /// words and (a) and keeps the act, after the stop sentence from the second consecutive send the Forum did not answer, or the definite words after a refusal it did answer. Nothing here sends twice (R11.64).
     /// </summary>
     private static async Task<int> ResendAsync(Args args, CancellationToken ct)
     {
@@ -1643,7 +1643,7 @@ internal static class Program
         foreach (var entry in listed)
             Output.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty))}");
 
-        Output.Line($"{new OwnText(ResendWording.ListingFooter(listed.Count))}");
+        Output.Line($"{new OwnText(ResendWording.ListingFooter(listed))}");
         return ExitCode.Ok;
     }
 

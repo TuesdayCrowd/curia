@@ -44,6 +44,25 @@ public enum ActTransport
     Cancelled,
 }
 
+/// <summary>
+/// What a send was to the stop rule (errata G58, R11.80): <see cref="Unanswered"/> when no answer was read (the unheard refusal) or the Forum answered <c>5xx</c>, typed or not;
+/// <see cref="Answered"/> for any other response, a <c>4xx</c> included, whatever it says of the first send; <see cref="Neither"/> for a send that did not reach the Forum or was stopped by the caller.
+/// </summary>
+public enum SendClass
+{
+    /// <summary>No answer was read, or the Forum answered <c>5xx</c>.</summary>
+    Unanswered,
+
+    /// <summary>A response below <c>500</c> was read.</summary>
+    Answered,
+
+    /// <summary>No answer and no failure of the Forum: the request provably did not leave, or the caller's own cancellation.</summary>
+    Neither,
+}
+
+/// <summary>What <see cref="KeptActs.Settle"/> did: whether the act is removed or kept and, where kept, the number of consecutive sends ending with this one that the Forum did not answer.</summary>
+public readonly record struct Settled(ActFate Fate, int Unanswered);
+
 /// <summary>An answer, as <see cref="KeptActs.Decide"/> reads it: the status and problem type of a response, or how the transport ended. No text the Forum wrote is carried.</summary>
 public readonly record struct ActAnswer(ActTransport Transport, int Status = 0, string? ProblemType = null, bool BodyReadable = true);
 
@@ -57,7 +76,8 @@ public sealed record KeptActHeader(
     DateTimeOffset KeptAt,
     int Attempts,
     DateTimeOffset? LastAttemptAt,
-    string? LastAnswer);
+    string? LastAnswer,
+    int Unanswered = 0);
 
 /// <summary>What <see cref="KeptActs.Discard"/> did (plan ruling 40): removed the one file, found none, or could not remove it.</summary>
 public enum DiscardStatus
@@ -85,7 +105,7 @@ public sealed record KeptActListing(KeptActHeader? Header, string? DamagedFile, 
 /// R11.79 (errata G58): the signed bytes of every post and vote this host sent, kept in the agent's own directory from before the first byte is sent until the Forum answers
 /// definitely, and sent again exactly when asked. <b>The only file that names the on-disk form</b> (plan ruling 4): <c>acts/&lt;64 hex&gt;.act</c>, line 1 one JSON object (<c>v</c>,
 /// <c>digest</c> as <c>sha256:&lt;hex&gt;</c>, <c>kind</c>, <c>board</c>, <c>forum</c> as the profile's origin, <c>author</c>, <c>kept_at</c>, <c>attempts</c>, <c>last_attempt_at</c>,
-/// <c>last_answer</c>: a problem type or a status, never text from the Forum), line 2 the wire in base64; mode 0600 in a directory of mode 0700, written through
+/// <c>last_answer</c>: a problem type or a status, never text from the Forum; <c>unanswered</c>: the run of sends the Forum did not answer, absent reads as 0), line 2 the wire in base64; mode 0600 in a directory of mode 0700, written through
 /// <see cref="PrivateFiles"/>. The answer table (<see cref="Decide"/>) is the one definition of which answers leave an act unknown.
 ///
 /// <para><b>The header's length.</b> A listing reads one block of <see cref="HeaderBlockBytes"/> bytes per file (plan ruling 28) and finds line 1 in it. The header's largest
@@ -165,6 +185,15 @@ public sealed class KeptActs
     }
 
     private const string AlreadyRecordedType = "curia/ingest/already-recorded";
+
+    /// <summary>The stop rule's class of an answer (R11.80): the one place a send is called unanswered or answered.</summary>
+    public static SendClass ClassOf(ActAnswer answer) => answer.Transport switch
+    {
+        ActTransport.Unheard => SendClass.Unanswered,
+        ActTransport.Answered => answer.Status >= 500 ? SendClass.Unanswered : SendClass.Answered,
+        ActTransport.ProvablyNotSent or ActTransport.Cancelled => SendClass.Neither,
+        _ => throw new ArgumentOutOfRangeException(nameof(answer), answer.Transport, "Not a transport an answer can have"),
+    };
 
     private static bool DefiniteServiceRefusal(ActAnswer answer) =>
         answer.Status == 503
@@ -324,7 +353,7 @@ public sealed class KeptActs
     /// The one function that decides, from an answer, whether the act is removed or kept (<see cref="Decide"/>), and does it: a kept act records the answer's type or status in its header
     /// (never text the Forum wrote), a removed one is deleted. A file that cannot be removed stays and resends to <c>already-recorded</c>.
     /// </summary>
-    public ActFate Settle(KeptAct act, ActSend send, ActAnswer answer)
+    public Settled Settle(KeptAct act, ActSend send, ActAnswer answer)
     {
         ArgumentNullException.ThrowIfNull(act);
         var fate = Decide(send, answer);
@@ -332,13 +361,20 @@ public sealed class KeptActs
         {
             try { File.Delete(PathOf(act.Header.Digest)); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* the file stays: a false keep costs a resend that is answered already-recorded */ }
-        }
-        else
-        {
-            Rewrite(act with { Header = act.Header with { LastAnswer = AnswerWord(answer) } });
+            return new Settled(fate, 0);
         }
 
-        return fate;
+        // R11.80: `unanswered` is the run of sends, ending with this one, that the Forum did not answer: one more for an unanswered send, none for an answered one, and unchanged for a send that
+        // never reached the Forum. It is settled here, after the answer is known; a client killed mid-send leaves it unchanged, which only delays the stop sentence.
+        var unanswered = ClassOf(answer) switch
+        {
+            SendClass.Unanswered => act.Header.Unanswered + 1,
+            SendClass.Answered => 0,
+            SendClass.Neither => act.Header.Unanswered,
+            _ => throw new ArgumentOutOfRangeException(nameof(answer), answer.Transport, "Not a class of send"),
+        };
+        Rewrite(act with { Header = act.Header with { LastAnswer = AnswerWord(answer), Unanswered = unanswered } });
+        return new Settled(fate, unanswered);
     }
 
     private static string AnswerWord(ActAnswer answer)
@@ -476,6 +512,7 @@ public sealed class KeptActs
             new("attempts", new JsonValue.Number(header.Attempts)),
             new("last_attempt_at", Text(header.LastAttemptAt is { } at ? Iso(at) : null)),
             new("last_answer", Text(header.LastAnswer)),
+            new("unanswered", new JsonValue.Number(header.Unanswered)),
         ]);
     }
 
@@ -499,7 +536,15 @@ public sealed class KeptActs
             lastAttempt = parsedLast;
         }
 
-        return Result<KeptActHeader>.Ok(new KeptActHeader(digest, kind, board, forum, author, keptAt, (int)attempts, lastAttempt, ClientJson.String(o, "last_answer")));
+        // A header with no `unanswered` reads as 0 (no stored file outlives alpha); a member that is not a whole number in range is a header this client does not read.
+        var unanswered = 0L;
+        if (ClientJson.Member(o, "unanswered") is not null)
+        {
+            if (ClientJson.WholeNumber(o, "unanswered") is not (>= 0 and <= int.MaxValue and var counted)) return Bad("its header has no readable unanswered");
+            unanswered = counted;
+        }
+
+        return Result<KeptActHeader>.Ok(new KeptActHeader(digest, kind, board, forum, author, keptAt, (int)attempts, lastAttempt, ClientJson.String(o, "last_answer"), (int)unanswered));
     }
 
     private static Result<DateTimeOffset> Instant(string? text) =>

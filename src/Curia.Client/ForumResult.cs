@@ -87,9 +87,18 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
 
     /// <summary>
     /// The number of sends of the act so far when the act is still kept after this answer (R11.80's stop rule), and 0 when it is not kept: a first send answered definitely, or a call that keeps
-    /// nothing. Set by the session; the stop sentence is printed from <see cref="ResendWording.StopFromAttempts"/>.
+    /// nothing. Set by the session; it is the number of sends in all, and the stop sentence counts <see cref="KeptUnanswered"/>.
     /// </summary>
     public int KeptAttempts { get; init; }
+
+    /// <summary>
+    /// The number of consecutive sends of the act, ending with this one, that the Forum did not answer, when the act is still kept (R11.80); 0 when it is not kept. Set by the session from the kept act's
+    /// header after the answer settled it.
+    /// </summary>
+    public int KeptUnanswered { get; init; }
+
+    /// <summary>What this refusal was to the stop rule (R11.80): set by the session for a refusal of a signed act it kept, <see cref="SendClass.Neither"/> for any other.</summary>
+    public SendClass KeptSend { get; init; } = SendClass.Neither;
 
     /// <summary>R11.81 (b): a resend answered <c>already-recorded</c>. Not a refusal to the agent, which is exit 0 and a normal result; the session returns it as the Forum answered it.</summary>
     public bool IsAlreadyRecordedResend => Act == ActContext.Resend && Status == 409 && string.Equals(Error.Type, RevisionWording.AlreadyRecordedType, StringComparison.Ordinal);

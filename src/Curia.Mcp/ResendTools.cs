@@ -36,7 +36,7 @@ internal sealed partial class ForumTools
         // A resend's refusal is worded by Refusal.Summary whatever its kind (plan ruling 39); WriteRefused returns the same text for it and does not read the (resource, action) pair, which is a first send's.
         var failed = WriteRefused(refusal, ResourceKind.Question, ActionKind.Create);
 
-        // The stop sentence (R11.80) follows from the second unresolved send; a resend's refusal carries (a) in its summary and no act line, and nothing is resent or asked here (R11.64).
+        // The stop sentence (R11.80) follows from the second consecutive unanswered send and the definite words follow a refusal the Forum answered; a resend's refusal carries (a) in its summary and no act line, and nothing is resent or asked here (R11.64).
         if (StoreWording.AfterRefusal(refusal, kept.Header.Digest) is { Count: > 0 } following)
             throw new McpException($"{failed.Message} {string.Join('\n', following)}");
 
@@ -57,7 +57,7 @@ internal sealed partial class ForumTools
         foreach (var entry in listed)
             frame.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty))}");
 
-        frame.Line($"{new OwnText(ResendWording.ListingFooter(listed.Count))}");
+        frame.Line($"{new OwnText(ResendWording.ListingFooter(listed))}");
         return Task.FromResult(Said(frame.ToString()));
     }
 

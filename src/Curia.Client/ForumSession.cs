@@ -194,8 +194,17 @@ public sealed class ForumSession
 
         if (!result.TryGetValue(out _, out var refusal))
         {
-            var fate = Acts.Settle(kept, send, AnswerOf(refusal!, trace.Sent));
-            return ForumResult<PostReceipt>.Refused(refusal! with { ActDigest = kept.Header.Digest, ActKind = kept.Header.Kind, KeptAttempts = fate == ActFate.Keep ? kept.Header.Attempts : 0 });
+            var answer = AnswerOf(refusal!, trace.Sent);
+            var settled = Acts.Settle(kept, send, answer);
+            var isKept = settled.Fate == ActFate.Keep;
+            return ForumResult<PostReceipt>.Refused(refusal! with
+            {
+                ActDigest = kept.Header.Digest,
+                ActKind = kept.Header.Kind,
+                KeptAttempts = isKept ? kept.Header.Attempts : 0,
+                KeptUnanswered = isKept ? settled.Unanswered : 0,
+                KeptSend = isKept ? KeptActs.ClassOf(answer) : SendClass.Neither,
+            });
         }
 
         Acts.Settle(kept, send, new ActAnswer(ActTransport.Answered, 201));

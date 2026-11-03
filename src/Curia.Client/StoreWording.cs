@@ -151,8 +151,8 @@ public static class StoreWording
         ArgumentNullException.ThrowIfNull(refusal);
         if (actDigest is null) return [];
 
-        // A resend's refusal carries its own words (R11.81 (a), composed by Refusal.Summary: the unheard sentence included) and no act line, which is a first send's. From the second unresolved send
-        // of one act, either send is followed by the stop sentence (R11.80, plan ruling 13): advice that is never enforced.
+        // A resend's refusal carries its own words (R11.81 (a), composed by Refusal.Summary: the unheard sentence included) and no act line, which is a first send's. What follows is
+        // the stop sentence or the definite words (R11.80, plan rulings 13 and 46 to 49): advice that is never enforced.
         var lines = new List<string>();
         if (refusal.Act != ActContext.Resend)
         {
@@ -162,7 +162,11 @@ public static class StoreWording
             else if (string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) || refusal.KeptAttempts >= 1) lines.Add(ActLine(actDigest, refusal.ActKind));
         }
 
-        if (refusal.KeptAttempts >= ResendWording.StopFromAttempts) lines.Add(ResendWording.Stop(refusal.KeptAttempts, actDigest));
+        // R11.80 (plan rulings 46 to 49): the stop sentence counts only sends the Forum did not answer, so it follows a refusal that is itself unanswered, from the second in a row and nowhere else; a
+        // resend the Forum answered with a refusal (a 4xx) is followed by the definite words in its place, once. A first send's refusal gets neither definite words nor, unless it is the second in a
+        // row, the stop sentence.
+        if (refusal.KeptSend == SendClass.Unanswered && refusal.KeptUnanswered >= ResendWording.StopFromUnanswered) lines.Add(ResendWording.Stop(refusal.KeptUnanswered, refusal.KeptAttempts, actDigest));
+        else if (refusal.Act == ActContext.Resend && refusal.KeptSend == SendClass.Answered && refusal.Status is >= 400 and <= 499) lines.Add(ResendWording.DefiniteWords);
         return lines;
     }
 }

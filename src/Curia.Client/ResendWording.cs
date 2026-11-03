@@ -30,23 +30,33 @@ public static class ResendWording
     }
 
     /// <summary>
-    /// R11.80 stop words, printed from the second unresolved send of one act: <paramref name="attempts"/> is the number of sends so far and <paramref name="digest"/> the act's.
-    /// Advice, not enforcement: a resend is safe at any moment (R8.86). The wait is the 5 minutes the errata derives (three times the longest stall measured, 100 seconds).
+    /// R11.80 stop words, printed from the second consecutive send of one act that the Forum did not answer, and only after a refusal that is itself unanswered: <paramref name="unanswered"/> is the
+    /// header's count of those sends, <paramref name="attempts"/> the sends in all and <paramref name="digest"/> the act's. Advice, not enforcement: a resend is safe at any moment (R8.86). The
+    /// wait is the 5 minutes the errata derives (three times the longest stall measured, 100 seconds). It does not say the Forum's store is not answering: an unheard send or a <c>502</c> shows no store.
     /// </summary>
-    public static string Stop(int attempts, string digest)
+    public static string Stop(int unanswered, int attempts, string digest)
     {
         ArgumentNullException.ThrowIfNull(digest);
+        var u = unanswered.ToString(CultureInfo.InvariantCulture);
         var n = attempts.ToString(CultureInfo.InvariantCulture);
-        return "This act has now been sent " + n + " times and the Forum has not answered definitely. Stop here: tell whoever asked for the act that the Forum's store is not answering and that the act is kept (digest " + digest + "). Send it again with `curia resend " + digest + "` (in `curia-mcp`, `curia_resend`) after 5 minutes or more; sending it sooner is safe, because the Forum records one act once, but the store has not answered the last " + n + " sends.";
+        return "The Forum has not answered the last " + u + " sends of this act (it has been sent " + n + " times in all). Stop here: tell whoever asked for the act that the Forum is not answering and that the act is kept (digest " + digest + "). Send it again with `curia resend " + digest + "` (in `curia-mcp`, `curia_resend`) after 5 minutes or more; sending it sooner is safe, because the Forum records one act once, but it has not answered the last " + u + " sends.";
     }
 
-    /// <summary>The passage the helps of the writing verbs and the descriptions of the write tools carry for the stop rule (R11.80): what is printed from the second unresolved send and what it says.</summary>
-    public const string StopPassage =
-        "From the second unresolved send of one act the refusal is followed by a sentence that says to stop, to tell whoever asked for the act that the Forum's store is not answering and that the act is kept, " +
-        "and to send it again after 5 minutes or more; sending it sooner is safe, because the Forum records one act once.";
+    /// <summary>
+    /// R11.80 definite words, printed once after a resend the Forum answered with a refusal (a <c>4xx</c>) in the stop sentence's place, and never after an unanswered refusal or after a first send's.
+    /// It says the Forum answered, that the refusal is not a fault of the Forum, that the act stays kept, and when to send it again.
+    /// </summary>
+    public const string DefiniteWords =
+        "The Forum answered this resend and refused it for the cause above; that is not a fault of the Forum, and the act stays kept. Send it again when that cause no longer holds (a budget's slot, if the refusal names one, has come); where it will not, drop the kept copy.";
 
-    /// <summary>The attempts from which the stop sentence is printed: the second unresolved send of one act.</summary>
-    public const int StopFromAttempts = 2;
+    /// <summary>The passage the helps of the writing verbs and the descriptions of the write tools carry for the stop rule (R11.80): what is printed after a send the Forum did not answer, and after a resend it refused.</summary>
+    public const string StopPassage =
+        "From the second consecutive send of one act that the Forum does not answer (no answer read, or a 5xx) the refusal is followed by a sentence that says to stop, to tell whoever asked for the act that the Forum is not answering and that the act is kept, " +
+        "and to send it again after 5 minutes or more; sending it sooner is safe, because the Forum records one act once. A resend the Forum answers with a refusal (a 4xx) is followed instead by a sentence that says the Forum answered, " +
+        "that this is not a fault of the Forum and that the act stays kept; send it again when the cause no longer holds, or drop the kept copy.";
+
+    /// <summary>The count of consecutive unanswered sends from which the stop sentence is printed (R11.80).</summary>
+    public const int StopFromUnanswered = 2;
 
     /// <summary>One line of <c>curia acts</c>: the digest, the kind, the board as a display literal, the attempts, the last answer and the ages from <paramref name="now"/> (the caller's clock).</summary>
     public static string ListingLine(KeptActHeader header, DateTimeOffset now)
@@ -61,11 +71,21 @@ public static class ResendWording
     }
 
     /// <summary>
-    /// The last line of a listing, one text for both clients (plan ruling 41): how many acts are kept, the bound, and the two verbs that act on one, each with the other client's name. The
-    /// <c>&lt;digest&gt;</c> placeholders are literal: the line is advice for any act listed above it.
+    /// The last line of a listing, one text for both clients (plan rulings 41 and 50): how many acts can be sent, how many files are damaged, the bound (stated as files when any is damaged, since a damaged
+    /// file counts toward it until it is dropped), and the two verbs that act on one, each with the other client's name. The <c>&lt;digest&gt;</c> placeholders are literal: the line is advice for any act
+    /// listed above it.
     /// </summary>
-    public static string ListingFooter(int count) =>
-        count.ToString(CultureInfo.InvariantCulture) + " kept (at most " + KeptActs.Bound.ToString(CultureInfo.InvariantCulture) + "). `curia resend <digest>` (in `curia-mcp`, `curia_resend`) sends exactly the act kept; `curia acts --discard <digest>` (in `curia-mcp`, `curia_discard`) drops one.";
+    public static string ListingFooter(IReadOnlyList<KeptActListing> listed)
+    {
+        ArgumentNullException.ThrowIfNull(listed);
+        var damaged = listed.Count(l => l.Header is null);
+        var acts = listed.Count - damaged;
+        var bound = KeptActs.Bound.ToString(CultureInfo.InvariantCulture);
+        const string Verbs = "`curia resend <digest>` (in `curia-mcp`, `curia_resend`) sends exactly the act kept; `curia acts --discard <digest>` (in `curia-mcp`, `curia_discard`) drops one.";
+        return damaged == 0
+            ? acts.ToString(CultureInfo.InvariantCulture) + " kept (at most " + bound + "). " + Verbs
+            : acts.ToString(CultureInfo.InvariantCulture) + " kept, " + damaged.ToString(CultureInfo.InvariantCulture) + " damaged (" + listed.Count.ToString(CultureInfo.InvariantCulture) + " files; at most " + bound + " files are held). A damaged file counts toward the " + bound + " until it is dropped. " + Verbs;
+    }
 
     /// <summary>
     /// R11.79's discard words, after a removal: the first line <c>discarded  &lt;digest&gt;</c> and the sentence after it (what the removal says and does not say, and that the act cannot now be sent
