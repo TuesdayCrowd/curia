@@ -3,6 +3,7 @@ using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Client.Cli;
 using Curia.Domain.Primitives;
+using Curia.Tests.Shared;
 using Xunit;
 
 namespace Curia.Client.Tests;
@@ -91,7 +92,10 @@ public sealed class RevisionRefusalWordsTests
         Said(string.Empty, problems);
     }
 
-    /// <summary>RVO50, the refusal half. The post is the one just sent; nothing was stored or spent; read it and do not send it again; not retryable as sent.</summary>
+    /// <summary>
+    /// RVO50, the refusal half (ruling 38). The post is named; an earlier call recorded it and this call added nothing and spent no budget; read it and do not send it again; not retryable as sent;
+    /// and never <c>nothing was stored</c> or <c>nothing was recorded</c> beside a stored post. The full words are the errata's R11.61 (rev.) words, read at test time.
+    /// </summary>
     [Fact]
     public void R11_61_AnAlreadyRecordedRefusalNamesThePostAndSaysNotToSendItAgain()
     {
@@ -101,7 +105,9 @@ public sealed class RevisionRefusalWordsTests
             "; ",
             new[]
             {
-                Missing(refusal.Summary, RevisionWording.AlreadyRecordedCause, DisplayLiteral.Of(RecordedId), RevisionWording.NothingStoredOrSpent, RevisionWording.AlreadyRecordedRemedy),
+                Missing(refusal.Summary, RevisionWording.AlreadyRecordedCause, DisplayLiteral.Of(RecordedId), RevisionWording.AlreadyRecordedEarlierCall, RevisionWording.AlreadyRecordedAddedNothing, RevisionWording.AlreadyRecordedRemedy),
+                refusal.Summary.Contains("nothing was stored", StringComparison.OrdinalIgnoreCase) || refusal.Summary.Contains("nothing was recorded", StringComparison.OrdinalIgnoreCase) ? "says nothing was stored or recorded" : string.Empty,
+                refusal.Summary.Contains(PublishedResendWords.AlreadyRecordedFirstSendWords.Replace("<post id>", DisplayLiteral.Of(RecordedId), StringComparison.Ordinal), StringComparison.Ordinal) ? string.Empty : "not the published R11.61 (rev.) words",
                 NotATierOrOwnership(refusal),
                 refusal.Summary.Contains("retry", StringComparison.OrdinalIgnoreCase) ? "worded as retryable" : string.Empty,
                 ExitCode.For(refusal) == 3 ? string.Empty : $"exit {ExitCode.For(refusal)}",

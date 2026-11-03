@@ -472,9 +472,7 @@ public sealed partial class ResendWordsTests
             Of("ask: agent in flight", ActContext.Post, RefusalKind.Conflict, 409, "curia/budget/agent-in-flight", inFlightDetail, 1),
             Of("revision: revision in flight", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/revision-in-flight", "x", 1),
             Of("revision: already revised", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/already-revised", "successor=01REVISIONID00000000000001", 1),
-            // R11.61 (G45) words this refusal "nothing was stored or spent" (true of this call and said by that requirement); R11.81 (c) adds no clause to it. Ruling 34's oracle lists 0 for it; the two
-            // published texts disagree, and the measure here is the one the client's published words (R11.61, held by RVO50) produce. Filed as a concern for the architect.
-            Of("ask: already recorded", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/already-recorded", "post=01TESTRECEIPTPOST000000000A", 1),
+            Of("ask: already recorded", ActContext.Post, RefusalKind.Conflict, 409, "curia/ingest/already-recorded", "post=01TESTRECEIPTPOST000000000A", 0),
             Of("ask: a Forum fault", ActContext.Post, RefusalKind.ServerFault, 503, "curia/store/unavailable", null, 0),
             Of("ask: the log is unreadable", ActContext.Post, RefusalKind.ServerFault, 503, "curia/log/unreadable", null, 1),
             Of("ask: a server fault", ActContext.Post, RefusalKind.ServerFault, 500, "curia/server/fault", null, 0),

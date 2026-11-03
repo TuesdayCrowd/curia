@@ -28,7 +28,13 @@ public static class RevisionWording
     /// <summary>What <c>already-recorded</c> means.</summary>
     public const string AlreadyRecordedCause = "The Forum already holds the post just sent";
 
-    /// <summary>What <c>already-recorded</c> did: nothing.</summary>
+    /// <summary>R11.61 (rev.): whose recording it was, and that the post is the one just sent. Never <c>nothing was stored</c> beside a stored post (R11.81 (c)).</summary>
+    public const string AlreadyRecordedEarlierCall = "An earlier call recorded it, and that post is the one just sent";
+
+    /// <summary>R11.61 (rev.): what this call did, said in words R11.81 (c)'s count does not match.</summary>
+    public const string AlreadyRecordedAddedNothing = "this call added nothing and spent no budget";
+
+    /// <summary>What <c>revision-in-flight</c> did: nothing (it is also the words of <c>already-revised</c>'s last sentence below).</summary>
     public const string NothingStoredOrSpent = "nothing was stored or spent";
 
     /// <summary>R11.81 (d): the same words as a sentence of their own, for the place where one begins (the last sentence of <c>already-revised</c>).</summary>

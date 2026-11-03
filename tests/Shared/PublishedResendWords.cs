@@ -104,6 +104,19 @@ internal static partial class PublishedResendWords
         return (Backticked(own.Groups[1].Value), added.Groups[1].Value, Backticked(never.Groups[1].Value), resend.Success);
     }
 
+    /// <summary>
+    /// R11.61 (rev.) words: the refusal of a first send answered <c>already-recorded</c>, with <c>&lt;post id&gt;</c> left in where the printer puts the Forum's id (errata G58, plan ruling 38).
+    /// </summary>
+    internal static string AlreadyRecordedFirstSendWords
+    {
+        get
+        {
+            var text = FoldedParagraph("**R11.61 (rev.) words (`already-recorded`, a first send).**");
+            var m = One(FirstSendPhrase().Matches(text), "the first-send already-recorded words");
+            return m.Groups[1].Value;
+        }
+    }
+
     // ----- R10.95 words -----
 
     /// <summary>R10.95: the <c>unknown</c> line after the digest, with <c>&lt;instant&gt;</c> and <c>&lt;digest&gt;</c> left in.</summary>
@@ -211,6 +224,9 @@ internal static partial class PublishedResendWords
 
     [GeneratedRegex(@"`([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex BacktickSpan();
+
+    [GeneratedRegex(@"^\*\*[^*]+\*\* `([^`]+)` A resend's answer is", RegexOptions.CultureInvariant)]
+    private static partial Regex FirstSendPhrase();
 
     [GeneratedRegex(@"not answered within (\d+) seconds", RegexOptions.CultureInvariant)]
     private static partial Regex BoundPhrase();

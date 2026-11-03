@@ -213,10 +213,10 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .Append($"{new OwnText(RevisionWording.NothingStoredOrSpent)}. ")
             .Append($"This is neither a tier denial nor a spent budget: {new OwnText(RevisionWording.InFlightRetry)} (R8.77), since the other revision may be the one you meant.")
             .ToString(),
-        // R8.78, R11.61: the post just sent is already recorded. The id is the Forum's, quoted as a display literal; the remedy is this client's own.
+        // R8.78, R11.61 (rev.): the post just sent is already recorded; an earlier call recorded it, this call added nothing (never "nothing was stored", R11.81 (c)). The id is the Forum's, quoted as a display literal; the remedy is this client's own.
         RefusalKind.Conflict when Error.Type == RevisionWording.AlreadyRecordedType => new FrameBuilder()
-            .Append($"{new OwnText(RevisionWording.AlreadyRecordedCause)}: post {NamedPostId("post=")}. That post is the one just sent, and ")
-            .Append($"{new OwnText(RevisionWording.NothingStoredOrSpent)}: {new OwnText(RevisionWording.AlreadyRecordedRemedy)}. ")
+            .Append($"{new OwnText(RevisionWording.AlreadyRecordedCause)}: post {NamedPostId("post=")}. {new OwnText(RevisionWording.AlreadyRecordedEarlierCall)}; ")
+            .Append($"{new OwnText(RevisionWording.AlreadyRecordedAddedNothing)}: {new OwnText(RevisionWording.AlreadyRecordedRemedy)}. ")
             .Append($"This is neither a tier denial nor a spent budget, and sending it again will not change it.")
             .ToString(),
         // R7.27, R11.64 (errata G48): the agent's turn did not come within the published wait, or its queue was full. Nothing was recorded, counted
