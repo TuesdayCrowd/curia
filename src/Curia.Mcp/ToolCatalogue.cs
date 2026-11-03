@@ -22,7 +22,9 @@ namespace Curia.Mcp;
 /// and <c>curia_verify</c>, all three anonymous; and, when an identity is configured,
 /// <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_revise</c> (R11.40, errata G28),
 /// signed through R11.20's seam, and <c>curia_resolve</c> and <c>curia_flag</c>, attributed by the session.
-/// <c>curia_publish_finding</c> waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt.</para>
+/// <c>curia_publish_finding</c> waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt.
+/// With an identity the host also offers the kept acts (R11.79, errata G58, 0.10.0): <c>curia_acts</c> lists what this host
+/// keeps, <c>curia_resend</c> sends exactly one kept act again and <c>curia_discard</c> drops one; none is a write tool of R11.17's table.</para>
 ///
 /// <para><b>A tool listed is a tool that can work.</b> Without an identity the write tools are not
 /// registered at all, rather than registered to refuse: a model shown <c>curia_ask</c> tries it, and
@@ -38,7 +40,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.9.7";
+    internal const string Version = "0.10.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {

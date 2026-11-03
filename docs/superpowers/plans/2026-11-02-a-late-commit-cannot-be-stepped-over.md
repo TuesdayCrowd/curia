@@ -626,6 +626,6 @@ Written at Task 9 from the ledger and the records of Tasks 0 to 8 (under `.super
 
 **CI fix (after the PR was opened).** CI's first run failed one test, `HarnessRehearsalTests.R6_60_LCB24_TheHarnessRehearses`: `No password has been provided but the backend requires one`. The rehearsal built its connection strings from `AdminDataSource.ConnectionString`, from which Npgsql strips the password; the local server trusts its connections, so the whole run passed here. Both uses now read `PostgresTestEnvironment.ResolveAdminConnectionString()` (and `RunAsync` became `static`); Infrastructure 227 of 227 locally.
 
-The PR is #144, on `main` at ________.
+The PR is #144, on `main` at 58654560.
 
 Final whole run (2026-11-03, the branch at 5611f933, Release, `--no-build`, `ScreeningCostTests` excluded): 6,176 passed, 0 failed, 2 skipped of 6,178 (Api 1,448 in 40 m 3 s, Application 651, Architecture 98, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,409, Domain.Primitives 64, Domain 950, Infrastructure 227, Mcp 828 + 2 skipped); 0 warnings; `restore --locked-mode`, `cargo fmt --check`, clippy and `cargo test` exit 0; the differential comparison 0 divergence classes; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red; `Curia.Architecture.Tests` in Debug 98 passed.

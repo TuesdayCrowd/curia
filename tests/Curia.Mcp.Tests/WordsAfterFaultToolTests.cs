@@ -107,7 +107,7 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
     }
 
     /// <summary>
-    /// WAF31. <c>curia-mcp</c> is the version the newest entry that bumped it names (G53's R11.74, 0.9.4, when written; G54's R11.75, 0.9.5; G55's R11.77, 0.9.6; G56's R11.78, 0.9.7, since the board-and-blank PR): the catalogue reports it, the one reader of a version
+    /// WAF31. <c>curia-mcp</c> is the version the newest entry that bumped it names (G53's R11.74, 0.9.4, when written; G54's R11.75, 0.9.5; G55's R11.77, 0.9.6; G56's R11.78, 0.9.7; G58's R11.81, 0.10.0, since the resend PR): the catalogue reports it, the one reader of a version
     /// (<c>PublishedReadersLastWords.Version()</c>, which the build re-points from R11.72's paragraph to R11.74's) reads it, the README says it, and the two
     /// hand-written twins (<c>BudgetToolTests</c>, <c>IndexLagEntryTests</c>) have it as their newest literal. The version is read from G53 here with a pattern built
     /// at run time, so RLW40's scan of <c>GeneratedRegex</c> readers is not given a second reader.
@@ -116,9 +116,9 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
     public void R11_74_WAF31_CuriaMcpIsTheVersionG53NamesByTheOneParserThePinsAndTheTwins()
     {
         var named = new Regex("`curia-mcp` is (" + @"\d+\.\d+\.\d+" + ")", RegexOptions.CultureInvariant)
-            .Match(PublishedAcceptBudget.Paragraph("**R11.78**")) is { Success: true } m
+            .Match(PublishedAcceptBudget.Paragraph("**R11.81**")) is { Success: true } m
             ? m.Groups[1].Value
-            : throw new InvalidOperationException("the errata's R11.78 names no curia-mcp version");
+            : throw new InvalidOperationException("the errata's R11.81 names no curia-mcp version");
 
         var problems = new List<string>();
         void Expect(string where, string actual)
@@ -138,7 +138,7 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
         foreach (var twin in new[] { Path.Combine("Curia.Mcp.Tests", "BudgetToolTests.cs"), Path.Combine("Curia.Architecture.Tests", "IndexLagEntryTests.cs") })
         {
             // The newest version a twin writes: an older literal in the same file belongs to an earlier entry's history.
-            var newest = Regex.Matches(File.ReadAllText(Path.Combine(root, "tests", twin)), @"\b0\.9\.\d+\b", RegexOptions.CultureInvariant)
+            var newest = Regex.Matches(File.ReadAllText(Path.Combine(root, "tests", twin)), @"\b0\.\d+\.\d+\b", RegexOptions.CultureInvariant)
                 .Select(v => Version.Parse(v.Value)).DefaultIfEmpty(new Version(0, 0, 0)).Max()!.ToString();
             Expect(Path.GetFileName(twin), newest);
         }
