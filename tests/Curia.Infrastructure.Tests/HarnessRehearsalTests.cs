@@ -60,6 +60,7 @@ public sealed class HarnessRehearsalTests
         var state = Path.Combine(Path.GetTempPath(), "curia-lcb24-" + suffix);
         Directory.CreateDirectory(state);
         var said = new List<string>();
+        Dictionary<string, string>? proxyEnv = null;
         try
         {
             await using (var admin = await _fixture.AdminDataSource.OpenConnectionAsync(Ct))
@@ -74,13 +75,13 @@ public sealed class HarnessRehearsalTests
                 await apply.ExecuteNonQueryAsync(Ct);
 
             var env = new Dictionary<string, string> { ["FH_DB"] = db, ["FH_ROLE"] = role, ["FH_DIR"] = state };
-            async Task Check(string label, string script, string[] args, int exit, string? contains = null, IDictionary<string, string>? extra = null)
+            async Task Check(string label, string script, string[] args, int exit, string? contains = null, IDictionary<string, string>? extra = null, string? absent = null)
             {
                 var merged = new Dictionary<string, string>(env);
                 if (extra is not null) foreach (var (k, v) in extra) merged[k] = v;
                 var (code, output) = await RunAsync(script, args, merged);
-                var ok = code == exit && (contains is null || output.Contains(contains, StringComparison.Ordinal));
-                said.Add($"{label}: {(ok ? "as expected" : $"exit {code}, expected {exit}{(contains is null ? string.Empty : $" with '{contains}'")}")}");
+                var ok = code == exit && (contains is null || output.Contains(contains, StringComparison.Ordinal)) && (absent is null || !output.Contains(absent, StringComparison.Ordinal));
+                said.Add($"{label}: {(ok ? "as expected" : $"exit {code}, expected {exit}{(contains is null ? string.Empty : $" with '{contains}'")}{(absent is null ? string.Empty : $" without '{absent}'")}")}");
             }
 
             await Check("hold-on 0", "fault.sh", ["hold-on", "0", "a"], 2);
@@ -108,9 +109,22 @@ public sealed class HarnessRehearsalTests
             drill["FH_FORUM"] = "http://127.0.0.1:5000";
             drill["FH_HOLD"] = "3";
             await Check("latecommit.sh, a hold under twice the timeout", "latecommit.sh", ["revision"], 2, "twice the command timeout", drill);
+
+            // A drill that could not run is exit 2 and never reaches the oracle (review I1: a status overwritten after the heredoc read as a pass). The
+            // sender's prepare fails, which is the first thing the drill does after the preflight; the preflight needs the proxy to be running.
+            var sender = Path.Combine(state, "sender.sh");
+            await File.WriteAllTextAsync(sender, "#!/bin/bash\necho nothing signed\nexit 1\n", Ct);
+            if (OperatingSystem.IsWindows()) throw new Xunit.Sdk.XunitException("the harness is bash");
+            File.SetUnixFileMode(sender, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var port = (20000 + (Math.Abs(suffix.GetHashCode(StringComparison.Ordinal)) % 20000)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            proxyEnv = new Dictionary<string, string>(env) { ["FH_PROXY_PORT"] = port };
+            await Check("proxy start", "proxy.sh", ["start"], 0, "proxy up", proxyEnv);
+            var failing = new Dictionary<string, string>(drill) { ["FH_SENDER"] = sender, ["FH_PROXY_PORT"] = port, ["FH_HOLD"] = "6" };
+            await Check("latecommit.sh digest, prepare fails", "latecommit.sh", ["digest"], 2, "prepare failed", failing, absent: "== oracle");
         }
         finally
         {
+            if (proxyEnv is not null) await RunAsync("proxy.sh", ["stop"], proxyEnv);
             await using var admin = await _fixture.AdminDataSource.OpenConnectionAsync(CancellationToken.None);
             await using (var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)", admin)) await drop.ExecuteNonQueryAsync(CancellationToken.None);
             await using (var dropRole = new NpgsqlCommand($"DROP ROLE IF EXISTS \"{role}\"", admin)) await dropRole.ExecuteNonQueryAsync(CancellationToken.None);

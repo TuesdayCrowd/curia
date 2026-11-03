@@ -144,7 +144,6 @@ if digests:
     os.environ["LAND_DEADLINE"] = "2"
     print(sh(src + "/landing.sh", *digests)[1])
 PY
-rcp=$?
 [ $rcp -eq 0 ] || exit $rcp
 echo "== oracle"
 "$FH_SRC/forks.sh" "$name-pre" && exit 0 || exit $?
