@@ -238,7 +238,8 @@ public sealed class PostgresEventStore : IEventStore
 
         // R6.60 (errata G57): the guard is judged here -- under the lock, after the stream checks, before the INSERT -- so a commit that
         // landed after the caller's read and before this lock was taken is in the delta. An empty delta proves only that nothing changed
-        // since the read and calls nothing. A delta over the cap is counted (an index-only count limited to cap + 1 rows) and refused unread.
+        // since the read and calls nothing. A delta over the cap is counted (a count limited to cap + 1 rows, which
+        // returns one scalar; whether the plan is index-only is P4's measurement and no test's) and refused before the function is called (LCB9).
         if (guard is not null)
         {
             var refusal = await EvaluateGuardAsync(connection, transaction, guard, cancellationToken).ConfigureAwait(false);

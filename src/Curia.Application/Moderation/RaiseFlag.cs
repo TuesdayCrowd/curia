@@ -214,11 +214,20 @@ public sealed class RaiseFlag
 
             if (string.Equals(appendError!.Type, DomainErrors.AppendRedecideType, StringComparison.Ordinal))
             {
-                _redecided(pass, Passes);
+                try
+                {
+                    _redecided(pass, Passes);
+                }
+#pragma warning disable CA1031 // R10.94: the line is the host's log; a sink that fails must not turn a flag decided again into a 500 after its private row is written.
+                catch (Exception)
+#pragma warning restore CA1031
+                {
+                }
+
                 continue;
             }
 
-            // A delta over the cap was refused unread (R6.60): the read is too old to check, so this pass counts and the next reads afresh. Neither line is true of it.
+            // A delta over the cap was refused and not evaluated (R6.60): the read is too old to check, so this pass counts and the next reads afresh. Neither line is true of it.
             if (string.Equals(appendError.Type, DomainErrors.AppendDeltaTooLargeType, StringComparison.Ordinal))
                 continue;
 

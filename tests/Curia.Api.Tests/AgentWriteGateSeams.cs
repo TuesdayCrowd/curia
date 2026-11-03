@@ -203,6 +203,9 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     // (EmbeddingCatchUp.RunOnceAsync and RetryAsync) of the host, retrying posts that earlier tests of the class left pending, reads the log through this very
     // store. ForwardReads counts every read on the store, so B was charged with it. Reads are therefore also recorded with the number of the HTTP request they
     // were made under (a middleware numbers each request and flows the number to its callees as an ambient value); a read made under no request carries 0.
+    // The tag cannot leak across requests (it is set inside the async middleware and an async method's context changes do not reach its awaiting caller). It can over-count (any
+    // request begun after RequestsStarted was sampled, B's own token request included, and any task a later request started that inherits its context) and it counts only
+    // ReadForwardAsync, not ReadByAggregateAsync; both are conservative for an assertion that B reads nothing while parked (review M8).
     private static readonly AsyncLocal<long> CurrentRequest = new();
     private long _requestsStarted;
     private readonly System.Collections.Concurrent.ConcurrentQueue<long> _readRequests = new();

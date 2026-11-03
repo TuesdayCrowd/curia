@@ -944,7 +944,7 @@ public static class ForumEndpoints
         BudgetEntry BudgetAfter(DateTimeOffset act) => BudgetReadout.After(BudgetKinds.Posting, postLimit, postInstants, act, now);
 
         if (v.Envelope.Kind is not PostKind.Revision || v.Envelope.Prev is not { Length: > 0 } prevDigest)
-            return await PersistSubmissionAsync(v, log, LogFacts.Of(log), pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, DecidedLog.Of(log), pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
 
         var entered = await revisionGate.TryEnterAsync(prevDigest, cancellationToken).ConfigureAwait(false);
         if (!entered.TryGetValue(out var held, out var gateError))
@@ -963,12 +963,31 @@ public static class ForumEndpoints
             if (!read.TryGetValue(out var fresh, out var readError))
                 return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
 
-            var freshFacts = LogFacts.Of(fresh!);
-            if (RevisionRefusal(freshFacts, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
+            var freshLog = DecidedLog.Of(fresh!);
+            if (RevisionRefusal(freshLog.Facts, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
                 return refusal;
 
-            return await PersistSubmissionAsync(v, fresh!, freshFacts, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, freshLog, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// One read of the log and the facts folded from that very read (errata G57, review M3): the pair is made in one place, so the checks and the guard
+    /// built for PERSIST cannot be handed facts of one read and the position of another.
+    /// </summary>
+    private sealed class DecidedLog
+    {
+        private DecidedLog(IReadOnlyList<AppendedEvent> log, LogFacts facts)
+        {
+            Log = log;
+            Facts = facts;
+        }
+
+        public IReadOnlyList<AppendedEvent> Log { get; }
+
+        public LogFacts Facts { get; }
+
+        public static DecidedLog Of(IReadOnlyList<AppendedEvent> log) => new(log, LogFacts.Of(log));
     }
 
     /// <summary>
@@ -992,8 +1011,7 @@ public static class ForumEndpoints
     /// </summary>
     private static async Task<IResult?> PersistSubmissionAsync(
         VerifiedSubmission v,
-        IReadOnlyList<AppendedEvent> log,
-        LogFacts facts,
+        DecidedLog decided,
         IIngestPipeline pipeline,
         IEventReader events,
         IndexStep indexer,
@@ -1002,6 +1020,9 @@ public static class ForumEndpoints
         Func<DateTimeOffset, BudgetEntry> budgetAfter,
         CancellationToken cancellationToken)
     {
+        var log = decided.Log;
+        var facts = decided.Facts;
+
         // R8.70 (errata G38): an answer's parent is a question that exists and a comment's is a post that exists. After the
         // authorization above, so a caller denied by tier is never told whether a post exists; before the signal refusal, the
         // duplicate check, SCREEN and PERSIST, so nothing is screened or stored for a post that is refused. An unreadable log is
@@ -1065,13 +1086,15 @@ public static class ForumEndpoints
         // (and a revision's gate, which the caller's `await using` keeps), by reading the events after its own read for the act's digest. Found: it goes on as for
         // any committed post, and owes nothing. Not found, or the confirm could not learn: the original exception is rethrown (never the confirm's) and a check is
         // owed, set here, the one place it is set. The digest is registered as in flight from before the confirm until the index step has run, on every exit.
+        // The guard is built before the try: a fault in building it is not a faulted append, and must not be confirmed, owe a check or be logged as one.
+        var guard = SubmissionGuard.For(facts, v);
         IDisposable? confirming = null;
         try
         {
             Result<PostAccepted> accepted;
             try
             {
-                accepted = await pipeline.PersistAsync(s!, SubmissionGuard.For(facts, v), cancellationToken).ConfigureAwait(false);
+                accepted = await pipeline.PersistAsync(s!, guard, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1138,6 +1161,8 @@ public static class ForumEndpoints
     /// <summary>
     /// R6.60, R8.86 (errata G57): the one place a failed append's error is given the status of a guard's answer: the three refusals are <c>409</c> as the route's own
     /// checks answer them, a delta over the cap is <c>503</c>, anything else is not a guard's (<see langword="null"/>).
+    /// The route's own <c>revision-check-unavailable</c> (<c>503</c>) is not mapped because a guard cannot return it: the original is in the facts it was built
+    /// from and <see cref="LogFacts.Extend"/> only adds.
     /// </summary>
     private static int? GuardRefusalStatus(Error error) => error.Type switch
     {

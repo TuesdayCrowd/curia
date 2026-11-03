@@ -247,7 +247,8 @@ public sealed class LogFactsTests
     /// LCB32. A heavy voter costs the vote leg nothing (ruling 31). The vote leg's work under the lock is the delta's, whatever the number of votes the submitting author has cast in the read (0, 5, 500):
     /// the bytes the thread allocates while the function evaluates a delta of two unrelated events do not grow with that number. (The plan asked for a count of <c>TargetOf</c> calls; there is no seam that
     /// counts them without production code that exists for a test, and every call parses a canonical text into a tree, so the allocation is the same count in bytes.) Red on the built tree, which
-    /// parses each vote of the author's.
+    /// parses each vote of the author's. <b>What it holds alone:</b> the votes it makes target other digests, so the read's candidates (<c>VotesFor</c>) are none and a function that scanned
+    /// <c>facts.Posts</c> for a target with no candidates would stay green here; LCB28's armed read (a throw on access) holds that mutant, and the pair together hold the claim.
     /// </summary>
     [Fact]
     public async Task R8_86_LCB32_AHeavyVoterCostsTheVoteLegNothing()

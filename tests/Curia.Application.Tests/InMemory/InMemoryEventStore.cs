@@ -59,7 +59,9 @@ internal sealed class InMemoryEventStore : IEventStore
         return AppendCore(aggregateId, expectedVersion, events, condition);
     }
 
-    // R6.60 (errata G57): the guard is evaluated inside AppendCore's critical section, after the stream checks and before the log grows.
+    // R6.60 (errata G57): the guard is evaluated inside AppendCore's critical section, after the stream checks and before the log grows. This method is not async, so a
+    // function that throws propagates synchronously from the call where PostgresEventStore returns a faulted task; every caller awaits inside its try, so the observable
+    // behaviour is the same (review M10).
     public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
         AggregateId aggregateId,
         AggregateVersion expectedVersion,
