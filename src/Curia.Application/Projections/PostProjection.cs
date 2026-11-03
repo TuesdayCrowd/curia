@@ -215,7 +215,7 @@ public static class PostProjector
     }
 
     /// <summary>
-    /// The payload's <c>author</c> and <c>kind</c>, read as <see cref="ReadView"/> reads them (the last spelling of a member wins, and a member that is not a string is none), without
+    /// The payload's <c>author</c> and <c>kind</c>, read as <see cref="ReadView"/> reads them (a member that is not a string is none; a payload with a repeated member does not exist, the store's ADMIT refuses a duplicate key, so no spelling is chosen between two), without
     /// building anything else. <see langword="false"/> when either is none, which is when <see cref="ReadView"/> builds no view.
     /// </summary>
     private static bool AuthorAndKind(JsonValue.Object payload, out string author, out string kind)

@@ -51,7 +51,9 @@ public static class SubmissionGuard
     /// The successor leg on its own, by the facts, the digest of the revision and the digest it revises. The original and the candidates (the read's posts whose <c>prev</c> is
     /// the original's digest, served or not) are found when this is called, outside the log's lock; the function builds a view of the delta's revisions by the original's author
     /// and no other post, and asks <see cref="SubmissionChecks.StandingSuccessor"/> of the candidates followed by those views, with "served" read after the delta's moderation.
-    /// An original that is not among the facts (the route has refused that already) leaves nothing a refusal could be made from, and the function proceeds.
+    /// An original that is not among the facts leaves nothing a refusal could be made from, and the function proceeds (ruling 49(c)). The route cannot reach that: it answers 503
+    /// when the original is not in its read (<c>ForumEndpoints</c>, the <c>RevisionRefusal</c> call before <c>PersistSubmissionAsync</c>) and builds this guard from the same facts
+    /// (the <c>SubmissionGuard.For</c> call in <c>PersistSubmissionAsync</c>), so a guard for an absent original is a caller of <see cref="For"/> with other facts.
     /// </summary>
     internal static AppendGuard ForRevision(LogFacts facts, string digest, string prev)
     {
@@ -62,9 +64,7 @@ public static class SubmissionGuard
 
         var candidates = SubmissionChecks.SuccessorCandidates(facts, original);
         var author = original.Author;
-        var revision = PostKinds.Wire(PostKind.Revision);
-        Func<string, string, bool> keep = (postAuthor, kind) =>
-            string.Equals(postAuthor, author, StringComparison.Ordinal) && string.Equals(kind, revision, StringComparison.Ordinal);
+        Func<string, string, bool> keep = (postAuthor, kind) => CorrectionIndex.IsRevisionBy(postAuthor, kind, author);
         return new AppendGuard(facts.Position, delta =>
             Verdict(RecordedIn(delta, digest) ?? SubmissionChecks.StandingSuccessor(
                 candidates.Concat(PostProjector.Extend(ImmutableArray<PostView>.Empty, delta, keep)),
@@ -77,9 +77,8 @@ public static class SubmissionGuard
     {
         facts.Force();
         var candidates = SubmissionChecks.VotesFor(facts, author, target);
-        var vote = PostKinds.Wire(PostKind.Vote);
         Func<string, string, bool> keep = (postAuthor, kind) =>
-            string.Equals(postAuthor, author, StringComparison.Ordinal) && string.Equals(kind, vote, StringComparison.Ordinal);
+            string.Equals(postAuthor, author, StringComparison.Ordinal) && VerificationProjector.IsVoteKind(kind);
         return new AppendGuard(facts.Position, delta =>
             Verdict(RecordedIn(delta, digest) ?? SubmissionChecks.StandingVote(
                 candidates.Concat(PostProjector.Extend(ImmutableArray<PostView>.Empty, delta, keep)),

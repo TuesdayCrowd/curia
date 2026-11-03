@@ -964,6 +964,7 @@ public static class ForumEndpoints
                 return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
 
             var freshLog = DecidedLog.Of(fresh!);
+            // An original absent from freshLog.Facts is answered 503 here; the guard built from the same facts in PersistSubmissionAsync therefore always has its original (SubmissionGuard.ForRevision, ruling 49(c)).
             if (RevisionRefusal(freshLog.Facts, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
                 return refusal;
 
@@ -1087,6 +1088,7 @@ public static class ForumEndpoints
         // any committed post, and owes nothing. Not found, or the confirm could not learn: the original exception is rethrown (never the confirm's) and a check is
         // owed, set here, the one place it is set. The digest is registered as in flight from before the confirm until the index step has run, on every exit.
         // The guard is built before the try: a fault in building it is not a faulted append, and must not be confirmed, owe a check or be logged as one.
+        // For a revision, `facts` are the facts RevisionRefusal ran on, which answered 503 for an original they lack, so ForRevision never meets an absent original from here.
         var guard = SubmissionGuard.For(facts, v);
         IDisposable? confirming = null;
         try

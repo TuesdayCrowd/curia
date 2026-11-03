@@ -204,7 +204,7 @@ public sealed class GuardFilterTests
 
     // ---- LCB35 and LCB36
 
-    private const long Limit = 64 * 1024;
+    private const long Limit = 8 * 1024;
     private const long ParseBound = 4096;
     private static readonly SemaphoreSlim BigGate = new(1, 1);
     private static (LateCommitLog Log, IReadOnlyList<AppendedEvent> Read)? _big;
@@ -280,8 +280,8 @@ public sealed class GuardFilterTests
 
     /// <summary>
     /// LCB35. The work under the lock does not grow with other agents' posts or with the read. A read of 20,000 posts and a delta of 2,000 events (72 percent <c>post.accepted</c> by other authors, 1.35 KiB of
-    /// canonical text each): the function of each leg, after a warm-up, allocates at most 64 KiB (the least of 20 calls). 64 KiB is below the copy of the read's 20,000 posts (two arrays of 160 KB), so the base
-    /// copy is caught as well as the views. A positive control in the same test: the same delta with 100 revisions and 100 votes of the submitter's allocates at least ten times as much, so a counter that reads zero
+    /// canonical text each): the function of each leg, after a warm-up, allocates at most 8 KiB (the least of 20 calls: about ten times the 600 to 680 bytes measured, and far below the copy of the read's 20,000 posts, two arrays of 160 KB), so the base
+    /// copy is caught as well as the views, and a per-event allocation of about 4 bytes or more fails. A positive control in the same test: the same delta with 100 revisions and 100 votes of the submitter's allocates at least ten times as much, so a counter that reads zero
     /// fails. <b>Red on the built tree</b> (megabytes).
     /// </summary>
     [Fact]
@@ -303,8 +303,8 @@ public sealed class GuardFilterTests
             {
                 var baseBytes = Least(guard, others);
                 var controlBytes = Least(guard, control);
-                expected.Add($"{name} leg, 2000 events by others on a read of 20000: within 64 KiB");
-                line.Add($"{name} leg, 2000 events by others on a read of 20000: {(baseBytes <= Limit ? "within 64 KiB" : baseBytes + " bytes")}");
+                expected.Add($"{name} leg, 2000 events by others on a read of 20000: within 8 KiB");
+                line.Add($"{name} leg, 2000 events by others on a read of 20000: {(baseBytes <= Limit ? "within 8 KiB" : baseBytes + " bytes")}");
                 expected.Add($"{name} leg, 100 revisions and 100 votes of the submitter's: at least ten times the base");
                 line.Add($"{name} leg, 100 revisions and 100 votes of the submitter's: {(controlBytes >= 10 * Math.Max(baseBytes, 1024) ? "at least ten times the base" : $"{controlBytes} bytes against a base of {baseBytes}")}");
             }
@@ -440,8 +440,8 @@ public sealed class GuardFilterTests
     /// LCB38. The filtered extension is the unfiltered one, restricted. Over generated deltas (post events by three authors of four kinds, each required member missing in turn, a canonical text that does not
     /// parse, an author that is not a string, a kind that is not a string, an event of another type, a payload that is not an object), for each of six predicates, the views of
     /// <c>PostProjector.Extend(Empty, delta, keep)</c> equal the views of the unfiltered <c>Extend</c> kept by the same predicate afterward (same views, same order); and a delta with two adjacent events swapped is
-    /// refused (<see cref="ArgumentException"/>) whatever the predicate drops, the predicate that drops everything included. <b>Green on the built tree</b>, whose filtered form is the unfiltered one with a filter
-    /// after it (the seam of this probe): it holds the equivalence and the order check the real filtered form must keep, and is red under FLCB53.
+    /// refused (<see cref="ArgumentException"/>) whatever the predicate drops, the predicate that drops everything included. It holds the equivalence and the order check that the filtered form (one loop that reads
+    /// an event's author and kind before it builds anything) must keep, and is red under FLCB53.
     /// </summary>
     [Fact]
     public void R8_86_LCB38_TheFilteredExtensionIsTheUnfilteredOneRestricted()

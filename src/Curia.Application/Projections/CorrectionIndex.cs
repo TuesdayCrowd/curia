@@ -47,9 +47,16 @@ public sealed class CorrectionIndex
         ArgumentNullException.ThrowIfNull(original);
 
         return string.Equals(candidate.Prev, original.Digest, StringComparison.Ordinal)
-            && PostKinds.TryParse(candidate.Kind, out var kind) && kind is PostKind.Revision
-            && string.Equals(candidate.Author, original.Author, StringComparison.Ordinal);
+            && IsRevisionBy(candidate.Author, candidate.Kind, original.Author);
     }
+
+    /// <summary>
+    /// R9.28's author and kind clauses, the one definition: a post of kind <c>revision</c> by <paramref name="originalAuthor"/>. <see cref="IsCorrection"/> asks it of a view; the append guard's
+    /// filter asks it of a payload's author and kind before it builds a view (errata G57, ruling 49), so the filter cannot be narrower than the rule.
+    /// </summary>
+    public static bool IsRevisionBy(string author, string kind, string originalAuthor) =>
+        string.Equals(author, originalAuthor, StringComparison.Ordinal)
+        && PostKinds.TryParse(kind, out var parsed) && parsed is PostKind.Revision;
 
     /// <summary>The index of a request's posts.</summary>
     /// <param name="posts">The post read model, in seq order.</param>

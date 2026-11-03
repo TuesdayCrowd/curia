@@ -10,7 +10,7 @@ namespace Curia.Application.Ingest;
 /// list they were folded from -- as a value a guard can be handed. The route folds its read once (lazily: a kind that checks nothing but a digest never pays for
 /// the fold, and the fold is forced when <c>SubmissionGuard.For</c> builds the guard of a revision or a vote, which is outside the log's lock). The guard does not
 /// extend these facts (ruling 49): it takes the read's candidates from them when it is built and reads only the moderation of the events appended since, with
-/// <see cref="ServableAfter"/>; <see cref="Extend"/> serves the route's other consumers. <see cref="PostProjector.Fold"/> and <see cref="FlagProjector.Fold"/> are defined as the
+/// <see cref="ServableAfter"/>; <see cref="Extend"/> is kept for LCB27, the probe that holds the projectors' unfiltered extension equal to the whole fold at every split; no code in <c>src/</c> calls it. <see cref="PostProjector.Fold"/> and <see cref="FlagProjector.Fold"/> are defined as the
 /// extension of nothing, so the whole fold and the incremental one are one code path and a second implementation of "served" or of the order of actions cannot
 /// exist (trap 96).
 /// </summary>

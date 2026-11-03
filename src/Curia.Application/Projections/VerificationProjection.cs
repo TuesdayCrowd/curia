@@ -157,6 +157,9 @@ public static class VerificationProjector
         return new VerificationFold(states.ToImmutable(), anomalies.ToImmutable());
     }
 
+    /// <summary>The one definition of "a vote" by kind: <see cref="TargetOf"/> reads a target of no other kind, and the append guard's filter keeps no other (errata G57, ruling 49).</summary>
+    public static bool IsVoteKind(string kind) => PostKinds.TryParse(kind, out var parsed) && parsed is PostKind.Vote;
+
     /// <summary>
     /// The <c>target</c> a vote or verification names, re-read from its canonical bytes, or
     /// <see langword="null"/> for any other kind or an unreadable canonical. For the ingest path's
@@ -166,7 +169,7 @@ public static class VerificationProjector
     {
         ArgumentNullException.ThrowIfNull(post);
 
-        if (!PostKinds.TryParse(post.Kind, out var kind) || kind is not PostKind.Vote) return null;
+        if (!IsVoteKind(post.Kind)) return null;
 
         var parsed = JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(post.Canonical));
         if (!parsed.TryGetValue(out var value, out _) || value is not JsonValue.Object root) return null;

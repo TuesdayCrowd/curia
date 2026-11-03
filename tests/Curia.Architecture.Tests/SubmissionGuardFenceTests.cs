@@ -8,7 +8,7 @@ namespace Curia.Architecture.Tests;
 
 /// <summary>
 /// R6.60, R8.86 (errata G57, rulings 49 to 53): the guard builds a view only of what it could use. LCB39: <c>new PostView(</c> appears once in <c>src/</c>, in <c>ReadView</c>, so the legs and
-/// <c>SubmissionGuard</c> build none and a post has one definition (trap 96). LCB28's counter, as a floor: <c>SubmissionGuard</c> has no call to <c>LogFacts.Extend</c> (the successor leg no longer copies the
+/// <c>SubmissionGuard</c> build none and a post has one definition (trap 96); the IL form of LCB39 adds the <c>with</c> expression and the target-typed <c>new(</c>, which the text does not show. LCB28's counter, as a floor: <c>SubmissionGuard</c> has no call to <c>LogFacts.Extend</c> (the successor leg no longer copies the
 /// read's posts); the allocation probes (LCB28, LCB35) carry the claim and this pins a name (trap 118).
 /// </summary>
 [SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
@@ -51,6 +51,46 @@ public sealed partial class SubmissionGuardFenceTests
 
         Said("1 construction of PostView in src: PostProjection.cs (ReadView)", $"{calls.Count} construction{(calls.Count == 1 ? string.Empty : "s")} of PostView in src: {string.Join(", ", calls)}");
     }
+
+    /// <summary>
+    /// LCB39 (the IL form). The source scan above sees <c>new PostView(</c> and nothing else; a <c>with</c> expression on the record and a target-typed <c>new(</c> construct a <c>PostView</c> without that text. In the
+    /// IL of every production assembly of this solution the callers of <c>PostView</c>'s constructors and of its record clone are exactly <c>PostProjector.ReadView</c>.
+    /// </summary>
+    [Fact]
+    public void R8_86_LCB39_OnlyReadViewConstructsOrClonesAPostViewInTheIL()
+    {
+        var callers = new SortedSet<string>(StringComparer.Ordinal);
+        var assemblies = Directory.EnumerateFiles(AppContext.BaseDirectory, "Curia.*.dll")
+            .Concat(Directory.EnumerateFiles(AppContext.BaseDirectory, "Curia.dll"))
+            .Where(f => !Path.GetFileName(f).Contains(".Tests.", StringComparison.Ordinal))
+            .ToArray();
+
+        void Walk(TypeDefinition t)
+        {
+            if (t.FullName != "Curia.Application.Projections.PostView")
+                foreach (var method in t.Methods.Where(m => m.HasBody))
+                    foreach (var instruction in method.Body.Instructions)
+                        if (instruction.OpCode.Code is Code.Call or Code.Callvirt or Code.Newobj && instruction.Operand is MethodReference callee
+                            && callee.DeclaringType.FullName == "Curia.Application.Projections.PostView"
+                            && (callee.Name == ".ctor" || callee.Name == "<Clone>$"))
+                            callers.Add(OuterName(t) + "." + MethodName(t, method));
+
+            foreach (var nested in t.NestedTypes) Walk(nested);
+        }
+
+        foreach (var file in assemblies)
+        {
+            using var module = ModuleDefinition.ReadModule(file);
+            foreach (var type in module.Types) Walk(type);
+        }
+
+        Said("PostView is constructed or cloned by: Curia.Application.Projections.PostProjector.ReadView", "PostView is constructed or cloned by: " + string.Join(", ", callers));
+    }
+
+    private static string OuterName(TypeDefinition t) => t.DeclaringType is { } outer ? OuterName(outer) : t.FullName;
+
+    // a lambda or closure in ReadView is compiled into a method of a nested type; it is named by the method that owns it where the compiler says so
+    private static string MethodName(TypeDefinition t, MethodDefinition m) => t.DeclaringType is null ? m.Name : m.Name.Trim('<', '>').Split('>')[0];
 
     /// <summary>LCB28 (the counter, as a floor). <c>SubmissionGuard</c>, its closures included, has no call to <c>LogFacts.Extend</c>.</summary>
     [Fact]
