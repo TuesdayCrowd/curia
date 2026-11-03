@@ -92,32 +92,33 @@ public static class PostProjector
     /// <summary>
     /// The posts of <paramref name="posts"/> followed by the posts of <paramref name="delta"/>, in seq order (errata G57, ruling 20). A post is a function of
     /// its own event, so extending is concatenation. <paramref name="delta"/> is checked as <see cref="Fold"/> checks a list, and the caller is responsible for
-    /// its first event lying above the last one <paramref name="posts"/> was folded from (<c>LogFacts.Extend</c> refuses a delta that does not).
+    /// its first event lying above the last one <paramref name="posts"/> was folded from (<c>LogFacts.Extend</c> refuses a delta that does not). This is the
+    /// filtered form with a predicate that keeps every post, so the whole fold, the incremental one and the filtered one are one code path (ruling 49).
     /// </summary>
-    public static ImmutableArray<PostView> Extend(ImmutableArray<PostView> posts, IReadOnlyList<AppendedEvent> delta)
-    {
-        var builder = (posts.IsDefault ? ImmutableArray<PostView>.Empty : posts).ToBuilder();
-        foreach (var (view, _) in Views(delta))
-            builder.Add(view);
-
-        return builder.ToImmutable();
-    }
+    public static ImmutableArray<PostView> Extend(ImmutableArray<PostView> posts, IReadOnlyList<AppendedEvent> delta) =>
+        Extend(posts, delta, KeepEverything);
 
     /// <summary>
-    /// <see cref="Extend(ImmutableArray{PostView}, IReadOnlyList{AppendedEvent})"/> restricted to the posts whose author and kind <paramref name="keep"/> accepts (errata G57, ruling 49).
+    /// <see cref="Extend(ImmutableArray{PostView}, IReadOnlyList{AppendedEvent})"/> restricted to the posts whose author and kind <paramref name="keep"/> accepts
+    /// (errata G57, ruling 49): the two members every post event carries are read from the payload first, and an event <paramref name="keep"/> drops builds nothing
+    /// (no dictionary of its members, no flag categories, no parse of its canonical text). The views it does build are the unfiltered extension's views of the same
+    /// events, in the same order, built by <see cref="ReadView"/>, the one place a <see cref="PostView"/> is constructed; an event <see cref="ReadView"/> would not
+    /// turn into a view (a payload missing a required member, an author or a kind that is not a string) turns into none here either. The list is checked as it is
+    /// walked, for every event, kept or dropped: an out-of-order list is refused whatever <paramref name="keep"/> drops.
     /// </summary>
+    /// <param name="keep">Whether a post of this author and this kind (in that order) is wanted.</param>
     public static ImmutableArray<PostView> Extend(ImmutableArray<PostView> posts, IReadOnlyList<AppendedEvent> delta, Func<string, string, bool> keep)
     {
         ArgumentNullException.ThrowIfNull(keep);
 
         var builder = (posts.IsDefault ? ImmutableArray<PostView>.Empty : posts).ToBuilder();
-        foreach (var (view, _) in Views(delta))
-        {
-            if (keep(view.Author, view.Kind)) builder.Add(view);
-        }
+        foreach (var view in Views(delta, keep))
+            builder.Add(view);
 
         return builder.ToImmutable();
     }
+
+    private static readonly Func<string, string, bool> KeepEverything = static (_, _) => true;
 
     /// <summary>
     /// R8.78, R8.84 (errata G55): the first stored post, in log order, whose digest is <paramref name="digest"/> (served or not), with the sequence of the event that
@@ -193,8 +194,8 @@ public static class PostProjector
         lastSeq = appended.Seq;
     }
 
-    /// <summary>The posts of a seq-ordered list with the sequence of each one's event, in seq order; the list is checked as it is walked.</summary>
-    private static IEnumerable<(PostView View, EventSequence Seq)> Views(IReadOnlyList<AppendedEvent> eventsInSeqOrder)
+    /// <summary>The posts of a seq-ordered list that <paramref name="keep"/> accepts, in seq order; the list is checked as it is walked, every event.</summary>
+    private static IEnumerable<PostView> Views(IReadOnlyList<AppendedEvent> eventsInSeqOrder, Func<string, string, bool> keep)
     {
         ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
 
@@ -205,10 +206,31 @@ public static class PostProjector
 
             if (appended.Event.Type.Value != PostAcceptedType) continue;
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
+            if (!AuthorAndKind(payload, out var author, out var kind)) continue;
+            if (!keep(author, kind)) continue;
 
             var view = ReadView(payload, appended);
-            if (view is not null) yield return (view, appended.Seq);
+            if (view is not null) yield return view;
         }
+    }
+
+    /// <summary>
+    /// The payload's <c>author</c> and <c>kind</c>, read as <see cref="ReadView"/> reads them (the last spelling of a member wins, and a member that is not a string is none), without
+    /// building anything else. <see langword="false"/> when either is none, which is when <see cref="ReadView"/> builds no view.
+    /// </summary>
+    private static bool AuthorAndKind(JsonValue.Object payload, out string author, out string kind)
+    {
+        JsonValue? authorMember = null;
+        JsonValue? kindMember = null;
+        foreach (var member in payload.Members)
+        {
+            if (string.Equals(member.Key, "author", StringComparison.Ordinal)) authorMember = member.Value;
+            else if (string.Equals(member.Key, "kind", StringComparison.Ordinal)) kindMember = member.Value;
+        }
+
+        author = (authorMember as JsonValue.String)?.Value ?? string.Empty;
+        kind = (kindMember as JsonValue.String)?.Value ?? string.Empty;
+        return authorMember is JsonValue.String && kindMember is JsonValue.String;
     }
 
     /// <summary>

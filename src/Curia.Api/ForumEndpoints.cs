@@ -1161,8 +1161,8 @@ public static class ForumEndpoints
     /// <summary>
     /// R6.60, R8.86 (errata G57): the one place a failed append's error is given the status of a guard's answer: the three refusals are <c>409</c> as the route's own
     /// checks answer them, a delta over the cap is <c>503</c>, anything else is not a guard's (<see langword="null"/>).
-    /// The route's own <c>revision-check-unavailable</c> (<c>503</c>) is not mapped because a guard cannot return it: the original is in the facts it was built
-    /// from and <see cref="LogFacts.Extend"/> only adds.
+    /// The route's own <c>revision-check-unavailable</c> (<c>503</c>) is not mapped because a guard cannot return it: a guard whose original is not among the facts it was
+    /// built from proceeds (there is nothing a refusal could be made from), and one whose original is there only adds to what it checks.
     /// </summary>
     private static int? GuardRefusalStatus(Error error) => error.Type switch
     {

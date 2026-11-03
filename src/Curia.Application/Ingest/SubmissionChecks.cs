@@ -37,10 +37,38 @@ public static class SubmissionChecks
         if (original is null)
             return IngestErrors.RevisionCheckUnavailable();
 
-        var served = CorrectionIndex.SuccessorsOf(posts, original, facts.Servable).FirstOrDefault(successor => successor.PostId is not null);
+        return StandingSuccessor(posts, original, facts.Servable);
+    }
+
+    /// <summary>
+    /// The one definition of a standing successor (R8.77, trap 96): <c>already-revised</c>, naming the first post of <paramref name="posts"/> (in the order given) that
+    /// <see cref="CorrectionIndex"/> says corrects <paramref name="original"/> and <paramref name="servable"/> says the Forum serves; <see langword="null"/> when none.
+    /// The route asks it of the facts of its read; the append's guard asks it of the read's candidates (the posts whose <c>prev</c> is the original's digest, served or not)
+    /// followed by the delta's revisions by the original's author, with "served" read after the delta's moderation (errata G57, ruling 49), so the first in log order is the
+    /// same post on both paths.
+    /// </summary>
+    public static Error? StandingSuccessor(IEnumerable<PostView> posts, PostView original, Func<string, bool> servable)
+    {
+        ArgumentNullException.ThrowIfNull(posts);
+        ArgumentNullException.ThrowIfNull(original);
+        ArgumentNullException.ThrowIfNull(servable);
+
+        var served = CorrectionIndex.SuccessorsOf(posts, original, servable).FirstOrDefault(successor => successor.PostId is not null);
         return served is { PostId: { } successorPostId }
             ? IngestErrors.AlreadyRevised(successorPostId)
             : null;
+    }
+
+    /// <summary>
+    /// The posts of <paramref name="facts"/> whose <c>prev</c> is <paramref name="original"/>'s digest, served or not: the successors a delta can make stand again (a restore) and
+    /// no others. Made outside the log's lock, where the guard is built (errata G57, ruling 49).
+    /// </summary>
+    public static ImmutableArray<PostView> SuccessorCandidates(LogFacts facts, PostView original)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(original);
+
+        return [.. facts.Posts.Where(p => string.Equals(p.Prev, original.Digest, StringComparison.Ordinal))];
     }
 
     /// <summary>

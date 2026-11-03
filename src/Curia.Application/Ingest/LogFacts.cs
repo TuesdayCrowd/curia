@@ -8,8 +8,9 @@ namespace Curia.Application.Ingest;
 /// <summary>
 /// Errata G57, ruling 20: what a request's checks read from the log it decided on -- the posts, the moderation state, and the sequence of the last event of the
 /// list they were folded from -- as a value a guard can be handed. The route folds its read once (lazily: a kind that checks nothing but a digest never pays for
-/// the fold, and the fold is forced when <c>SubmissionGuard.For</c> builds the guard of a revision or a vote, which is outside the log's lock); the guard folds
-/// only the events appended since, with <see cref="Extend"/>. <see cref="PostProjector.Fold"/> and <see cref="FlagProjector.Fold"/> are defined as the
+/// the fold, and the fold is forced when <c>SubmissionGuard.For</c> builds the guard of a revision or a vote, which is outside the log's lock). The guard does not
+/// extend these facts (ruling 49): it takes the read's candidates from them when it is built and reads only the moderation of the events appended since, with
+/// <see cref="ServableAfter"/>; <see cref="Extend"/> serves the route's other consumers. <see cref="PostProjector.Fold"/> and <see cref="FlagProjector.Fold"/> are defined as the
 /// extension of nothing, so the whole fold and the incremental one are one code path and a second implementation of "served" or of the order of actions cannot
 /// exist (trap 96).
 /// </summary>
