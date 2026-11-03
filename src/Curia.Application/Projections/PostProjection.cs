@@ -104,6 +104,22 @@ public static class PostProjector
     }
 
     /// <summary>
+    /// <see cref="Extend(ImmutableArray{PostView}, IReadOnlyList{AppendedEvent})"/> restricted to the posts whose author and kind <paramref name="keep"/> accepts (errata G57, ruling 49).
+    /// </summary>
+    public static ImmutableArray<PostView> Extend(ImmutableArray<PostView> posts, IReadOnlyList<AppendedEvent> delta, Func<string, string, bool> keep)
+    {
+        ArgumentNullException.ThrowIfNull(keep);
+
+        var builder = (posts.IsDefault ? ImmutableArray<PostView>.Empty : posts).ToBuilder();
+        foreach (var (view, _) in Views(delta))
+        {
+            if (keep(view.Author, view.Kind)) builder.Add(view);
+        }
+
+        return builder.ToImmutable();
+    }
+
+    /// <summary>
     /// R8.78, R8.84 (errata G55): the first stored post, in log order, whose digest is <paramref name="digest"/> (served or not), with the sequence of the event that
     /// holds it; <see langword="null"/> when none. The one definition of "this digest is recorded": the refusal of a repeat, the confirm of a faulted append and the
     /// append's own guard (errata G57) all call it, so they cannot answer differently. The list is checked as <see cref="Fold"/> checks it, whole, before a match is

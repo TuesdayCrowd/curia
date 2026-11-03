@@ -26,13 +26,13 @@ public sealed class LogFactsTests
     private const string Voter = "https://agents.example/voter";
     private const string Voter2 = "https://agents.example/voter-two";
 
-    private static void Said(string expected, string actual)
+    internal static void Said(string expected, string actual)
     {
         if (!string.Equals(expected, actual, StringComparison.Ordinal))
             throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }
 
-    private static string Show(PostView p) =>
+    internal static string Show(PostView p) =>
         string.Join("|", p.PostId, p.Digest, p.Author, p.Board, p.Kind, p.Parent, p.Prev, p.Canonical, p.Signature, p.ServerTimestamp.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture), string.Join(",", p.RiskFlagCategories), p.PossibleDuplicateOf);
 
     private static string Show(KeyValuePair<string, PostModeration> m) =>
@@ -323,22 +323,28 @@ public sealed class LogFactsTests
             said.Add($"{kind}: {(passes is >= 0 and <= 4 ? "a fixed number of passes (0 to 4)" : $"{extra} more inspections for 18 more events")} over the delta");
         }
 
-        // Amended by ruling 31: the vote leg reads no post of the read under the lock, so what it allocates does not grow with the read (the successor leg still extends the read's posts and is not asked).
-        var allocated = new List<long>();
-        foreach (var posts in new[] { 1, 400 })
+        // Amended by ruling 31 and ruling 49: neither leg reads a post of the read under the lock, and neither copies the read's posts, so what a leg allocates does not grow with the read.
+        // (The plan asked for a counter on LogFacts.Extend; there is no seam that counts a call without production code that exists for a test. The allocation is what the call costs, and
+        // SubmissionGuardFenceTests holds that SubmissionGuard has no call to it.) The original is a post of the read, so the successor leg has work to do.
+        foreach (var kind in new[] { PostKind.Vote, PostKind.Revision })
         {
-            var grown = new LateCommitLog();
-            for (var i = 0; i < posts; i++) await grown.AppendPostAsync($"Q{i:D4}", "question", Author, "{\"kind\":\"question\"}");
-            var grownRead = await grown.ReadAsync();
-            await grown.AppendOtherAsync("test.unrelated");
-            await grown.AppendOtherAsync("test.unrelated");
-            var grownDelta = (await grown.ReadAsync()).Skip(grownRead.Count).ToArray();
-            var voteGuard = SubmissionGuard.For(LogFacts.Of(grownRead), await SubmissionOf.KindAsync(PostKind.Vote, Author));
-            allocated.Add(AllocatedBy(voteGuard, grownDelta));
-        }
+            var allocated = new List<long>();
+            foreach (var posts in new[] { 1, 400 })
+            {
+                var grown = new LateCommitLog();
+                await grown.AppendPostAsync("Q0000", "question", "https://agents.example/alice", "{\"kind\":\"question\"}", "sha256:" + new string('a', 64));
+                for (var i = 1; i < posts; i++) await grown.AppendPostAsync($"Q{i:D4}", "question", Author, "{\"kind\":\"question\"}");
+                var grownRead = await grown.ReadAsync();
+                await grown.AppendOtherAsync("test.unrelated");
+                await grown.AppendOtherAsync("test.unrelated");
+                var grownDelta = (await grown.ReadAsync()).Skip(grownRead.Count).ToArray();
+                var legGuard = SubmissionGuard.For(LogFacts.Of(grownRead), await SubmissionOf.KindAsync(kind, Author));
+                allocated.Add(AllocatedBy(legGuard, grownDelta));
+            }
 
-        expected.Add($"Vote: the function's allocation at a read of 400 posts within {AllocationSlack} bytes of its allocation at a read of 1");
-        said.Add($"Vote: the function's allocation at a read of 400 posts {(allocated[1] <= allocated[0] + AllocationSlack ? $"within {AllocationSlack} bytes of" : $"{allocated[1]} bytes against {allocated[0]} bytes, beyond")} its allocation at a read of 1");
+            expected.Add($"{kind}: the function's allocation at a read of 400 posts within {AllocationSlack} bytes of its allocation at a read of 1");
+            said.Add($"{kind}: the function's allocation at a read of 400 posts {(allocated[1] <= allocated[0] + AllocationSlack ? $"within {AllocationSlack} bytes of" : $"{allocated[1]} bytes against {allocated[0]} bytes, beyond")} its allocation at a read of 1");
+        }
 
         Said(string.Join(" | ", expected), string.Join(" | ", said));
     }
