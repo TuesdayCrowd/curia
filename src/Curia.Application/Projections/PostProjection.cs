@@ -144,17 +144,7 @@ public static class PostProjector
         foreach (var member in payload.Members)
         {
             if (member.Value is not JsonValue.String text) continue;
-            var bit = member.Key switch
-            {
-                "post_id" => 1,
-                "canonical" => 2,
-                "signature" => 4,
-                "digest" => 8,
-                "author" => 16,
-                "board" => 32,
-                "kind" => 64,
-                _ => 0,
-            };
+            var bit = RequiredMemberBit(member.Key);
             if (bit == 0) continue;
             seen |= bit;
             if (bit == 1) postId = text.Value;
@@ -163,6 +153,17 @@ public static class PostProjector
 
         return seen == 127 && digestMatches;
     }
+
+    // Not a string switch: seven cases compile (in Debug) to a hash helper in <PrivateImplementationDetails>, a type CS-7's dependency rule does not admit.
+    private static int RequiredMemberBit(string key) =>
+        string.Equals(key, "post_id", StringComparison.Ordinal) ? 1
+        : string.Equals(key, "canonical", StringComparison.Ordinal) ? 2
+        : string.Equals(key, "signature", StringComparison.Ordinal) ? 4
+        : string.Equals(key, "digest", StringComparison.Ordinal) ? 8
+        : string.Equals(key, "author", StringComparison.Ordinal) ? 16
+        : string.Equals(key, "board", StringComparison.Ordinal) ? 32
+        : string.Equals(key, "kind", StringComparison.Ordinal) ? 64
+        : 0;
 
     private static void CheckAscending(AppendedEvent appended, ref EventSequence lastSeq, string paramName)
     {

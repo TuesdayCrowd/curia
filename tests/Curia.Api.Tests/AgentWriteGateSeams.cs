@@ -8,6 +8,8 @@ using Curia.Domain;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Search;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
@@ -197,6 +199,26 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     /// <summary>The whole-log reads served since the host started (a forward read is what <c>ReadAllAsync</c> makes).</summary>
     internal int ForwardReads => Volatile.Read(ref _reads);
 
+    // The reader of the BRB16 and BRB17 contamination, found with a stack sample taken at each read while an append was parked: the vector catch-up
+    // (EmbeddingCatchUp.RunOnceAsync and RetryAsync) of the host, retrying posts that earlier tests of the class left pending, reads the log through this very
+    // store. ForwardReads counts every read on the store, so B was charged with it. Reads are therefore also recorded with the number of the HTTP request they
+    // were made under (a middleware numbers each request and flows the number to its callees as an ambient value); a read made under no request carries 0.
+    private static readonly AsyncLocal<long> CurrentRequest = new();
+    private long _requestsStarted;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<long> _readRequests = new();
+
+    /// <summary>Numbers the request now beginning and makes the number ambient for everything it calls; the host's middleware calls it.</summary>
+    internal void BeginRequest() => CurrentRequest.Value = Interlocked.Increment(ref _requestsStarted);
+
+    /// <summary>The number of the last request to begin (0 before any).</summary>
+    internal long RequestsStarted => Volatile.Read(ref _requestsStarted);
+
+    /// <summary>
+    /// The forward reads made on the request path of requests that began after request number <paramref name="afterRequest"/>: a read by the host's background
+    /// work, or by a request begun earlier, is not counted. This is "what B read".
+    /// </summary>
+    internal int ForwardReadsOfRequestsAfter(long afterRequest) => _readRequests.Count(r => r > afterRequest);
+
     /// <summary>The appends the real store refused with a concurrency conflict.</summary>
     internal int ConcurrencyConflicts => Volatile.Read(ref _conflicts);
 
@@ -372,6 +394,7 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _reads);
+        _readRequests.Enqueue(CurrentRequest.Value);
         return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
 }
@@ -576,10 +599,27 @@ public sealed class AgentWriteGateForumFixture : ForumFixture
         return registered;
     }
 
+    /// <summary>Numbers every HTTP request on the host's store, outermost, so a read can be attributed to the request it was made for (see <see cref="ParkingEventStore.BeginRequest"/>).</summary>
+    [SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Instantiated by the host's service provider as an IStartupFilter.")]
+    private sealed class RequestNumberingFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            var store = (ParkingEventStore)app.ApplicationServices.GetRequiredService<IEventStore>();
+            app.Use(async (context, following) =>
+            {
+                store.BeginRequest();
+                await following(context).ConfigureAwait(false);
+            });
+            next(app);
+        };
+    }
+
     protected override void ConfigureStore(IServiceCollection services)
     {
         var fixture = this;
         services.AddSingleton(_ => new GateSequence());
+        services.AddTransient<IStartupFilter, RequestNumberingFilter>();
 
         var store = Registered<IEventStore>(services);
         services.Remove(store);
