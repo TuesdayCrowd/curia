@@ -59,6 +59,19 @@ internal sealed class InMemoryEventStore : IEventStore
         return AppendCore(aggregateId, expectedVersion, events, condition);
     }
 
+    // R6.60 (errata G57), the seam: the guard is accepted and not yet evaluated, so this append is the one above.
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition,
+        AppendGuard guard,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(guard);
+        return AppendCore(aggregateId, expectedVersion, events, condition);
+    }
+
     private Task<Result<IReadOnlyList<AppendedEvent>>> AppendCore(
         AggregateId aggregateId,
         AggregateVersion expectedVersion,

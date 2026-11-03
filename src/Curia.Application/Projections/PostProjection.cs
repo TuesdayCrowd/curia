@@ -53,8 +53,12 @@ public sealed record PostView(
     string? Prev = null,
     string? PossibleDuplicateOf = null);
 
-/// <summary>A post found by digest (<see cref="PostProjector.FirstWithDigest"/>) and the sequence of the event that holds it.</summary>
-public sealed record DigestMatch(PostView Post, EventSequence Sequence);
+/// <summary>
+/// A post found by digest (<see cref="PostProjector.FirstWithDigest"/>): the members a caller uses to say "this digest is recorded" -- the post id, the digest,
+/// the stored instant -- and the sequence of the event that holds it. Not a <see cref="PostView"/>: the lookup reads only what it compares (errata G57, ruling 21),
+/// and a view built without its derived members would say a revision has no <c>prev</c>.
+/// </summary>
+public sealed record DigestMatch(string PostId, string Digest, ServerTimestamp ServerTimestamp, EventSequence Sequence);
 
 /// <summary>
 /// Builds the post read model purely from the event stream -- R11.9's "all read models SHALL be
@@ -76,38 +80,100 @@ public static class PostProjector
     public const string PostAcceptedType = "post.accepted";
 
     /// <summary>
-    /// Folds a seq-ordered event list into posts, in seq order.
+    /// Folds a seq-ordered event list into posts, in seq order. Defined as <see cref="Extend"/> of nothing, so the whole fold and the incremental one are one
+    /// code path (errata G57, ruling 20).
     ///
-    /// <para>Events of other types are skipped rather than rejected: the log is the system of
-    /// record for everything, and a projection that failed on an event type it does not model
-    /// would break every time an unrelated feature added one.</para>
+    /// <para>Events of other types are skipped rather than rejected: the log is the system of record for everything, and a projection that failed on an event
+    /// type it does not model would break every time an unrelated feature added one.</para>
     /// </summary>
-    public static ImmutableArray<PostView> Fold(IReadOnlyList<AppendedEvent> eventsInSeqOrder)
-    {
-        var posts = ImmutableArray.CreateBuilder<PostView>();
-        foreach (var (view, _) in Views(eventsInSeqOrder))
-            posts.Add(view);
+    public static ImmutableArray<PostView> Fold(IReadOnlyList<AppendedEvent> eventsInSeqOrder) =>
+        Extend([], eventsInSeqOrder);
 
-        return posts.ToImmutable();
+    /// <summary>
+    /// The posts of <paramref name="posts"/> followed by the posts of <paramref name="delta"/>, in seq order (errata G57, ruling 20). A post is a function of
+    /// its own event, so extending is concatenation. <paramref name="delta"/> is checked as <see cref="Fold"/> checks a list, and the caller is responsible for
+    /// its first event lying above the last one <paramref name="posts"/> was folded from (<c>LogFacts.Extend</c> refuses a delta that does not).
+    /// </summary>
+    public static ImmutableArray<PostView> Extend(ImmutableArray<PostView> posts, IReadOnlyList<AppendedEvent> delta)
+    {
+        var builder = (posts.IsDefault ? ImmutableArray<PostView>.Empty : posts).ToBuilder();
+        foreach (var (view, _) in Views(delta))
+            builder.Add(view);
+
+        return builder.ToImmutable();
     }
 
     /// <summary>
     /// R8.78, R8.84 (errata G55): the first stored post, in log order, whose digest is <paramref name="digest"/> (served or not), with the sequence of the event that
-    /// holds it; <see langword="null"/> when none. The one definition of "this digest is recorded": the refusal of a repeat and the confirm of a faulted append both
-    /// call it, so they cannot answer differently. The list is checked as <see cref="Fold"/> checks it, whole, before a match is returned.
+    /// holds it; <see langword="null"/> when none. The one definition of "this digest is recorded": the refusal of a repeat, the confirm of a faulted append and the
+    /// append's own guard (errata G57) all call it, so they cannot answer differently. The list is checked as <see cref="Fold"/> checks it, whole, before a match is
+    /// returned. It reads only what it compares (errata G57, ruling 21): the members that make an event a post, and the digest -- not the <c>prev</c> that
+    /// <see cref="Fold"/> parses out of every canonical text, which would be waste inside the log's lock.
     /// </summary>
     public static DigestMatch? FirstWithDigest(IReadOnlyList<AppendedEvent> eventsInSeqOrder, string digest)
     {
         ArgumentNullException.ThrowIfNull(digest);
+        ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
 
         DigestMatch? first = null;
-        foreach (var (view, seq) in Views(eventsInSeqOrder))
+        var lastSeq = EventSequence.Zero;
+        foreach (var appended in eventsInSeqOrder)
         {
-            if (first is null && string.Equals(view.Digest, digest, StringComparison.Ordinal))
-                first = new DigestMatch(view, seq);
+            CheckAscending(appended, ref lastSeq, nameof(eventsInSeqOrder));
+
+            if (first is not null) continue;
+            if (appended.Event.Type.Value != PostAcceptedType) continue;
+            if (appended.Event.Payload is not JsonValue.Object payload) continue;
+            if (!IsPostWithDigest(payload, digest, out var postId)) continue;
+
+            first = new DigestMatch(postId, digest, appended.ServerTimestamp, appended.Seq);
         }
 
         return first;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="payload"/> has the string members <see cref="ReadView"/> requires (the shape that makes an event a post) and a <c>digest</c> equal to
+    /// <paramref name="digest"/>; the post id is the <c>post_id</c> member. The two functions name the same set of posts (a probe holds it).
+    /// </summary>
+    private static bool IsPostWithDigest(JsonValue.Object payload, string digest, out string postId)
+    {
+        postId = string.Empty;
+        var seen = 0;
+        var digestMatches = false;
+        foreach (var member in payload.Members)
+        {
+            if (member.Value is not JsonValue.String text) continue;
+            var bit = member.Key switch
+            {
+                "post_id" => 1,
+                "canonical" => 2,
+                "signature" => 4,
+                "digest" => 8,
+                "author" => 16,
+                "board" => 32,
+                "kind" => 64,
+                _ => 0,
+            };
+            if (bit == 0) continue;
+            seen |= bit;
+            if (bit == 1) postId = text.Value;
+            if (bit == 8) digestMatches = string.Equals(text.Value, digest, StringComparison.Ordinal);
+        }
+
+        return seen == 127 && digestMatches;
+    }
+
+    private static void CheckAscending(AppendedEvent appended, ref EventSequence lastSeq, string paramName)
+    {
+        if (appended.Seq < lastSeq)
+            throw new ArgumentException(
+                "Events must arrive in ascending seq order; every IEventReader this solution " +
+                "ships already guarantees that, so a violation means the caller did not get " +
+                "these from a store's forward scan.",
+                paramName);
+
+        lastSeq = appended.Seq;
     }
 
     /// <summary>The posts of a seq-ordered list with the sequence of each one's event, in seq order; the list is checked as it is walked.</summary>
@@ -118,14 +184,7 @@ public static class PostProjector
         var lastSeq = EventSequence.Zero;
         foreach (var appended in eventsInSeqOrder)
         {
-            if (appended.Seq < lastSeq)
-                throw new ArgumentException(
-                    "Events must arrive in ascending seq order; every IEventReader this solution " +
-                    "ships already guarantees that, so a violation means the caller did not get " +
-                    "these from a store's forward scan.",
-                    nameof(eventsInSeqOrder));
-
-            lastSeq = appended.Seq;
+            CheckAscending(appended, ref lastSeq, nameof(eventsInSeqOrder));
 
             if (appended.Event.Type.Value != PostAcceptedType) continue;
             if (appended.Event.Payload is not JsonValue.Object payload) continue;

@@ -94,6 +94,9 @@ public sealed class BudgetSeamsForumFixture : ForumFixture
         public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition condition, CancellationToken cancellationToken = default) =>
             inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken);
 
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition? condition, AppendGuard guard, CancellationToken cancellationToken = default) =>
+            inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken);
+
         public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default) =>
             inner.ReadByAggregateAsync(aggregateId, cancellationToken);
 

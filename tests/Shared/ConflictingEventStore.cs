@@ -115,6 +115,15 @@ internal sealed class ConflictingEventStore(IEventStore inner) : IEventStore
         CancellationToken cancellationToken = default) =>
         inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken);
 
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition,
+        AppendGuard guard,
+        CancellationToken cancellationToken = default) =>
+        inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken);
+
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
         AggregateId aggregateId,
         CancellationToken cancellationToken = default)

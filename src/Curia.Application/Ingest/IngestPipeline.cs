@@ -177,11 +177,38 @@ public sealed class IngestPipeline : IIngestPipeline
         ScreenedSubmission screened,
         CancellationToken cancellationToken = default)
     {
+        var prepared = Prepare(screened);
+        if (!prepared.TryGetValue(out var p, out var error)) return Result<PostAccepted>.Fail(error!);
+
+        var appended = await _events.AppendAsync(p!.Aggregate, AggregateVersion.New, [p.Event], p.Condition, cancellationToken).ConfigureAwait(false);
+        return appended.Map(events => new PostAccepted(p.PostId, p.ServerTs, p.Digest, events[0].Seq.Value));
+    }
+
+    /// <inheritdoc/>
+    public async Task<Result<PostAccepted>> PersistAsync(
+        ScreenedSubmission screened,
+        AppendGuard guard,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(guard);
+
+        var prepared = Prepare(screened);
+        if (!prepared.TryGetValue(out var p, out var error)) return Result<PostAccepted>.Fail(error!);
+
+        var appended = await _events.AppendAsync(p!.Aggregate, AggregateVersion.New, [p.Event], p.Condition, guard, cancellationToken).ConfigureAwait(false);
+        return appended.Map(events => new PostAccepted(p.PostId, p.ServerTs, p.Digest, events[0].Seq.Value));
+    }
+
+    /// <summary>What both PERSIST overloads append: the event, its aggregate, the stream condition and the receipt's members (errata G57: one body, two appends).</summary>
+    private sealed record PreparedAppend(string PostId, string Digest, ServerTimestamp ServerTs, AggregateId Aggregate, DomainEvent Event, StreamCondition Condition);
+
+    private Result<PreparedAppend> Prepare(ScreenedSubmission screened)
+    {
         ArgumentNullException.ThrowIfNull(screened);
 
         var id = _ids.Next();
         if (!id.TryGetValue(out var ulid, out var idError))
-            return Result<PostAccepted>.Fail(idError!);
+            return Result<PreparedAppend>.Fail(idError!);
 
         var postId = ulid.ToString();
         var digest = Digests.Sha256(screened.Canonical);
@@ -242,27 +269,19 @@ public sealed class IngestPipeline : IIngestPipeline
         var aggregate = AggregateId.Create(postId);
         var actor = ActorId.Create(screened.Inner.AuthorAgentId.Value);
 
-        if (!eventId.TryGetValue(out var evId, out var e1)) return Result<PostAccepted>.Fail(e1!);
-        if (!aggregate.TryGetValue(out var aggId, out var e2)) return Result<PostAccepted>.Fail(e2!);
-        if (!actor.TryGetValue(out var actorId, out var e3)) return Result<PostAccepted>.Fail(e3!);
+        if (!eventId.TryGetValue(out var evId, out var e1)) return Result<PreparedAppend>.Fail(e1!);
+        if (!aggregate.TryGetValue(out var aggId, out var e2)) return Result<PreparedAppend>.Fail(e2!);
+        if (!actor.TryGetValue(out var actorId, out var e3)) return Result<PreparedAppend>.Fail(e3!);
 
         var domainEvent = new DomainEvent(evId, PostAcceptedType, actorId, payload);
 
         // R6.56: conditioned on the author's stream being where VERIFY read it. A retirement (or any
         // entry) that joined it since makes this a condition conflict, and the caller decides again.
         if (!AggregateId.Create(screened.Inner.AuthorAgentId.Value).TryGetValue(out var authorAggregate, out var e4))
-            return Result<PostAccepted>.Fail(e4!);
+            return Result<PreparedAppend>.Fail(e4!);
 
-        var appended = await _events
-            .AppendAsync(
-                aggId,
-                AggregateVersion.New,
-                [domainEvent],
-                new StreamCondition(authorAggregate, screened.Inner.AuthorStream),
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        return appended.Map(events => new PostAccepted(postId, serverTs, digest.ToPrefixed(), events[0].Seq.Value));
+        return Result<PreparedAppend>.Ok(new PreparedAppend(
+            postId, digest.ToPrefixed(), serverTs, aggId, domainEvent, new StreamCondition(authorAggregate, screened.Inner.AuthorStream)));
     }
 
     /// <summary>

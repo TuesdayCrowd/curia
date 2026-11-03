@@ -132,6 +132,29 @@ public sealed class CorrectionIndex
         return current;
     }
 
-    private bool IsServed(PostView post) =>
-        PostKinds.TryParse(post.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && _servable(post.PostId);
+    /// <summary>
+    /// <see cref="For"/> by a linear scan of <paramref name="posts"/> (in log order) instead of an index built for the purpose (errata G57, ruling 20): the
+    /// same rule, <see cref="IsCorrection"/> and the serving test, for a caller that asks about one original once and cannot afford to build a lookup of the
+    /// whole log. A probe holds it equal to <see cref="For"/> on every log.
+    /// </summary>
+    public static ImmutableArray<Successor> SuccessorsOf(IEnumerable<PostView> posts, PostView original, Func<string, bool> servable)
+    {
+        ArgumentNullException.ThrowIfNull(posts);
+        ArgumentNullException.ThrowIfNull(original);
+        ArgumentNullException.ThrowIfNull(servable);
+
+        var successors = ImmutableArray.CreateBuilder<Successor>();
+        foreach (var post in posts)
+        {
+            if (IsCorrection(post, original))
+                successors.Add(new Successor(post.Digest, IsServed(post, servable) ? post.PostId : null));
+        }
+
+        return successors.ToImmutable();
+    }
+
+    private bool IsServed(PostView post) => IsServed(post, _servable);
+
+    private static bool IsServed(PostView post, Func<string, bool> servable) =>
+        PostKinds.TryParse(post.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && servable(post.PostId);
 }

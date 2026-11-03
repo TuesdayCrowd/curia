@@ -111,7 +111,7 @@ public static class AppendConfirmation
                     return new ConfirmOutcome.Unreadable();
 
                 if (PostProjector.FirstWithDigest(rows!, digest) is { } match)
-                    return new ConfirmOutcome.Found(match.Post.PostId, match.Post.Digest, match.Post.ServerTimestamp, match.Sequence);
+                    return new ConfirmOutcome.Found(match.PostId, match.Digest, match.ServerTimestamp, match.Sequence);
 
                 if (rows!.Count < EventReaderExtensions.PageSize)
                     return new ConfirmOutcome.Absent();

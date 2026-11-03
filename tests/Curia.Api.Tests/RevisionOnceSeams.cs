@@ -145,6 +145,18 @@ internal sealed class PausingEventStore(IEventStore inner) : IEventStore
         return await inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition,
+        AppendGuard guard,
+        CancellationToken cancellationToken = default)
+    {
+        await ParkIfRevisionAsync(events, cancellationToken).ConfigureAwait(false);
+        return await inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken).ConfigureAwait(false);
+    }
+
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
         AggregateId aggregateId,
         CancellationToken cancellationToken = default) =>

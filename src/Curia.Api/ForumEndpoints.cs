@@ -942,7 +942,7 @@ public static class ForumEndpoints
         BudgetEntry BudgetAfter(DateTimeOffset act) => BudgetReadout.After(BudgetKinds.Posting, postLimit, postInstants, act, now);
 
         if (v.Envelope.Kind is not PostKind.Revision || v.Envelope.Prev is not { Length: > 0 } prevDigest)
-            return await PersistSubmissionAsync(v, log, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, log, LogFacts.Of(log), pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
 
         var entered = await revisionGate.TryEnterAsync(prevDigest, cancellationToken).ConfigureAwait(false);
         if (!entered.TryGetValue(out var held, out var gateError))
@@ -961,10 +961,11 @@ public static class ForumEndpoints
             if (!read.TryGetValue(out var fresh, out var readError))
                 return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
 
-            if (RevisionRefusal(fresh!, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
+            var freshFacts = LogFacts.Of(fresh!);
+            if (RevisionRefusal(freshFacts, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
                 return refusal;
 
-            return await PersistSubmissionAsync(v, fresh!, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, fresh!, freshFacts, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -974,23 +975,14 @@ public static class ForumEndpoints
     /// first served successor in log order. "Served" is <see cref="CorrectionIndex.For"/>'s alone (through <see cref="Servable"/>), so this check, a
     /// post's <c>superseded_by</c> and the batch's <c>successors</c> cannot answer differently (R9.32); a successor the Forum does not serve does not count.
     /// </summary>
-    private static IResult? RevisionRefusal(IReadOnlyList<AppendedEvent> fresh, string prevDigest, string digest)
-    {
-        if (AlreadyRecordedPost(fresh, digest) is { } recordedPostId)
-            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(recordedPostId));
-
-        var posts = PostProjector.Fold(fresh);
-        var original = posts.FirstOrDefault(p => string.Equals(p.Digest, prevDigest, StringComparison.Ordinal));
-
-        // AUTHORIZE found this post in a log that has only grown, so its absence is a log this Forum cannot read now, never a pass.
-        if (original is null)
-            return Problem(StatusCodes.Status503ServiceUnavailable, IngestErrors.RevisionCheckUnavailable());
-
-        var served = CorrectionIndex.Fold(posts, Servable(fresh)).For(original).FirstOrDefault(successor => successor.PostId is not null);
-        return served is { PostId: { } successorPostId }
-            ? Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRevised(successorPostId))
+    private static IResult? RevisionRefusal(LogFacts facts, string prevDigest, string digest) =>
+        SubmissionChecks.RevisionRefusal(facts, prevDigest, digest) is { } refusal
+            ? Problem(
+                string.Equals(refusal.Type, IngestErrors.RevisionCheckUnavailableType, StringComparison.Ordinal)
+                    ? StatusCodes.Status503ServiceUnavailable
+                    : StatusCodes.Status409Conflict,
+                refusal)
             : null;
-    }
 
     /// <summary>
     /// The rest of <see cref="SubmitAttemptAsync"/>, decided on <paramref name="log"/>: the parent checks, the signal refusal, the near-duplicate
@@ -999,6 +991,7 @@ public static class ForumEndpoints
     private static async Task<IResult?> PersistSubmissionAsync(
         VerifiedSubmission v,
         IReadOnlyList<AppendedEvent> log,
+        LogFacts facts,
         IIngestPipeline pipeline,
         IEventReader events,
         IndexStep indexer,
@@ -1028,7 +1021,7 @@ public static class ForumEndpoints
             // parent checks (a withheld comment as an answer's parent is `parent-not-a-question`, the stored kind), after AUTHORIZE
             // (an under-tier caller is told the tier and never the post's state), before SCREEN and PERSIST (nothing stored, no
             // budget spent). `servable` is built from the log read above, so there is no second read and no caching (R7.4).
-            if (parentFacts is not null && !Servable(log)(parentFacts.PostId))
+            if (parentFacts is not null && !facts.Servable(parentFacts.PostId))
                 return Problem(StatusCodes.Status400BadRequest, ParentErrors.Withheld(submittedParent));
         }
 
@@ -1036,7 +1029,7 @@ public static class ForumEndpoints
         // target) is decided in the domain before anything is written. Here rather than in VERIFY
         // because the rules need the log; here rather than after SCREEN because a refused signal
         // should not be screened for content it will never persist.
-        if (PostKinds.RequiresTarget(v.Envelope.Kind) && SignalRefusal(log, v) is { } refused)
+        if (PostKinds.RequiresTarget(v.Envelope.Kind) && SignalRefusal(log, facts, v) is { } refused)
             return refused;
 
         // §8.5 (R8.17, R8.18; errata G10): the near-duplicate check, in the same place and for the
@@ -1076,7 +1069,7 @@ public static class ForumEndpoints
             Result<PostAccepted> accepted;
             try
             {
-                accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
+                accepted = await pipeline.PersistAsync(s!, SubmissionGuard.For(facts, v), cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -2255,7 +2248,7 @@ public static class ForumEndpoints
 
     /// <summary>R8.78: the id of the first stored post (served or not) whose digest is <paramref name="digest"/>, in log order; <see langword="null"/> when none.</summary>
     private static string? AlreadyRecordedPost(IReadOnlyList<AppendedEvent> log, string digest) =>
-        PostProjector.FirstWithDigest(log, digest)?.Post.PostId;
+        SubmissionChecks.AlreadyRecorded(log, digest);
 
     private static bool RevisesOwnPost(IReadOnlyList<AppendedEvent> log, string? prev, string author)
     {
@@ -2699,11 +2692,11 @@ public static class ForumEndpoints
     /// unattested submitter, not a result, another board -- are <see cref="VerificationPolicy.Refusal"/>'s,
     /// decided in the domain; this only gathers the facts it needs from the log.</para>
     /// </summary>
-    private static IResult? SignalRefusal(IReadOnlyList<AppendedEvent> log, VerifiedSubmission v)
+    private static IResult? SignalRefusal(IReadOnlyList<AppendedEvent> log, LogFacts facts, VerifiedSubmission v)
     {
         var target = v.Envelope.Target!;
-        var posts = PostProjector.Fold(log);
-        var servable = Servable(log);
+        var posts = facts.Posts;
+        var servable = facts.Servable;
         var standings = AgentStandingProjector.Fold(log);
 
         var targetPost = posts.FirstOrDefault(p =>
@@ -2722,10 +2715,8 @@ public static class ForumEndpoints
         // superseded by the same agent's later one (R8.56); a vote may not be recast, because a vote
         // that could be changed after the tally is visible is the thing epoch sealing exists to stop.
         if (v.Envelope.Kind is PostKind.Vote
-            && posts.Any(p => string.Equals(p.Author, v.AuthorAgentId.Value, StringComparison.Ordinal)
-                && servable(p.PostId)
-                && string.Equals(VerificationProjector.TargetOf(p), target, StringComparison.Ordinal)))
-            return Problem(StatusCodes.Status409Conflict, VerificationErrors.AlreadyVoted(target));
+            && SubmissionChecks.AlreadyVoted(facts, v.AuthorAgentId.Value, target) is { } alreadyVoted)
+            return Problem(StatusCodes.Status409Conflict, alreadyVoted);
 
         return null;
     }

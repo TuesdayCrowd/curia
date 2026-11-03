@@ -97,6 +97,19 @@ public sealed class PostgresEventStore : IEventStore
         return AppendCoreAsync(aggregateId, expectedVersion, events, condition, cancellationToken);
     }
 
+    // R6.60 (errata G57), the seam: the guard is accepted and not yet read, so this append is the one above.
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition,
+        AppendGuard guard,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(guard);
+        return AppendCoreAsync(aggregateId, expectedVersion, events, condition, cancellationToken);
+    }
+
     /// <summary>
     /// The one core every INSERT into <c>events</c> passes (R4.38 (add.)): the lifecycle gate is asked
     /// after the batch is admitted and before a connection is opened, so a refused append costs no round

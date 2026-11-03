@@ -79,6 +79,23 @@ public sealed class AcceptAnswerIdempotenceTests
             return await inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken).ConfigureAwait(false);
         }
 
+        public async Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+            AggregateId aggregateId,
+            AggregateVersion expectedVersion,
+            IReadOnlyList<DomainEvent> events,
+            StreamCondition? condition,
+            AppendGuard guard,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_raced)
+            {
+                _raced = true;
+                await rival().ConfigureAwait(false);
+            }
+
+            return await inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken).ConfigureAwait(false);
+        }
+
         public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
             AggregateId aggregateId,
             CancellationToken cancellationToken = default) =>

@@ -234,6 +234,10 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
         AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition condition, CancellationToken cancellationToken = default) =>
         AppendCoreAsync(token => inner.AppendAsync(aggregateId, expectedVersion, events, condition, token), cancellationToken);
 
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition? condition, AppendGuard guard, CancellationToken cancellationToken = default) =>
+        AppendCoreAsync(token => inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, token), cancellationToken);
+
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "The deferred commit runs on a task nobody awaits; whatever it throws is handed to the probe through LateCommitted.")]
     private async Task<Result<IReadOnlyList<AppendedEvent>>> AppendCoreAsync(
         Func<CancellationToken, Task<Result<IReadOnlyList<AppendedEvent>>>> append, CancellationToken cancellationToken)
