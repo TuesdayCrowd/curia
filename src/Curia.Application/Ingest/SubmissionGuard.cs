@@ -38,13 +38,18 @@ public static class SubmissionGuard
 
         if (envelope.Kind is PostKind.Vote && envelope.Target is { } target)
         {
-            facts.Force();
-            var author = submission.AuthorAgentId.Value;
-            return new AppendGuard(facts.Position, delta =>
-                Verdict(RecordedIn(delta, digest) ?? SubmissionChecks.AlreadyVoted(facts.Extend(delta), author, target)));
+            return ForVote(facts, digest, submission.AuthorAgentId.Value, target);
         }
 
         return new AppendGuard(facts.Position, delta => Verdict(RecordedIn(delta, digest)));
+    }
+
+    /// <summary>The vote leg on its own, by the facts, the digest of the vote, its author and its target (the guard <see cref="For"/> builds for a vote; a probe asks it for any author and target).</summary>
+    internal static AppendGuard ForVote(LogFacts facts, string digest, string author, string target)
+    {
+        facts.Force();
+        return new AppendGuard(facts.Position, delta =>
+            Verdict(RecordedIn(delta, digest) ?? SubmissionChecks.AlreadyVoted(facts.Extend(delta), author, target)));
     }
 
     private static GuardVerdict Verdict(Error? refusal) => refusal is null ? GuardVerdict.Proceed : GuardVerdict.Refuse(refusal);

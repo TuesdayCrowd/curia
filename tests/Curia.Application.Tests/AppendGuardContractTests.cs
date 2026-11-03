@@ -306,18 +306,21 @@ public abstract class AppendGuardContractTests
         said.Add($"from the start, a delta of {cap}: " + ShapeOf(c1, exactSeqs));
 
         var longer = CreateStore();
-        var longSeqs = await SeedBulkAsync(longer, cap + 5000, "long");
-        var (g2, c2) = Recording(Seq(longSeqs[4999]));
+        const int lead = 5000;
+        var longSeqs = await SeedBulkAsync(longer, cap + lead, "long");
+        var (g2, c2) = Recording(Seq(longSeqs[lead - 1]));
         Require(await longer.AppendAsync(Agg("lcb9-middle"), AggregateVersion.New, [Ev("lcb9-2")], null, g2, Ct));
         expected.Add($"from the middle, a delta of {cap}: one call, complete and ascending");
-        said.Add($"from the middle, a delta of {cap}: " + ShapeOf(c2, longSeqs.Skip(5000).ToList()));
+        said.Add($"from the middle, a delta of {cap}: " + ShapeOf(c2, longSeqs.Skip(lead).ToList()));
 
         var before = await CountAsync(longer);
-        var (g3, c3) = Recording(Seq(longSeqs[4998]));
+        var (g3, c3) = Recording(Seq(longSeqs[lead - 2]));
         var over = await longer.AppendAsync(Agg("lcb9-over"), AggregateVersion.New, [Ev("lcb9-3")], null, g3, Ct);
         var tooLarge = PublishedLateCommitWords.DeltaTooLarge();
         expected.Add($"one over the cap: Fail({tooLarge.Type}), the guard was not called, the log unchanged");
         said.Add($"one over the cap: {over.Match(ok => $"Ok(seq {ok[0].Seq.Value})", e => $"Fail({e.Type})")}, {CallsSaid(c3)}, the log {(await CountAsync(longer) == before ? "unchanged" : "grew")}");
+        expected.Add($"the refusal's title is the published one: {tooLarge.Title}");
+        said.Add($"the refusal's title is the published one: {over.Match(ok => "(none, appended)", e => e.Title)}");
 
         Equal(string.Join(" | ", expected), string.Join(" | ", said));
         var next = await longer.AppendAsync(Agg("lcb9-next"), AggregateVersion.New, [Ev("lcb9-4")], Ct);

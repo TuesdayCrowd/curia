@@ -2,6 +2,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Ingest;
+using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Canon.Json;
 using Curia.Domain;
@@ -23,6 +24,7 @@ public sealed class LogFactsTests
 {
     private const string Author = "https://agents.example/author";
     private const string Voter = "https://agents.example/voter";
+    private const string Voter2 = "https://agents.example/voter-two";
 
     private static void Said(string expected, string actual)
     {
@@ -57,7 +59,8 @@ public sealed class LogFactsTests
                     posts.Add(id);
                     break;
                 case 2 when earlier is not null:
-                    await log.AppendPostAsync(id, "vote", Voter, LateCommitLog.VoteCanonical(Voter, "board", LateCommitLog.Digest(earlier), "n" + i));
+                    var who = pick % 2 == 0 ? Voter : Voter2;
+                    await log.AppendPostAsync(id, "vote", who, LateCommitLog.VoteCanonical(who, "board", LateCommitLog.Digest(earlier), "n" + i));
                     posts.Add(id);
                     break;
                 case 3 when earlier is not null:
@@ -115,7 +118,8 @@ public sealed class LogFactsTests
                 var same = extended.Position == whole.Position
                     && extended.Posts.Select(Show).SequenceEqual(whole.Posts.Select(Show))
                     && extended.Moderation.OrderBy(m => m.Key, StringComparer.Ordinal).Select(Show).SequenceEqual(whole.Moderation.OrderBy(m => m.Key, StringComparer.Ordinal).Select(Show))
-                    && Answers(extended, basis) == Answers(whole, basis);
+                    && Answers(extended, basis) == Answers(whole, basis)
+                    && LeanMismatch([.. log.Take(k)], [.. log.Skip(k)], whole, basis, [Voter]) is null;
                 if (!same) problems.Add($"split {k} of {log.Count}");
                 if (k < log.Count && k > 0)
                 {
@@ -126,6 +130,147 @@ public sealed class LogFactsTests
         }, iter: 60);
 
         Said("every split equals the whole", problems.Count == 0 ? "every split equals the whole" : $"{problems.Count} splits differ, the first: {problems[0]}");
+    }
+
+    /// <summary>
+    /// What the vote leg answers for a read and a delta, against the fold of the whole: for each author and each target (every post's digest and one that names no post), the guard's verdict
+    /// (<c>Proceed</c> or the refusal's type) must equal <c>AlreadyVoted(Of(read ++ delta))</c>. The first difference is returned, or <see langword="null"/>. An empty delta is not asked (the store
+    /// never evaluates one).
+    /// </summary>
+    private static string? LeanMismatch(IReadOnlyList<AppendedEvent> read, IReadOnlyList<AppendedEvent> delta, LogFacts whole, IReadOnlyList<PostView> basis, string[] authors)
+    {
+        if (delta.Count == 0) return null;
+        foreach (var author in authors)
+        {
+            foreach (var target in basis.Select(p => p.Digest).Append("sha256:none"))
+            {
+                var expected = SubmissionChecks.AlreadyVoted(whole, author, target)?.Type ?? "proceed";
+                var got = VerdictOf(SubmissionGuard.ForVote(LogFacts.Of(read), "sha256:new", author, target).Evaluate(delta));
+                if (!string.Equals(expected, got, StringComparison.Ordinal))
+                    return $"{author} for {target}: the whole says {expected}, the guard {got}";
+            }
+        }
+
+        return null;
+    }
+
+    private static string VerdictOf(GuardVerdict verdict) => verdict.Match(() => "proceed", e => e.Type, () => "redecide");
+
+    /// <summary>
+    /// LCB31. The lean vote answer equals the fold of the whole, at every split (ruling 31). Over generated logs with votes (two voters and the author, several targets, withhold and restore records,
+    /// records naming other posts, a non-vote post by the author), for every split into a read and a delta, the vote guard's verdict for every author and target equals
+    /// <c>AlreadyVoted(Of(read ++ delta))</c>. Green on the built tree (the built leg is correct): this is the regression guard for the lean form, and its named controls (the next test) are what FLCB38 to
+    /// FLCB40 break.
+    /// </summary>
+    [Fact]
+    public void R8_86_LCB31_TheLeanVoteAnswerEqualsTheFoldOfTheWholeAtEverySplit()
+    {
+        var problems = new List<string>();
+        Gen.Select(Gen.Int[0, 6], Gen.Int[0, 50]).List[0, 14].Sample(script =>
+        {
+            var log = BuildAsync(script).GetAwaiter().GetResult();
+            var whole = LogFacts.Of(log);
+            for (var k = 0; k < log.Count; k++)
+                if (LeanMismatch([.. log.Take(k)], [.. log.Skip(k)], whole, whole.Posts, [Voter, Voter2, Author]) is { } difference)
+                    problems.Add($"split {k} of {log.Count}: {difference}");
+        }, iter: 80);
+
+        Said("every split equals the whole", problems.Count == 0 ? "every split equals the whole" : $"{problems.Count} splits differ, the first: {problems[0]}");
+    }
+
+    /// <summary>
+    /// LCB31's controls, named and not left to the generator: (a) a vote the read held withheld and the delta restores stands again (refuse); (b) a vote served at the read and withheld in the delta does not
+    /// stand (proceed); (c) a vote in the delta withheld by a later record of the same delta does not stand (proceed); (d) a vote in the delta whose id the read's records already withheld does not stand (proceed);
+    /// (e) a vote in the delta by the author for the target stands (refuse); (f) a record in the delta naming another post changes nothing (a restore of the read's served vote's neighbour: refuse still).
+    /// </summary>
+    [Fact]
+    public async Task R8_86_LCB31_TheLeanVoteAnswerHoldsAtItsNamedControls()
+    {
+        var target = LateCommitLog.Digest("PQ");
+        string Vote(string id) => LateCommitLog.VoteCanonical(Voter, "board", target, "n-" + id);
+        var results = new List<string>();
+
+        async Task<string> RunAsync(Func<LateCommitLog, Task> before, Func<LateCommitLog, Task> after)
+        {
+            var log = new LateCommitLog();
+            await log.AppendPostAsync("PQ", "question", Author, "{\"kind\":\"question\"}");
+            await before(log);
+            var read = await log.ReadAsync();
+            await after(log);
+            var all = await log.ReadAsync();
+            var delta = all.Skip(read.Count).ToArray();
+            var guard = SubmissionGuard.ForVote(LogFacts.Of(read), "sha256:new", Voter, target);
+            var got = VerdictOf(guard.Evaluate(delta));
+            var whole = SubmissionChecks.AlreadyVoted(LogFacts.Of(all), Voter, target)?.Type ?? "proceed";
+            return got == whole ? got : $"{got} (the whole says {whole})";
+        }
+
+        var refuse = VerificationErrorsType();
+        results.Add("a: " + await RunAsync(
+            async l => { await l.AppendPostAsync("PV", "vote", Voter, Vote("PV")); await l.AppendModerationAsync("PV", ModerationEffects.Wire(ModerationEffect.Withhold)); },
+            l => l.AppendModerationAsync("PV", ModerationEffects.Wire(ModerationEffect.Restore))));
+        results.Add("b: " + await RunAsync(
+            l => l.AppendPostAsync("PV", "vote", Voter, Vote("PV")),
+            l => l.AppendModerationAsync("PV", ModerationEffects.Wire(ModerationEffect.Withhold))));
+        results.Add("c: " + await RunAsync(
+            _ => Task.CompletedTask,
+            async l => { await l.AppendPostAsync("PV", "vote", Voter, Vote("PV")); await l.AppendModerationAsync("PV", ModerationEffects.Wire(ModerationEffect.Withhold)); }));
+        results.Add("d: " + await RunAsync(
+            l => l.AppendModerationAsync("PV", ModerationEffects.Wire(ModerationEffect.Withhold)),
+            l => l.AppendPostAsync("PV", "vote", Voter, Vote("PV"))));
+        results.Add("e: " + await RunAsync(
+            _ => Task.CompletedTask,
+            l => l.AppendPostAsync("PV", "vote", Voter, Vote("PV"))));
+        results.Add("f: " + await RunAsync(
+            async l => { await l.AppendPostAsync("PV", "vote", Voter, Vote("PV")); await l.AppendPostAsync("PO", "question", Author, "{\"kind\":\"question\"}"); },
+            l => l.AppendModerationAsync("PO", ModerationEffects.Wire(ModerationEffect.Restore))));
+
+        Said(
+            $"a: {refuse} | b: proceed | c: proceed | d: proceed | e: {refuse} | f: {refuse}",
+            string.Join(" | ", results));
+    }
+
+    private static string VerificationErrorsType() => Curia.Domain.Verification.VerificationErrors.AlreadyVoted("sha256:x").Type;
+
+    /// <summary>Bytes allocated by the calling thread while <paramref name="guard"/> evaluates <paramref name="delta"/> (the function is synchronous; a first call warms it).</summary>
+    private static long AllocatedBy(AppendGuard guard, IReadOnlyList<AppendedEvent> delta)
+    {
+        _ = guard.Evaluate(delta);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        _ = guard.Evaluate(delta);
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
+
+    private const long AllocationSlack = 2048;
+
+    /// <summary>
+    /// LCB32. A heavy voter costs the vote leg nothing (ruling 31). The vote leg's work under the lock is the delta's, whatever the number of votes the submitting author has cast in the read (0, 5, 500):
+    /// the bytes the thread allocates while the function evaluates a delta of two unrelated events do not grow with that number. (The plan asked for a count of <c>TargetOf</c> calls; there is no seam that
+    /// counts them without production code that exists for a test, and every call parses a canonical text into a tree, so the allocation is the same count in bytes.) Red on the built tree, which
+    /// parses each vote of the author's.
+    /// </summary>
+    [Fact]
+    public async Task R8_86_LCB32_AHeavyVoterCostsTheVoteLegNothing()
+    {
+        var said = new List<string>();
+        var bytes = new List<long>();
+        foreach (var votes in new[] { 0, 5, 500 })
+        {
+            var log = new LateCommitLog();
+            await log.AppendPostAsync("PQ", "question", Author, "{\"kind\":\"question\"}");
+            for (var i = 0; i < votes; i++)
+                await log.AppendPostAsync($"V{i:D4}", "vote", Voter, LateCommitLog.VoteCanonical(Voter, "board", LateCommitLog.Digest($"other-{i}"), "n" + i));
+            var read = await log.ReadAsync();
+            await log.AppendOtherAsync("test.unrelated");
+            await log.AppendOtherAsync("test.unrelated");
+            var delta = (await log.ReadAsync()).Skip(read.Count).ToArray();
+            var guard = SubmissionGuard.ForVote(LogFacts.Of(read), "sha256:new", Voter, LateCommitLog.Digest("PQ"));
+            bytes.Add(AllocatedBy(guard, delta));
+            said.Add($"{votes} votes: {bytes[^1]} bytes");
+        }
+
+        var within = bytes[1] <= bytes[0] + AllocationSlack && bytes[2] <= bytes[0] + AllocationSlack;
+        Said("the allocation at 5 and at 500 votes is within 2048 bytes of the allocation at none", within ? "the allocation at 5 and at 500 votes is within 2048 bytes of the allocation at none" : string.Join("; ", said));
     }
 
     /// <summary>
@@ -176,6 +321,23 @@ public sealed class LogFactsTests
             expected.Add($"{kind}: a fixed number of passes (0 to 4) over the delta");
             said.Add($"{kind}: {(passes is >= 0 and <= 4 ? "a fixed number of passes (0 to 4)" : $"{extra} more inspections for 18 more events")} over the delta");
         }
+
+        // Amended by ruling 31: the vote leg reads no post of the read under the lock, so what it allocates does not grow with the read (the successor leg still extends the read's posts and is not asked).
+        var allocated = new List<long>();
+        foreach (var posts in new[] { 1, 400 })
+        {
+            var grown = new LateCommitLog();
+            for (var i = 0; i < posts; i++) await grown.AppendPostAsync($"Q{i:D4}", "question", Author, "{\"kind\":\"question\"}");
+            var grownRead = await grown.ReadAsync();
+            await grown.AppendOtherAsync("test.unrelated");
+            await grown.AppendOtherAsync("test.unrelated");
+            var grownDelta = (await grown.ReadAsync()).Skip(grownRead.Count).ToArray();
+            var voteGuard = SubmissionGuard.For(LogFacts.Of(grownRead), await SubmissionOf.KindAsync(PostKind.Vote, Author));
+            allocated.Add(AllocatedBy(voteGuard, grownDelta));
+        }
+
+        expected.Add($"Vote: the function's allocation at a read of 400 posts within {AllocationSlack} bytes of its allocation at a read of 1");
+        said.Add($"Vote: the function's allocation at a read of 400 posts {(allocated[1] <= allocated[0] + AllocationSlack ? $"within {AllocationSlack} bytes of" : $"{allocated[1]} bytes against {allocated[0]} bytes, beyond")} its allocation at a read of 1");
 
         Said(string.Join(" | ", expected), string.Join(" | ", said));
     }

@@ -859,7 +859,7 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
     }
 
     /// <summary>
-    /// LCB29 (route half). The cap, through the route. A question, a revision and a vote whose delta is made 10,001 events by the lock holder (events inserted as the application role) are each <c>503</c> with
+    /// LCB29 (route half). The cap, through the route. A question, a revision and a vote whose delta is made one event past the published cap (the errata's figure, read at test time) by the lock holder (events inserted as the application role) are each <c>503</c> with
     /// the type, status and title from the words and <c>detail</c> null, nothing stored, <c>budget.used</c> unchanged, and neither <c>AppendGuardRefused</c> nor <c>AppendGuardRedecided</c> in the log; the same
     /// request sent again once the delta is within the cap is <c>201</c>; at a delta of exactly the cap a duplicate in it is <c>409 already-recorded</c>.
     /// </summary>
