@@ -1386,6 +1386,9 @@ public static class ForumEndpoints
         // The private store could not be written; nothing was, in either store (R10.62).
         "curia/flag/detail-store-unavailable" => StatusCodes.Status503ServiceUnavailable,
         "curia/flag/raiser-gate-unavailable" => StatusCodes.Status503ServiceUnavailable,
+
+        // R10.94 (errata G57): the log kept changing for every pass; nothing was recorded and the flag may be sent again. Served without a detail (a 503).
+        FlagErrors.ContendedType => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest,
     };
 

@@ -476,7 +476,7 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
         var again = await BehindAsync(raiser, token => RaiseAsync(raiser, p.PostId, "spam", token), holder => LateFlagAsync(holder, p.PostId, raiser.Agent.AgentId, "spam"));
         var rows = await FlagTripleRowsAsync(p.PostId);
         var lines = _forum.Log.Since(mark).Where(e => e.EventId == redecided.Id).Select(e => e.Message).ToArray();
-        expected.Add($"409 curia/flag/already-raised, {redecided.Name} logged 1 (pass 1 of {passes}), oracle rows 0");
+        expected.Add($"409 curia/flag/already-raised, {redecided.Name} logged 1 ({redecided.Message.Replace("<n>", "1", StringComparison.Ordinal).Replace("<N>", passes.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)}), oracle rows 0");
         said.Add($"{Slug(again)}, {redecided.Name} logged {lines.Length}{(lines.Length == 1 ? $" ({lines[0]})" : string.Empty)}, oracle rows {rows.Count}");
 
         var p2 = await AskAsync(asker, board);
@@ -531,7 +531,7 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
         var bodyDetailNull = sent.Body.Contains("\"detail\":null", StringComparison.Ordinal) || !sent.Body.Contains("\"detail\"", StringComparison.Ordinal);
 
         Said(
-            $"{contended.Status} {contended.Type}, title \"{contended.Title}\", detail null, {redecided.Name} logged {passes}, the private row written 1, flag entries added {passes} (the injected ones)",
+            $"{contended.Status} {contended.Type}, title \"{contended.Title}\", detail null, {redecided.Name} logged {passes}, the private row written 1, flag entries added {passes}",
             $"{Slug(sent)}, title \"{sent.Title}\", detail {(bodyDetailNull ? "null" : "served")}, {redecided.Name} logged {LinesOf(mark, redecided.Id)}, the private row written {privateRows}, flag entries added {flagEventsAfter - flagEventsBefore}");
 
         var again = await RaiseAsync(raiser, p.PostId, "spam", token);

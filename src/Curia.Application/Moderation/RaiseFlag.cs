@@ -54,9 +54,17 @@ public sealed class RaiseFlag
     private readonly IFlagDetailStore _details;
     private readonly UlidGenerator _ids;
     private readonly Func<string> _newSalt;
+    private readonly Action<int, int> _redecided;
+
+    /// <summary>R10.94 (errata G57): the most passes a flag is decided in (provisional); the pass that finds the log moved again at the last is <c>curia/flag/contended</c>.</summary>
+    public const int Passes = 8;
 
     /// <param name="newSalt">The salt source. <see cref="FlagSalt.New"/> in production; a fixed value only in tests that pin a commitment.</param>
-    public RaiseFlag(IEventStore events, IFlagDetailStore details, TimeProvider clock, Func<string>? newSalt = null)
+    /// <param name="onRedecided">
+    /// Told <c>(pass, passes)</c> each time a pass's append was refused by the guard and the flag is decided again (R10.94's log line). The host's logger in
+    /// production; it must not throw, and it receives neither the post nor the raiser.
+    /// </param>
+    public RaiseFlag(IEventStore events, IFlagDetailStore details, TimeProvider clock, Func<string>? newSalt = null, Action<int, int>? onRedecided = null)
     {
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(details);
@@ -66,6 +74,7 @@ public sealed class RaiseFlag
         _details = details;
         _ids = new UlidGenerator(clock);
         _newSalt = newSalt ?? FlagSalt.New;
+        _redecided = onRedecided ?? ((_, _) => { });
     }
 
     /// <summary>Records a flag against <paramref name="postId"/>, or reports why it was not recorded.</summary>
@@ -137,57 +146,86 @@ public sealed class RaiseFlag
         if (!events!.Any(e => e.Event.Type.Value == PostProjector.PostAcceptedType))
             return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(target.Value));
 
-        // R10.70 (errata G18): one flag of a type per raiser per post, refused before anything is
-        // written. After the cheap refusals, because it reads the whole log and the private store.
-        var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-        if (!read.TryGetValue(out var log, out var logError))
-            return Result<FlagRaised>.Fail(logError!);
+        // R10.70 (errata G18), R10.94 (errata G57): one flag of a type per raiser per post, refused before anything is written. Decided over the log joined with the
+        // private store, which no guard can read from the events alone (the raiser and the post are private, R10.62), so the append carries a guard that sends the
+        // decision back here when a flag of its kind has landed since the read: at most Passes times, each from a fresh read of both stores. The private row is
+        // written on the first pass that reaches the append and never again (a row without an entry is read by nothing, so an abandoned pass leaves nothing counted).
+        AggregateId? aggregate = null;
+        DomainEvent? flagEvent = null;
+        for (var pass = 1; pass <= Passes; pass++)
+        {
+            // After the cheap refusals, because it reads the whole log and the private store.
+            var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!read.TryGetValue(out var log, out var logError))
+                return Result<FlagRaised>.Fail(logError!);
 
-        var rows = await _details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-        if (!rows.TryGetValue(out var details, out var detailError))
-            return Result<FlagRaised>.Fail(detailError!);
+            var rows = await _details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!rows.TryGetValue(out var details, out var detailError))
+                return Result<FlagRaised>.Fail(detailError!);
 
-        var earlier = FlagDirectory.Join(log!, details!).Flags.FirstOrDefault(f =>
-            string.Equals(f.PostId, target.Value, StringComparison.Ordinal)
-            && string.Equals(f.RaisedBy, raisedBy.Value, StringComparison.Ordinal)
-            && f.Kind == kind);
-        if (earlier is not null)
-            return Result<FlagRaised>.Fail(FlagErrors.AlreadyRaised(earlier.Kind, earlier.At));
+            var earlier = FlagDirectory.Join(log!, details!).Flags.FirstOrDefault(f =>
+                string.Equals(f.PostId, target.Value, StringComparison.Ordinal)
+                && string.Equals(f.RaisedBy, raisedBy.Value, StringComparison.Ordinal)
+                && f.Kind == kind);
+            if (earlier is not null)
+                return Result<FlagRaised>.Fail(FlagErrors.AlreadyRaised(earlier.Kind, earlier.At));
 
-        if (!_ids.Next().TryGetValue(out var ulid, out var idError))
-            return Result<FlagRaised>.Fail(idError!);
+            if (flagEvent is null)
+            {
+                if (!_ids.Next().TryGetValue(out var ulid, out var idError))
+                    return Result<FlagRaised>.Fail(idError!);
 
-        var id = ulid.ToString();
-        if (!EventId.Create(id).TryGetValue(out var eventId, out var eventIdError))
-            return Result<FlagRaised>.Fail(eventIdError!);
+                var flagId = ulid.ToString();
+                if (!EventId.Create(flagId).TryGetValue(out var eventId, out var eventIdError))
+                    return Result<FlagRaised>.Fail(eventIdError!);
 
-        if (!AggregateId.Create(FlagAggregatePrefix + id).TryGetValue(out var aggregate, out var aggregateError))
-            return Result<FlagRaised>.Fail(aggregateError!);
+                if (!AggregateId.Create(FlagAggregatePrefix + flagId).TryGetValue(out var flagAggregate, out var aggregateError))
+                    return Result<FlagRaised>.Fail(aggregateError!);
 
-        if (!EventType.Create(FlagProjector.FlagCommittedType).TryGetValue(out var type, out var typeError))
-            return Result<FlagRaised>.Fail(typeError!);
+                if (!EventType.Create(FlagProjector.FlagCommittedType).TryGetValue(out var type, out var typeError))
+                    return Result<FlagRaised>.Fail(typeError!);
 
-        var salt = _newSalt();
-        if (!FlagCommitment.Of(target.Value, raisedBy.Value, reason.Value, salt).TryGetValue(out var commitment, out var commitmentError))
-            return Result<FlagRaised>.Fail(commitmentError!);
+                var salt = _newSalt();
+                if (!FlagCommitment.Of(target.Value, raisedBy.Value, reason.Value, salt).TryGetValue(out var commitment, out var commitmentError))
+                    return Result<FlagRaised>.Fail(commitmentError!);
 
-        // The private row first (see the remarks above).
-        var stored = await _details
-            .AppendAsync(new FlagDetail(id, target.Value, raisedBy.Value, reason.Value, salt), cancellationToken)
-            .ConfigureAwait(false);
-        if (!stored.TryGetValue(out _, out var storeError)) return Result<FlagRaised>.Fail(storeError!);
+                // The private row first (see the remarks above).
+                var stored = await _details
+                    .AppendAsync(new FlagDetail(flagId, target.Value, raisedBy.Value, reason.Value, salt), cancellationToken)
+                    .ConfigureAwait(false);
+                if (!stored.TryGetValue(out _, out var storeError)) return Result<FlagRaised>.Fail(storeError!);
 
-        var payload = new JsonValue.Object(
-        [
-            new(FlagProjector.CommitmentField, new JsonValue.String(commitment!)),
-            new(FlagProjector.KindField, new JsonValue.String(FlagKinds.Wire(kind))),
-        ]);
+                var payload = new JsonValue.Object(
+                [
+                    new(FlagProjector.CommitmentField, new JsonValue.String(commitment!)),
+                    new(FlagProjector.KindField, new JsonValue.String(FlagKinds.Wire(kind))),
+                ]);
 
-        var appended = await _events
-            .AppendAsync(aggregate, AggregateVersion.New, [new DomainEvent(eventId, type, null, payload)], cancellationToken)
-            .ConfigureAwait(false);
+                aggregate = flagAggregate;
+                flagEvent = new DomainEvent(eventId, type, null, payload);
+            }
 
-        return appended.Map(recorded => new FlagRaised(target.Value, kind, recorded[0].ServerTimestamp.Value));
+            var appended = await _events
+                .AppendAsync(aggregate!.Value, AggregateVersion.New, [flagEvent], null, FlagGuard.For(log!, FlagKinds.Wire(kind)), cancellationToken)
+                .ConfigureAwait(false);
+
+            if (appended.TryGetValue(out var recorded, out var appendError))
+                return Result<FlagRaised>.Ok(new FlagRaised(target.Value, kind, recorded![0].ServerTimestamp.Value));
+
+            if (string.Equals(appendError!.Type, DomainErrors.AppendRedecideType, StringComparison.Ordinal))
+            {
+                _redecided(pass, Passes);
+                continue;
+            }
+
+            // A delta over the cap was refused unread (R6.60): the read is too old to check, so this pass counts and the next reads afresh. Neither line is true of it.
+            if (string.Equals(appendError.Type, DomainErrors.AppendDeltaTooLargeType, StringComparison.Ordinal))
+                continue;
+
+            return Result<FlagRaised>.Fail(appendError);
+        }
+
+        return Result<FlagRaised>.Fail(FlagErrors.Contended());
     }
 
     /// <summary>
@@ -272,6 +310,18 @@ public static class FlagErrors
         "curia/flag/raise-in-flight",
         "Another flag by this agent is being recorded",
         "retry once it completes (R7.22)");
+
+    /// <summary>R10.94 (errata G57): the problem type of <see cref="Contended"/>.</summary>
+    public const string ContendedType = "curia/flag/contended";
+
+    /// <summary>
+    /// R10.94: the log kept changing for every one of the flag's passes; nothing was recorded for it and it may be sent again. Names no post and no raiser; the
+    /// route serves it without a detail.
+    /// </summary>
+    public static Error Contended() => new(
+        ContendedType,
+        "The flag could not be decided against a log that kept changing; nothing was recorded",
+        "retry once the log is quieter (R10.94)");
 
     /// <summary>The raiser gate's store could not be reached, so the flag was neither counted nor written.</summary>
     public static Error RaiserGateUnavailable() => new(

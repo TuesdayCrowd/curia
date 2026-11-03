@@ -51,14 +51,19 @@ internal static partial class VectorIndexLog
 }
 
 /// <summary>
-/// R8.86 (errata G57): the log line of a post's append refused by the guard, id 5006, as R8.86 words publishes it. It carries the post's kind and the refusal's type
-/// and never a digest, a post id or any text a post carried.
+/// R8.86 and R10.94 (errata G57): the log lines of the append guard, ids 5006 and 5007, as R8.86 words and R10.94 words publish them. The first carries the post's kind and
+/// the refusal's type and never a digest, a post id or any text a post carried; the second carries a pass count and nothing else.
 /// </summary>
 internal static partial class AppendGuardLog
 {
     [LoggerMessage(EventId = 5006, EventName = "AppendGuardRefused", Level = LogLevel.Warning,
         Message = "A {Kind} post's append was refused inside the log's lock by a check the route had made on an older read ({RefusalType}); nothing was stored")]
     internal static partial void Refused(ILogger logger, string kind, string refusalType);
+
+    /// <summary>R10.94 (errata G57): a flag's append found a flag of its kind appended since its read, id 5007; carries neither the post nor the raiser.</summary>
+    [LoggerMessage(EventId = 5007, EventName = "AppendGuardRedecided", Level = LogLevel.Information,
+        Message = "A flag's append found a flag of its kind appended since the log it was decided on; it was decided again (pass {Pass} of {Passes})")]
+    internal static partial void Redecided(ILogger logger, int pass, int passes);
 }
 
 /// <summary>
