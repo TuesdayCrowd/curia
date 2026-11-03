@@ -76,11 +76,13 @@ admin (pgvector is needed by `db/0003`).
   author in 24 hours; flags; digests stored twice. **It is digest-only for duplicates**: it sees a digest stored twice and nothing else. It
   does not see a revision fork, a flag recorded twice by one raiser, or two votes by one author for one target; `forks.sh` does. They are
   different instruments (a census of what happened, an oracle for what must be unique) and `counts.sh` is not extended.
-- `census.sh [mark]`: from `FH_FORUMLOG` since the mark's line: `Request finished` by status, body-less 5xx, and eleven counts of log events,
+- `census.sh [mark]`: from `FH_FORUMLOG` since the mark's line: `Request finished` by status, body-less 5xx, and thirteen counts of log events,
   each matched by its message text (the console logger prints no event name): `StoreFault`, `UnhandledFault`, `VectorIndexPending`,
   `VectorIndexCaughtUp`, `VectorIndexRetryFailed`, `VectorIndexCatchUpFailed`, `VectorIndexCheckOwed`, `VectorIndexCheckFound`,
-  `VectorIndexCheckFailed`, `AppendConfirmed` and `AppendNotConfirmed` (the confirm of a faulted append, ids 5004 and 5005). A log
-  holding none of the eleven prints each as 0 and exits 0.
+  `VectorIndexCheckFailed`, `AppendConfirmed` and `AppendNotConfirmed` (the confirm of a faulted append, ids 5004 and 5005),
+  `AppendGuardRefused` (5006: a post's append refused inside the log's lock by a check the route made on an older read; one per
+  `409` the guard made and none for the route's own check) and `AppendGuardRedecided` (5007: a flag's append decided again). A log
+  holding none of the thirteen prints each as 0 and exits 0.
 - `burst.sh <n>` (needs `FH_DB`, `FH_AGENT`; optional `FH_CURIA`, `FH_BOARD`, `FH_FORUM`): `n` simultaneous `curia ask` of one enrolled agent, one process
   each, to `FH_FORUM` (default `$CURIA_FORUM`, then `http://localhost:5000`), passed to every `curia` as `--forum`. Prints per request the exit code, the status (read from the CLI's text) and the client's wall time, then how many answered
   `curia/budget/agent-in-flight` and the burst's wall time. Exit 2 for `n` below 1 or **above 64** (the cap; R7.27 queues 16 per agent) and for a Forum whose host is

@@ -938,7 +938,9 @@ public static class ForumEndpoints
         // R8.77 (errata G45): a revision is entered under a gate on its prev. After AUTHORIZE (a stranger is told 403 and never holds the gate or
         // learns a successor) and before the parent checks, the near-duplicate check, SCREEN and PERSIST. The log AUTHORIZE read is older than any
         // hold, so the checks are made again on a log read under the hold, and the hold is released when the attempt ends on any path (the
-        // `await using`), after PERSIST has committed or refused. Try, never wait: a held gate is 409 revision-in-flight.
+        // `await using`), after PERSIST has committed or refused. Try, never wait: a held gate is 409 revision-in-flight. The gate is the fast path and not the
+        // guarantee (errata G57): a commit the Forum gave up on can land after the hold is released, so every post's append also carries the digest, successor
+        // and vote checks as a guard the store judges inside the log's lock (R6.60, R8.86), and a flag's append sends its decision back (R10.94).
         BudgetEntry BudgetAfter(DateTimeOffset act) => BudgetReadout.After(BudgetKinds.Posting, postLimit, postInstants, act, now);
 
         if (v.Envelope.Kind is not PostKind.Revision || v.Envelope.Prev is not { Length: > 0 } prevDigest)

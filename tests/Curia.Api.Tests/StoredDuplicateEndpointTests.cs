@@ -197,13 +197,13 @@ public sealed class StoredDuplicateEndpointTests(PassThroughGateForumFixture for
     // ---------------------------------------------------------------- RVO45
 
     /// <summary>
-    /// RVO45. Concurrent identical wires of a non-revision kind (a recorded non-property, held as a control of tolerance; since errata G48 this class runs on the host as it was before the agent write gate, ruling 22, because the gate closes the race the non-property describes: BRB64 is the same workload through the real gate and requires one event): four identical comment wires released
-    /// together on a board of its own; the table holds one or more (R8.78's check is not atomic with the append, and the assertion that would make this a
-    /// property is deliberately absent); whatever it holds, the next comment on that board is accepted. Four rather than two, so a run that stores a duplicate
-    /// is the usual one and the fact is not green by jitter.
+    /// RVO45. Concurrent identical wires of a non-revision kind (since errata G48 this class runs on the host as it was before the agent write gate, ruling 22, so the
+    /// race is not closed by the gate here; BRB64 is the same workload through the real gate): four identical comment wires released together on a board of its own.
+    /// Since errata G57 R8.78's check is made again inside the append (R8.86), so the table holds exactly one event of the digest however the four interleave, and the
+    /// next comment on that board is accepted. Four rather than two, so a run that raced is the usual one and the fact is not green by jitter.
     /// </summary>
     [Fact]
-    public async Task R9_47_RVO45_WhateverConcurrentIdenticalCommentsStoreTheNextCommentIsAccepted()
+    public async Task R8_86_RVO45_ConcurrentIdenticalCommentsStoreOnceAndTheNextCommentIsAccepted()
     {
         var board = Board();
         var author = await T1Async(board);
@@ -216,7 +216,7 @@ public sealed class StoredDuplicateEndpointTests(PassThroughGateForumFixture for
         var events = await EventsWithDigestAsync(forum, digest);
         var next = await SendAsync(author, Comment(author, board, question));
 
-        Said($"{events} events; the next comment 201", $"{events} events; the next comment {next.Says}");
+        Said("1 events; the next comment 201", $"{events} events; the next comment {next.Says}");
     }
 
     // ---------------------------------------------------------------- RVO46
