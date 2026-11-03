@@ -10,7 +10,7 @@ namespace Curia.Infrastructure.Tests;
 /// LCB24 (errata G57, plan Task 0b): the fault harness's rehearsal as a test. The scripts of <c>tools/fault-harness</c> are run against a throwaway database and role this test creates
 /// (<c>curia_lcb24_*</c> and <c>curia_lcb24_*_app</c>) and drops: refusals exit 2 with nothing touched, <c>status</c> exits 1 with <c>FAULT OPEN</c> while a hold is open and 0 after <c>all-off</c>, a
 /// hold refuses another proxy mode and an unopened name, <c>landing.sh</c> prints <c>absent</c>, <c>latecommit.sh</c> refuses a non-loopback Forum and a hold under twice the command timeout, and
-/// <c>forks.sh</c> exits 0 on a clean database and 2 on a bad pair. <b>Green on the seam</b> (Task 0b is committed before it): a control, red under FLCB32.
+/// <c>forks.sh</c> exits 0 on a clean database (its body-duplicate section present) and 2 on a bad pair, and the digest drill is run through a stand-in client whose <c>acts</c> lists a kept digest and whose <c>resend</c> is called with it (G58). <b>Green on the seam</b> (Task 0b is committed before it): a control, red under FLCB32.
 /// </summary>
 [SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 [SuppressMessage("Design", "CA1515:Consider making public types internal", Justification = "xUnit discovers a concrete test class only when it is public.")]
@@ -21,6 +21,8 @@ public sealed class HarnessRehearsalTests
     private readonly PostgresDatabaseFixture _fixture;
 
     public HarnessRehearsalTests(PostgresDatabaseFixture fixture) => _fixture = fixture;
+
+    private static readonly string FakeDigest = "sha256:" + new string('a', 64);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -104,6 +106,7 @@ public sealed class HarnessRehearsalTests
             await Check("landing.sh, a bad digest", "landing.sh", ["nonsense"], 2);
             await Check("landing.sh, an absent digest", "landing.sh", ["sha256:" + new string('0', 64)], 0, "absent", new Dictionary<string, string> { ["LAND_DEADLINE"] = "1" });
             await Check("forks.sh on a clean database", "forks.sh", [], 0, "ORACLE: none");
+            await Check("forks.sh prints the body-duplicate section", "forks.sh", [], 0, "== bodies stored twice");
             await Check("forks.sh, a bad pair", "forks.sh", [], 2, "does not match", new Dictionary<string, string> { ["FH_DB"] = "postgres" });
             var drill = new Dictionary<string, string> { ["FH_AGENT"] = "a1", ["FH_POST"] = "P", ["FH_FORUM"] = "http://203.0.113.9:5000" };
             await Check("latecommit.sh, a non-loopback Forum", "latecommit.sh", ["revision"], 2, "not a loopback", drill);
@@ -112,16 +115,33 @@ public sealed class HarnessRehearsalTests
             await Check("latecommit.sh, a hold under twice the timeout", "latecommit.sh", ["revision"], 2, "twice the command timeout", drill);
 
             // A drill that could not run is exit 2 and never reaches the oracle (review I1: a status overwritten after the heredoc read as a pass). The
-            // sender's prepare fails, which is the first thing the drill does after the preflight; the preflight needs the proxy to be running.
-            var sender = Path.Combine(state, "sender.sh");
-            await File.WriteAllTextAsync(sender, "#!/bin/bash\necho nothing signed\nexit 1\n", Ct);
+            // client's `ask` keeps no act here, so `curia acts` lists none and the digest drill has nothing to resend; the preflight needs the proxy.
             if (OperatingSystem.IsWindows()) throw new Xunit.Sdk.XunitException("the harness is bash");
-            File.SetUnixFileMode(sender, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             var port = (20000 + (Math.Abs(suffix.GetHashCode(StringComparison.Ordinal)) % 20000)).ToString(System.Globalization.CultureInfo.InvariantCulture);
             proxyEnv = new Dictionary<string, string>(env) { ["FH_PROXY_PORT"] = port };
             await Check("proxy start", "proxy.sh", ["start"], 0, "proxy up", proxyEnv);
-            var failing = new Dictionary<string, string>(drill) { ["FH_SENDER"] = sender, ["FH_PROXY_PORT"] = port, ["FH_HOLD"] = "6" };
-            await Check("latecommit.sh digest, prepare fails", "latecommit.sh", ["digest"], 2, "prepare failed", failing, absent: "== oracle");
+            var nothingKept = Path.Combine(state, "nothing-kept.sh");
+            await File.WriteAllTextAsync(nothingKept, "#!/bin/bash\nexit 1\n", Ct);
+            File.SetUnixFileMode(nothingKept, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var failing = new Dictionary<string, string>(drill) { ["FH_CURIA"] = nothingKept, ["FH_PROXY_PORT"] = port, ["FH_HOLD"] = "6" };
+            await Check("latecommit.sh digest, no act kept", "latecommit.sh", ["digest"], 2, "kept no act", failing, absent: "== oracle");
+
+            // The digest drill through `curia resend`: a stand-in client whose `ask` keeps an act and waits, whose `acts` lists it and whose `resend` is answered
+            // `already recorded`. The drill must read the digest from `acts`, send `resend <that digest>` and reach the oracle, whose body section is present and empty.
+            var fakeLog = Path.Combine(state, "fake.log");
+            var standIn = Path.Combine(state, "curia-standin.sh");
+            await File.WriteAllTextAsync(standIn, "#!/bin/bash\necho \"$@\" >> \"$FAKE_LOG\"\ncase \"$1\" in\n  ask) touch \"$FAKE_KEPT\"; sleep 4; echo 'error: 503'; exit 8;;\n  acts) [ -f \"$FAKE_KEPT\" ] && echo \"" + FakeDigest + "  question  board meta  sent 1 time(s)  not answered  kept under a minute ago\"; exit 0;;\n  resend) echo 'already recorded'; exit 0;;\n  *) exit 0;;\nesac\n", Ct);
+            File.SetUnixFileMode(standIn, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var resend = new Dictionary<string, string>(drill)
+            {
+                ["FH_CURIA"] = standIn, ["FH_PROXY_PORT"] = port, ["FH_HOLD"] = "6", ["FAKE_LOG"] = fakeLog, ["FAKE_KEPT"] = Path.Combine(state, "fake.kept"), ["LAND_DEADLINE"] = "2",
+            };
+            await Check("latecommit.sh digest, through curia resend", "latecommit.sh", ["digest"], 0, "ORACLE: none", resend);
+            var calls = File.Exists(fakeLog) ? await File.ReadAllLinesAsync(fakeLog, Ct) : [];
+            said.Add(calls.Any(l => l.StartsWith("resend " + FakeDigest + " ", StringComparison.Ordinal))
+                ? "the drill sent curia resend of the digest curia acts listed: as expected"
+                : $"the drill never sent curia resend of the listed digest (calls: {string.Join(" / ", calls)})");
+            said.Add(calls.Count(l => l.StartsWith("ask ", StringComparison.Ordinal)) == 1 ? "A was one curia ask: as expected" : "A was not exactly one curia ask");
         }
         finally
         {

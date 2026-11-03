@@ -3,14 +3,14 @@
 # held past the Forum's command timeout), send act B at the chosen timing, release, wait for the landing, ask the oracle (forks.sh).
 #
 #   revision  A and B are `curia revision` of FH_POST with different text (the fork)
-#   digest    A and B are FH_SENDER send: the same signed bytes twice (the duplicate). FH_SENDER is a path to a program called as
-#             `$FH_SENDER prepare` (signs one wire, keeps it, prints a line `digest=sha256:<64 hex>`) and then `$FH_SENDER send` (sends
-#             the kept wire, prints the Forum's answer, exits 0 when the Forum answered). It is a throwaway until `curia resend` exists.
+#   digest    A is `curia ask` (a new question, unique words); B is `curia resend <digest>` of the act A kept: the same signed bytes twice
+#             (the duplicate). The digest is read from `curia acts` while A is still waiting (the client keeps an act before it sends a byte),
+#             so B is sent after A's act is kept and at the chosen timing. A resend signs nothing; the oracle is forks.sh's digest section.
 #   flag      A and B are `curia flag FH_POST --kind FH_KIND` (the same flag twice by one raiser)
 #   vote      A and B are `curia endorse FH_TARGET` (the same agent, the same target, a new nonce each)
 #
 # Required environment: FH_DB, FH_ROLE (common.sh's pair rule), FH_AGENT (the enrolled agent that acts). Also FH_POST (revision: the
-# post to revise; flag: the post to flag), FH_TARGET (vote: the digest endorsed), FH_SENDER (digest).
+# post to revise; flag: the post to flag), FH_TARGET (vote: the digest endorsed).
 # Optional: FH_HOLD seconds (default 6); FH_COMMAND_TIMEOUT the Forum's Command Timeout in seconds (default 2: a hold under twice that is
 # refused, so a window that cannot produce a late commit is never read as a pass); FH_TIMING a|b (default a: B is sent FH_B_DELAY seconds
 # after A, while the hold is on; b: B is sent as soon as A has been answered, and the hold is released just before it: the hold must not be
@@ -64,7 +64,6 @@ esac
 case "$kind" in
   revision|flag) [ -n "${FH_POST:-}" ] || die "FH_POST is not set (the post to $kind)";;
   vote) [[ "${FH_TARGET:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || die "FH_TARGET must be the digest (sha256:<64 hex>) to endorse";;
-  digest) [ -n "${FH_SENDER:-}" ] && [ -x "${FH_SENDER:-}" ] || die "FH_SENDER must be an executable (see the header)";;
 esac
 # A drill starts from the original grants and the original proxy mode, and the proxy must be there.
 "$FH_SRC/fault.sh" status >/dev/null || die "a fault is already open (fault.sh status is not 0); run fault.sh all-off first"
@@ -74,7 +73,7 @@ release(){ "$FH_SRC/fault.sh" all-off >/dev/null 2>&1 || true; }
 trap release EXIT
 "$FH_SRC/mark.sh" "$name-pre" >/dev/null
 export LC_KIND=$kind LC_HOLD=$hold LC_TIMING=$timing LC_BDELAY=$bdelay LC_NAME=$name LC_BOARD=$board LC_FLAGKIND=$flagkind LC_FORUM=$forum LC_CURIA=$curia_cmd
-export LC_POST=${FH_POST:-} LC_TARGET=${FH_TARGET:-} LC_SENDER=${FH_SENDER:-} LC_SRC=$FH_SRC
+export LC_POST=${FH_POST:-} LC_TARGET=${FH_TARGET:-} LC_SRC=$FH_SRC
 rcp=0
 python3 -I - <<'PY' || rcp=$?
 import os, re, random, shlex, subprocess, sys, threading, time
@@ -95,15 +94,14 @@ def act(label):
     if kind == "revision": return cli("revision", "--board", board, "--parent", E["LC_POST"], "--body", label + " " + W(12))
     if kind == "flag": return cli("flag", E["LC_POST"], "--kind", E["LC_FLAGKIND"], "--rationale", "latecommit drill " + label)
     if kind == "vote": return cli("endorse", E["LC_TARGET"], "--board", board)
-    return [E["LC_SENDER"], "send"]
+    if label == "A": return cli("ask", "--board", board, "--title", "latecommit " + W(3), "--body", name + " " + W(12))
+    return curia + ["resend", digests[0], "--agent", agent, "--forum", forum]
 digests = []
-if kind == "digest":
-    rc, out = sh(E["LC_SENDER"], "prepare")
-    m = re.search(r"digest=(sha256:[0-9a-f]{64})", out)
-    if rc != 0 or not m: print("the sender's prepare failed or printed no digest: " + out[:300]); sys.exit(2)
-    digests.append(m.group(1))
-else:
-    sh(*cli("budget"))  # warm the token before the window opens (delaycommit holds a token mint's COMMIT too)
+def kept():
+    rc, out = sh(*(curia + ["acts", "--agent", agent]))
+    return re.findall(r"^(sha256:[0-9a-f]{64})  ", out, re.M)
+sh(*cli("budget"))  # warm the token before the window opens (delaycommit holds a token mint's COMMIT too)
+before = set(kept()) if kind == "digest" else set()
 rc, out = sh(src + "/fault.sh", "hold-on", str(E["LC_HOLD"]), name)
 if rc != 0:
     print("hold-on refused (exit %d), nothing sent: %s" % (rc, out)); sys.exit(2)
@@ -116,6 +114,17 @@ def run(label):
     for d in re.findall(r"sha256:[0-9a-f]{64}", out):
         if d not in digests and kind in ("revision", "vote"): digests.append(d)
 ta = threading.Thread(target=run, args=("A",)); ta.start()
+if kind == "digest":
+    # A keeps its act before it sends a byte: the digest is the one `curia acts` lists that was not listed before A.
+    give_up = time.time() + 10
+    while not digests and time.time() < give_up:
+        new = [d for d in kept() if d not in before]
+        if new: digests.append(new[0])
+        elif not ta.is_alive(): break
+        else: time.sleep(0.2)
+    if not digests:
+        print("A kept no act that `curia acts` lists (it was answered or the client kept nothing): the drill could not run, nothing to resend")
+        ta.join(); sh(src + "/fault.sh", "hold-off", name); sys.exit(2)
 if timing == "b":
     ta.join()
     rc, out = sh(src + "/fault.sh", "hold-off", name)
