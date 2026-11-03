@@ -327,6 +327,21 @@ public abstract class AppendGuardContractTests
         Equal("the next append succeeds", next.TryGetValue(out _, out _) ? "the next append succeeds" : "the next append failed");
     }
 
+    /// <summary>
+    /// LCB33 (ruling 41). The cap the code enforces is the cap the errata publishes, and the number in the refusal's title is that cap with its thousands separator: a
+    /// figure in the title that drifts from the constant is a lie told to the agent that reads it. Asserted on every host the contract runs on.
+    /// </summary>
+    [Fact]
+    public void R6_60_LCB33_TheCodesCapAndTheTitlesFigureAreTheErratas()
+    {
+        var published = PublishedLateCommitWords.DeltaCap;
+        var title = PublishedLateCommitWords.DeltaTooLarge().Title;
+        var figure = published.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+        var expected = $"cap {published} | the published title names {figure}: {title.Contains(figure, StringComparison.Ordinal)} | the code's title is the published one: {title}";
+        var said = $"cap {AppendGuard.DeltaCap} | the published title names {figure}: {title.Contains(figure, StringComparison.Ordinal)} | the code's title is the published one: {DomainErrors.AppendDeltaTooLarge().Title}";
+        Equal(expected, said);
+    }
+
     private static string ShapeOf(List<long[]> calls, List<long> expected)
     {
         if (calls.Count == 0) return "the guard was not called";
