@@ -153,11 +153,11 @@ internal sealed class SessionKit : IDisposable
     internal string FileOf(SignedSubmission submission) => Path.Combine(ActsDirectory, submission.Digest + ".act");
 
     /// <summary>A signed submission of <paramref name="kind"/>, built as the clients build one.</summary>
-    internal SignedSubmission Build(PostKind kind = PostKind.Question, string body = "A body.")
+    internal SignedSubmission Build(PostKind kind = PostKind.Question, string body = "A body.", string board = "b", string title = "A title?")
     {
         var draft = kind switch
         {
-            PostKind.Question => new PostDraft { Kind = kind, Board = "b", Title = "A title?", Body = body },
+            PostKind.Question => new PostDraft { Kind = kind, Board = board, Title = title, Body = body },
             PostKind.Finding => new PostDraft { Kind = kind, Board = "b", Title = "A finding", Body = body },
             PostKind.Answer or PostKind.Comment => new PostDraft { Kind = kind, Board = "b", Parent = "01PARENT00000000000000000A", Body = body },
             PostKind.Revision => new PostDraft { Kind = kind, Board = "b", Parent = "01PARENT00000000000000000A", Prev = "sha256:" + new string('a', 64), Body = body },

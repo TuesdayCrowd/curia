@@ -101,6 +101,20 @@ public sealed class KeptActFileTests
         }
 
         Red.None(problems, "one kept file of mode 0600 in a directory of mode 0700");
+
+        // What the CLI prints of a refused resend holds no kept byte: neither the wire's base64, nor the body, the title or the board the kept act carries (a probe that looked
+        // for the base64 alone passed a refusal that printed the act's text).
+        using var printed = new SessionKit();
+        var kept = printed.Build(body: "A body that is only in the kept act: ASA2-PRINT-MARKER.", board: "asa2-board", title: "An ASA2 title marker");
+        printed.Plant(kept, attempts: 1, lastAnswer: "503");
+        printed.Forum.OnPost = (_, _, _) => Task.FromResult(ScriptedForum.Problem(503, "curia/store/unavailable", "A store fault"));
+        var run = await CliKit.RunAsync(printed, "resend", kept.PrefixedDigest);
+        var base64 = Convert.ToBase64String(kept.Wire.Span);
+        var leaks = new List<string>();
+        foreach (var (name, value) in new[] { ("the wire's base64", base64[..80]), ("the body", "ASA2-PRINT-MARKER"), ("the title", "ASA2 title marker"), ("the board", "asa2-board") })
+            if (run.Stdout.Contains(value, StringComparison.Ordinal) || run.Stderr.Contains(value, StringComparison.Ordinal)) leaks.Add($"the command printed {name}");
+        if (run.Text.Length == 0) leaks.Add("the command printed nothing, so nothing was looked at");
+        Red.None(leaks, "no kept byte, body, title or board in what the resend printed");
     }
 
     /// <summary>One answer the Forum can give a signed act, how it is scripted and what R11.79's table does with it, by send.</summary>

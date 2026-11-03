@@ -305,6 +305,31 @@ public sealed partial class ResendWordsTests
             PublishedResendWords.RevisionWords.Last, PublishedResendWords.RevisionWords.Superseded, PublishedResendWords.ContendedWords, PublishedResendWords.UnknownLine, PublishedResendWords.ClosingLine,
         ];
         Assert.All(spans, span => Assert.True(span.Trim().Length > 8, $"a span was parsed as a bare token: \"{span}\""));
+
+        // Each span is the paragraph it is read from and not another: a stable phrase of each, so a word of the errata changed or a span read from the wrong paragraph is red (a probe that
+        // asserted counts alone passed an errata whose stop words had been reworded).
+        (string Name, string Span, string Phrase)[] phrases =
+        [
+            ("post clause", post, "has not confirmed that the act was recorded and has not refused it"),
+            ("resolve clause", resolve, "Whether this resolve was recorded is not known"),
+            ("flag clause", flag, "Whether this flag was recorded is not known"),
+            ("other clause", other, "read what the request would have changed before sending it again"),
+            ("act words", PublishedResendWords.ActWords, "Do not run the verb again: that signs a new act"),
+            ("kind words", PublishedResendWords.KindWords, "the resend is exact for every kind"),
+            ("unheard words", PublishedResendWords.UnheardWords, "a Forum still working on it can record it after this client gave up"),
+            ("stop words", PublishedResendWords.StopWords, "Stop here: tell whoever asked for the act that the Forum's store is not answering"),
+            ("resend refusal words", PublishedResendWords.ResendRefusalWords, "This refusal does not say whether the first send was recorded"),
+            ("already recorded, first line", PublishedResendWords.AlreadyRecordedWords.FirstLine, "already recorded"),
+            ("already recorded, after", PublishedResendWords.AlreadyRecordedWords.After, "so this command recorded nothing"),
+            ("nothing recorded clause", PublishedResendWords.NothingRecordedClause, "Nothing was recorded by this call."),
+            ("revision words, last", PublishedResendWords.RevisionWords.Last, "Nothing was stored or spent."),
+            ("revision words, superseded", PublishedResendWords.RevisionWords.Superseded, "the post named may be that revision"),
+            ("contended words", PublishedResendWords.ContendedWords, "the flag may be sent again once the log is quieter"),
+            ("unknown line", PublishedResendWords.UnknownLine, "no post here bears this digest as of this call"),
+            ("closing line", PublishedResendWords.ClosingLine, "exit 5: at least one digest above is withheld or unknown"),
+        ];
+        var wrong = phrases.Where(p => !Fold(p.Span).Contains(Fold(p.Phrase), StringComparison.Ordinal)).Select(p => p.Name).ToArray();
+        Assert.True(wrong.Length == 0, "spans that do not hold their paragraph's words: " + string.Join(", ", wrong));
         Assert.Equal(30, PublishedResendWords.WriteBoundSeconds);
         Assert.Equal(64, PublishedResendWords.KeptActBound);
         Assert.Equal((5, "minutes"), PublishedResendWords.StopWait);

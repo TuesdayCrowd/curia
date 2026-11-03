@@ -101,7 +101,9 @@ public sealed partial class ResendVerbTests
     public async Task R11_80_ASA14_TheStopSentenceComesFromTheSecondUnresolvedSendAndNotBefore()
     {
         var problems = new List<string>();
-        var stopStart = Fold(PublishedResendWords.StopWords)[..30];
+        // The text before the <n> placeholder, which printed text can hold (a slice running into the placeholder never matched).
+        var stopStart = Fold(PublishedResendWords.StopWords[..PublishedResendWords.StopWords.IndexOf("<n>", StringComparison.Ordinal)]);
+        Assert.True(stopStart.Length >= 20, "the stop words begin with a placeholder, so there is no fixed text to look for");
 
         using (var inside = new SessionKit())
         {
@@ -128,7 +130,23 @@ public sealed partial class ResendVerbTests
         if (!second.Text.Contains($"{count.ToString(CultureInfo.InvariantCulture)} {unit}", StringComparison.Ordinal)) problems.Add("the published wait is not in the output");
         if (!File.Exists(kit.FileOf(held))) problems.Add("the file was not kept");
         if (second.Exit != 8) problems.Add($"exit {second.Exit}, expected 8");
-        Red.None(problems, "no stop sentence before the second unresolved send; from it, the published sentence with 2 attempts, the file kept, exit 8");
+
+        // The nonce challenge is the normal flow and its retry is not an attempt (R11.79): a resend whose first request is challenged and whose second is answered 503 is one more
+        // send, so the file says 2 and the stop sentence says 2 (a retry that counted would say 3).
+        using var challenged = new SessionKit();
+        var asked = challenged.Build();
+        challenged.Plant(asked, attempts: 1, lastAnswer: "503");
+        challenged.Forum.OnPost = (n, _, _) => Task.FromResult(n == 0
+            ? new HttpResponseMessage(HttpStatusCode.Unauthorized) { Headers = { { "DPoP-Nonce", "n1" } }, Content = new StringContent("{}") }
+            : ScriptedForum.Problem(503, "curia/store/unavailable", "A store fault"));
+        var afterChallenge = await CliKit.RunAsync(challenged, "resend", asked.PrefixedDigest);
+        var recorded = challenged.Session.Acts.List().Select(l => l.Header?.Attempts).ToArray();
+        if (challenged.Forum.Posts.Count != 2) problems.Add($"the challenged resend made {challenged.Forum.Posts.Count} requests, expected 2");
+        if (!recorded.SequenceEqual([2])) problems.Add($"after a nonce challenge the file counts {string.Join(",", recorded)} sends, expected 2");
+        var stopAfterChallenge = Fold(PublishedResendWords.StopWords.Replace("<n>", "2", StringComparison.Ordinal).Replace("<digest>", asked.PrefixedDigest, StringComparison.Ordinal));
+        if (!afterChallenge.Text.Contains(stopAfterChallenge, StringComparison.Ordinal)) problems.Add("after a nonce challenge the stop sentence does not say 2 sends");
+
+        Red.None(problems, "no stop sentence before the second unresolved send; from it, the published sentence with 2 attempts, the file kept, exit 8; a nonce challenge's retry not counted as a send");
     }
 
     /// <summary>
@@ -145,6 +163,7 @@ public sealed partial class ResendVerbTests
             ("403 budget", 403, "curia/authz/denied", "table-11/rate-budget-exhausted next_slot_at=2026-01-01T00:00:00Z"),
             ("409 agent-in-flight", 409, "curia/budget/agent-in-flight", null),
             ("503 log/unreadable", 503, "curia/log/unreadable", null),
+            ("503 store/unavailable", 503, "curia/store/unavailable", null),
         };
 
         foreach (var (name, status, type, detail) in refusals)
@@ -157,13 +176,16 @@ public sealed partial class ResendVerbTests
             if (!File.Exists(resent.FileOf(act))) problems.Add($"resend, {name}: file removed");
             // Compared after the substitution (trap 117): the words show <digest> and the printer fills it with the digest of the act kept.
             var words = Fold(PublishedResendWords.ResendRefusalWords.Replace("<digest>", act.PrefixedDigest, StringComparison.Ordinal));
-            if (!run.Text.Contains(words, StringComparison.Ordinal)) problems.Add($"resend, {name}: lacks the published words that the refusal does not say whether the first send was recorded");
+            // Exactly once (R11.81 (a)): a verb that composes the sentence after the shared Summary has already composed it prints it twice, and a contains check passes that.
+            var said = System.Text.RegularExpressions.Regex.Count(run.Text, System.Text.RegularExpressions.Regex.Escape(words), System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+            if (said != 1) problems.Add($"resend, {name}: the published words that the refusal does not say whether the first send was recorded occur {said} times, expected 1");
 
             // The control: the same refusal to a first send is a definite answer for it, so nothing is kept.
             using var first = new SessionKit();
             first.Forum.OnPost = (_, _, _) => Task.FromResult(ScriptedForum.Problem(status, type, "A refusal", detail));
             await CliKit.RunAsync(first, "ask", "--board", "b", "--title", "A title?", "--body", "A body.");
-            if (first.KeptFiles().Length != 0) problems.Add($"first send, {name}: the file was kept (control)");
+            // (curia/store/unavailable is the one answer here that leaves a first send's act unknown, so it is kept: R11.79's table.)
+            if (type != "curia/store/unavailable" && first.KeptFiles().Length != 0) problems.Add($"first send, {name}: the file was kept (control)");
         }
 
         Red.None(problems, "the file kept and the published words after each refused resend; the same refusals to a first send leave no file");
@@ -204,6 +226,9 @@ public sealed partial class ResendVerbTests
         var two = kit.Build(PostKind.Comment, body: "two");
         kit.Plant(one, kind: "question", attempts: 2, lastAnswer: "503");
         kit.Plant(two, kind: "comment");
+        // A third act whose digest shares all but its last digit with the first (a discard by prefix, by the leading digits or by a pattern removes it too).
+        var nearHex = one.Digest[..63] + (one.Digest[63] == 'a' ? 'b' : 'a');
+        var nearFile = kit.Plant(two, kind: "comment", name: nearHex, digest: "sha256:" + nearHex);
 
         var listing = await CliKit.RunAsync(kit, "acts");
         var problems = new List<string>();
@@ -217,6 +242,7 @@ public sealed partial class ResendVerbTests
         if (discarded.Exit != 0) problems.Add($"--discard exited {discarded.Exit}");
         if (File.Exists(kit.FileOf(one))) problems.Add("the discarded file is still there");
         if (!File.Exists(kit.FileOf(two))) problems.Add("--discard removed the other act too");
+        if (!File.Exists(nearFile)) problems.Add("--discard removed the act whose digest shares 63 of its 64 digits");
 
         var unknown = await CliKit.RunAsync(kit, "acts", "--discard", "sha256:" + new string('e', 64));
         if (unknown.Exit != 1 || !unknown.Text.Contains(Fold(PublishedResendWords.NotHeldWords), StringComparison.Ordinal)) problems.Add($"a digest not held: exit {unknown.Exit}, \"{unknown.Text}\"; expected the published NOT DISCARDED words, exit 1");

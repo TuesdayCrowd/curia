@@ -240,7 +240,10 @@ public sealed class ResendAtASpentBudgetTests : IClassFixture<LateCommitForumFix
 
         var fresh = await ReadsOfAsync(actor.Agent.SignQuestion(board, Probe.Unrelated(), "About " + Probe.Unrelated(), _forum.Now));
         var resent = await ReadsOfAsync(wire);
-        Said($"{fresh.Forward} whole-log reads and {fresh.ByAggregate} stream reads", $"{resent.Forward} whole-log reads and {resent.ByAggregate} stream reads");
+        // Absolute, not relative to the refused new act: a re-read shared by every denied path moves both counts together. The route's cost at a spent budget is the AUTHORIZE read of
+        // the whole log and the two stream reads the request makes in any case (measured on the unmodified route; R7.32 adds none).
+        const string Route = "1 whole-log reads and 2 stream reads";
+        Said($"{Route} for a refused new act and {Route} for the answered resend", $"{fresh.Forward} whole-log reads and {fresh.ByAggregate} stream reads for a refused new act and {resent.Forward} whole-log reads and {resent.ByAggregate} stream reads for the answered resend");
     }
 
     // ------------------------------------------------------------------------------------------------------------------------------------------------------------
