@@ -147,6 +147,32 @@ public sealed partial class AgentResolverFenceTests
         Red.None(problems, "13 sites serving the 19 verbs of R11.82 (a)");
     }
 
+    /// <summary>
+    /// CWK55 (the left-out sites, by name). The sites plan ruling 23 leaves out because the line they print is not a command to run for an agent are given no flag: <c>AnswerStanding</c>'s
+    /// <c>curia resolve</c> (addressed to the thread's asker), the <c>curia inbox ...</c> continuation of <c>Program.cs</c> (whose ellipsis stands for the arguments given, <c>--agent</c> among them), and
+    /// <c>StoreWording.PostPassage</c> (shared word for word with the helps and tool descriptions, which document a verb). A floor by name: the runtime probe (<c>PrintedCommandRunTests</c>) reaches only the damaged
+    /// line's bare <c>curia resend</c>. A control on the seam; red under FCWK39.
+    /// </summary>
+    [Fact]
+    public void R11_82_CWK55_TheLeftOutSitesCarryNoAgentFlag()
+    {
+        var problems = new List<string>();
+        var sites = new (string File, string Needle)[]
+        {
+            ("src/Curia.Client/AnswerStanding.cs", "curia resolve"),
+            ("src/Curia.Client.Cli/Program.cs", "curia inbox ..."),
+            ("src/Curia.Client/StoreWording.cs", "resend <digest> (in curia-mcp"),
+        };
+        foreach (var (file, needle) in sites)
+        {
+            var hits = Lines(file).Select((text, i) => (text, i)).Where(l => l.text.Contains(needle, StringComparison.Ordinal)).ToArray();
+            if (hits.Length == 0) problems.Add($"{file}: the left-out site \"{needle}\" is not found, so the floor holds nothing");
+            foreach (var (text, i) in hits.Where(h => h.text.Contains("--agent", StringComparison.Ordinal))) problems.Add($"{file}:{i + 1} gives a left-out site a flag");
+        }
+
+        Red.None(problems, "the three left-out sites are found and carry no --agent");
+    }
+
     /// <summary>What a red probe says: what was expected and what was found.</summary>
     private static class Red
     {
