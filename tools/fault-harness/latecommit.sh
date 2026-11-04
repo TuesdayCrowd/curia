@@ -84,6 +84,9 @@ curia = shlex.split(E["LC_CURIA"])
 def ms(): return int(time.time() * 1000)
 def sh(*a):
     r = subprocess.run(list(a), capture_output=True, text=True); return r.returncode, (r.stdout + r.stderr).strip()
+def count(sql):
+    # stdout only: a psql that warns on stderr (the Debian wrapper's locale warning, seen in CI) must not reach int()
+    r = subprocess.run(["psql", "-d", E["FH_DB"], "-Atc", sql], capture_output=True, text=True); return int(r.stdout.strip() or 0)
 try:
     words = [w for w in open("/usr/share/dict/words").read().split() if w.isalpha() and 4 < len(w) < 10]
 except OSError:
@@ -138,7 +141,7 @@ ta.join(); tb.join()
 mark_seq = int([l for l in open(os.path.join(E["FH_DIR"], "marks", name + "-pre")).read().split("\n") if l.startswith("seq=")][0].split("=")[1])
 last = None; last_change = time.time(); deadline = time.time() + 2 * hold + bdelay + 20
 while time.time() < deadline:
-    n = int(sh("psql", "-d", E["FH_DB"], "-Atc", "select count(*) from events where seq > %d" % mark_seq)[1] or 0)
+    n = count("select count(*) from events where seq > %d" % mark_seq)
     if n != last: last = n; last_change = time.time()
     if (ms() - t_on) / 1000 >= hold + 1 and time.time() - last_change >= 3: break
     time.sleep(0.5)

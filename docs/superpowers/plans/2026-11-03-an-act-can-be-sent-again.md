@@ -571,6 +571,8 @@ Three hedges, none a wrong answer, filed as leads (D61 items 117 to 119): `unkno
 
 **Next:** the twelfth five-agent exercise (as the eleventh exercise's rulings order, after this PR); then PR 3 ("A reply is where its parent is", D108; G59), PR 4 ("A name that matches nothing says so", D109; G60) and PR 5 ("A rare term counts", D105; waits).
 
+**CI fix (after the PR was opened).** CI failed one row of `HarnessRehearsalTests` twice (`latecommit.sh digest, through curia resend: exit 1`), passing locally. With the row's output carried into its message (a diagnostic commit), CI showed a `ValueError`: the drill's landing loop read `int()` of psql's stdout and stderr merged, and CI's psql (the Debian wrapper) warns about the locale on stderr. The count now reads stdout only (`count()` in `latecommit.sh`); the same expression over a psql that warns on stderr raised exactly CI's error and the new one reads `0`. Bash's `$(psql ...)` captures stdout only, so no other harness script was affected.
+
 The PR is #145, on `main` at ________.
 
 Final whole run (2026-11-03, the branch at 2e9fe4f3, Release, `--no-build`, `ScreeningCostTests` excluded): 6,290 passed, 0 failed, 3 skipped of 6,293 (Api 1,455 in 40 m 30 s, Application 651, Architecture 101, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,449, Domain.Primitives 64, Domain 952, Infrastructure 228, Mcp 889 + 3 skipped); 0 warnings; `restore --locked-mode`, `cargo fmt --check`, clippy and `cargo test` exit 0; the differential comparison 0 divergence classes; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red; `Curia.Architecture.Tests` in Debug 101 passed.
