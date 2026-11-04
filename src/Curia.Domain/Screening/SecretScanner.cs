@@ -41,7 +41,7 @@ public static partial class SecretScanner
     /// red-team corpus are unchanged; on other input they may not be.
     /// 2026-10-18: no pattern changed; the line-joined view deletes the characters HiddenCharacters now names, tag characters and U+2061 to U+206F among them (register D35, errata G23, R10.76), so a credential interleaved with one is found.
     /// 2026-10-29: the keyword connection-string rule reads `pwd=` only in position (after a semicolon, an opening quotation mark or the start of a line) and not when its value starts like a path or a reference (`/`, `~`, `$`, `%`), so a working directory or a shell variable is no longer a password; `password=` is unchanged (register D84, errata G46, R10.86).
-    /// 2026-11-04: the connection-string password rules (the URI form and the keywords) do not report a password that is, whole, a reference to a secret (`$DB_PASS`, `${DB_PASS}`, `%DB_PASS%`, `<password>`, `{{db_pass}}`, four or more `*`, then closing punctuation only), and a URI match not where a further `@` follows it, and `pwd` is not a password when its value starts a drive-letter path; the patterns, spans and floor are unchanged and nothing stored is rescreened (register D112, errata G60, R10.96).
+    /// 2026-11-04: the connection-string password rules (the URI form and the keywords) do not report a password that is, whole, a reference to a secret (`$DB_PASS`, `${DB_PASS}`, `%DB_PASS%`, `<password>`, `{{db_pass}}`, four or more `*`, then closing punctuation only), and a URI match not where a further `@` follows it, and `pwd` is not a password when its value starts a drive-letter path, and the markup view does not re-report a keyword the original cleared as a reference (ContentScreener.Detect); the patterns, spans and floor are unchanged and nothing stored is rescreened (register D112, errata G60, R10.96).
     /// </summary>
     public const string Version = "secrets/2026-11-04";
 
@@ -85,7 +85,14 @@ public static partial class SecretScanner
     /// keyword forms, and the high-entropy assignment. The caller owns that copy and discards it
     /// (R6.13); nothing returned from here references it.
     /// </summary>
-    public static IEnumerable<RiskFlag> Scan(string derivedCopy)
+    public static IEnumerable<RiskFlag> Scan(string derivedCopy) => Scan(derivedCopy, referenceCleared: null);
+
+    /// <summary>
+    /// <see cref="Scan(string)"/>, telling <paramref name="referenceCleared"/> the start of each keyword match it skipped because the value was, whole, a reference
+    /// (R10.96; not the <c>pwd</c> drive-letter skip). The caller reading the original passes it so that <see cref="ContentScreener"/> can keep the markup view from
+    /// re-reporting that keyword (decision 3's exception); a callback and not a collection so that nothing is allocated for a text that clears no keyword.
+    /// </summary>
+    internal static IEnumerable<RiskFlag> Scan(string derivedCopy, Action<int>? referenceCleared)
     {
         ArgumentNullException.ThrowIfNull(derivedCopy);
 
@@ -115,7 +122,13 @@ public static partial class SecretScanner
             // R10.96: a value that is, whole, a reference to a secret is not reported.
             // R10.96, `pwd` alone: a value that begins a drive letter, a colon and a separator is a path (the keyword is the working directory's name).
             var value = ReferencePassword.KeywordValue(derivedCopy.AsSpan(span.Index, span.Length));
-            if (ReferencePassword.IsReference(value) || (match.Groups["pwd"].Success && ReferencePassword.StartsDrivePath(value)))
+            if (ReferencePassword.IsReference(value))
+            {
+                referenceCleared?.Invoke(span.Index);
+                continue;
+            }
+
+            if (match.Groups["pwd"].Success && ReferencePassword.StartsDrivePath(value))
                 continue;
             yield return new RiskFlag(RiskCategory.ConnectionStringPassword, span.Index, span.Length, Version);
         }
