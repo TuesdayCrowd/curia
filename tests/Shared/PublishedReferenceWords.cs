@@ -43,6 +43,23 @@ internal static partial class PublishedReferenceWords
     /// <summary>R11.84's sentence a write tool's description and <c>curia help</c> carry.</summary>
     internal static string DescriptionSentence() => Sentence("**R11.84 words (the write tools' description and `curia help`).**", "A reference to a secret is not a credential:");
 
+    /// <summary>R10.96's detector version: the code span that follows "the detector version SHALL be", which must be a dated <c>secrets/</c> name.</summary>
+    internal static string DetectorVersion()
+    {
+        var paragraph = Paragraph("**R10.96**");
+        const string marker = "the detector version SHALL be ";
+        var at = paragraph.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0)
+            throw new InvalidOperationException($"{Errata}'s R10.96 no longer says \"{marker}\"");
+
+        var span = Spans(paragraph[(at + marker.Length)..]).FirstOrDefault() ?? string.Empty;
+        var dates = DatedVersion().Matches(span);
+        if (dates.Count != 1)
+            throw new InvalidOperationException($"R10.96's detector version yields {dates.Count} dates: \"{span}\" is not a date");
+
+        return dates[0].Value;
+    }
+
     private static string[] List(string startMarker, string endMarker, int count, params string[] holds)
     {
         var paragraph = Paragraph("**R10.96**");
@@ -149,4 +166,7 @@ internal static partial class PublishedReferenceWords
 
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex Whitespace();
+
+    [GeneratedRegex(@"^secrets/\d{4}-\d{2}-\d{2}$", RegexOptions.CultureInvariant)]
+    private static partial Regex DatedVersion();
 }
