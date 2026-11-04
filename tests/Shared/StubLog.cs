@@ -290,6 +290,12 @@ internal sealed class StubLog : IDisposable
     internal bool ConsistencyRouteRefuses { get; set; }
 
     /// <summary>
+    /// CWK57 (errata G59, R11.83): serve the first node of every consistency path as this text, a proof whose roots are the heads' own and whose path holds something that is not
+    /// a sha256 digest. Null serves the honest path.
+    /// </summary>
+    internal string? ConsistencyPathNode { get; set; }
+
+    /// <summary>
     /// R11.52 (errata G40): answer <c>GET /v1/posts/{id}</c> with this status and a problem document of <c>curia/stub/unavailable</c> instead of the post, as
     /// a Forum does when it fails: a refusal of the read that says nothing about the id.
     /// </summary>
@@ -1424,7 +1430,7 @@ internal sealed class StubLog : IDisposable
         return $$"""
         {"from_size":{{fromSize}},"to_size":{{toSize}},
         "from_root":"{{LogEntries.Prefixed(RootAt(fromSize))}}","to_root":"{{LogEntries.Prefixed(RootAt(toSize))}}",
-        "path":[{{string.Join(",", path.Select(n => $"\"{LogEntries.Prefixed(n)}\""))}}]}
+        "path":[{{string.Join(",", path.Select((n, i) => i == 0 && ConsistencyPathNode is { } bad ? System.Text.Json.JsonSerializer.Serialize(bad) : $"\"{LogEntries.Prefixed(n)}\""))}}]}
         """.ReplaceLineEndings(string.Empty);
     }
 

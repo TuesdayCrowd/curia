@@ -12,7 +12,7 @@ namespace Curia.Client.Tests;
 /// (<c>Consistency(retained, served, proof)</c>), works the direction out itself and names each head by its role.
 /// </summary>
 [SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
-public sealed class RetainedHeadRoleTests : IDisposable
+public sealed partial class RetainedHeadRoleTests : IDisposable
 {
     private readonly StubLog _log = new(treeSize: 8, postIndex: 3);
 

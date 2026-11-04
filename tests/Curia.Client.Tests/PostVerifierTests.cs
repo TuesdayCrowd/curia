@@ -317,6 +317,36 @@ public sealed class PostVerifierTests : IDisposable
     }
 
     /// <summary>
+    /// CWK57 (the verifier's half; errata G59, R6.61, R11.83; plan ruling 36). A Forum that serves, for two heads it signed, a consistency proof whose path holds something that is not a sha256
+    /// digest: <c>FAILED</c> (a failure of what the Forum served, never could-not-be-checked, so a Forum cannot make equivocation cheaper by answering every proof malformed), the line inside
+    /// the published frame with the node as a display literal, and the retained file byte-identical, in both orientations (the Forum served the larger head, then the smaller).
+    /// </summary>
+    [Theory]
+    [InlineData(4, 8)]
+    [InlineData(8, 4)]
+    public async Task R6_61_CWK57_AMalformedPathNodeIsAFailureAndTheRetainedHeadIsKept(int retainedSize, int servedSize)
+    {
+        var log = Log(treeSize: 8, postIndex: 2);
+        var heads = new HeadStore(_home);
+
+        log.HeadTreeSize = retainedSize;
+        await VerifyAsync(log, heads);
+        var before = heads.Read(StubLog.Forum)!;
+
+        log.HeadTreeSize = servedSize;
+        log.ConsistencyPathNode = "sha256:zz";
+        var result = await VerifyAsync(log, heads);
+
+        Assert.Equal(CheckOutcome.Failed, result.Consistency.Outcome);
+        Assert.Contains("the Forum's proof holds a path node that is not a sha256 digest: \"sha256:zz\"", result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains($"the head this client retained (tree size {retainedSize}", result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains($"the head the Forum serves (tree size {servedSize}", result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains("The retained head is kept.", result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Equal(before.TreeSize, heads.Read(StubLog.Forum)!.TreeSize);
+        Assert.Equal(before.RootHash, heads.Read(StubLog.Forum)!.RootHash);
+    }
+
+    /// <summary>
     /// R6.53: a retained head this client cannot read is left exactly where it is.
     ///
     /// <para>Corruption and absence look the same to a caller reading a null, and treating the

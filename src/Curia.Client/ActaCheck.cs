@@ -495,15 +495,17 @@ public static class ActaCheck
         if (!string.Equals(proof.ToRoot, larger.RootHash, StringComparison.Ordinal))
             return Failed($"the Forum's proof runs to {Check.Quote(proof.ToRoot)} and {largerRole} root is {Check.Quote(larger.RootHash)}");
 
-        if (LogEntries.Unprefixed(proof.FromRoot) is not { } fromRoot
-            || LogEntries.Unprefixed(proof.ToRoot) is not { } toRoot)
-            return Check.Failed("a root on the consistency proof is not a sha256 digest");
+        if (LogEntries.Unprefixed(proof.FromRoot) is not { } fromRoot)
+            return Failed($"the Forum's proof names a root that is not a sha256 digest: {Check.Quote(proof.FromRoot)}");
+
+        if (LogEntries.Unprefixed(proof.ToRoot) is not { } toRoot)
+            return Failed($"the Forum's proof names a root that is not a sha256 digest: {Check.Quote(proof.ToRoot)}");
 
         var path = ImmutableArray.CreateBuilder<ImmutableArray<byte>>(proof.Path.Length);
         foreach (var node in proof.Path)
         {
             if (LogEntries.Unprefixed(node) is not { } decoded)
-                return Check.Failed($"the consistency path holds something that is not a sha256 digest: {Check.Quote(node)}");
+                return Failed($"the Forum's proof holds a path node that is not a sha256 digest: {Check.Quote(node)}");
 
             path.Add(decoded);
         }
