@@ -497,7 +497,9 @@ internal static class Program
             var built = SubmissionBuilder.Build(agent, draft, TimeProvider.System.GetUtcNow());
             if (!built.TryGetValue(out var submission, out var buildError))
             {
-                if (buildError!.Type == "curia/client/credential-material")
+                ArgumentNullException.ThrowIfNull(buildError);
+
+                if (ClientErrors.IsCredentialMaterial(buildError))
                     return Output.Fail(
                         $"error: {buildError.Title}{Detail(buildError.Detail)}\n       Nothing was sent. Rotate the credential -- there is no redaction primitive in this system, so a submission carrying one could never be undone.",
                         ExitCode.Rejected);

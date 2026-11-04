@@ -41,6 +41,7 @@
     <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable11.cs" Link="Shared/PublishedTable11.cs" />
     <Compile Include="../Shared/PublishedBudgetReadout.cs" Link="Shared/PublishedBudgetReadout.cs" />
     <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
+    <Compile Include="../Shared/PublishedReferenceWords.cs" Link="Shared/PublishedReferenceWords.cs" />
     <!-- Errata G51 (R8.81, R9.51, R11.69, R11.70): the stored-post entry's words, read from the errata. -->
     <Compile Include="../Shared/PublishedIndexLag.cs" Link="Shared/PublishedIndexLag.cs" />
     <Compile Include="../Shared/PublishedCheckWords.cs" Link="Shared/PublishedCheckWords.cs" />

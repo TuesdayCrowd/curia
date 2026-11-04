@@ -673,7 +673,7 @@ internal sealed partial class ForumTools
         var text = new FrameBuilder()
             .Append($"NOT SENT: {error.Title}{new OwnText(error.Detail is { Length: > 0 } detail ? ": " + DisplayLiteral.Of(detail) : string.Empty)}");
 
-        return error.Type == "curia/client/credential-material"
+        return ClientErrors.IsCredentialMaterial(error)
             ? text.Append($". Nothing left this host. Rotate the credential anyway if it is live: there is no redaction primitive in this system, so a submission carrying one could never be undone.").ToString()
             : text.Append($".").ToString();
     }

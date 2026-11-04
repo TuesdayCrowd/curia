@@ -40,9 +40,27 @@ public static class ClientErrors
     /// (R10.27, R10.28).
     /// </summary>
     public static Error CredentialMaterial(string detail) => new(
-        "curia/client/credential-material",
+        CredentialMaterialType,
         "Credential material detected in the content; nothing was sent. Rotate it",
         detail);
+
+    private const string CredentialMaterialType = "curia/client/credential-material";
+
+    /// <summary>
+    /// The type a credential refusal whose categories include <c>ConnectionStringPassword</c> carries, so that R11.84's sentence can be told from the
+    /// refusal and not from its words (a test of the detail's text is a name-based floor). Nothing issues it yet.
+    /// </summary>
+    private const string ConnectionStringCredentialMaterialType = "curia/client/credential-material-connection-string";
+
+    /// <summary>
+    /// Whether <paramref name="error"/> is a refusal of credential material, of either type. The one test both clients read in place of a string compare
+    /// (errata G60, ruling 21): the two type literals are private to this class.
+    /// </summary>
+    public static bool IsCredentialMaterial(Error error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return error.Type is CredentialMaterialType or ConnectionStringCredentialMaterialType;
+    }
 
     /// <summary>A <c>--refs</c> value that is none of the three forms Appendix C.3 shows (errata G25, R8.65). The value is not echoed.</summary>
     public static Error ReferenceForm() => new(
