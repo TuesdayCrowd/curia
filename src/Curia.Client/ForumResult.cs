@@ -85,7 +85,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// <summary>The digest of the signed act this refusal refused, as this client computed it from the bytes (R11.79); null for a call that signed nothing. Set by the session.</summary>
     public string? ActDigest { get; init; }
 
-    /// <summary>The slug of the profile the session ran as (errata G59, R11.82): set by the session beside <see cref="Act"/>, so a refusal knows whom it was for. Read by nothing yet.</summary>
+    /// <summary>The slug of the profile the session ran as (errata G59, R11.82): set by the session beside <see cref="Act"/>, so a refusal knows whom it was for. Read by the words that print a command for the agent (<c>StoreWording.ActLine</c>, <c>ResendWording</c>, <see cref="ReadWhere"/>).</summary>
     public string? Agent { get; init; }
 
     /// <summary>

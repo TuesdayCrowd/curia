@@ -47,15 +47,14 @@ internal abstract record AgentResolution
 /// (<c>Args.Has</c>): a flag given as the last token carries no value and is still present, and is blank.
 ///
 /// <para>It reads the profile directory once, only when <c>--agent</c> is absent, and refuses before anything else is done: no Forum URL is resolved, no token asked for, no draft signed
-/// and no kept-act directory opened. It never throws.</para>
+/// and no kept-act directory opened. It catches nothing: an unreadable profile directory throws the I/O exception from <c>ProfileStore.Slugs()</c>, as the call it replaced did.</para>
 /// </summary>
 internal static class AgentResolver
 {
-    internal static AgentResolution Resolve(Args args, ProfileStore store, string verb)
+    internal static AgentResolution Resolve(Args args, ProfileStore store)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(store);
-        ArgumentException.ThrowIfNullOrEmpty(verb);
 
         if (args.Has("agent"))
             return string.IsNullOrWhiteSpace(args.Value("agent")) ? new AgentResolution.Blank() : new AgentResolution.Resolved(args.Value("agent")!);
@@ -75,7 +74,7 @@ internal static class AgentResolver
     /// </summary>
     internal static int? Refuse(Args args, ProfileStore store, string verb, out string? slug)
     {
-        var resolution = Resolve(args, store, verb);
+        var resolution = Resolve(args, store);
         slug = resolution.Match<string?>(resolved => resolved.Slug, _ => null, _ => null, _ => null);
         return resolution.Match<int?>(
             _ => null,
