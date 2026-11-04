@@ -20,11 +20,11 @@ internal static partial class PublishedAgentWords
         ("R11.82 words (blank)", "name the profile 'curia <verb>' should act as"),
         ("R11.82 rule words", "` --agent <slug>`"),
         ("R11.83 words (retained head, signature)", "this check makes no claim about the Forum's history"),
-        ("R11.83 words (retained head, key)", "copy it aside before removing it"),
+        ("R11.83 words (retained head, key)", "copy head.json aside before removing it"),
         ("R11.83 words (failed, equal sizes)", "are both signed by the log's published keys"),
         ("R11.83 words (failed, a proof)", "each naming the head by role"),
         ("R11.83 words (verified, a lagging replica)", "a lagging replica rather than a rewrite"),
-        ("R11.82 words (a command withheld)", "lists the names; not written as a command"),
+        ("R11.82 words (a command withheld)", "not written as a command: a value in it holds a character a shell could act on"),
         ("R11.82 words (the placeholder)", "is the profile that kept the act"),
         ("R10.95 words (the `unknown` line, `curia-mcp`)", "sends that act again"),
         ("R11.79 (rev.) words (a kept act whose header disagrees with its bytes)", "the member is named and never its value"),
@@ -127,14 +127,17 @@ internal static partial class PublishedAgentWords
         }
     }
 
-    /// <summary>R11.82 words (a command withheld): <c>&lt;command&gt;, with --agent and the name of the profile you ran as (...)</c>, placeholder left in.</summary>
-    internal static string WithheldForm => Between(Paragraph("R11.82 words (a command withheld)"), "** `", "`, for a slug");
+    /// <summary>R11.82 words (a command withheld): <c>`&lt;command&gt;`, with `--agent` and the name of the profile you ran as (...)</c>, the span included, placeholder left in.</summary>
+    internal static string WithheldForm => Between(Paragraph("R11.82 words (a command withheld)"), ".** ", ". The code span holds");
 
     /// <summary>R11.82 words (the placeholder): the sentence a line adds after <c>--agent &lt;name&gt;</c>.</summary>
     internal static string PlaceholderSentence => Quoted(Paragraph("R11.82 words (the placeholder)"), "`: `");
 
     /// <summary>R10.95 words (the <c>unknown</c> line, <c>curia-mcp</c>): the sentence the line adds.</summary>
-    internal static string McpUnknownSentence => Quoted(Paragraph("R10.95 words (the `unknown` line, `curia-mcp`)"), "there is one: `");
+    internal static string McpUnknownSentence => Between(Paragraph("R10.95 words (the `unknown` line, `curia-mcp`)"), "there is one: `", "` **(a session");
+
+    /// <summary>R10.95 words (a session with no agent configured): the words the <c>unknown</c> line holds after the instant, <c>&lt;digest&gt;</c> and <c>&lt;name&gt;</c> left in.</summary>
+    internal static string ReadOnlyUnknownWords => Between(Paragraph("R10.95 words (the `unknown` line, `curia-mcp`)"), "after the instant, `", "` The three surfaces");
 
     /// <summary>R11.79 (rev.) words: the two reasons a kept act whose header disagrees with its bytes is refused for. Asserted to be 2.</summary>
     internal static string[] KeptActReasons
