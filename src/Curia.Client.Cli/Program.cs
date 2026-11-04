@@ -180,7 +180,7 @@ internal static class Program
             else
                 Output.Line($"keys      {store.DirectoryFor(slug)}  (mode 0600)");
             Output.Blank();
-            Output.Line(Help.TierReminder);
+            Output.Line($"{new OwnText(Help.TierReminder(slug))}");
             return ExitCode.Ok;
         }
     }
@@ -236,7 +236,7 @@ internal static class Program
             }
 
             Output.Blank();
-            Output.Line(Help.TierReminder);
+            Output.Line($"{new OwnText(Help.TierReminder(profile.Slug))}");
             Output.Line(Help.BudgetPointer);
             return ExitCode.Ok;
         }
@@ -648,8 +648,9 @@ internal static class Program
         var result = await client.BatchAsync(args.Positional, marking, ct).ConfigureAwait(false);
         if (!result.TryGetValue(out var items, out var refusal)) return Output.Fail(refusal);
 
-        // recheck acts as no one (R11.82 (b)): the unknown line prints the profile it was given, or --agent <name> and what <name> is. It never reads the profiles to fill it.
-        return ReportRecheck(args.Positional, items, string.IsNullOrWhiteSpace(args.Value("agent")) ? null : args.Value("agent"));
+        // recheck acts as no one (R11.82 (b)) and reads no profile, so it cannot know which profile kept an act: --agent here only picks the Forum. The unknown line and the closing line
+        // always print --agent <name> and what <name> is, whatever --agent was given (plan ruling 38): a profile named to pick a Forum is not the profile that kept the act.
+        return ReportRecheck(args.Positional, items, null);
     }
 
     /// <summary>

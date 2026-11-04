@@ -86,10 +86,11 @@ public sealed class RetainedHeadRoleTests : IDisposable
     [Fact]
     public void R11_83_CWK34_TheWordsOfTheEntryAreFoundWithTheirContent()
     {
-        Assert.Equal(8, PublishedAgentWords.AssertParagraphs());
+        Assert.Equal(12, PublishedAgentWords.AssertParagraphs());
         Assert.Equal(19, PublishedAgentWords.IdentityVerbs.Length);
         Assert.Equal(5, PublishedAgentWords.RuleCommands.Length);
         Assert.Equal(3, PublishedAgentWords.ProofReasons.Length);
+        Assert.Equal(2, PublishedAgentWords.UnreadableProofReasons.Length);
         Assert.Contains("changed or damaged", PublishedAgentWords.KeyWords, StringComparison.Ordinal);
         Assert.Contains("copy it aside", PublishedAgentWords.KeyWords, StringComparison.Ordinal);
         Assert.Contains("makes no claim about the Forum", PublishedAgentWords.SignatureWords, StringComparison.Ordinal);

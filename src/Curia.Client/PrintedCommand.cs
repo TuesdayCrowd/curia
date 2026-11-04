@@ -15,16 +15,17 @@ public static class PrintedCommand
     public const string NameSentence = "In `--agent <name>`, <name> is the profile that kept the act.";
 
     /// <summary>
-    /// <paramref name="command"/> ending with <c> --agent</c> and <paramref name="slug"/> as a shell word; with no slug, <c> --agent &lt;name&gt;</c>; with a slug that is not a word (or that begins
-    /// with a quotation mark, which a shell would not read as the name it is, or that holds a space: a profile is named by one word), the command withheld in the form <c>Hints</c> uses.
+    /// <paramref name="command"/> ending with <c> --agent</c> and <paramref name="slug"/> as a shell word; with no slug, <c> --agent &lt;name&gt;</c>; with a slug that is not a shell word
+    /// (R10.65) or that holds a backtick (which would end the code span several lines print the command in), the command withheld in the published form (errata G59, R11.82 words, a command
+    /// withheld), which names no profile above it because the lines that print it print none. A slug with a space or a leading quotation mark is a shell word and is written.
     /// </summary>
     public static string AsAgent(string command, string? slug)
     {
         ArgumentNullException.ThrowIfNull(command);
         if (slug is null) return command + " --agent <name>";
 
-        return !slug.StartsWith('"') && !slug.Contains(' ', StringComparison.Ordinal) && ShellWord.TryOf(slug, out var word)
+        return !slug.Contains('`', StringComparison.Ordinal) && ShellWord.TryOf(slug, out var word)
             ? command + " --agent " + word
-            : command + ", with --agent and the profile named above (" + Withheld + ")";
+            : command + ", with --agent and the name of the profile you ran as ('curia agents' lists the names; " + Withheld + ")";
     }
 }

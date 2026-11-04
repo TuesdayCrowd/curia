@@ -147,7 +147,7 @@ public sealed class HelpTextTests
         foreach (var grant in t0.Concat(t1Only))
             Assert.True(Verbs.ContainsKey(grant), "no verb mapped for Table 10's " + PublishedTable10.Describe(grant, PrincipalTier.T0));
 
-        var reminder = Help.TierReminder;
+        var reminder = Help.TierReminder("a-one");
         var may = reminder.IndexOf("may:", StringComparison.Ordinal);
         var needs = reminder.IndexOf("needs T1", StringComparison.Ordinal);
         Assert.True(may >= 0 && needs > may, "the reminder no longer reads 'may:' ... 'needs T1'");
@@ -260,11 +260,11 @@ public sealed class HelpTextTests
     [Fact]
     public void D37_WhoamiStatesWhereTheTierIsReadOnce()
     {
-        const string sentence = "'curia budget' states the tier";
+        const string sentence = "` states the tier as the Forum computes it now";
         var whoami = MethodSource(SourceText("src/Curia.Client.Cli/Program.cs"), "private static int WhoAmI(");
         Assert.Contains("Help.TierReminder", whoami, StringComparison.Ordinal);
 
-        Assert.Equal(1, Occurrences(Help.TierReminder + "\n" + whoami, sentence));
+        Assert.Equal(1, Occurrences(Help.TierReminder("a-one") + "\n" + whoami, sentence));
     }
 
     /// <summary>

@@ -94,6 +94,14 @@ internal sealed class AgentHost : IDisposable
         _agents.Add(agent!);
     }
 
+    /// <summary>Takes up a profile a run created (<c>enrol</c>) so the host reads it as one of its own: <see cref="ActedAs"/> then finds a run that acted as it. The agent id it was enrolled with is <see cref="AgentIdOf"/>.</summary>
+    internal void AdoptEnrolled(string name)
+    {
+        Assert.True(Store.Load(name).TryGetValue(out var agent, out var error), error?.Type);
+        Names = [.. Names, name];
+        _agents.Add(agent!);
+    }
+
     internal static string AgentIdOf(string name) => "https://agents.example/" + Uri.EscapeDataString(name);
 
     internal EnrolledAgent AgentOf(string name) => _agents[Array.IndexOf(Names, name)];

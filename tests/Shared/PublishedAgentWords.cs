@@ -24,9 +24,13 @@ internal static partial class PublishedAgentWords
         ("R11.83 words (failed, equal sizes)", "are both signed by the log's published keys"),
         ("R11.83 words (failed, a proof)", "each naming the head by role"),
         ("R11.83 words (verified, a lagging replica)", "a lagging replica rather than a rewrite"),
+        ("R11.82 words (a command withheld)", "lists the names; not written as a command"),
+        ("R11.82 words (the placeholder)", "is the profile that kept the act"),
+        ("R10.95 words (the `unknown` line, `curia-mcp`)", "sends that act again"),
+        ("R11.79 (rev.) words (a kept act whose header disagrees with its bytes)", "the member is named and never its value"),
     ];
 
-    /// <summary>Asserts that each of the eight word paragraphs is found once and holds its stable phrase; returns the count (8).</summary>
+    /// <summary>Asserts that each of the twelve word paragraphs is found once and holds its stable phrase; returns the count (12).</summary>
     internal static int AssertParagraphs()
     {
         foreach (var (name, phrase) in WordParagraphs)
@@ -63,14 +67,19 @@ internal static partial class PublishedAgentWords
     /// <summary>R11.82 rule words, whole, folded.</summary>
     internal static string RuleWords => Paragraph("R11.82 rule words");
 
-    /// <summary>R11.82 rule words: the four commands of the rule as published (<c>curia resend &lt;digest&gt;</c>, <c>curia acts --discard &lt;digest&gt;</c>, <c>curia budget</c>, <c>curia flags</c>), plus <c>curia acts</c>.</summary>
+    /// <summary>
+    /// R11.82 rule words: the commands of the rule as published (<c>curia resend &lt;digest&gt;</c>, <c>curia acts --discard &lt;digest&gt;</c>, <c>curia budget</c>, <c>curia flags</c>, <c>curia acts</c>); <c>curia whoami</c> and
+    /// <c>curia enrol</c>, which the rule names as places that print <c>curia budget</c>, are verbs named and not commands to run, and are asserted present and left out. Asserted to be 5.
+    /// </summary>
     internal static string[] RuleCommands
     {
         get
         {
             var rule = RuleWords;
             var all = Backticked(rule[..rule.IndexOf("; `curia recheck`", StringComparison.Ordinal)]);
-            var commands = all.Where(c => c.StartsWith("curia ", StringComparison.Ordinal)).Distinct(StringComparer.Ordinal).ToArray();
+            var places = new[] { "curia whoami", "curia enrol" };
+            if (!places.All(all.Contains)) throw new InvalidOperationException($"{Errata}: the rule words no longer name {string.Join(" and ", places)} as places that print curia budget");
+            var commands = all.Where(c => c.StartsWith("curia ", StringComparison.Ordinal) && !places.Contains(c)).Distinct(StringComparer.Ordinal).ToArray();
             if (commands.Length != 5) throw new InvalidOperationException($"{Errata}: the rule words name {commands.Length} commands ({string.Join(" | ", commands)}), expected 5");
             return commands;
         }
@@ -102,6 +111,52 @@ internal static partial class PublishedAgentWords
             if (reasons.Length != 3) throw new InvalidOperationException($"{Errata}: the failed-proof reasons are {reasons.Length}, expected 3");
             return reasons;
         }
+    }
+
+    /// <summary>R11.83 (failed, a proof): the two reasons for a proof the check cannot read, after "the check cannot read,". Asserted to be 2 (plan ruling 36).</summary>
+    internal static string[] UnreadableProofReasons
+    {
+        get
+        {
+            var text = Paragraph("R11.83 words (failed, a proof)");
+            var at = text.IndexOf("the check cannot read,", StringComparison.Ordinal);
+            if (at < 0) throw new InvalidOperationException($"{Errata}: the failed-proof paragraph has no \"the check cannot read,\"");
+            var reasons = Backticked(text[(at + "the check cannot read,".Length)..].Split("(the frame is the same", StringSplitOptions.None)[0]);
+            if (reasons.Length != 2) throw new InvalidOperationException($"{Errata}: the unreadable-proof reasons are {reasons.Length}, expected 2");
+            return reasons;
+        }
+    }
+
+    /// <summary>R11.82 words (a command withheld): <c>&lt;command&gt;, with --agent and the name of the profile you ran as (...)</c>, placeholder left in.</summary>
+    internal static string WithheldForm => Between(Paragraph("R11.82 words (a command withheld)"), "** `", "`, for a slug");
+
+    /// <summary>R11.82 words (the placeholder): the sentence a line adds after <c>--agent &lt;name&gt;</c>.</summary>
+    internal static string PlaceholderSentence => Quoted(Paragraph("R11.82 words (the placeholder)"), "`: `");
+
+    /// <summary>R10.95 words (the <c>unknown</c> line, <c>curia-mcp</c>): the sentence the line adds.</summary>
+    internal static string McpUnknownSentence => Quoted(Paragraph("R10.95 words (the `unknown` line, `curia-mcp`)"), "there is one: `");
+
+    /// <summary>R11.79 (rev.) words: the two reasons a kept act whose header disagrees with its bytes is refused for. Asserted to be 2.</summary>
+    internal static string[] KeptActReasons
+    {
+        get
+        {
+            var text = Paragraph("R11.79 (rev.) words (a kept act whose header disagrees with its bytes)");
+            var reasons = Backticked(text[text.IndexOf("saying", StringComparison.Ordinal)..].Split("; the member", StringSplitOptions.None)[0]);
+            if (reasons.Length != 2) throw new InvalidOperationException($"{Errata}: the kept-act reasons are {reasons.Length}, expected 2");
+            return reasons;
+        }
+    }
+
+    /// <summary>The text after <paramref name="opening"/> to the last backtick of the paragraph (a span that holds backticks of its own).</summary>
+    private static string Quoted(string paragraph, string opening)
+    {
+        var start = paragraph.IndexOf(opening, StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException($"{Errata}: no \"{opening}\" in the paragraph");
+        start += opening.Length;
+        var end = paragraph.LastIndexOf('`');
+        if (end <= start) throw new InvalidOperationException($"{Errata}: no closing backtick after \"{opening}\"");
+        return paragraph[start..end];
     }
 
     /// <summary>
