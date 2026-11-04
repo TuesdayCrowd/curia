@@ -136,8 +136,12 @@ public sealed class PrintedAgentToolTests : IDisposable
         if (ToolCatalogue.Version != published) problems.Add($"the catalogue reports {ToolCatalogue.Version}, expected {published}");
         if (PublishedReadersLastWords.Version() != published) problems.Add($"the one version parser reads {PublishedReadersLastWords.Version()}, expected {published}");
 
-        // The README keeps its history (0.9.1, 0.9.2 ...): the newest version it names is the current one.
+        // The README keeps its history (an entry ends "`curia-mcp` 0.9.1."): those mentions are history by their words and may name older versions. A statement of the current version is a sentence
+        // that says "`curia-mcp` is X": every one must equal the parser's value (a stale pin beside a newer history entry is red), and the newest version the README names must be the current one.
         var readme = File.ReadAllText(Path.Combine(RepoRoot(), "README.md"));
+        var stated = Regex.Matches(readme, @"`curia-mcp` is (\d+\.\d+\.\d+)", RegexOptions.CultureInvariant).Select(m => m.Groups[1].Value).ToArray();
+        if (stated.Length == 0) problems.Add("the README states no current curia-mcp version (\"`curia-mcp` is X.Y.Z\")");
+        foreach (var version in stated.Where(v => v != PublishedReadersLastWords.Version())) problems.Add($"the README says `curia-mcp` is {version}, the parser reads {PublishedReadersLastWords.Version()}");
         var mentions = Regex.Matches(readme, @"`curia-mcp` (?:is )?(\d+\.\d+\.\d+)", RegexOptions.CultureInvariant).Select(m => Version.Parse(m.Groups[1].Value)).ToArray();
         if (mentions.Length == 0) problems.Add("the README names no curia-mcp version");
         else if (mentions.Max()!.ToString() != published) problems.Add($"the README's newest curia-mcp version is {mentions.Max()}, expected {published}");
