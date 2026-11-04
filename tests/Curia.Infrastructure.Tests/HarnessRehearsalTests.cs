@@ -84,7 +84,9 @@ public sealed class HarnessRehearsalTests
                 if (extra is not null) foreach (var (k, v) in extra) merged[k] = v;
                 var (code, output) = await RunAsync(script, args, merged);
                 var ok = code == exit && (contains is null || output.Contains(contains, StringComparison.Ordinal)) && (absent is null || !output.Contains(absent, StringComparison.Ordinal));
-                said.Add($"{label}: {(ok ? "as expected" : $"exit {code}, expected {exit}{(contains is null ? string.Empty : $" with '{contains}'")}{(absent is null ? string.Empty : $" without '{absent}'")}")}");
+                // A row that misses carries the script's last output, so a failure seen only in CI says why without a second run.
+                var tail = output.Length > 1500 ? output[^1500..] : output;
+                said.Add($"{label}: {(ok ? "as expected" : $"exit {code}, expected {exit}{(contains is null ? string.Empty : $" with '{contains}'")}{(absent is null ? string.Empty : $" without '{absent}'")}; output: {tail}")}");
             }
 
             await Check("hold-on 0", "fault.sh", ["hold-on", "0", "a"], 2);
