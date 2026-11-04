@@ -424,8 +424,8 @@ Each row is applied to a kept copy; the probes that must go red are named; a row
 | FCWK17 | `FAILED` for a head that does not verify | | only for an edited root | CWK25 |
 | FCWK18 | "equivocated" in the could-not-be-checked words | | in the key words | CWK25, CWK34 |
 | FCWK19 | the file replaced after a failed verification | | after a failed proof | CWK29 |
-| FCWK20 | a retained head replaced by a head that did not extend it | | by a lagging head | CWK29, CWK23 |
-| FCWK21 | a cause named in the words ("not a head the operator signed") | | "changed or damaged" only | CWK34 |
+| FCWK20 | a retained head replaced by a head that did not extend it | | by a lagging head | first form: CWK22 (amended after Task 7: CWK29 and CWK23 stayed green under it; the second form's holders are CWK29 and CWK23) |
+| FCWK21 | a cause named in the words ("not a head the operator signed") | | "changed or damaged" only | the printed line's probe, `CWK34 (printed)` in `RetainedHeadRoleTests.Printed.cs`: a real verification whose printed could-not-be-checked line must equal the published words with only the size, kid, instant and directory filled (amended after Task 7: CWK34 as first written read the errata's text, not the printers', and stayed green under both forms) |
 | FCWK22 | the direction-labelled details restored | `from_root` of the served head attributed to the retained | the success line unchanged | CWK23, CWK24, CWK22 |
 | FCWK23 | `retained_at` or the kid left out | | `NOT STATED` printed as empty | CWK21, CWK28 |
 | FCWK24 | the two clients' lines made different | | a suffix added to `curia_verify` | CWK31 |
@@ -436,11 +436,11 @@ Each row is applied to a kept copy; the probes that must go red are named; a row
 | FCWK29 | the words' counts asserted and not their content | one paragraph's phrase changed | | CWK34 |
 | FCWK30 | a second, copied definition of the retained-head lines in `curia-mcp` | | | CWK31 |
 | FCWK31 | the plant is the exercise's edited root treated as a fork in the probe fixture | | | CWK20, CWK36 |
-| FCWK32 | the cold-read capture replaced by a fallback text | | | ASA39-style fact (Task 8) |
+| FCWK32 | the cold-read capture replaced by a fallback text | | | no probe (amended after Task 7: git grep finds no ASA39-style fact for it); it is the controller's check at Task 8 that each cold-read capture is real output of the built tree, not a fallback text |
 | FCWK33 | retired (Amendment 1, ruling 26): the same patch is FASA33, which `ASA38` already goes red under | | | |
-| FCWK34 | a `Sample` callback fills a shared list with `threads` left default | | | CWK7 |
+| FCWK34 | retired (amended after Task 7): the patch removes a test's own thread safety, so its failure is a race and not a discrimination; Task 7 ran it three times (green, red, green) and the row is not a measure of CWK7. Rows are not renumbered | | | |
 | FCWK35 | the version left at 0.10.0 in one pin | | the parser pointed at G58 | CWK50 |
-| FCWK36 | a profile name that differs only in case in a fixture | | | CWK1 on a case-sensitive filesystem (Linux CI) |
+| FCWK36 | a profile name that differs only in case in a fixture | | | CI's (amended after Task 7): it needs a case-sensitive filesystem, and the first Linux run is the check; it is not run on the macOS volume |
 
 ## Traps applied (the point of each, in this PR)
 
