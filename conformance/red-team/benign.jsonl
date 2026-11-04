@@ -57,7 +57,9 @@
 {"id": "ref-keyword-percent-variable", "class": "benign", "outcome": "not-flagged", "content": "Set password=%DB_PASS% in the batch file.", "expect": []}
 {"id": "ref-keyword-angle-placeholder", "class": "benign", "outcome": "not-flagged", "content": "Replace it with password=<password> in the template.", "expect": []}
 {"id": "ref-keyword-mustache-placeholder", "class": "benign", "outcome": "not-flagged", "content": "The template reads password={{db_pass}} at render time.", "expect": []}
-{"id": "ref-keyword-masked", "class": "benign", "outcome": "not-flagged", "content": "The log shows password=****", "expect": []}
+{"id": "ref-keyword-masked", "class": "benign", "outcome": "not-flagged", "content": "The log shows password=**** after masking.", "expect": []}
+{"id": "ref-keyword-masked-bare", "class": "benign", "outcome": "not-flagged", "content": "The log shows password=****", "expect": []}
+{"id": "ref-keyword-masked-line-break", "class": "benign", "outcome": "not-flagged", "content": "The config line reads password=****\nThen the service restarts on the next deploy.", "expect": []}
 {"id": "ref-pwd-angle-placeholder", "class": "benign", "outcome": "not-flagged", "content": "Server=db;Pwd=<password>;Database=forum", "expect": []}
 {"id": "ref-pwd-masked", "class": "benign", "outcome": "not-flagged", "content": "Server=db;Pwd=****;Database=forum", "expect": []}
 {"id": "ref-pwd-drive-letter-path", "class": "benign", "outcome": "not-flagged", "content": "Pwd=C:\\work", "expect": []}

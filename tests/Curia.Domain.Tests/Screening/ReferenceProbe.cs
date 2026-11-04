@@ -90,7 +90,7 @@ internal static class ReferenceProbe
         return canonical;
     }
 
-    internal sealed record Row(string Id, string Outcome, string Content, ImmutableArray<string> Expect);
+    internal sealed record Row(string Id, string Outcome, string Content, ImmutableArray<string> Expect, string Why);
 
     /// <summary>A corpus file read by this loader, outside the one <c>RedTeamCorpusTests</c> uses. <c>Expect</c> is <c>expect</c>, <c>would_flag</c> or <c>would_detect</c>, whichever the row has.</summary>
     internal static Row[] Load(string file)
@@ -114,7 +114,8 @@ internal static class ReferenceProbe
                     root.GetProperty("id").GetString()!,
                     root.GetProperty("outcome").GetString()!,
                     root.GetProperty("content").GetString()!,
-                    [.. root.GetProperty(name).EnumerateArray().Select(x => x.GetString()!)]);
+                    [.. root.GetProperty(name).EnumerateArray().Select(x => x.GetString()!)],
+                    root.TryGetProperty("why", out var why) ? why.GetString()! : string.Empty);
             })];
     }
 

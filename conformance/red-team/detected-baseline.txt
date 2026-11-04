@@ -45,7 +45,9 @@ secret-keyword-default-value
 secret-keyword-dollar-prefixed-value
 secret-keyword-masks-then-value
 secret-keyword-reference-then-value
+secret-keyword-split-then-value
 secret-keyword-suffixed-name
+secret-keyword-three-masks-then-value
 secret-openai
 secret-password-bare-assignment
 secret-pem

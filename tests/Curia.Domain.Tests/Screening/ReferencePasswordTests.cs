@@ -10,7 +10,7 @@ using static Curia.Domain.Tests.Screening.ReferenceProbe;
 namespace Curia.Domain.Tests.Screening;
 
 /// <summary>
-/// R10.96 (errata G60), probes RNC1 to RNC14, RNC24 and RNC25: the connection-string password rules do not report a password that is, whole, a reference,
+/// R10.96 (errata G60), probes RNC1 to RNC14, RNC24 and RNC25 (RNC28 to RNC31 are in <c>MaskThenWordTests</c>): the connection-string password rules do not report a password that is, whole, a reference,
 /// and report every value. Reached through <c>ContentScreener</c> and <c>SecretScanner.Scan</c> and never through the predicate (trap 160); every form is
 /// read from the errata or the corpus files and none from the code under test (vacuity question 4). Written red against the seam of Task 1: a form the
 /// rule must clear is reported, so its probe fails by assertion; a form that must stay refused is refused today, so its probe is a control and says so.
@@ -45,17 +45,28 @@ public sealed class ReferencePasswordTests
         Assert.True(found.Length == 0, $"expected no flag, found {Describe(found)}");
     }
 
-    // ---- RNC2: the sixteen forms, in each shape and each view -----------------------------------------------------------
+    // ---- RNC2: the eighteen forms, in each shape and each view ----------------------------------------------------------
+
+    /// <summary>The two benign rows whose prose follows the mask (R10.96, decision 3's exception): the markup view alone refuses them and the whole screener, RNC28, holds them.</summary>
+    private static readonly string[] MaskThenProseRows = ["ref-keyword-masked", "ref-keyword-masked-line-break"];
 
     /// <summary>
-    /// RNC2: each of the sixteen forms R10.96 clears, read from the errata, is held by a benign row, and is quiet in each shape (through the row) and in each
-    /// view's own <c>Scan</c> (through the form itself, alone). The failure names the view. Reads no predicate.
+    /// RNC2: each of the eighteen forms R10.96 clears, read from the errata, is held by a benign row, and is quiet in each shape (through the row) and in each
+    /// view's own <c>Scan</c> (through the form itself, alone). The failure names the view. Reads no predicate. Amendment 2: the two prose rows
+    /// (<c>ref-keyword-masked</c> and <c>ref-keyword-masked-line-break</c>, found by id and asserted to be exactly two) are the one class a view refuses
+    /// that the original clears, so for them the original's <c>Scan</c> is asserted to clear and the per-view leg is RNC28's; every other form is swept per view.
     /// </summary>
     [Fact]
     public void R10_96_RNC2_EveryFormTheScreenClearsIsQuietInEachShapeAndEachView()
     {
         var forms = PublishedReferenceWords.Benign();
+        var prose = Load("benign.jsonl").Where(r => MaskThenProseRows.Contains(r.Id, StringComparer.Ordinal)).ToArray();
+        Assert.True(prose.Length == 2, $"expected exactly two mask-then-prose rows by id, found {prose.Length}");
+
         var failures = new List<string>();
+        foreach (var row in prose)
+            failures.AddRange(ScanOriginal(row.Content).Select(f => $"{Show(row.Content)} (row {row.Id}): expected the original's Scan to clear, found a flag at {f.Offset}+{f.Length}"));
+
         foreach (var form in forms)
         {
             var rows = RowsHolding("benign.jsonl", form);
@@ -63,16 +74,17 @@ public sealed class ReferencePasswordTests
             foreach (var row in rows)
                 failures.AddRange(FlaggedIn(row.Content).Select(f => $"{Show(form)} (row {row.Id}): expected quiet, fired {f}"));
 
+            if (prose.Any(r => string.Equals(r.Content, form, StringComparison.Ordinal))) continue;
             failures.AddRange(FlaggedByViews(form).Select(f => $"{Show(form)} alone: expected quiet, {f}"));
         }
 
         Assert.True(failures.Count == 0, $"expected quiet for {forms.Length} forms, {failures.Count} reports: {Describe([.. failures])}");
     }
 
-    // ---- RNC3: the ten forms that stay refused --------------------------------------------------------------------------
+    // ---- RNC3: the twelve forms that stay refused --------------------------------------------------------------------------
 
     /// <summary>
-    /// RNC3: each of the ten forms that stay refused, read from the errata, is flagged in each shape through its payload row, and in the bare shape the span
+    /// RNC3: each of the twelve forms that stay refused, read from the errata, is flagged in each shape through its payload row, and in the bare shape the span
     /// equals an independent computation: the keyword to the end of the value, or the URI through its <c>@</c>. CONTROL on the seam (refused today).
     /// </summary>
     [Fact]
@@ -111,7 +123,8 @@ public sealed class ReferencePasswordTests
             return (scheme, end + 1 - scheme);
         }
 
-        var keyword = form.StartsWith("Pwd", StringComparison.Ordinal) ? "Pwd=" : "password=";
+        // The keyword as the form spells it, up to its sign: `password=`, `Pwd=` or the split `pass**word=` the markup view reads as one.
+        var keyword = form[..(form.IndexOf('=', StringComparison.Ordinal) + 1)];
         var start = content.IndexOf(keyword, at, StringComparison.OrdinalIgnoreCase);
         return (start, content.Length - start);
     }
@@ -349,7 +362,7 @@ public sealed class ReferencePasswordTests
 
     // ---- RNC11: what the rule lets through is recorded ------------------------------------------------------------------
 
-    /// <summary>RNC11: each of the five forms R10.96 lets through, read from the errata, is held by a row of the evasions file and is quiet in each shape. Two of the five are reported today.</summary>
+    /// <summary>RNC11: each of the seven forms R10.96 lets through, read from the errata, is held by a row of the evasions file and is quiet in each shape. Two of the five first listed were reported on the seam and the mask followed by a word (Amendment 2) was reported by the markup view.</summary>
     [Fact]
     public void R10_96_RNC11_EveryFormTheRuleLetsThroughIsRecordedAndQuiet()
     {
@@ -440,7 +453,7 @@ public sealed class ReferencePasswordTests
     // ---- RNC24: the errata and the corpus agree -------------------------------------------------------------------------
 
     /// <summary>
-    /// RNC24: each of the 16, 10, 2 and 5 forms R10.96 names is contained in a row of the file it names with the outcome and expectation the paragraph states, and the
+    /// RNC24: each of the 18, 12, 2 and 7 forms R10.96 names is contained in a row of the file it names with the outcome and expectation the paragraph states, and the
     /// counts are asserted after extraction (the extractor does it). The forms are read from the errata, the rows from the files, and no scanner is called.
     /// </summary>
     [Fact]

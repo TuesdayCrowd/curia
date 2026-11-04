@@ -5,14 +5,14 @@ namespace Curia.Tests.Shared;
 
 /// <summary>
 /// The words of errata G60 as the errata publishes them, read at test time from <c>curia-whitepaper-ERRATA-AND-ADDENDUM.md</c> and never from the code a
-/// fact is about: R10.96's four lists of forms (the sixteen the screen clears, the ten that stay refused, the two known false positives, the five it lets
+/// fact is about: R10.96's four lists of forms (the eighteen the screen clears, the twelve that stay refused, the two known false positives, the seven it lets
 /// through) and R11.84's two sentences. A fact that took a list from the predicate it checks would be satisfied by whatever the predicate does (vacuity
 /// question 4); this is the other side of the comparison.
 ///
 /// <para>A form or a sentence is a Markdown code span, read by the rule Markdown states: a span opened by n backticks closes at the next run of exactly n,
 /// and one space at each end is dropped when both are there (so a form that holds a backtick, <c>`--password=$DB_PASS`</c>, is written in two). Each list is
 /// the spans between its own marker phrase and the next, <b>asserted by content and not only by count</b>: a marker phrase must occur exactly once, the
-/// count must be the one the PR is built to (16, 10, 2, 5), and a form each list is known to hold must be in it, before the list is returned (traps 141 and
+/// count must be the one the PR is built to (18, 12, 2, 7), and a form each list is known to hold must be in it, before the list is returned (traps 141 and
 /// 142).</para>
 /// </summary>
 internal static partial class PublishedReferenceWords
@@ -25,17 +25,17 @@ internal static partial class PublishedReferenceWords
     private const string EvasionMarker = "the known-evasions list SHALL hold what the rule lets through,";
     private const string EndMarker = "each with its reason";
 
-    /// <summary>R10.96's forms the screen clears: sixteen, each a benign row.</summary>
-    internal static string[] Benign() => List(BenignMarker, PayloadMarker, 16, "`--password=$DB_PASS`", "Server=db;Pwd=****;");
+    /// <summary>R10.96's forms the screen clears: eighteen (<c>password=****</c> twice, bare and before a line break), each held by a benign row.</summary>
+    internal static string[] Benign() => List(BenignMarker, PayloadMarker, 18, "`--password=$DB_PASS`", "Server=db;Pwd=****;");
 
-    /// <summary>R10.96's forms that stay refused: ten, each a payload row.</summary>
-    internal static string[] Refused() => List(PayloadMarker, FalsePositiveMarker, 10, "postgres://u:EXAMPLE-NOT-A-REAL-SECRET@h", "Pwd=C:EXAMPLE-NOT-A-REAL-SECRET");
+    /// <summary>R10.96's forms that stay refused: twelve, each a payload row.</summary>
+    internal static string[] Refused() => List(PayloadMarker, FalsePositiveMarker, 12, "postgres://u:EXAMPLE-NOT-A-REAL-SECRET@h", "Pwd=C:EXAMPLE-NOT-A-REAL-SECRET");
 
     /// <summary>R10.96's known false positives: two.</summary>
     internal static string[] FalsePositives() => List(FalsePositiveMarker, EvasionMarker, 2, "password=changeme", "password=$password");
 
-    /// <summary>R10.96's forms the rule lets through: five.</summary>
-    internal static string[] Evasions() => List(EvasionMarker, EndMarker, 5, "postgres://u:$HUNTER2EXAMPLE@h", "\"password\": \"EXAMPLE-NOT-A-REAL-SECRET\"");
+    /// <summary>R10.96's forms the rule lets through: seven.</summary>
+    internal static string[] Evasions() => List(EvasionMarker, EndMarker, 7, "postgres://u:$HUNTER2EXAMPLE@h", "\"password\": \"EXAMPLE-NOT-A-REAL-SECRET\"");
 
     /// <summary>R11.84's sentence the refusal carries after the instruction to rotate.</summary>
     internal static string RefusalSentence() => Sentence("**R11.84 words (the refusal's sentence).**", "If the ConnectionStringPassword hit is a reference to a secret and not the secret,");

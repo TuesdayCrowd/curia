@@ -2,9 +2,9 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (79/79) | **0.0 %** (0/63) |
-| enveloped | **100.0 %** (79/79) | **0.0 %** (0/63) |
-| enveloped after a line | **100.0 %** (79/79) | **0.0 %** (0/63) |
+| bare | **100.0 %** (81/81) | **3.1 %** (2/65) |
+| enveloped | **100.0 %** (81/81) | **3.1 %** (2/65) |
+| enveloped after a line | **100.0 %** (81/81) | **3.1 %** (2/65) |
 
 - Detector versions: secrets/2026-11-04, injection/2026-10-18
 - Excluded from the detection rate: **18** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
@@ -32,7 +32,7 @@ credential hit a hard rejection, so a false positive costs an author their submi
 
 ## Known evasions
 
-**24 payloads in `known-evasions.jsonl` defeat these detectors today**, each
+**26 payloads in `known-evasions.jsonl` defeat these detectors today**, each
 with the reason recorded. The detection rate above is computed over `payloads.jsonl`
 only, so it does *not* include them -- which is precisely why they are listed here
 rather than folded into the denominator, where they would depress a number nobody
@@ -64,6 +64,8 @@ Each one, with the reason recorded in the corpus:
 - **`evade-uri-default-value`** -- would be ConnectionStringPassword. The URI form's password class excludes a colon, so no rule reads a default that carries a live value after `:-`; quiet before and after R10.96 (finding 3 of the plan). The keyword form `password=${DB_PASS:-x}` stays refused.
 - **`evade-password-quoted`** -- would be ConnectionStringPassword. A quotation mark cannot begin the keyword rule's value, so a quoted password is read by no rule, before and after R10.96. Ruling 23 of the plan states the cost of reading this form and the order to do it in: the value class would refuse every `password: string`, `password: required`, `password: null` and every schema, API document and configuration example that names the field, each with an instruction to rotate a credential that does not exist, and the benign corpus holds no row with a colon or a quoted password, so a tightened rule has no false-positive denominator. Left as it is on purpose (a miss, the direction R10.11 calls unrecoverable) and filed as a lead for a PR of its own, corpus first.
 - **`evade-password-json-member`** -- would be ConnectionStringPassword. The keyword rule reads `=` and not `:`, and the high-entropy rule's keyword list has no `password`, so the colon and JSON forms are read by no rule, before and after R10.96. Ruling 23 of the plan states the cost of reading this form and the order to do it in: the value class would refuse every `password: string`, `password: required`, `password: null` and every schema, API document and configuration example that names the field, each with an instruction to rotate a credential that does not exist, and the benign corpus holds no row with a colon or a quoted password, so a tightened rule has no false-positive denominator. Left as it is on purpose (a miss, the direction R10.11 calls unrecoverable) and filed as a lead for a PR of its own, corpus first.
+- **`evade-mask-then-word`** -- would be ConnectionStringPassword. A reference that is a run of `*` followed by a separate word is stored, as `password=$DB_PASS EXAMPLE-NOT-A-REAL-SECRET` always was (R10.96, non-property (l)): the word after a mask is not the keyword's value, and the Forum cannot tell a password written after a mask from prose. The commonest spelling of a mask in a log, a configuration or a fenced block is followed by a word or a line, and refusing it told the author to rotate what never existed. A mask of fewer than four `*` is no reference and stays refused.
+- **`evade-reference-then-quotation-mark`** -- would be ConnectionStringPassword. The keyword rule's value ends at a blank, `;`, `"` or `'`, so what follows a reference that is directly followed by one of them is not read (R10.96, non-property (m)). The case that must clear is the closing quotation mark of an enclosing string, `"password=$DB_PASS"`; reading past it would refuse that. The cost is a shell concatenation of the variable and a literal.
 
 A recorded evasion that starts being detected fails the build, so this list cannot
 silently go stale.

@@ -33,7 +33,7 @@ public sealed class PublishedReferenceWordsTests
     public void R10_96_TheFourListsHaveTheirCountsAndTheirContent()
     {
         Assert.Equal(
-            (16, 10, 2, 5),
+            (18, 12, 2, 7),
             (PublishedReferenceWords.Benign().Length, PublishedReferenceWords.Refused().Length, PublishedReferenceWords.FalsePositives().Length, PublishedReferenceWords.Evasions().Length));
         Assert.Contains("`--password=$DB_PASS`", PublishedReferenceWords.Benign());
         Assert.Contains("--password=$DB_PASS", PublishedReferenceWords.Benign());

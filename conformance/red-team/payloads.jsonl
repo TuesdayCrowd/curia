@@ -94,4 +94,6 @@
 {"id": "secret-keyword-reference-then-value", "class": "credential", "outcome": "flagged", "content": "password=$DB_PASS.EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
 {"id": "secret-keyword-default-value", "class": "credential", "outcome": "flagged", "content": "password=${DB_PASS:-EXAMPLE-NOT-A-REAL-SECRET}", "expect": ["ConnectionStringPassword"]}
 {"id": "secret-keyword-masks-then-value", "class": "credential", "outcome": "flagged", "content": "password=****EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-three-masks-then-value", "class": "credential", "outcome": "flagged", "content": "password=*** EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-split-then-value", "class": "credential", "outcome": "flagged", "content": "pass**word= EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
 {"id": "secret-pwd-drive-letter-without-separator", "class": "credential", "outcome": "flagged", "content": "Pwd=C:EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
