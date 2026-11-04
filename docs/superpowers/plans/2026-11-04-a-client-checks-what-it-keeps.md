@@ -646,4 +646,4 @@ D61 items 130 to 149 (first free 150) and traps 143 to 159 (first free 160); D11
 
 The PR is #146, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-11-04, the branch at cc2bc935, Release, `--no-build`, `ScreeningCostTests` excluded): 6,352 passed, 0 failed, 3 skipped of 6,355 (Api 1,470 in 40 m 8 s, Application 651, Architecture 107, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,483, Domain.Primitives 64, Domain 952, Infrastructure 228, Mcp 896 + 3 skipped); 0 warnings; `restore --locked-mode`, `cargo fmt --check`, clippy and `cargo test` exit 0; the differential comparison 0 divergence classes; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red; `Curia.Architecture.Tests` in Debug 107 passed.
