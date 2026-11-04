@@ -44,11 +44,10 @@ internal abstract record AgentResolution
 
 /// <summary>
 /// The one place the CLI decides which agent a verb acts as (errata G59, R11.82). Presence of <c>--agent</c> is the flag being there, never its value
-/// (<c>Args.Has</c>): a flag given as the last token carries no value and is still present.
+/// (<c>Args.Has</c>): a flag given as the last token carries no value and is still present, and is blank.
 ///
-/// <para><b>This is the behaviour-preserving seam.</b> <see cref="Resolve"/> classifies, and <see cref="Seam"/> maps every classification back to what the 13 sites did before this
-/// resolver existed (<c>--agent</c>'s value, else the ordinal-first profile), so the probes of the PR are red as assertions and not as missing symbols. The refusals replace
-/// <see cref="Seam"/> at the sites.</para>
+/// <para>It reads the profile directory once, only when <c>--agent</c> is absent, and refuses before anything else is done: no Forum URL is resolved, no token asked for, no draft signed
+/// and no kept-act directory opened. It never throws.</para>
 /// </summary>
 internal static class AgentResolver
 {
@@ -70,11 +69,18 @@ internal static class AgentResolver
         };
     }
 
-    /// <summary>The slug each site used before the resolver: the flag's value, else the first profile, else null.</summary>
-    internal static string? Seam(Args args, ProfileStore store, string verb) =>
-        Resolve(args, store, verb).Match(
-            resolved => resolved.Slug,
+    /// <summary>
+    /// The site's call. Returns the exit code of the usage refusal (several profiles, or a blank flag) and the site returns it; otherwise returns null with <paramref name="slug"/> the
+    /// agent, or null where none is enrolled, which each site words as it always did.
+    /// </summary>
+    internal static int? Refuse(Args args, ProfileStore store, string verb, out string? slug)
+    {
+        var resolution = Resolve(args, store, verb);
+        slug = resolution.Match<string?>(resolved => resolved.Slug, _ => null, _ => null, _ => null);
+        return resolution.Match<int?>(
             _ => null,
-            several => several.Slugs[0],
-            _ => args.Value("agent") ?? store.Slugs().FirstOrDefault());
+            _ => null,
+            several => Output.Fail($"{new OwnText(AgentWording.Several(verb, several.Slugs))}", ExitCode.Usage),
+            _ => Output.Fail($"{new OwnText(AgentWording.Blank(verb))}", ExitCode.Usage));
+    }
 }

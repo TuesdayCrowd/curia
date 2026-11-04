@@ -203,11 +203,12 @@ internal static class Program
 
     private static int WhoAmI(Args args)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "whoami", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "whoami");
         if (slug is null) return Output.Fail("error: no agent enrolled. Run 'curia enrol --agent <name>'.", ExitCode.Local);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var error))
@@ -259,14 +260,15 @@ internal static class Program
 
     private static async Task<int> PostAsync(string verb, PostKind kind, Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, verb, out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(SharedVerbFlags(verb)) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Value("not-duplicate") is { } overrideRationale && (kind is not PostKind.Question || overrideRationale.Length == 0))
             return Output.Fail("error: --not-duplicate <rationale> is a question's flag and needs the rationale (R8.20).", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, verb);
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -409,14 +411,15 @@ internal static class Program
     /// </summary>
     private static async Task<int> SignalAsync(string verb, PostKind kind, VerificationResult? result, Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, verb, out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(SharedVerbFlags(verb)) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 1 || !EnvelopeDigest.IsPrefixedForm(args.Positional[0]))
             return Output.Fail($"error: usage: curia {verb} <sha256:digest> --board <name> ... (the digest, not the post id)", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, verb);
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -706,6 +709,9 @@ internal static class Program
     /// </summary>
     private static async Task<int> InboxAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "inbox", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "board", "tags", "limit", "cursor", "marking", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
@@ -727,8 +733,6 @@ internal static class Program
             limit = parsed;
         }
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "inbox");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -798,6 +802,9 @@ internal static class Program
     /// </summary>
     private static async Task<int> ResolveAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "resolve", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
@@ -808,8 +815,6 @@ internal static class Program
         if (string.IsNullOrWhiteSpace(args.Positional[0]))
             return Output.Fail("error: <post-id> is empty or blank; nothing was sent.", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "resolve");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1409,6 +1414,9 @@ internal static class Program
     /// </summary>
     private static async Task<int> FlagAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "flag", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "kind", "rationale", "rationale-file", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
@@ -1439,8 +1447,6 @@ internal static class Program
                 + "can review is not reviewable.",
                 ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "flag");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1490,6 +1496,9 @@ internal static class Program
     /// </summary>
     private static async Task<int> FlagsAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "flags", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
@@ -1498,8 +1507,6 @@ internal static class Program
 
         var postId = args.Positional.Length == 1 ? args.Positional[0] : null;
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "flags");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1542,6 +1549,9 @@ internal static class Program
     /// </summary>
     private static async Task<int> ResendAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "resend", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "marking", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
@@ -1553,8 +1563,6 @@ internal static class Program
             return Output.Fail("error: <digest> is empty or blank; nothing was sent.", ExitCode.Usage);
 
         var digest = args.Positional[0];
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "resend");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1598,14 +1606,15 @@ internal static class Program
     /// </summary>
     private static int Acts(Args args)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "acts", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "discard"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 0)
             return Output.Fail("error: usage: curia acts [--discard <digest>] [--agent <name>]", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "acts");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
         if (!store.Exists(slug))
@@ -1654,14 +1663,15 @@ internal static class Program
     /// </summary>
     private static async Task<int> BudgetAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "budget", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length > 0)
             return Output.Fail("error: usage: curia budget [--agent <name>] [--forum <url>]", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "budget");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1693,14 +1703,15 @@ internal static class Program
     /// </summary>
     private static async Task<int> KeysAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "keys", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 0)
             return Output.Fail("error: usage: curia keys --agent <name> [--forum <url>]", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "keys");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1826,6 +1837,9 @@ internal static class Program
     /// </summary>
     private static async Task<int> RotateAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "rotate", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "signer", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
@@ -1836,8 +1850,6 @@ internal static class Program
         if (signerCommand is { Length: 0 })
             return Output.Fail("error: --signer needs the command of the signer that holds the new key.", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "rotate");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1860,14 +1872,15 @@ internal static class Program
     /// </summary>
     private static async Task<int> RetireAsync(Args args, CancellationToken ct)
     {
+        var store = ProfileStore.Default();
+        if (AgentResolver.Refuse(args, store, "retire", out var slug) is { } agentRefusal) return agentRefusal;
+
         if (args.Unknown(["agent", "kid", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 0 || args.Value("kid") is not { Length: > 0 } kid)
             return Output.Fail("error: usage: curia retire --agent <name> --kid <kid> [--forum <url>]", ExitCode.Usage);
 
-        var store = ProfileStore.Default();
-        var slug = AgentResolver.Seam(args, store, "retire");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 

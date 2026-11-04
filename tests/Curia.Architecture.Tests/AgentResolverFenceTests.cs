@@ -183,7 +183,7 @@ public sealed partial class AgentResolverFenceTests
         }
     }
 
-    [GeneratedRegex(@"AgentResolver\.(?:Seam|Resolve)\(args, store, (""[a-z]+""|verb)\)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"AgentResolver\.(?:Resolve|Refuse)\(args, store, (""[a-z]+""|verb)[,)]", RegexOptions.CultureInvariant)]
     private static partial Regex SiteCall();
 
     [GeneratedRegex(@"await PostAsync\(""([a-z]+)""", RegexOptions.CultureInvariant)]

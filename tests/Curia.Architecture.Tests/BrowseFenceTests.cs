@@ -43,6 +43,7 @@ public sealed class BrowseFenceTests
         ["Testis"] = "the verifier handoff of the verbs; the screen starts no process",
         ["TestisResult"] = "the result of that handoff",
         ["ForeignWatch"] = "the lifecycle watch of an enrolled agent's own profile; an identity the screen must not reach",
+        ["AgentWording"] = "the words of the two usage refusals of the identity verbs (errata G59, R11.82); the screen holds no identity",
         ["AgentResolver"] = "the one place the identity verbs choose which profile they act as (errata G59, R11.82); the screen holds no identity and never calls it",
         ["AgentResolution"] = "the closed result of that choice",
     };

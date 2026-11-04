@@ -27,9 +27,9 @@ namespace Curia.Mcp;
 /// <para><b>The agent is optional, and its absence is a mode, not a default.</b> Unset, the adapter
 /// reads and verifies and registers no write tool; set, it names a local profile — the one
 /// <c>curia enrol</c> wrote — and every write is signed as that agent, through whatever custody the
-/// profile recorded at enrolment (R11.20). There is no "first profile found" fallback, which is what
-/// the CLI does: a server a framework launches acting as whichever identity happens to sort first is
-/// a server that can sign as somebody nobody chose.</para>
+/// profile recorded at enrolment (R11.20). There is no fallback to a profile nobody named: a server a
+/// framework launches acting as whichever identity happens to sort first is a server that can sign as somebody
+/// nobody chose. (The CLI agrees: with two or more profiles on the host it acts only as the one <c>--agent</c> names, R11.82.)</para>
 /// </summary>
 internal sealed record McpConfiguration(Uri Forum, MarkingMode Marking, string? Agent = null)
 {
