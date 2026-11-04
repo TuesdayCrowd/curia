@@ -143,7 +143,7 @@ public sealed class ReferencePasswordTests
         ";Pwd={0};",
     ];
 
-    /// <summary>A name of R10.96's class: <c>_*[A-Z][A-Z0-9_]*</c> holding at least two characters that are not underscores (a letter, then an upper-case letter or a digit, then anything of the class).</summary>
+    /// <summary>A name of R10.96's class: <c>_*[A-Z][A-Z0-9_]*</c> holding at least two characters that are not underscores (a letter, then an upper-case letter or a digit, then anything of the class). The generator is a typed statement of R10.96's name rule, not a reading of it: only its description is held to the errata, by hand (review M-4).</summary>
     internal static Gen<string> Names { get; } = Gen.Select(
         Gen.Int[0, 3],
         Gen.OneOfConst([.. Upper]),
@@ -310,7 +310,7 @@ public sealed class ReferencePasswordTests
 
     /// <summary>
     /// RNC8, the other legs: a lower-case letter, <c>:</c>, <c>=</c>, <c>/</c> or <c>-</c> after the reference is no closing character, so the value is not whole (flagged); an
-    /// upper-case letter, a digit or <c>_</c> extends the name and a quotation mark ends the value, so those stay whole (quiet). R10.96 states both.
+    /// upper-case letter, a digit or <c>_</c> extends the name and a quotation mark ends the value, so those stay whole (quiet). R10.96's sentence "the matched value ends where the pattern's value class ends, at a blank, a semicolon or a quotation mark, so that what follows is not read" states the quotation-mark leg (non-property (m)).
     /// </summary>
     [Fact]
     public void R10_96_RNC8_ACharacterThatIsNoClosingCharacterEndsTheReference()

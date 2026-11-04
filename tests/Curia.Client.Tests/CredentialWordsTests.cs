@@ -214,7 +214,7 @@ public sealed partial class CredentialWordsTests : IDisposable
     /// <summary>A loopback Forum that answers the token endpoint and every other request with the problem document of a flag whose rationale carried a credential.</summary>
     private sealed class RationaleRefusingForum : IDisposable
     {
-        private readonly HttpListener _listener = new();
+        private readonly HttpListener _listener;
         private readonly Task _loop;
 
         internal RationaleRefusingForum()
@@ -252,8 +252,6 @@ public sealed partial class CredentialWordsTests : IDisposable
 
         internal Uri Address { get; }
 
-        internal ConcurrentQueue<string> Requests { get; } = new();
-
         private async Task LoopAsync()
         {
             while (_listener.IsListening)
@@ -268,7 +266,6 @@ public sealed partial class CredentialWordsTests : IDisposable
                     return;
                 }
 
-                Requests.Enqueue($"{context.Request.HttpMethod} {context.Request.RawUrl}");
                 var (status, body, type) = (context.Request.Url?.AbsolutePath ?? string.Empty) == "/oauth/token"
                     ? (200, """{"access_token":"stub-token","token_type":"DPoP","expires_in":300,"scope":"flag:create"}""", "application/json")
                     : (422, """{"type":"curia/flag/rationale-rejected","title":"The flag's rationale was rejected by ingest screening","detail":"ConnectionStringPassword@14"}""", "application/problem+json");

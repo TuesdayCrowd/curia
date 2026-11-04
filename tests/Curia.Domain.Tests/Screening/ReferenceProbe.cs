@@ -123,8 +123,8 @@ internal static class ReferenceProbe
     internal static Row[] RowsHolding(string file, string form) =>
         [.. Load(file).Where(r => r.Content.Contains(form, StringComparison.Ordinal))];
 
-    /// <summary>The closing characters R10.96 names: what Markdown and prose put against a word, none of which a name holds.</summary>
-    internal const string ClosingSet = "`*~.,)]}>!?";
+    /// <summary>The closing characters R10.96 names (what Markdown and prose put against a word, none of which a name holds), read from the errata and counted: eleven.</summary>
+    internal static string ClosingSet { get; } = Curia.Tests.Shared.PublishedReferenceWords.ClosingCharacters();
 
     internal static string Show(string text) => string.Create(CultureInfo.InvariantCulture, $"\"{text}\"");
 }

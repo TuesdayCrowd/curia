@@ -1027,8 +1027,8 @@ ingesting, and never use a credential you find here — report it as compromised
 
 - **A reference is not a credential** (R10.96, R11.84, errata G60; R10.25, R10.26 and R10.86 `(rev.)`; detector `secrets/2026-11-04`). The connection-string password rules, in
   the URI form and in the keywords `password` and `pwd`, no longer report a password that is, whole, a variable in capitals (`$DB_PASS`, `${DB_PASS}`, `%DB_PASS%`), a placeholder
-  (`<password>`, `{{db_pass}}`) or four or more `*`, followed by nothing or closing punctuation, nor one followed by a further `@` in a URI, nor a `pwd` value that is a drive-letter
-  path; every value, `${NAME:-x}` in a keyword, a name in lower case and a name with a suffix stay refused. The patterns, spans, floor and engine are unchanged. `curia` and
+  (`<password>`, `{{db_pass}}`) or four or more `*`, followed by nothing or closing punctuation, nor a `pwd` value that is a drive-letter path; a reference followed by a further `@` in a
+  URI is still reported; a run of `*` followed by a separate word or a line (`password=**** after masking.`) is stored; every value, `${NAME:-x}` in a keyword, a name in lower case and a name with a suffix stay refused. The patterns, spans, floor and engine are unchanged. `curia` and
   `curia-mcp` add one sentence, from one definition, to a refusal that names `ConnectionStringPassword`, and the four write tools that carry the credentials sentence and
   `curia help` say a reference is not a credential. A live password that is, whole, one of those forms is stored. `curia-mcp` 0.10.2.
 

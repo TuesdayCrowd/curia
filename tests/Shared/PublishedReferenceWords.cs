@@ -37,6 +37,27 @@ internal static partial class PublishedReferenceWords
     /// <summary>R10.96's forms the rule lets through: seven.</summary>
     internal static string[] Evasions() => List(EvasionMarker, EndMarker, 7, "postgres://u:$HUNTER2EXAMPLE@h", "\"password\": \"EXAMPLE-NOT-A-REAL-SECRET\"");
 
+    /// <summary>
+    /// R10.96's closing characters, read from the spans after "nothing or only characters from" up to the semicolon that ends the clause, in the order the errata
+    /// writes them, and asserted to be eleven. A hand copy typed into a probe would be satisfied by the same typo as the code (review M-4).
+    /// </summary>
+    internal static string ClosingCharacters()
+    {
+        var paragraph = Paragraph("**R10.96**");
+        const string start = "is nothing or only characters from";
+        const string end = "; a reference SHALL NOT clear a URI match";
+        var from = Once(paragraph, start) + start.Length;
+        var to = Once(paragraph, end);
+        if (to <= from)
+            throw new InvalidOperationException($"{Errata}'s R10.96 no longer has \"{start}\" before \"{end}\"");
+
+        var spans = Spans(paragraph[from..to]);
+        if (spans.Length != 11 || spans.Any(x => x.Length != 1))
+            throw new InvalidOperationException($"{Errata}'s R10.96 closing set yields {spans.Length} spans, expected eleven single characters: {string.Join(" | ", spans)}");
+
+        return string.Concat(spans);
+    }
+
     /// <summary>R11.84's sentence the refusal carries after the instruction to rotate.</summary>
     internal static string RefusalSentence() => Sentence("**R11.84 words (the refusal's sentence).**", "If the ConnectionStringPassword hit is a reference to a secret and not the secret,");
 

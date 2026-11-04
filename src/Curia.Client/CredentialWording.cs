@@ -3,8 +3,10 @@ using Curia.Domain.Primitives;
 namespace Curia.Client;
 
 /// <summary>
-/// R11.84 (errata G60): the one definition of the sentences a client says about a reference to a secret, so that the refusal, every write tool's description
-/// and <c>curia help</c> cannot drift apart. The words are the errata's, character for character; a test reads them from there and compares.
+/// R11.84 (errata G60): the one definition of the sentences a client says about a reference to a secret. The refusal and every write tool's description read the
+/// constants here and so cannot drift apart. <c>curia help</c> holds a hand-wrapped copy of the description sentence (re-flowing a wrapped block from a constant would
+/// buy nothing stronger), and nothing but a test keeps it equal: RNC22 reads the errata and compares the help with it after folding whitespace. The words are the
+/// errata's, character for character; a test reads them from there and compares.
 /// </summary>
 public static class CredentialWording
 {

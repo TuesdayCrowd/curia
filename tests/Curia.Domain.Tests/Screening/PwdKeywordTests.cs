@@ -70,7 +70,8 @@ public sealed partial class PwdKeywordTests
 
     // ---- TRW34: the property, from the ruling and not from the pattern ------------------------------------------------
 
-    private static readonly char[] Alphabet = [.. "abcXYZ019-_.:,!#*+@&=EXAMPLE"];
+    // No `*`: a run of four with closing characters is a reference (R10.96) and a generated value would sometimes be one. `*` is held by TRW34F's fixed cases.
+    private static readonly char[] Alphabet = [.. "abcXYZ019-_.:,!#+@&=EXAMPLE"];
 
     private static readonly (string Lead, string Position)[] Positions =
     [
@@ -142,6 +143,15 @@ public sealed partial class PwdKeywordTests
                 t => KeywordFlags(t.Item1 + "password=" + (t.Item2 ? t.Item3 : t.Item4 + "z")).Length >= 1,
                 iter: 400);
 
+    /// <summary>TRW34 F: the asterisk, which the generators leave out because four of them with closing characters are a reference (R10.96): a value that holds one among other characters, or fewer than four, is a password at <c>password=</c> and at a qualifying <c>pwd</c>.</summary>
+    [Theory]
+    [InlineData("password=ab*cd")]
+    [InlineData("password=a***b")]
+    [InlineData("Server=db;Pwd=ab*cd")]
+    [InlineData("Server=db;Pwd=*a*b")]
+    public void R10_96_TRW34F_AValueHoldingAnAsteriskAmongOtherCharactersIsFlagged(string text) =>
+        Assert.True(KeywordFlags(text).Length == 1, $"expected one flag for {text}");
+
     /// <summary>TRW34 E: the floor. A value of three characters is not flagged and of four is, at a qualifying position.</summary>
     [Fact]
     public void R10_86_TRW34E_TheFloorIsFourCharacters() =>
@@ -158,12 +168,12 @@ public sealed partial class PwdKeywordTests
 
     // ---- TRW35, TRW36, TRW37, TRW38, TRW39 ----------------------------------------------------------------------------
 
-    /// <summary>TRW35. The built detector version is the one R10.86 publishes.</summary>
+    /// <summary>TRW35. The built detector version is the one R10.96 publishes (the one reader of it, shared with RNC12; re-point it in <c>PublishedReferenceWords.DetectorVersion</c> at the next bump).</summary>
     [Fact]
-    public void R10_86_TRW35_TheDetectorVersionIsThePublishedOne() =>
+    public void R10_96_TRW35_TheDetectorVersionIsThePublishedOne() =>
         Assert.True(
-            PublishedAcceptBudget.DetectorVersion() == SecretScanner.Version,
-            $"Expected: \"{PublishedAcceptBudget.DetectorVersion()}\" Actual: \"{SecretScanner.Version}\"");
+            PublishedReferenceWords.DetectorVersion() == SecretScanner.Version,
+            $"Expected: \"{PublishedReferenceWords.DetectorVersion()}\" Actual: \"{SecretScanner.Version}\"");
 
     /// <summary>TRW36 (green first, held by FTRW46). The span is the keyword to the end of its value and never the prefix.</summary>
     [Theory]
