@@ -573,4 +573,4 @@ Three hedges, none a wrong answer, filed as leads (D61 items 117 to 119): `unkno
 
 The PR is #145, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-11-03, the branch at 2e9fe4f3, Release, `--no-build`, `ScreeningCostTests` excluded): 6,290 passed, 0 failed, 3 skipped of 6,293 (Api 1,455 in 40 m 30 s, Application 651, Architecture 101, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,449, Domain.Primitives 64, Domain 952, Infrastructure 228, Mcp 889 + 3 skipped); 0 warnings; `restore --locked-mode`, `cargo fmt --check`, clippy and `cargo test` exit 0; the differential comparison 0 divergence classes; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red; `Curia.Architecture.Tests` in Debug 101 passed.
