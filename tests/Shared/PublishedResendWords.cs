@@ -30,7 +30,7 @@ internal static partial class PublishedResendWords
         (Span("R11.80 clause words (post)"), Span("R11.80 clause words (resolve)"), Span("R11.80 clause words (flag)"), Span("R11.80 clause words (other)"));
 
     /// <summary>The act line, with <c>&lt;digest&gt;</c> left in where the printer substitutes.</summary>
-    internal static string ActWords => Span("R11.80 act words");
+    internal static string ActWords => Kit(Span("R11.80 act words"));
 
     /// <summary>The kind words appended to the act line for a <c>revision</c> and an <c>endorse</c> only.</summary>
     internal static string KindWords => Span("R11.80 kind words", "only: `");
@@ -39,14 +39,16 @@ internal static partial class PublishedResendWords
     internal static string UnheardWords => Span("R11.80 unheard words");
 
     /// <summary>The stop sentence, with <c>&lt;n&gt;</c> and <c>&lt;digest&gt;</c> left in.</summary>
-    internal static string StopWords => Between(Paragraph("R11.80 stop words"), "**R11.80 stop words.** `", "` `<u>` is the header's");
+    internal static string StopWords => Kit(Asked(Between(Paragraph("R11.80 stop words"), "**R11.80 stop words.** `", "` `<u>` is the header's")));
 
     /// <summary>The stop sentence with <c>&lt;u&gt;</c>, <c>&lt;n&gt;</c> and <c>&lt;digest&gt;</c> filled in: the last <paramref name="unanswered"/> sends unanswered, <paramref name="attempts"/> sends in all.</summary>
-    internal static string StopFor(int unanswered, int attempts, string digest) =>
-        StopWords
-            .Replace("<u>", unanswered.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
-            .Replace("<n>", attempts.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
-            .Replace("<digest>", digest, StringComparison.Ordinal);
+    internal static string StopFor(int unanswered, int attempts, string digest, string? slug = KitAgent) =>
+        As(
+            StopWords
+                .Replace("<u>", unanswered.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+                .Replace("<n>", attempts.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+                .Replace("<digest>", digest, StringComparison.Ordinal),
+            slug);
 
     /// <summary>The definite words: printed once after a resend refused by a definite answer, and never after an unanswered one (R11.80).</summary>
     internal static string DefiniteWords => Between(Paragraph("R11.80 stop words"), "**R11.80 definite words.** `", "` Printed once after a resend");
@@ -64,7 +66,7 @@ internal static partial class PublishedResendWords
     // ----- R11.81 words -----
 
     /// <summary>R11.81 (a): the sentence after the refusal of a resend that does not resolve the first send.</summary>
-    internal static string ResendRefusalWords => Between(Words81(), "(a) `", "` (b) ");
+    internal static string ResendRefusalWords => Kit(Between(Words81(), "(a) `", "` (b) "));
 
     /// <summary>R11.81 (b): the first line of an <c>already recorded</c> answer to a resend, with <c>&lt;post id&gt;</c> left in, and the sentence after it.</summary>
     internal static (string FirstLine, string After) AlreadyRecordedWords
@@ -146,7 +148,7 @@ internal static partial class PublishedResendWords
     internal static string RemovalFailedWords => Between(Paragraph("R11.79 discard words"), "When the file cannot be removed: `", "` A listing's last line");
 
     /// <summary>R11.79 discard words, a listing's last line, with <c>&lt;n&gt;</c> and the <c>&lt;digest&gt;</c> placeholders left in.</summary>
-    internal static string ListingFooterWords => Between(Paragraph("R11.79 discard words"), "A listing's last line, with no damaged file: `", "` With `<k>` damaged files");
+    internal static string ListingFooterWords => Kit(Between(Paragraph("R11.79 discard words"), "A listing's last line, with no damaged file: `", "` With `<k>` damaged files"));
 
     /// <summary>
     /// R11.79 discard words, a listing's last line with <c>&lt;k&gt;</c> damaged files (k at least 1): the published first part, <c>&lt;a&gt;</c>, <c>&lt;k&gt;</c> and <c>&lt;n&gt;</c> left in, then the
@@ -194,7 +196,7 @@ internal static partial class PublishedResendWords
     // ----- R10.95 words -----
 
     /// <summary>R10.95: the <c>unknown</c> line after the digest, with <c>&lt;instant&gt;</c> and <c>&lt;digest&gt;</c> left in.</summary>
-    internal static string UnknownLine => Between(Paragraph("R10.95 words"), "after the digest: `", "`. The closing line");
+    internal static string UnknownLine => Kit(Between(Paragraph("R10.95 words"), "after the digest: `", "`. The closing line"));
 
     /// <summary>R10.95: the closing line on standard error when the batch exits 5.</summary>
     internal static string ClosingLine
@@ -205,9 +207,41 @@ internal static partial class PublishedResendWords
             var start = text.IndexOf("exits 5: `", StringComparison.Ordinal);
             if (start < 0) throw new InvalidOperationException($"{Errata}: R10.95 words has no closing line");
             var rest = text[(start + "exits 5: `".Length)..];
-            return rest[..rest.LastIndexOf('`')];
+            return Kit(rest[..rest.LastIndexOf('`')]);
         }
     }
+
+    // ----- errata G59: the rule applied to G58's published words -----
+
+    /// <summary>
+    /// Errata G59, R11.82's rule words applied to a G58 text: each of <c>curia resend &lt;digest&gt;</c>, <c>curia acts --discard &lt;digest&gt;</c>, <c>curia budget</c>, <c>curia flags</c> and
+    /// <c>curia acts</c> shown as a command ends with <c> --agent &lt;slug&gt;</c>, the placeholder a fact fills with <see cref="Slug"/>; <c>curia recheck</c> is left as it is.
+    /// </summary>
+    internal static string Rule(string published) =>
+        RuleCommands().Replace(published, "`$1 --agent <slug>`");
+
+    /// <summary>The profile every fact's kit enrols (StubLog, SessionKit, CliKit): the slug a printed command carries in the facts that run a client as it. A fact that calls the words with no agent passes <c>null</c>.</summary>
+    internal const string KitAgent = "alice";
+
+    /// <summary>G59's rule applied and the placeholder filled with the kit's agent: the words as a fact that runs a client as <see cref="KitAgent"/> reads them.</summary>
+    private static string Kit(string published) => Slug(Rule(published), KitAgent);
+
+    /// <summary>Words as printed for another profile, or (<c>null</c>) by a client that does not know it: the kit agent's flag is replaced.</summary>
+    internal static string As(string kitWords, string? slug) =>
+        slug == KitAgent ? kitWords : kitWords.Replace("--agent '" + KitAgent + "'", slug is null ? "--agent <name>" : "--agent '" + slug + "'", StringComparison.Ordinal);
+
+    /// <summary>The slug placeholder filled: <c>'slug'</c> as a shell word, or <c>&lt;name&gt;</c> where the client does not know the profile.</summary>
+    internal static string Slug(string text, string? slug) =>
+        text.Replace("<slug>", slug is null ? "<name>" : "'" + slug + "'", StringComparison.Ordinal);
+
+    /// <summary>Errata G59, R11.79 (rev.) words: a stop sentence says the act was asked to be sent, not sent.</summary>
+    private static string Asked(string stop) =>
+        stop.Contains("it has been sent <n> times in all", StringComparison.Ordinal)
+            ? stop.Replace("it has been sent <n> times in all", "it has been asked to send <n> times in all", StringComparison.Ordinal)
+            : throw new InvalidOperationException($"{Errata}: the stop words no longer hold \"it has been sent <n> times in all\"");
+
+    [GeneratedRegex(@"`(curia (?:resend <digest>|acts --discard <digest>|budget|flags|acts))`", RegexOptions.CultureInvariant)]
+    private static partial Regex RuleCommands();
 
     // ----- text helpers -----
 

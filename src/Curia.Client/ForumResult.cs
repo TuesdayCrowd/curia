@@ -185,7 +185,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             var cause = string.Equals(Error.Type, StoreWording.LogUnreadableType, StringComparison.Ordinal)
                 ? new FrameBuilder().Append($"{Error.Title} ({Error.Type}){Detailed}: {new OwnText(ResendWording.LogUnreadableOfAResend)}.").ToString()
                 : CauseSummary;
-            return cause + (Unheard ? " " + StoreWording.UnheardSentence : string.Empty) + " " + ResendWording.NotResolved(ActDigest ?? "<digest>");
+            return cause + (Unheard ? " " + StoreWording.UnheardSentence : string.Empty) + " " + ResendWording.NotResolved(ActDigest ?? "<digest>", Agent);
         }
     }
 
@@ -343,7 +343,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     }
 
     /// <summary>R11.65: where the whole standing can be read.</summary>
-    public static OwnText ReadWhere => new("`curia budget` or `curia_budget` reads where every budget stands.");
+    public OwnText ReadWhere => new("`" + PrintedCommand.AsAgent("curia budget", Agent) + "` or `curia_budget` reads where every budget stands.");
 
     private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
 

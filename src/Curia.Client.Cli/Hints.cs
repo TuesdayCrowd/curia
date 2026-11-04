@@ -18,7 +18,7 @@ namespace Curia.Client.Cli;
 internal static class Hints
 {
     /// <summary>What a line says in place of a command it does not print.</summary>
-    internal const string Withheld = "not written as a command: a value in it holds a character a shell could act on";
+    internal const string Withheld = PrintedCommand.Withheld;
 
     /// <summary>The cheap re-check of a post just read, by its entity tag (§9.3).</summary>
     internal static OwnText ReCheck(string postId, string etag) =>

@@ -70,7 +70,7 @@ public sealed class ResendDiscardVerbTests
         var listing = await CliKit.RunAsync(kit, "acts");
         var problems = new List<string>();
         var line = listing.Text;
-        if (!line.Contains($"`curia acts --discard sha256:{hex}` (in `curia-mcp`, `curia_discard`) drops it", StringComparison.Ordinal)) problems.Add($"the damaged line names no digest and how to drop it (\"{line}\")");
+        if (!line.Contains($"`curia acts --discard sha256:{hex} --agent 'alice'` (in `curia-mcp`, `curia_discard`) drops it", StringComparison.Ordinal)) problems.Add($"the damaged line names no digest and how to drop it (\"{line}\")");
         if (line.Contains("other.act\"  its first line", StringComparison.Ordinal) && line.Contains("sha256:other", StringComparison.Ordinal)) problems.Add("a name that is no digest was given a digest");
 
         var discard = await CliKit.RunAsync(kit, "acts", "--discard", "sha256:" + hex);

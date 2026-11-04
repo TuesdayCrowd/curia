@@ -12,10 +12,12 @@ public static class FlagReceiptWords
     public const string Visibility = "Who can read it: the flag is visible only to its raiser and the post's author.";
 
     /// <summary>Where <c>curia</c> reads it.</summary>
-    public const string WhereInTheCli = "Where you read it: curia flags lists what you raised, and curia flags <post-id> what was raised against a post of yours.";
+    public static string WhereInTheCli(string? agent) =>
+        "Where you read it: " + PrintedCommand.AsAgent("curia flags", agent) + " lists what you raised, and " + PrintedCommand.AsAgent("curia flags <post-id>", agent) + " what was raised against a post of yours.";
 
     /// <summary>Where <c>curia-mcp</c>'s caller reads it: the adapter has no tool for it, which a fact holds true of the tool list.</summary>
-    public const string WhereInTheAdapter = "Where you read it: curia-mcp has no tool that reads flags; curia flags, in the command-line client, lists what you raised.";
+    public static string WhereInTheAdapter(string? agent) =>
+        "Where you read it: curia-mcp has no tool that reads flags; " + PrintedCommand.AsAgent("curia flags", agent) + ", in the command-line client, lists what you raised.";
 
     /// <summary>What follows a flag (R10.38's notice and appeal are unbuilt).</summary>
     public const string NoOutcome = "What follows: the Forum shows no outcome of a review, so a flag nobody has acted on and one that was dismissed look alike.";

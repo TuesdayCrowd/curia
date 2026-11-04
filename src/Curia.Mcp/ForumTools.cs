@@ -373,7 +373,7 @@ internal sealed partial class ForumTools(
         var batch = await _forum.BatchAsync(digests, _marking, cancellationToken).ConfigureAwait(false);
         if (!batch.TryGetValue(out var items, out var refusal)) throw Refused(refusal!);
 
-        var report = CitationLines.For(digests, items, _clock.GetUtcNow());
+        var report = CitationLines.For(digests, items, _clock.GetUtcNow(), _writer?.Agent.Profile.Slug);
         if (report.Error is { } mismatch)
         {
             // R9.34: an error and no standing, in this client's own words (the counts and a position are the request's, never the Forum's text).

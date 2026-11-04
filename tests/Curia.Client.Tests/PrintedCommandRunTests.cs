@@ -86,12 +86,13 @@ internal sealed partial class PrintedScenarios
         await RunAsync("damaged line", "acts", "--agent", Printer);
         File.Delete(damaged);
 
-        // 6 and 7. recheck of a digest the Forum does not know: the unknown line and the closing line, given the agent.
+        // 6 and 7. recheck of the digest of an act this host kept that the Forum does not know (the case the line is written for): the unknown line and the closing line, given the agent. The printed
+        // resend is then run as printed, and it finds the act under the profile that printed it (a digest nothing kept would refuse as "not kept" whoever it acted as).
         _host.OnOther = request => request.RequestUri!.AbsolutePath.StartsWith("/v1/posts/batch", StringComparison.Ordinal)
-            ? ScriptedForum.Json(200, "{\"items\":[" + StubLog.BatchItem(UnknownDigest, "unknown") + "]}")
+            ? ScriptedForum.Json(200, "{\"items\":[" + StubLog.BatchItem(digest, "unknown") + "]}")
             : ScriptedForum.Problem(404, "curia/posts/not-found", "No such post");
-        await RunAsync("unknown line", "recheck", UnknownDigest, "--agent", Printer, "--forum", AgentHost.ForumAddress.ToString());
-        await RunAsync("closing line", "recheck", UnknownDigest, "--agent", Printer, "--forum", AgentHost.ForumAddress.ToString());
+        await RunAsync("unknown line", "recheck", digest, "--agent", Printer, "--forum", AgentHost.ForumAddress.ToString());
+        await RunAsync("closing line", "recheck", digest, "--agent", Printer, "--forum", AgentHost.ForumAddress.ToString());
 
         // 9. a resend of a digest nothing kept.
         await RunAsync("no act of that digest", "resend", UnknownDigest, "--agent", Printer);
@@ -326,7 +327,7 @@ public sealed class PrintedCommandRunTests
             {
                 var run = scenarios.Runs.First(r => r.Scenario == scenario).Run;
                 var printed = run.Text;
-                var expected = ApplyRule(words).Replace("<slug>", "'a-one'", StringComparison.Ordinal);
+                var expected = PublishedResendWords.As(ApplyRule(words).Replace("<slug>", "'a-one'", StringComparison.Ordinal), "a-one");
                 if (!expected.Contains("--agent 'a-one'", StringComparison.Ordinal) && name != "resend refusal words") problems.Add($"{name}: the rule found no command in the published text");
 
                 // The published text holds placeholders (<n>, <u>, <instant>, <digest>); each stretch of it between two is matched alone, so a placeholder never defeats the match.

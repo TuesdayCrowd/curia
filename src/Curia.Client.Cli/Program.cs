@@ -523,7 +523,7 @@ internal static class Program
             // canonical bytes this client signed, so it is a fact about what was sent rather than
             // a claim about what was received. In the wire's spelling, because this is the value a
             // caller pastes into `curia endorse`, `curia reproduce`, `curia recheck` and an envelope's `refs`.
-            PrintPostReceipt(receipt!, PostKinds.Wire(kind), board, new OwnText(submission.PrefixedDigest), supersession, question);
+            PrintPostReceipt(receipt!, PostKinds.Wire(kind), board, new OwnText(submission.PrefixedDigest), supersession, question, agent.Profile.Slug);
             return ExitCode.Ok;
         }
     }
@@ -532,7 +532,7 @@ internal static class Program
     /// The receipt lines of a post the Forum recorded: one function for a verb's own send and for <c>curia resend</c>, so the two print the same words. The kind and the board are
     /// the kept act's own where a resend prints them.
     /// </summary>
-    private static void PrintPostReceipt(PostReceipt receipt, string kind, string board, OwnText digest, OwnText? supersession, OwnText? question)
+    private static void PrintPostReceipt(PostReceipt receipt, string kind, string board, OwnText digest, OwnText? supersession, OwnText? question, string? agent)
     {
         Output.Line($"posted    {receipt.PostId}");
         Output.Line($"kind      {kind}   board {board}");
@@ -551,7 +551,7 @@ internal static class Program
         if (!string.Equals(receipt.Digest, digest.Text, StringComparison.Ordinal))
             Output.Line($"          the Forum reported a different value for digest: {receipt.Digest}");
         Output.Line($"server_ts {receipt.ServerTs}");
-        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
+        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget, agent));
 
         // R11.70: whether the post's vector is stored, in the one set of words both clients print. `pending` is exit 0: the post is stored and is not sent again.
         Output.Line($"{new OwnText(IndexWording.ReceiptLine(receipt.VectorIndex))}");
@@ -648,7 +648,8 @@ internal static class Program
         var result = await client.BatchAsync(args.Positional, marking, ct).ConfigureAwait(false);
         if (!result.TryGetValue(out var items, out var refusal)) return Output.Fail(refusal);
 
-        return ReportRecheck(args.Positional, items);
+        // recheck acts as no one (R11.82 (b)): the unknown line prints the profile it was given, or --agent <name> and what <name> is. It never reads the profiles to fill it.
+        return ReportRecheck(args.Positional, items, string.IsNullOrWhiteSpace(args.Value("agent")) ? null : args.Value("agent"));
     }
 
     /// <summary>
@@ -674,9 +675,9 @@ internal static class Program
     /// The lines and the exit of <c>curia recheck</c>, over the items the Forum answered. Separate from the HTTP call so a
     /// fact can drive it with a batch response of its own making.
     /// </summary>
-    internal static int ReportRecheck(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items)
+    internal static int ReportRecheck(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items, string? agent = null)
     {
-        var report = CitationLines.For(sent, items, TimeProvider.System.GetUtcNow());
+        var report = CitationLines.For(sent, items, TimeProvider.System.GetUtcNow(), agent);
         if (report.Error is { } refused)
             return Output.Fail(new Refusal(RefusalKind.Malformed, 0, refused));
 
@@ -691,7 +692,7 @@ internal static class Program
             : ExitCode.Ok;
 
         // R10.95: exit 5 is explained where it is printed, on standard error, once, after every line; stdout's lines are unchanged.
-        if (exit == ExitCode.NotFound) Output.Error(new FrameBuilder().Line($"{new OwnText(CitationLines.ClosingLine)}"));
+        if (exit == ExitCode.NotFound) Output.Error(new FrameBuilder().Line($"{new OwnText(CitationLines.ClosingLine(agent))}"));
         return exit;
     }
 
@@ -832,7 +833,7 @@ internal static class Program
             if (!accepted.TryGetValue(out var receipt, out var refusal))
                 return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
-            return WriteAcceptance(receipt!);
+            return WriteAcceptance(receipt!, agent.Profile.Slug);
         }
     }
 
@@ -841,14 +842,14 @@ internal static class Program
     /// accepted one, that nothing was recorded, and that the time is the first acceptance's. R8.71: a recording call
     /// says which answer it replaced, that none stood, or <c>NOT STATED</c> for a Forum that did not say.
     /// </summary>
-    internal static int WriteAcceptance(AcceptanceReceipt receipt)
+    internal static int WriteAcceptance(AcceptanceReceipt receipt, string? agent = null)
     {
         if (receipt.AlreadyAccepted)
         {
             Output.Line($"accepted  {receipt.PostId}   ({new OwnText(StoreWording.ResolveReplayPhrase)})");
             Output.Line($"thread    {receipt.ThreadRoot}   first accepted at {receipt.AcceptedAt}");
             Output.Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}");
-            Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
+            Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget, agent));
             return ExitCode.Ok;
         }
 
@@ -885,7 +886,7 @@ internal static class Program
                 break;
         }
 
-        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
+        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget, agent));
 
         return ExitCode.Ok;
     }
@@ -1464,22 +1465,22 @@ internal static class Program
             if (!raised.TryGetValue(out var receipt, out var refusal))
                 return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
-            return PrintFlagged(receipt!);
+            return PrintFlagged(receipt!, agent.Profile.Slug);
         }
     }
 
     /// <summary>What <c>curia flag</c> prints for a receipt (R10.88, errata G47); an internal function so a fact can drive the words with a receipt of each state.</summary>
-    internal static int PrintFlagged(FlagReceipt receipt)
+    internal static int PrintFlagged(FlagReceipt receipt, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(receipt);
 
         Output.Line($"flagged   {receipt.PostId}");
         Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
-        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget));
+        Output.Frame(BudgetLines.ReceiptFrame(receipt.Budget, agent));
         Output.Blank();
 
         // R10.88 (errata G47): who can read the flag, where, that no outcome is shown, and the Forum's word on whether the post is served.
-        foreach (var statement in FlagReceiptWords.Statements(receipt.Served, FlagReceiptWords.WhereInTheCli))
+        foreach (var statement in FlagReceiptWords.Statements(receipt.Served, FlagReceiptWords.WhereInTheCli(agent)))
             Output.Line($"{new OwnText(statement)}");
         Output.Blank();
         Output.Line(Help.FlagRaisedNote);
@@ -1584,7 +1585,7 @@ internal static class Program
             var resent = await session.ResendAsync(kept!, Marking(args), ct).ConfigureAwait(false);
             if (resent.TryGetValue(out var receipt, out var refusal))
             {
-                PrintPostReceipt(receipt, kept!.Header.Kind, kept.Header.Board, new OwnText(kept.Header.Digest), null, null);
+                PrintPostReceipt(receipt, kept!.Header.Kind, kept.Header.Board, new OwnText(kept.Header.Digest), null, null, agent.Profile.Slug);
                 return ExitCode.Ok;
             }
 
@@ -1650,9 +1651,9 @@ internal static class Program
 
         var now = TimeProvider.System.GetUtcNow();
         foreach (var entry in listed)
-            Output.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty))}");
+            Output.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty, slug))}");
 
-        Output.Line($"{new OwnText(ResendWording.ListingFooter(listed))}");
+        Output.Line($"{new OwnText(ResendWording.ListingFooter(listed, slug))}");
         return ExitCode.Ok;
     }
 

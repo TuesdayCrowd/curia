@@ -149,7 +149,7 @@ public sealed partial class ResendToolTests
 
         var listing = Fold(Text(await kit.Tools.ActsAsync(Ct)));
         var damagedDigest = "sha256:" + damagedName;
-        if (!listing.Contains($"`curia acts --discard {damagedDigest}` (in `curia-mcp`, `curia_discard`) drops it", StringComparison.Ordinal)) problems.Add("the damaged file's line does not name its digest and how to drop it");
+        if (!listing.Contains($"`curia acts --discard {damagedDigest} --agent 'alice'` (in `curia-mcp`, `curia_discard`) drops it", StringComparison.Ordinal)) problems.Add("the damaged file's line does not name its digest and how to drop it");
 
         var freed = await CallAsync(() => kit.Tools.DiscardAsync(planted[0].PrefixedDigest, Ct));
         if (freed.IsError) problems.Add($"a discard of a kept act was refused (\"{freed.Text}\")");

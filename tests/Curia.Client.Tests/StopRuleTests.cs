@@ -104,7 +104,7 @@ public sealed class StopRuleTests
 
     /// <summary>
     /// ASA54. The header: <c>attempts</c> counts every send asked, <c>unanswered</c> the trailing run; the file's other members, its mode and the digest recomputation are unchanged by a send; a header with no
-    /// <c>unanswered</c> reads as 0; the listing's "sent n time(s)" equals <c>attempts</c>.
+    /// <c>unanswered</c> reads as 0; the listing's "asked n time(s)" equals <c>attempts</c>.
     /// </summary>
     [Fact]
     public async Task R11_80_ASA54_TheHeaderCountsEverySendAndTheTrailingRunUnanswered()
@@ -125,7 +125,7 @@ public sealed class StopRuleTests
             if (File.GetUnixFileMode(path) != (UnixFileMode.UserRead | UnixFileMode.UserWrite)) problems.Add($"header: the mode is {File.GetUnixFileMode(path)}, expected 0600");
 
             var listing = await CliKit.RunAsync(kit, "acts");
-            if (!listing.Text.Contains("sent 4 time(s)", StringComparison.Ordinal)) problems.Add($"header: the listing does not say sent 4 time(s) ({listing.Text})");
+            if (!listing.Text.Contains("asked 4 time(s)", StringComparison.Ordinal)) problems.Add($"header: the listing does not say asked 4 time(s) ({listing.Text})");
 
             // The digest is still recomputed from the bytes before a send: a resend of the same file is accepted, a changed byte is not.
             var resent = await CliKit.RunAsync(kit, "resend", digest);
@@ -143,7 +143,7 @@ public sealed class StopRuleTests
         if (after.Unanswered != 1) problems.Add($"header: a planted file with no unanswered member says {after.Unanswered?.ToString(CultureInfo.InvariantCulture) ?? "missing"} after one unheard send, expected 1 (absent reads as 0)");
         if (StopRuleOracle.SaysStop(run.Text)) problems.Add("header: a file with no unanswered member and one unheard send printed a stop sentence");
 
-        Red.None(problems, "attempts counts every send, unanswered the trailing run, nothing else in the header moves, absent reads as 0, and the listing's sent n time(s) is attempts");
+        Red.None(problems, "attempts counts every send, unanswered the trailing run, nothing else in the header moves, absent reads as 0, and the listing's asked n time(s) is attempts");
     }
 
     /// <summary>

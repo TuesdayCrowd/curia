@@ -90,10 +90,10 @@ public static class StoreWording
     /// from the canonical bytes, never read from the Forum's refusal), and for a <c>revision</c> and an <c>endorse</c> the kind words. It holds no state, calls nothing (R11.64) and
     /// carries no wait: it says that the act is kept on this host, names the resend as the one action and the recheck as an optional question.
     /// </summary>
-    public static string ActLine(string prefixedDigest, string? kind = null)
+    public static string ActLine(string prefixedDigest, string? kind = null, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(prefixedDigest);
-        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed), kept on this host. Send exactly this act again with `curia resend " + prefixedDigest + "` (in `curia-mcp`, `curia_resend`): " +
+        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed), kept on this host. Send exactly this act again with `" + PrintedCommand.AsAgent("curia resend " + prefixedDigest, agent) + "` (in `curia-mcp`, `curia_resend`): " +
             "the Forum records one act once, so if the first call was recorded the resend is answered \"already recorded\" and names the post, and if it was not the resend records it. " +
             "Do not run the verb again: that signs a new act, and the Forum can store a new act as a second post. " +
             "To know first, `curia recheck " + prefixedDigest + "` (`curia_recheck`) says whether the act was recorded as of the moment it is asked; it cannot say the act will not be recorded after it, so \"unknown\" is not a reason to wait." +
@@ -158,14 +158,14 @@ public static class StoreWording
         {
             // Plan ruling 43 (R11.80): the act line follows every refusal of a signed post that leaves the act kept (the session sets KeptAttempts only then), whatever the status and whether or not the Forum
             // named a problem type: the file is kept, the slot is held, and the agent is told the digest. `curia/store/unavailable` is the same condition and stays named.
-            if (refusal.Unheard) lines.AddRange([UnheardSentence, ActLine(actDigest, refusal.ActKind)]);
-            else if (string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) || refusal.KeptAttempts >= 1) lines.Add(ActLine(actDigest, refusal.ActKind));
+            if (refusal.Unheard) lines.AddRange([UnheardSentence, ActLine(actDigest, refusal.ActKind, refusal.Agent)]);
+            else if (string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) || refusal.KeptAttempts >= 1) lines.Add(ActLine(actDigest, refusal.ActKind, refusal.Agent));
         }
 
         // R11.80 (plan rulings 46 to 49): the stop sentence counts only sends the Forum did not answer, so it follows a refusal that is itself unanswered, from the second in a row and nowhere else; a
         // resend the Forum answered with a refusal (a 4xx) is followed by the definite words in its place, once. A first send's refusal gets neither definite words nor, unless it is the second in a
         // row, the stop sentence.
-        if (refusal.KeptSend == SendClass.Unanswered && refusal.KeptUnanswered >= ResendWording.StopFromUnanswered) lines.Add(ResendWording.Stop(refusal.KeptUnanswered, refusal.KeptAttempts, actDigest));
+        if (refusal.KeptSend == SendClass.Unanswered && refusal.KeptUnanswered >= ResendWording.StopFromUnanswered) lines.Add(ResendWording.Stop(refusal.KeptUnanswered, refusal.KeptAttempts, actDigest, refusal.Agent));
         else if (refusal.Act == ActContext.Resend && refusal.KeptSend == SendClass.Answered && refusal.Status is >= 400 and <= 499) lines.Add(ResendWording.DefiniteWords);
         return lines;
     }

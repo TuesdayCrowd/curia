@@ -50,8 +50,10 @@ public static class CitationLines
     /// <summary>
     /// The lines for <paramref name="items"/>, the Forum's answer to a batch of <paramref name="sent"/>. <paramref name="answeredAt"/> is the
     /// reader's own instant, taken by the caller right after the batch returned (errata G53, R10.93); the <c>unknown</c> line states it, UTC to the second.
+    /// <paramref name="agent"/> is the profile the caller was given or has configured (errata G59, R11.82 (b)): <c>recheck</c> acts as no one, so it never chooses one, and the <c>unknown</c> line
+    /// prints the resend command with that profile, or with <c>--agent &lt;name&gt;</c> and the sentence that says what <c>&lt;name&gt;</c> is where it was given none.
     /// </summary>
-    public static CitationReport For(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items, DateTimeOffset answeredAt)
+    public static CitationReport For(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items, DateTimeOffset answeredAt, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(sent);
 
@@ -66,14 +68,14 @@ public static class CitationLines
 
         var lines = ImmutableArray.CreateBuilder<CitationLine>(items.Length);
         for (var i = 0; i < items.Length; i++)
-            lines.Add(LineOf(i, sent[i], items[i], answeredAt));
+            lines.Add(LineOf(i, sent[i], items[i], answeredAt, agent));
 
         return new CitationReport(lines.MoveToImmutable(), null);
     }
 
     private static CitationReport Refused(Error error) => new([], error);
 
-    private static CitationLine LineOf(int position, string asked, CitationDocument item, DateTimeOffset answeredAt)
+    private static CitationLine LineOf(int position, string asked, CitationDocument item, DateTimeOffset answeredAt, string? agent)
     {
         switch (item.State)
         {
@@ -100,7 +102,7 @@ public static class CitationLines
                 return new CitationLine("withheld", Of($"withheld    {asked}  drop this citation; it is no longer served (withholding can be reversed -- re-check later)"), true, false, false, false);
 
             case "unknown":
-                return new CitationLine("unknown", Of($"unknown     {asked}  {UnknownWords(asked, answeredAt)}"), true, false, false, false);
+                return new CitationLine("unknown", Of($"unknown     {asked}  {UnknownWords(asked, answeredAt, agent)}"), true, false, false, false);
 
             case "malformed" when IsDigestShape(asked):
                 return new CitationLine("malformed", Of($"malformed   {asked}  the Forum answered malformed for a digest of the expected shape (the Forum's word); treat the citation as changed"), true, false, false, false);
@@ -118,20 +120,21 @@ public static class CitationLines
     /// recorded, so the line says both readings: an act this host kept is sent again with <c>curia resend</c> (the Forum records one act once), and a citation meant is
     /// spelled right and then dropped. It carries the reader's own instant (UTC to the second) and no wait: a resend is safe at any moment, so the answer is not a precondition.
     /// </summary>
-    private static OwnText UnknownWords(string asked, DateTimeOffset answeredAt) =>
+    private static OwnText UnknownWords(string asked, DateTimeOffset answeredAt, string? agent) =>
         new(
             "no post here bears this digest as of this call (answered at "
             + answeredAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)
-            + ", by this client's clock). If it is the digest of an act this host kept, send exactly that act again with `curia resend " + asked + "`: "
+            + ", by this client's clock). If it is the digest of an act this host kept, send exactly that act again with `" + PrintedCommand.AsAgent("curia resend " + asked, agent) + "`: "
             + "the Forum records one act once, and an act a refusal printed was not recorded as of that instant and may be recorded after it. "
-            + "If you meant to cite a post, check the spelling (sha256:<64 hex>), then drop the citation");
+            + "If you meant to cite a post, check the spelling (sha256:<64 hex>), then drop the citation. In `curia-mcp`, `curia_resend` sends that act again." + (agent is null ? " " + PrintedCommand.NameSentence : string.Empty));
 
     /// <summary>
     /// R10.95 words: the closing line a batch that exits 5 prints on standard error, saying what 5 means and that <c>withheld</c> and <c>unknown</c> are different.
     /// </summary>
-    public const string ClosingLine =
+    public static string ClosingLine(string? agent) =>
         "exit 5: at least one digest above is withheld or unknown. withheld names a post the Forum holds and does not serve (drop the citation; it can be restored). " +
-        "unknown names no post as of this call: for a digest you meant to cite it is mistyped or not recorded, and for a digest of an act this host kept it is an act to send again with `curia resend <digest>`. " +
+        "unknown names no post as of this call: for a digest you meant to cite it is mistyped or not recorded, and for a digest of an act this host kept it is an act to send again with `" + PrintedCommand.AsAgent("curia resend <digest>", agent) + "`. " +
+        (agent is null ? PrintedCommand.NameSentence + " " : string.Empty) +
         "Neither is a failure of this command.";
 
     /// <summary>True when <paramref name="value"/> is <c>sha256:</c> and 64 lowercase hex digits, decided here and not by the Forum.</summary>

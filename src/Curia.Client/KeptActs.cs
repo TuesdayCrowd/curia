@@ -228,7 +228,7 @@ public sealed class KeptActs
             }
 
             if (Count() >= Bound)
-                return Result<KeptAct>.Fail(new Error(KeptActsFullType, "NOT SENT: this host already keeps the most acts it keeps", $"{Bound.ToString(CultureInfo.InvariantCulture)} acts are kept and none was answered definitely; `curia acts` (in `curia-mcp`, `curia_acts`) lists them; `curia acts --discard <digest>` (in `curia-mcp`, `curia_discard`) drops one. Nothing was sent."));
+                return Result<KeptAct>.Fail(new Error(KeptActsFullType, "NOT SENT: this host already keeps the most acts it keeps", Bound.ToString(CultureInfo.InvariantCulture) + " acts are kept and none was answered definitely; `" + PrintedCommand.AsAgent("curia acts", _slug) + "` (in `curia-mcp`, `curia_acts`) lists them; `" + PrintedCommand.AsAgent("curia acts --discard <digest>", _slug) + "` (in `curia-mcp`, `curia_discard`) drops one. Nothing was sent."));
 
             var text = HeaderLine(header);
             if (Encoding.UTF8.GetByteCount(text) >= HeaderBlockBytes) return Result<KeptAct>.Fail(NotKept("the header is longer than the block a listing reads"));
@@ -266,7 +266,7 @@ public sealed class KeptActs
         foreach (var listed in List().Where(l => l.Header is not null && string.Equals(l.Header.Digest, digest, StringComparison.Ordinal)))
             return Result<KeptAct>.Fail(Damaged(listed.Name ?? string.Empty, "the file's name does not name the digest in its header"));
 
-        return Result<KeptAct>.Fail(new Error(NoKeptActType, "NOT SENT: no act of that digest is kept on this host", "`curia acts` (in `curia-mcp`, `curia_acts`) lists the acts this host keeps"));
+        return Result<KeptAct>.Fail(new Error(NoKeptActType, "NOT SENT: no act of that digest is kept on this host", "`" + PrintedCommand.AsAgent("curia acts", _slug) + "` (in `curia-mcp`, `curia_acts`) lists the acts this host keeps"));
     }
 
     private static Error Damaged(string file, string why) =>
@@ -300,25 +300,34 @@ public sealed class KeptActs
         wire = wire[..written];
 
         if (!Recompute(wire, profile.AgentId).TryGetValue(out var recomputed, out var wireError)) return Result<KeptAct>.Fail(Damaged(name, wireError!.Title));
-        if (!string.Equals(recomputed, digest, StringComparison.Ordinal)) return Result<KeptAct>.Fail(Damaged(name, "the digest recomputed from its bytes is not the digest asked"));
+        if (!string.Equals(recomputed!.Digest, digest, StringComparison.Ordinal)) return Result<KeptAct>.Fail(Damaged(name, "the digest recomputed from its bytes is not the digest asked"));
+
+        // Errata G59 (item 123): the header's kind and board are what a listing prints and a resend is asked to send; they are compared with the envelope the bytes hold, and the field is named (never its value).
+        if (!string.Equals(header.Kind, recomputed.Kind, StringComparison.Ordinal)) return Result<KeptAct>.Fail(Damaged(name, "its header names another kind than its bytes hold"));
+        if (!string.Equals(header.Board, recomputed.Board, StringComparison.Ordinal)) return Result<KeptAct>.Fail(Damaged(name, "its header names another board than its bytes hold"));
 
         return Result<KeptAct>.Ok(new KeptAct(header, wire));
     }
 
-    /// <summary>The digest of the envelope in <paramref name="wire"/> by the canonicalization the Forum runs, and that the envelope's author is <paramref name="author"/>.</summary>
-    private static Result<string> Recompute(byte[] wire, string author)
+    /// <summary>What the bytes of a kept act hold: the digest by the canonicalization the Forum runs, and the envelope's kind and board.</summary>
+    private sealed record Recomputed(string Digest, string Kind, string Board);
+
+    /// <summary>The digest, kind and board of the envelope in <paramref name="wire"/>, once the envelope's author is <paramref name="author"/>.</summary>
+    private static Result<Recomputed> Recompute(byte[] wire, string author)
     {
         if (!JsonReader.Parse(wire, ClientJson.Limits).TryGetValue(out var parsed, out _) || parsed is not JsonValue.Object submission)
-            return Result<string>.Fail(new Error("curia/client/kept-act-damaged", "its bytes are not a submission"));
+            return Result<Recomputed>.Fail(new Error("curia/client/kept-act-damaged", "its bytes are not a submission"));
 
         if (ClientJson.Object(submission, "envelope") is not { } envelope || ClientJson.String(envelope, "author") is not { } envelopeAuthor)
-            return Result<string>.Fail(new Error("curia/client/kept-act-damaged", "its bytes carry no envelope"));
+            return Result<Recomputed>.Fail(new Error("curia/client/kept-act-damaged", "its bytes carry no envelope"));
         if (!string.Equals(envelopeAuthor, author, StringComparison.Ordinal))
-            return Result<string>.Fail(new Error("curia/client/kept-act-damaged", "its envelope names another author"));
+            return Result<Recomputed>.Fail(new Error("curia/client/kept-act-damaged", "its envelope names another author"));
+        if (ClientJson.String(envelope, "kind") is not { } kind || ClientJson.String(envelope, "board") is not { } board)
+            return Result<Recomputed>.Fail(new Error("curia/client/kept-act-damaged", "its envelope carries no kind or no board"));
 
         return CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out _)
-            ? Result<string>.Ok(Digests.Sha256(canonical).ToPrefixed())
-            : Result<string>.Fail(new Error("curia/client/kept-act-damaged", "its envelope cannot be canonicalized"));
+            ? Result<Recomputed>.Ok(new Recomputed(Digests.Sha256(canonical).ToPrefixed(), kind, board))
+            : Result<Recomputed>.Fail(new Error("curia/client/kept-act-damaged", "its envelope cannot be canonicalized"));
     }
 
     /// <summary>Whether this host holds a file for <paramref name="act"/> whose digest and bytes are the act's: a resend sends what is kept and nothing a caller made up.</summary>
