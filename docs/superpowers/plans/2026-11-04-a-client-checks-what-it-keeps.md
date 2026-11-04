@@ -581,4 +581,69 @@ The order's next PR is PR 5 ("A reply is where its parent is", D108; G61), which
 
 ## As run
 
-Written at Task 9 from the ledger and the records of Tasks 0 to 8 (untracked). *(Not yet built.)*
+Written at Task 9 (2026-11-04) from the ledger and the records of Tasks 0 to 8b, which are untracked under `.superpowers/sdd/2026-11-04-client-checks/`. Every count below was checked against the raw results; where a figure of the brief differed it is said.
+
+### Commits
+
+The branch `a-client-checks-what-it-keeps`, 20 commits from `main` b52dc420 (#145) before this task's, in order:
+
+| sha | subject |
+|---|---|
+| `4e8c6df6` | Exercise 12 ruled: D110 to D112 and D61 items 122 to 129 filed; the order of the next PRs and the thirteenth exercise (register only) |
+| `81dcd5aa` | PR 3 after exercise 12 (plan): a client checks what it keeps (D110, D111, D61 items 117, 121, 123; errata G59 specified: R6.61, R11.82, R11.83; curia-mcp 0.10.1) |
+| `a906ee47` | PR 3 after exercise 12 (plan amendment): Task 0's record ruled in (rulings 19 to 34: 19 verbs; a damaged retained signature reads as verified today; the lag labels; a flag's presence decided by Has, not its value; the printed set's denominator; errata G59 amended) |
+| `ca73be43` | PR 3 (T1): the behaviour-preserving seam (errata G59: R6.61, R11.82, R11.83) |
+| `e70c097d` | PR 3 (T1): the probes CWK1 to CWK55 in their failing form, seen red (errata G59: R6.61, R11.82, R11.83) |
+| `1bc83d74` | PR 3 (T1): the left-out sites carry no agent flag, by name (errata G59: R11.82; CWK55) |
+| `ba6538f5` | PR 3 (T2): the CLI acts as an agent only when one is named or one exists (errata G59: R11.82; CWK1 to CWK7, CWK12, CWK13, CWK16, CWK53) |
+| `38153808` | PR 3 (T3): every command a client prints for an agent carries the agent; a kept act's kind and board are compared (errata G59: R11.82, R11.79 (rev.); CWK8 to CWK11, CWK40 to CWK42, CWK51) |
+| `b92f755a` | PR 3 (T4): the retained head is verified before it is compared; a failure is between two verified heads, by role (errata G59: R6.61, R11.83; CWK20 to CWK36, CWK54) |
+| `0c1b7886` | PR 3 (T5): curia-mcp 0.10.1 and the facts that change their object (errata G59: R11.83) |
+| `72a261da` | PR 3 after exercise 12 (plan amendment 2): Task 6's review ruled in (rulings 35 to 41: curia budget printed with the agent; the two malformed-proof reasons by role; the withheld form's true words; recheck always prints the placeholder; five sentences published; errata G59 amended) |
+| `ae854331` | PR 3 (T6 fix): whoami and enrol print curia budget with the agent; the slug rule; recheck always prints the placeholder; five sentences read from the errata (errata G59: R11.82, R11.79 (rev.), R10.95; CWK8, CWK9, CWK55, CWK58 to CWK61) |
+| `6f21aaf2` | PR 3 (T6 fix): a proof the check cannot read is a failure inside the published frame (errata G59: R6.61, R11.83; CWK56, CWK57) |
+| `6e992bec` | PR 3 (T6 fix): the resolver's unused verb, its comment and a stale comment (errata G59: R11.82) |
+| `7fcb1b18` | PR 3 (T7b): CWK34 holds the printed could-not-be-checked line to the published words, CWK50 holds every stated current version (errata G59: R6.61, R11.83; FCWK21, FCWK35) |
+| `fa95c870` | PR 3 (T7b): plant-head.sh and its rehearsal rows (errata G59: R6.61; ruling 28) |
+| `369c441e` | PR 3 (T7b): plan rows FCWK20, FCWK21, FCWK32, FCWK34 and FCWK36 reworded after Task 7 (errata G59: R6.61, R11.83) |
+| `14b3d1ba` | PR 3 after exercise 12 (plan amendment 3): Task 8's live run ruled in (rulings 42 to 47: a read-only curia-mcp session is not told of a tool it lacks; head.json named and head.lock left; the no-shell words; the withheld form's span; a tenth cold reader; errata G59 amended) |
+| `008b9274` | PR 3 (T8b): the probes CWK62 to CWK66 in their failing form, seen red; the oracle reads the withheld form and the read-only words from the errata (errata G59: R6.61, R10.95, R11.82, R11.83) |
+| `84e49f7f` | PR 3 (T8b): the unknown line is composed for the surface that prints it; head.json is named and the lock left; a withheld command closes its span before the parenthetical (errata G59: R6.61, R10.95, R11.82, R11.83; CWK62 to CWK66) |
+
+The docs commit of Task 9 follows these (register, errata Status and published words, this section, `README.md`, `CLAUDE.md`).
+
+### Probes
+
+CWK1 to CWK66, CWK38 retired (`ASA38` already scans every test source for `AdminDataSource.ConnectionString`, ruling 26). CWK1 to CWK55 were written in their failing form on a behaviour-preserving seam (`ca73be43`) and seen red as predicted except where the report says otherwise: 44 facts, 31 red and 13 controls green; CWK6 and CWK16 are green controls on the seam by construction (the seam moves the 13 sites into the resolver), and CWK32 was red where the plan had said green (deviations 2 and 3 of the Task 1 report). CWK56 to CWK61 came from Task 6's review (Amendment 2) and CWK62 to CWK66 from Task 8's live run (Amendment 3); the second group was seen red on its base before the code that makes it green. CWK34, CWK50 and CWK63 were tightened in the 7b and 8b rounds (the printed could-not-be-checked line is held to the published words; every stated current version is held; the file named in the sentence is the file on disk).
+
+### Rulings 2 to 6 of the closing brief, as run
+
+2. **Measured facts.** A flipped signature or an edited `kid` in the retained head read `verified`, exit 0, before this PR (Task 0 M4 (v)): at an equal, a smaller (the file was replaced; md5 changed) and a larger size. C1 is 1.112 against the ceiling 1.433 (`PostVerifier.VerifyAsync` with a retained head at an equal size, 6 alternations of 300 runs per tree, same run; p50 1.590 ms base, 1.768 ms changed; 3 ES256 verifications on the base, 4 on the changed tree). **Task 0's "6,589 baseline" is not reliable**: the same code's final run in #145 was 6,290 passed + 3 skipped, and the build run's per-assembly counts match Task 1's; nobody added Task 0's total up (trap 159). The comparison is against #145's run: 6,336 + 3 skipped at the build (6,290 + 46), and **6,352 + 3 skipped by the latest per-assembly counts** (Client 1,449 to 1,483, Mcp 889 to 896, Api 1,455 to 1,470, Architecture 101 to 107; 6,290 + 62), summed by hand from the reports and not one run; the final whole run is below.
+3. **Review (Task 6).** Spec **NOT OK** on I1 (`curia budget` printed with no flag in `whoami` and `enrol`; the grep and CWK55 read backticks only, trap 153) and I2 (two `Check.Failed` returns outside the role frame), both fixed in the fix round (`ae854331`, `6f21aaf2`, `6e992bec`) with the false "the profile named above" (trap 154); code quality OK, 7 minors, of which Q1 to Q3 were fixed and Q4 to Q7 and M7 filed (D61 items 144 to 147).
+4. **Falsification.** FCWK1 to FCWK51 are 50 rows (FCWK33 retired); 48 were run. **44 of 48 were red on the first form**, recounted by a script from `fcwk-results.jsonl` (78 lines): FCWK20, FCWK21, FCWK34 and FCWK35 were green on the first form; FCWK20's and FCWK35's second forms were red, FCWK21 was red only under a probe the row does not name, FCWK34 was flaky (green, red, green) and then retired; FCWK32 (the controller's check of the captures) and FCWK36 (CI's case-sensitive filesystem) were not run. The brief says "FCWK1 to FCWK43 with FCWK33 retired: 44 of 48": the 48 includes FCWK44 to FCWK51, which Task 7 re-ran from Task 6's fix round, so the range is FCWK1 to FCWK51. The 7b round closed FCWK21 and FCWK35 with probes and reworded FCWK20, FCWK32 and FCWK36. FCWK44 to FCWK51 (11 forms) and FCWK52 to FCWK56 (10 forms) are all red.
+5. **Live.** Task 8: 9 of 9 legs (L1 to L9) held against their Task 0 controls; Task 8b: L10 held. The real fork was planted through `plant-head.sh` (two databases, one log key, both heads signed by `curia-operator sign-head`). The live run found one false sentence, a read-only `curia-mcp` session told of `curia_resend` (verified false), fixed by Amendment 3 with the same claim in the tool's description. Not run live: `curia browse` on a terminal, and the proof reason "does not extend the served head's" (held in process only, by CWK21 to CWK23); no Linux run.
+6. **Cold read (the gate): passed**, ten readers (`cold-read-results.md`): A 2 of 2; B 1 of 2 outright, reader 3 answering "partly" on the first question; B2 right; C 2 of 2; D 2 of 2 (reader 8 filled the profile from its own `recheck` flag, which the line says would be confirmed); E 2 of 2. No read had two wrong answers and none hedged to `curia help`. Leads: `curia verify` prints no closing verdict where `curia_verify` ends `NOT ESTABLISHED` (item 138); the signature variant does not say copy aside (item 139); `curia whoami` cannot tell an agent which profile is its own (item 149 (c), by design).
+
+### Gates
+
+Every .NET assembly in Release built first and run `--no-build`, `ScreeningCostTests` excluded, on the shared Homebrew server: the build run (T2 to T5) was Canon 329, Sodium 32, Primitives 64, AuthN 140, Domain 952, Application 651 (21 s), Architecture 107 in Release and 107 in Debug, Client 1,470 (41.8 s), Mcp 893 + 3 skipped (9.3 s), Infrastructure 228 (55 s) and Api 1,470 (40 m 13 s with the closed fuzz pass, no `5xx`; the first pass had 5 word-pattern failures, fixed and rerun green; Task 0's baseline Api was 40 m 42 s). The fix rounds then rerun Client 1,478, then 1,479 and 1,483, and Mcp 893, then 896 + 3 skipped, each whole, with Application 651, Domain 952, Infrastructure 228 and Architecture 107 in both configurations, and the Api classes that read the printed words filtered (33, then 68 passed). The 3 skips are `ToolProtocolTests.R11_37_AnAbsentRequiredMemberIsRefusedByName` for `curia_budget`, `curia_search` and `curia_acts` (tools with no required member), unchanged from #145; no probe of this PR is skippable. Build 0 warnings in Release and Debug. `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red naming their cell, at every task and again at Task 9. The Postgres-touching tests (`RetainedHeadOperatorTests`, 15) also ran on a scram-sha-256 loopback cluster, 15 of 15 (and 18 of 18 in Task 8), with the control without a password failing 15 of 15 on the Npgsql message; the cluster was stopped and removed. Not run for this PR, because nothing in `rust/` changed: `cargo`, the differential comparison and `restore --locked-mode` (CI runs them). The one known flake, `BrowseEndToEndTests.R10_73_SighupAfterTheMasterClosesExitsWithinTwoSeconds`, failed once in Task 0's run and not in the build run. Cost rules: C1 held; C2 held (`Slugs()` once, only when `--agent` is absent); C3 held (`recheck` one request, no profile read).
+
+### Deviations
+
+- Task 0 found the verbs are 19, not 18, the lag labels wrong in both members, the printed-command denominator 12 sites and 15 spellings (then 15 and 18 after the review), `PublishedCheckWordsTests` not a reader of the consistency lines, and CWK33 not writable as planned (no port to count through); rulings 19 to 34.
+- CWK6 and CWK16 are green controls on the seam, and CWK32 red where the plan said green (Task 1).
+- The order caveat of the Task 6 fix: the code of steps 1 to 5 was edited before the new probes were written, so their first-form red is established by FCWK44 to FCWK51, each restoring one old behaviour on a kept copy, and not by a pre-change run.
+- The flag receipt's pointer is prose and carries the flag after each command (ruling 23 lists it as in); the MCP receipt's `curia flags` pointer got the configured agent too, which neither of ruling 23's lists named: handled by the same rule, recorded by the review, published at Task 9.
+- A slug holding a space or a leading quotation mark was withheld by the build and is written by ruling 37; only a non-shell-word slug or one holding a backtick is withheld.
+- `Help.BudgetPointer` stays a constant that says "that command"; the command is written once by `TierReminder`.
+- Words the build wrote and the first G59 did not publish were published at Amendments 2 and 3 and, for three sentences still missing (the `whoami` and `enrol` reminder, the flag receipt's pointer and `curia_recheck`'s description), at Task 9.
+- Slips recorded in the live runs, with no effect on a result: a shell variable named `DB` shadowing the database name once (three sends ran with the fault on); two verifications with a nonexistent `HOME`; the first signature flip of 8b missed the `.` in its character class and flipped nothing (redone); zsh word-splitting on four read-verb lines.
+- Owed outside this repository (the controller's): the curia skill's `references/cli.md` and `CONTROLLER.md`'s `FAILED` leg row.
+
+### Leads and traps
+
+D61 items 130 to 149 (first free 150) and traps 143 to 159 (first free 160); D110 and D111 and items 117, 121 (the word) and 123 are closed in the register with the paragraph the plan pasted, rewritten from what was built. **Owner note:** D110 keeps the sole-profile default; the strict form is one line in `AgentResolver`, and the architect does not recommend it.
+
+The PR is #146, on `main` at ________.
+
+Final whole run: FINAL_RUN
