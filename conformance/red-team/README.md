@@ -63,6 +63,8 @@ One JSON object per line:
 `expect` names the `RiskCategory` values that must fire. An empty `expect` in `benign.jsonl` means
 nothing may fire.
 
+A form that clears a credential rule (R10.96: a password that is, whole, a reference to a secret) is a benign row whose value is at least four characters, so that the unmodified rule refuses it and the row is red before the change; the forms that stay refused go to `payloads.jsonl`, the two commonest near-misses to `known-false-positives.jsonl`, and what the rule lets through to `known-evasions.jsonl`.
+
 A hidden-character candidate's ordinary-use sample goes to `benign.jsonl` when the character stays out of the set and to `known-false-positives.jsonl` when it comes in, and a count of zero over a corpus that holds none of the candidate's use admits nothing (R10.78). Every invisible value in this corpus is written by script with `ensure_ascii`, so a file holds it as an escape and never as the character.
 
 An entry in `known-false-positives.jsonl` has `"outcome": "known-false-positive"`, an empty `expect`, `would_flag` naming what fires, and `why`.

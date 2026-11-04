@@ -2,11 +2,11 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (69/69) | **0.0 %** (0/47) |
-| enveloped | **100.0 %** (69/69) | **0.0 %** (0/47) |
-| enveloped after a line | **100.0 %** (69/69) | **0.0 %** (0/47) |
+| bare | **100.0 %** (79/79) | **0.0 %** (0/63) |
+| enveloped | **100.0 %** (79/79) | **0.0 %** (0/63) |
+| enveloped after a line | **100.0 %** (79/79) | **0.0 %** (0/63) |
 
-- Detector versions: secrets/2026-10-29, injection/2026-10-18
+- Detector versions: secrets/2026-11-04, injection/2026-10-18
 - Excluded from the detection rate: **18** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
 
 ## The shapes (register D19)
@@ -32,7 +32,7 @@ credential hit a hard rejection, so a false positive costs an author their submi
 
 ## Known evasions
 
-**19 payloads in `known-evasions.jsonl` defeat these detectors today**, each
+**24 payloads in `known-evasions.jsonl` defeat these detectors today**, each
 with the reason recorded. The detection rate above is computed over `payloads.jsonl`
 only, so it does *not* include them -- which is precisely why they are listed here
 rather than folded into the denominator, where they would depress a number nobody
@@ -59,13 +59,18 @@ Each one, with the reason recorded in the corpus:
 - **`evade-pwd-after-line-separator`** -- would be ConnectionStringPassword. U+2028 survives SCREEN into the scanned views and is not a line start for the `pwd` form (R10.86, amended 2026-10-29).
 - **`evade-pwd-after-paragraph-separator`** -- would be ConnectionStringPassword. U+2029 survives SCREEN into the scanned views and is not a line start for the `pwd` form (R10.86, amended 2026-10-29).
 - **`evade-pwd-in-a-url-query`** -- would be ConnectionStringPassword. A URL query joins its pairs with `&`, which is not a position R10.86 accepts for `pwd` (a `;`, an opening quotation mark or a line start), so a password carried in a query string is let through; the same position rule is what lets a path or a reference after `pwd=` pass.
+- **`evade-reference-shaped-live-password`** -- would be ConnectionStringPassword. A live password that is, whole, an upper-case variable name is stored (R10.96): the screen cannot tell `$HUNTER2EXAMPLE` from a reference, and a reference is commoner by orders of magnitude. Recorded as the cost of the rule; the person who chose it has shown the Forum a name, which the same post would have shown anyway.
+- **`evade-angle-bracketed-live-password`** -- would be ConnectionStringPassword. A live password written whole inside angle brackets is stored (R10.96): the name class of `<name>` is wide on purpose, and there is no corpus of passwords in brackets or of placeholders large enough to separate them.
+- **`evade-uri-default-value`** -- would be ConnectionStringPassword. The URI form's password class excludes a colon, so no rule reads a default that carries a live value after `:-`; quiet before and after R10.96 (finding 3 of the plan). The keyword form `password=${DB_PASS:-x}` stays refused.
+- **`evade-password-quoted`** -- would be ConnectionStringPassword. A quotation mark cannot begin the keyword rule's value, so a quoted password is read by no rule, before and after R10.96. Ruling 23 of the plan states the cost of reading this form and the order to do it in: the value class would refuse every `password: string`, `password: required`, `password: null` and every schema, API document and configuration example that names the field, each with an instruction to rotate a credential that does not exist, and the benign corpus holds no row with a colon or a quoted password, so a tightened rule has no false-positive denominator. Left as it is on purpose (a miss, the direction R10.11 calls unrecoverable) and filed as a lead for a PR of its own, corpus first.
+- **`evade-password-json-member`** -- would be ConnectionStringPassword. The keyword rule reads `=` and not `:`, and the high-entropy rule's keyword list has no `password`, so the colon and JSON forms are read by no rule, before and after R10.96. Ruling 23 of the plan states the cost of reading this form and the order to do it in: the value class would refuse every `password: string`, `password: required`, `password: null` and every schema, API document and configuration example that names the field, each with an instruction to rotate a credential that does not exist, and the benign corpus holds no row with a colon or a quoted password, so a tightened rule has no false-positive denominator. Left as it is on purpose (a miss, the direction R10.11 calls unrecoverable) and filed as a lead for a PR of its own, corpus first.
 
 A recorded evasion that starts being detected fails the build, so this list cannot
 silently go stale.
 
 ## Known false positives
 
-**9 entries in `known-false-positives.jsonl` are refused although they are benign**,
+**11 entries in `known-false-positives.jsonl` are refused although they are benign**,
 each with the reason recorded. The false-positive rate above is computed over `benign.jsonl`
 only, so it reads "0 % of that set, with these known exceptions" -- never a claim about all prose.
 
@@ -78,5 +83,7 @@ only, so it reads "0 % of that set, with these known exceptions" -- never a clai
 - **`fp-zero-width-non-joiner-in-persian`** -- fires HiddenText. U+200C was in the set before this entry and its ordinary use (Persian orthography) is open (R10.78). Recorded instead of carved out.
 - **`fp-zero-width-joiner-in-an-emoji-sequence`** -- fires HiddenText. U+200D was in the set before this entry and its ordinary use (emoji sequences) is open (R10.78). Recorded instead of carved out.
 - **`fp-right-to-left-mark-in-hebrew-text`** -- fires HiddenText. U+200F was in the set before this entry and its ordinary use (right-to-left text beside neutral characters) is open (R10.78). Recorded instead of carved out.
+- **`fp-password-changeme`** -- fires ConnectionStringPassword. R10.96 clears a reference written as a variable in capitals or a placeholder in brackets and nothing else: a lower-case word after the keyword is indistinguishable from a password, and this corpus holds no body of real passwords and none of placeholders large enough to separate the two. Refused, with the sentence that says how to write a reference (R11.84); the row fails the build if the screen ever clears it by accident.
+- **`fp-password-lower-case-variable`** -- fires ConnectionStringPassword. A name after a sign is a reference only in capitals (R10.96): `$password` is a lower-case name and is refused, the commonest wrong spelling of a reference. Refused, with the sentence that says to write it in capitals; the row fails the build if the screen ever clears it by accident.
 
 An entry that stops firing fails the build, so this list cannot silently go stale.

@@ -130,12 +130,16 @@ public sealed partial class PwdKeywordTests
                 t => KeywordFlags(t.Item1 + t.Item2 + t.Item3 + t.Item4).Length == 0,
                 iter: 400);
 
-    /// <summary>TRW34 D: <c>password=</c> and any value of four or more characters, including one that begins with <c>/ ~ $ %</c>, is flagged, after any prefix.</summary>
+    /// <summary>
+    /// TRW34 D: <c>password=</c> and any value of four or more characters, including one that begins with <c>/ ~ $ %</c>, is flagged, after any prefix.
+    /// R10.96 (errata G60) narrows "any value" by one class: a value that is, whole, a reference (<c>$XX0</c>) is not a password. The values that begin with
+    /// <c>$</c> or <c>%</c> therefore carry a lower-case suffix, which no reference holds, so the property still says what it said about every value that is not one.
+    /// </summary>
     [Fact]
     public void R10_86_TRW34D_PasswordKeepsItsRuleWhateverItsValueOrPrefix() =>
         Gen.Select(Gen.OneOfConst(string.Empty, "echo ", "x: ", "--"), Gen.Bool, Value(4, 12, excludedFirst: false), Value(4, 12, excludedFirst: true))
             .Sample(
-                t => KeywordFlags(t.Item1 + "password=" + (t.Item2 ? t.Item3 : t.Item4)).Length >= 1,
+                t => KeywordFlags(t.Item1 + "password=" + (t.Item2 ? t.Item3 : t.Item4 + "z")).Length >= 1,
                 iter: 400);
 
     /// <summary>TRW34 E: the floor. A value of three characters is not flagged and of four is, at a qualifying position.</summary>

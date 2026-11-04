@@ -79,8 +79,11 @@ internal static partial class PublishedAcceptBudget
         return int.Parse(matches[0].Groups[1].Value, CultureInfo.InvariantCulture);
     }
 
-    /// <summary>R10.86's detector version: the code span that follows "the detector version SHALL be".</summary>
-    internal static string DetectorVersion() => One(Version(), Paragraph("**R10.86**"), "R10.86's detector version");
+    /// <summary>
+    /// The detector version the errata names: the code span that follows "the detector version SHALL be" in R10.96, the entry that builds the built one
+    /// (errata G60). R10.86's names an earlier version, which is history from R10.96's build on, as every earlier name is.
+    /// </summary>
+    internal static string DetectorVersion() => One(Version(), Paragraph("**R10.96**"), "R10.96's detector version");
 
     /// <summary>The paragraph that begins with <paramref name="anchor"/>, to the blank line that ends it, whitespace folded.</summary>
     internal static string Paragraph(string anchor)

@@ -146,6 +146,8 @@ public sealed class ScreeningCostTests
     [InlineData("zero-width-space")]
     [InlineData("tag-characters")]
     [InlineData("alternating-hidden")]
+    [InlineData("reference-heavy")]
+    [InlineData("at-sign-in-a-long-run")]
     public async Task R10_69_ScreeningAtTheStringCapStaysWithinItsBudget(string row)
     {
         await WarmUp.Value.ConfigureAwait(true);
@@ -196,6 +198,8 @@ public sealed class ScreeningCostTests
     [InlineData("zero-width-space")]
     [InlineData("tag-characters")]
     [InlineData("alternating-hidden")]
+    [InlineData("reference-heavy")]
+    [InlineData("at-sign-in-a-long-run")]
     public async Task R10_69_ScreeningCostScalesLinearlyToTheStringCap(string row)
     {
         await WarmUp.Value.ConfigureAwait(true);
@@ -429,6 +433,10 @@ public sealed class ScreeningCostTests
         "zero-width-space" => new string((char)0x200B, bytes / 3),
         "tag-characters" => RepeatTimes(char.ConvertFromUtf32(0xE0041), bytes / 4),
         "alternating-hidden" => RepeatTimes("a" + (char)0x200B, bytes / 4),
+        // R10.96: every match is a reference, so the predicate runs on each and clears it (C1's input); and one cleared match whose
+        // further-`@` read runs the whole remaining run, which holds no `/`, `?`, `#`, blank or `@` to stop it.
+        "reference-heavy" => Repeat("postgres://u:$DB_PASS@h password=$DB_PASS ", bytes),
+        "at-sign-in-a-long-run" => "postgres://u:$DB_PASS@" + new string('x', bytes - "postgres://u:$DB_PASS@".Length),
         _ => throw new ArgumentOutOfRangeException(nameof(row), row, "no such row"),
     };
 
