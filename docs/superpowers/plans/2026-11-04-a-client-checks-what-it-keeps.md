@@ -644,6 +644,8 @@ Every .NET assembly in Release built first and run `--no-build`, `ScreeningCostT
 
 D61 items 130 to 149 (first free 150) and traps 143 to 159 (first free 160); D110 and D111 and items 117, 121 (the word) and 123 are closed in the register with the paragraph the plan pasted, rewritten from what was built. **Owner note:** D110 keeps the sole-profile default; the strict form is one line in `AgentResolver`, and the architect does not recommend it.
 
+**CI fix (after the PR was opened).** CI failed `RevisionRaceEndToEndTests.R11_61_RVO37` in one trial of five: exits 0,1 where the test wanted 0,3. The invariant held (one revision stored); the second process's own read had already seen the first revision and the client refused it, `NOT SENT`, exit 1 (R11.51), a correct answer the test did not allow. The test predates nothing in this PR and now accepts either route, requiring the refused one to say why and printing its text on a mismatch. Filed as a timing fact: a slower host is likelier to take the client's route.
+
 The PR is #146, on `main` at ________.
 
 Final whole run (2026-11-04, the branch at cc2bc935, Release, `--no-build`, `ScreeningCostTests` excluded): 6,352 passed, 0 failed, 3 skipped of 6,355 (Api 1,470 in 40 m 8 s, Application 651, Architecture 107, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,483, Domain.Primitives 64, Domain 952, Infrastructure 228, Mcp 896 + 3 skipped); 0 warnings; `restore --locked-mode`, `cargo fmt --check`, clippy and `cargo test` exit 0; the differential comparison 0 divergence classes; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red; `Curia.Architecture.Tests` in Debug 107 passed.
