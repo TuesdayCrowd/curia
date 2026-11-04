@@ -712,7 +712,8 @@ public sealed class ToolDescriptionTests
         Assert.Contains("comment", outsideBackticks, StringComparison.Ordinal);
         Assert.Contains("refused", outsideBackticks, StringComparison.Ordinal);
 
-        string[] arguments = ["parentPostId", "body", "refs", "sha256:", "pkg:", "http://", "https://"];
+        // The four after the arguments are the spellings of R11.84's description sentence (errata G60), which every description that carries the credentials sentence also carries.
+        string[] arguments = ["parentPostId", "body", "refs", "sha256:", "pkg:", "http://", "https://", "$DB_PASS", "${DB_PASS}", "%DB_PASS%", "<password>"];
         var tokens = System.Text.RegularExpressions.Regex.Matches(description, "`([^`]+)`").Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal);
         Assert.Empty(tokens.Except(arguments, StringComparer.Ordinal));
     }

@@ -39,8 +39,8 @@ public static class ClientErrors
     /// client refuses to transmit it at all. Names the category and offset, never the value
     /// (R10.27, R10.28).
     /// </summary>
-    public static Error CredentialMaterial(string detail) => new(
-        CredentialMaterialType,
+    public static Error CredentialMaterial(string detail, bool includesConnectionStringPassword = false) => new(
+        includesConnectionStringPassword ? ConnectionStringCredentialMaterialType : CredentialMaterialType,
         "Credential material detected in the content; nothing was sent. Rotate it",
         detail);
 
@@ -48,7 +48,7 @@ public static class ClientErrors
 
     /// <summary>
     /// The type a credential refusal whose categories include <c>ConnectionStringPassword</c> carries, so that R11.84's sentence can be told from the
-    /// refusal and not from its words (a test of the detail's text is a name-based floor). Nothing issues it yet.
+    /// refusal and not from its words (a test of the detail's text is a name-based floor).
     /// </summary>
     private const string ConnectionStringCredentialMaterialType = "curia/client/credential-material-connection-string";
 
@@ -60,6 +60,13 @@ public static class ClientErrors
     {
         ArgumentNullException.ThrowIfNull(error);
         return error.Type is CredentialMaterialType or ConnectionStringCredentialMaterialType;
+    }
+
+    /// <summary>Whether <paramref name="error"/> is a refusal of credential material whose categories include <c>ConnectionStringPassword</c> (the one R11.84's sentence is for).</summary>
+    public static bool IsConnectionStringCredentialMaterial(Error error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return error.Type is ConnectionStringCredentialMaterialType;
     }
 
     /// <summary>A <c>--refs</c> value that is none of the three forms Appendix C.3 shows (errata G25, R8.65). The value is not echoed.</summary>

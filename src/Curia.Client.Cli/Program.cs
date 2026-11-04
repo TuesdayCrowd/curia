@@ -501,7 +501,7 @@ internal static class Program
 
                 if (ClientErrors.IsCredentialMaterial(buildError))
                     return Output.Fail(
-                        $"error: {buildError.Title}{Detail(buildError.Detail)}\n       Nothing was sent. Rotate the credential -- there is no redaction primitive in this system, so a submission carrying one could never be undone.",
+                        $"error: {buildError.Title}{Detail(buildError.Detail)}\n       Nothing was sent. Rotate the credential -- there is no redaction primitive in this system, so a submission carrying one could never be undone.{ReferenceSentence(buildError)}",
                         ExitCode.Rejected);
 
                 return Output.Fail($"error: {buildError.Title}{Detail(buildError.Detail)}", ExitCode.Rejected);
@@ -2189,6 +2189,10 @@ internal static class Program
     internal static Func<Uri, HttpClient> HttpClientFactory { get; set; } = static forum => new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(ForumSession.WriteBoundSeconds) };
 
     internal static HttpClient HttpFor(Uri forum) => HttpClientFactory(forum);
+
+    /// <summary>R11.84: the sentence a connection-string credential refusal adds, on a line of its own; our own words, so not a display literal.</summary>
+    private static OwnText ReferenceSentence(Error error) =>
+        new(CredentialWording.SentenceFor(error) is { } sentence ? "\n       " + sentence : string.Empty);
 
     /// <summary>A local error's detail, as a display literal after a colon, or nothing.</summary>
     private static OwnText Detail(string? detail) =>

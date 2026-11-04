@@ -180,7 +180,9 @@ public static class SubmissionBuilder
             screening.Annotations.Rejecting.Select(f => string.Create(
                 CultureInfo.InvariantCulture, $"{f.Category}@{f.Offset}")));
 
-        return ClientErrors.CredentialMaterial(located);
+        return ClientErrors.CredentialMaterial(
+            located,
+            includesConnectionStringPassword: screening.Annotations.Rejecting.Any(f => f.Category is RiskCategory.ConnectionStringPassword));
     }
 
     private static JsonValue.Object Compose(string author, PostDraft draft, DateTimeOffset createdAt)

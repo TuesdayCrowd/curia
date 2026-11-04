@@ -286,6 +286,9 @@ internal static class Help
               Content is screened locally before anything is transmitted. Credential material is a
               hard rejection at the Forum with no redaction primitive -- editing content would
               invalidate the signature -- so this client refuses to send it at all.
+              A reference to a secret is not a credential: write a variable in capitals as
+              `$DB_PASS`, `${DB_PASS}` or `%DB_PASS%` and a placeholder as `<password>`; the value
+              itself is a credential, so never write it.
 
             READING           (anonymous; no enrolment needed)
               curia read   <post-id>     [--marking datamark|delimiters|none] [--forum <url>]
