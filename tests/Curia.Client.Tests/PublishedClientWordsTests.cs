@@ -118,7 +118,7 @@ public sealed class PublishedClientWordsTests
         log.BatchAnswer = _ => [StubLog.BatchItem(digest, "unknown")];
         var served = await log.Client().BatchAsync([digest], MarkingMode.None, TestContext.Current.CancellationToken);
         Assert.True(served.TryGetValue(out var items, out var refusal), refusal?.Summary);
-        var line = Fold(Assert.Single(CitationLines.For([digest], items, DateTimeOffset.UnixEpoch).Lines).Text.Text);
+        var line = Fold(Assert.Single(CitationLines.For([digest], items, DateTimeOffset.UnixEpoch, CitationSurface.Cli).Lines).Text.Text);
         if (!line.Contains("curia resend", StringComparison.Ordinal)) problems.Add("the unknown line does not name the resend");
 
         var printed = new List<string> { line };

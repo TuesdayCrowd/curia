@@ -61,7 +61,7 @@ internal static class StopRuleOracle
     {
         var problems = new List<string>();
         var definiteWords = Fold(PublishedResendWords.DefiniteWords);
-        var notResolved = Fold(PublishedResendWords.ResendRefusalWords.Replace("<digest>", digest, StringComparison.Ordinal));
+        var notResolved = Fold(PublishedResendWords.Slug(PublishedResendWords.ResendRefusalWords.Replace("<digest>", digest, StringComparison.Ordinal), PublishedResendWords.KitAgent));
         for (var i = 0; i < steps.Count && i < script.Count; i++)
         {
             var at = $"{label}, send {(i + 1).ToString(CultureInfo.InvariantCulture)} ({script[i].Name})";

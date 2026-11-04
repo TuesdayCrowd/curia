@@ -38,7 +38,7 @@ public sealed class RecheckUnknownWordsTests : IDisposable
         _log.BatchAnswer = _ => items;
         var result = await _log.Client().BatchAsync(sent, MarkingMode.None, TestContext.Current.CancellationToken);
         Assert.True(result.TryGetValue(out var served, out var refusal), refusal?.Summary);
-        return CitationLines.For(sent, served, answeredAt);
+        return CitationLines.For(sent, served, answeredAt, CitationSurface.McpAgent, PublishedResendWords.KitAgent);
     }
 
     private static string InstantOf(DateTimeOffset at) => at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);

@@ -155,7 +155,7 @@ public sealed class ForumSession
         ArgumentNullException.ThrowIfNull(submission);
 
         if (!Acts.Keep(submission).TryGetValue(out var kept, out var keepError))
-            return ForumResult<PostReceipt>.Refused(new Refusal(RefusalKind.Local, 0, keepError!) { Act = ActContext.Post, ActDigest = submission.PrefixedDigest });
+            return ForumResult<PostReceipt>.Refused(new Refusal(RefusalKind.Local, 0, keepError!) { Act = ActContext.Post, ActDigest = submission.PrefixedDigest, Agent = _agent.Profile.Slug });
 
         return await SendKeptAsync(kept!, ActSend.First, marking, ct).ConfigureAwait(false);
     }
@@ -170,7 +170,7 @@ public sealed class ForumSession
         ArgumentNullException.ThrowIfNull(kept);
 
         if (!Acts.Holds(kept))
-            return ForumResult<PostReceipt>.Refused(new Refusal(RefusalKind.Local, 0, new Error(KeptActs.NoKeptActType, "NOT SENT: no act of that digest is kept on this host", "the act is not held as given")) { Act = ActContext.Resend, ActDigest = kept.Header.Digest });
+            return ForumResult<PostReceipt>.Refused(new Refusal(RefusalKind.Local, 0, new Error(KeptActs.NoKeptActType, "NOT SENT: no act of that digest is kept on this host", "the act is not held as given")) { Act = ActContext.Resend, ActDigest = kept.Header.Digest, Agent = _agent.Profile.Slug });
 
         return await SendKeptAsync(Acts.Attempt(kept), ActSend.Resend, marking, ct).ConfigureAwait(false);
     }
@@ -472,7 +472,7 @@ public sealed class ForumSession
         var result = await WithRemintAsync(() => WriteOnceAsync(path, body, read, query, proofTarget, bound, trace, ct)).ConfigureAwait(false);
 
         // Errata G58, R11.80: the refusal is told which act it refused, here, where the call is known.
-        return result.Refusal is { } refusal ? ForumResult<T>.Refused(refusal with { Act = act }) : result;
+        return result.Refusal is { } refusal ? ForumResult<T>.Refused(refusal with { Act = act, Agent = _agent.Profile.Slug }) : result;
     }
 
     /// <summary>

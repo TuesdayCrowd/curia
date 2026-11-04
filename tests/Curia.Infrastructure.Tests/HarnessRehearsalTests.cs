@@ -116,6 +116,26 @@ public sealed class HarnessRehearsalTests
             drill["FH_HOLD"] = "3";
             await Check("latecommit.sh, a hold under twice the timeout", "latecommit.sh", ["revision"], 2, "twice the command timeout", drill);
 
+            // plant-head.sh (errata G59, plan ruling 28): the copy goes into a directory the client already made and never into one the script would name itself.
+            var plantHome = Path.Combine(state, "plant-home");
+            var plantFrom = Path.Combine(plantHome, "logs", "origin-a");
+            var plantTo = Path.Combine(plantHome, "logs", "origin-b");
+            Directory.CreateDirectory(plantFrom);
+            Directory.CreateDirectory(plantTo);
+            var headBytes = System.Text.Encoding.UTF8.GetBytes("{\"head\":\"a signed head, as the client retained it\",\"retained_at\":\"2026-11-01T10:30:00.000Z\"}\n");
+            await File.WriteAllBytesAsync(Path.Combine(plantFrom, "head.json"), headBytes, Ct);
+            await File.WriteAllTextAsync(Path.Combine(plantTo, "head.json"), "{\"head\":\"the target's own\"}", Ct);
+            await Check("plant-head.sh, too few arguments", "plant-head.sh", [plantHome, "origin-a"], 2, "usage");
+            await Check("plant-head.sh, a home with no logs", "plant-head.sh", [state, "origin-a", "origin-b"], 2, "not a client home");
+            await Check("plant-head.sh, an absent target", "plant-head.sh", [plantHome, "origin-a", "origin-absent"], 2, "does not exist");
+            said.Add(Directory.Exists(Path.Combine(plantHome, "logs", "origin-absent")) ? "plant-head.sh made the absent target directory" : "plant-head.sh left the absent target absent: as expected");
+            await Check("plant-head.sh, a name with a slash", "plant-head.sh", [plantHome, "origin-a", "../origin-b"], 2, "not a directory name");
+            await Check("plant-head.sh, the same directory twice", "plant-head.sh", [plantHome, "origin-a", "origin-a"], 2, "the same directory");
+            await Check("plant-head.sh, a source with no head", "plant-head.sh", [plantHome, "origin-b-empty", "origin-b"], 2, "no retained head");
+            said.Add((await File.ReadAllTextAsync(Path.Combine(plantTo, "head.json"), Ct)).Contains("the target's own", StringComparison.Ordinal) ? "no refusal touched the target's head: as expected" : "a refusal changed the target's head");
+            await Check("plant-head.sh, a good copy", "plant-head.sh", [plantHome, "origin-a", "origin-b"], 0, "identical");
+            said.Add((await File.ReadAllBytesAsync(Path.Combine(plantTo, "head.json"), Ct)).AsSpan().SequenceEqual(headBytes) ? "the planted head is byte-identical to the source: as expected" : "the planted head differs from the source");
+
             // A drill that could not run is exit 2 and never reaches the oracle (review I1: a status overwritten after the heredoc read as a pass). The
             // client's `ask` keeps no act here, so `curia acts` lists none and the digest drill has nothing to resend; the preflight needs the proxy.
             if (OperatingSystem.IsWindows()) throw new Xunit.Sdk.XunitException("the harness is bash");

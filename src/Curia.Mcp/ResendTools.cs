@@ -55,9 +55,9 @@ internal sealed partial class ForumTools
         var now = writer.Now;
         var frame = new FrameBuilder();
         foreach (var entry in listed)
-            frame.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty))}");
+            frame.Line($"{new OwnText(entry.Header is { } header ? ResendWording.ListingLine(header, now) : ResendWording.DamagedLine(entry.DamagedFile ?? string.Empty, writer.Agent.Profile.Slug))}");
 
-        frame.Line($"{new OwnText(ResendWording.ListingFooter(listed))}");
+        frame.Line($"{new OwnText(ResendWording.ListingFooter(listed, writer.Agent.Profile.Slug))}");
         return Task.FromResult(Said(frame.ToString()));
     }
 
@@ -116,7 +116,7 @@ internal sealed partial class ForumTools
             text.Line($"            the Forum reported a different digest: {receipt.Digest}");
 
         text.Line($"server_ts   {receipt.ServerTs}");
-        text.Line($"{BudgetLines.ReceiptLine(receipt.Budget)}");
+        text.Line($"{BudgetLines.ReceiptLine(receipt.Budget, writer.Agent.Profile.Slug)}");
         text.Line($"{new OwnText(IndexWording.ReceiptLine(receipt.VectorIndex))}");
         text.Line($"author      {writer.Agent.Profile.AgentId}");
         if (!receipt.RiskFlags.IsDefaultOrEmpty)

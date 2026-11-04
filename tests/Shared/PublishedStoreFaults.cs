@@ -112,11 +112,11 @@ internal static partial class PublishedStoreFaults
     internal static string ActSentence => PublishedResendWords.ActWords;
 
     /// <summary>The act line for a digest in the spelling <c>recheck</c> takes: <see cref="ActSentence"/> with <c>&lt;digest&gt;</c> replaced.</summary>
-    internal static string ActLine(string prefixedDigest)
+    internal static string ActLine(string prefixedDigest, string? slug = PublishedResendWords.KitAgent)
     {
         var sentence = ActSentence;
         return sentence.Contains("<digest>", StringComparison.Ordinal)
-            ? sentence.Replace("<digest>", prefixedDigest, StringComparison.Ordinal)
+            ? PublishedResendWords.As(sentence.Replace("<digest>", prefixedDigest, StringComparison.Ordinal), slug)
             : throw new InvalidOperationException($"{Errata}'s R11.73 act words have no <digest> to replace");
     }
 

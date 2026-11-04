@@ -85,6 +85,9 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// <summary>The digest of the signed act this refusal refused, as this client computed it from the bytes (R11.79); null for a call that signed nothing. Set by the session.</summary>
     public string? ActDigest { get; init; }
 
+    /// <summary>The slug of the profile the session ran as (errata G59, R11.82): set by the session beside <see cref="Act"/>, so a refusal knows whom it was for. Read by the words that print a command for the agent (<c>StoreWording.ActLine</c>, <c>ResendWording</c>, <see cref="ReadWhere"/>).</summary>
+    public string? Agent { get; init; }
+
     /// <summary>
     /// The number of sends of the act so far when the act is still kept after this answer (R11.80's stop rule), and 0 when it is not kept: a first send answered definitely, or a call that keeps
     /// nothing. Set by the session; it is the number of sends in all, and the stop sentence counts <see cref="KeptUnanswered"/>.
@@ -182,7 +185,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             var cause = string.Equals(Error.Type, StoreWording.LogUnreadableType, StringComparison.Ordinal)
                 ? new FrameBuilder().Append($"{Error.Title} ({Error.Type}){Detailed}: {new OwnText(ResendWording.LogUnreadableOfAResend)}.").ToString()
                 : CauseSummary;
-            return cause + (Unheard ? " " + StoreWording.UnheardSentence : string.Empty) + " " + ResendWording.NotResolved(ActDigest ?? "<digest>");
+            return cause + (Unheard ? " " + StoreWording.UnheardSentence : string.Empty) + " " + ResendWording.NotResolved(ActDigest ?? "<digest>", Agent);
         }
     }
 
@@ -340,7 +343,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     }
 
     /// <summary>R11.65: where the whole standing can be read.</summary>
-    public static OwnText ReadWhere => new("`curia budget` or `curia_budget` reads where every budget stands.");
+    public OwnText ReadWhere => new(PrintedCommand.Span("curia budget", Agent) + " or `curia_budget` reads where every budget stands.");
 
     private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
 

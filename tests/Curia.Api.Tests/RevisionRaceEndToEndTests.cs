@@ -73,7 +73,9 @@ public sealed partial class RevisionRaceEndToEndTests(KestrelForumFixture forum)
 
     /// <summary>
     /// RVO37. Two <c>curia revision</c> processes started together by one agent, five times, each on a post of its own: the table holds one revision of the
-    /// post; one process exits 0 and the other exits 3 with R11.61's words (never exit 0 twice). The unmodified tree: both exit 0 and two are stored, in 5 of 5.
+    /// post; one process exits 0 and the other is told why (never exit 0 twice): exit 3 with R11.61's words where it reached the Forum, or exit 1 and <c>NOT SENT</c>
+    /// (R11.51) where its own read already saw the first revision, which is the same answer reached earlier and on a slower host the likelier. The unmodified tree:
+    /// both exit 0 and two are stored, in 5 of 5.
     /// </summary>
     [Fact]
     public async Task R11_61_RVO37_TwoRevisionProcessesTogetherStoreOneAndTheOtherIsToldWhy()
@@ -99,13 +101,18 @@ public sealed partial class RevisionRaceEndToEndTests(KestrelForumFixture forum)
             var exits = string.Join(",", pair.Select(p => p.Exit).Order());
             var refused = pair.Where(p => p.Exit != 0).ToArray();
             var refusedText = refused.Length == 1 ? refused[0].Stderr + refused[0].Stdout : string.Empty;
-            var worded = refusedText.Contains(RevisionWording.AlreadyRevisedCause, StringComparison.OrdinalIgnoreCase)
-                || refusedText.Contains(RevisionWording.InFlightCause, StringComparison.OrdinalIgnoreCase);
-            lines.Add($"trial {trial}: stored {stored}; exits {exits}; {(worded ? "the refused one says why" : "no refusal worded by R11.61")}");
+            var told = exits switch
+            {
+                "0,3" => refusedText.Contains(RevisionWording.AlreadyRevisedCause, StringComparison.OrdinalIgnoreCase)
+                    || refusedText.Contains(RevisionWording.InFlightCause, StringComparison.OrdinalIgnoreCase),
+                "0,1" => refusedText.Contains("NOT SENT", StringComparison.Ordinal) && refusedText.Contains("superseded", StringComparison.Ordinal),
+                _ => false,
+            };
+            lines.Add($"trial {trial}: stored {stored}; one exit 0 {(exits is "0,3" or "0,1" ? "and one refused" : $"failed: exits {exits}")}; {(told ? "the refused one says why" : $"no refusal worded: {refusedText}")}");
         }
 
         Said(
-            Enumerable.Range(1, 5).Select(t => $"trial {t}: stored 1; exits 0,3; the refused one says why"),
+            Enumerable.Range(1, 5).Select(t => $"trial {t}: stored 1; one exit 0 and one refused; the refused one says why"),
             lines);
     }
 

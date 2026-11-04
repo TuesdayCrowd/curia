@@ -93,7 +93,9 @@ public sealed class ActaCheckTests : IDisposable
         var check = ActaCheck.Consistency(from, to, forged);
 
         Assert.Equal(CheckOutcome.Failed, check.Outcome);
-        Assert.Contains("from_root", check.Detail, StringComparison.Ordinal);
+        // The head the proof's start disagrees with is named by role (errata G59, R11.83): the retained head is the smaller here.
+        Assert.Contains("the Forum's proof runs from", check.Detail, StringComparison.Ordinal);
+        Assert.Contains("and the retained head's root is", check.Detail, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -116,7 +118,8 @@ public sealed class ActaCheckTests : IDisposable
         var check = ActaCheck.Consistency(from, to, forged);
 
         Assert.Equal(CheckOutcome.Failed, check.Outcome);
-        Assert.Contains("to_root", check.Detail, StringComparison.Ordinal);
+        Assert.Contains("the Forum's proof runs to", check.Detail, StringComparison.Ordinal);
+        Assert.Contains("and the served head's root is", check.Detail, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -129,7 +132,28 @@ public sealed class ActaCheckTests : IDisposable
         var check = ActaCheck.Consistency(Head(4), Head(8), Consistency(2, 8));
 
         Assert.Equal(CheckOutcome.Failed, check.Outcome);
-        Assert.Contains("the proof runs", check.Detail, StringComparison.Ordinal);
+        Assert.Contains("the Forum's proof runs from tree size 2 to 8", check.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The path of a proof whose roots are the heads' is not an extension, in each orientation: the retained head the smaller (the log at the served head's size is not an extension of the retained
+    /// head's) and the Forum having served the smaller (the retained head's log does not extend the served head's). Each reason names the heads by role (errata G59, R11.83), never by the
+    /// direction a proof runs.
+    /// </summary>
+    [Fact]
+    public void R6_61_AProofWhosePathDoesNotConnectTheHeadsIsReasonedByRole()
+    {
+        var honest = Consistency(4, 8);
+        var tampered = honest with { Path = honest.Path.IsEmpty ? honest.Path : [LogEntries.Prefixed(_log.RootAt(2)), .. honest.Path.Skip(1)] };
+
+        var retainedSmaller = ActaCheck.Consistency(Head(4), Head(8), tampered);
+        Assert.Equal(CheckOutcome.Failed, retainedSmaller.Outcome);
+        Assert.Contains("the log at 8 leaves is not an extension of the log at 4 leaves", retainedSmaller.Detail, StringComparison.Ordinal);
+
+        var servedSmaller = ActaCheck.Consistency(Head(8), Head(4), tampered);
+        Assert.Equal(CheckOutcome.Failed, servedSmaller.Outcome);
+        Assert.Contains("the retained head's log at 8 leaves does not extend the served head's at 4 leaves", servedSmaller.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("from_root", servedSmaller.Detail, StringComparison.Ordinal);
     }
 
     /// <summary>An audit path that does not carry the leaf to the root fails, and says so.</summary>

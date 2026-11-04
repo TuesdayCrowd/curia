@@ -24,8 +24,12 @@ namespace Curia.Client;
 /// So the layout is:</para>
 ///
 /// <code>
-/// ~/.curia/logs/&lt;origin&gt;/head.json    0600   the last head whose signature this client verified
+/// ~/.curia/logs/&lt;origin&gt;/head.json    0600   the last head this client retained, whose signature it verified when it stored it
 /// </code>
+///
+/// <para><b>A head read back is not a verified head.</b> <see cref="Read"/> and <see cref="ReadRetained"/> parse the file and return what it holds, unverified: a file can have been changed,
+/// damaged or put there by another process since it was written. <see cref="PostVerifier"/> verifies the signature of a retained head under the log's published keys, by the check that
+/// verifies a served head, before it compares anything (errata G59, R6.61, R6.53).</para>
 ///
 /// <para><b>At the private mode</b> because an attacker who can rewrite the retained head can
 /// re-anchor every proof that follows it -- the same reasoning the signing keys get, applied to the
@@ -38,8 +42,11 @@ namespace Curia.Client;
 /// </summary>
 public sealed class HeadStore
 {
-    private const string HeadFile = "head.json";
-    private const string LockFile = "head.lock";
+    /// <summary>The file that holds the retained head: the one file a reader is told to remove (errata G59, R11.83), named from here wherever a line names it.</summary>
+    internal const string HeadFile = "head.json";
+
+    /// <summary>The file other processes hold open while they verify; a line names it only to say it stays (errata G59, R11.83).</summary>
+    internal const string LockFile = "head.lock";
     private const string RetainedAtMember = "retained_at";
 
     /// <summary>R11.74 words: the instant the retained head was stored, UTC to the millisecond.</summary>
@@ -297,7 +304,7 @@ public sealed class HeadStore
     }
 
     /// <summary>
-    /// The retained head, or <see langword="null"/> when none has been kept for this Forum <i>or</i>
+    /// The retained head, <b>unverified</b> (parsed from the file as it is; see the type's note), or <see langword="null"/> when none has been kept for this Forum <i>or</i>
     /// the one that has cannot be read. Callers that must tell those apart use
     /// <see cref="State"/>.
     ///

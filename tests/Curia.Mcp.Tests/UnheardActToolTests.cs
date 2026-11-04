@@ -238,20 +238,21 @@ public sealed partial class UnheardActToolTests : IDisposable
     }
 
     /// <summary>
-    /// AFC26. <c>curia-mcp</c>'s version is the one the newest entry names: the code's version, the parser's, and that entry's R11.81 words agree (it read R11.78's until
-    /// the resend PR, which bumped to 0.10.0). The version is not parsed here: the one parser is <c>PublishedReadersLastWords.Version()</c>, and this fact asks only
-    /// whether R11.81's words state the version the code reports.
+    /// AFC26. <c>curia-mcp</c>'s version is the one the newest entry names: the code's version and the parser's agree (the parser read R11.78's until the resend PR, R11.81's until the client-checks
+    /// PR, errata G59, which bumped to 0.10.1). R11.81's words state 0.10.0, the version they were built at, and are history: this fact holds that they still state it and that the catalogue and the
+    /// parser (the one reader of a version, <c>PublishedReadersLastWords.Version()</c>) agree on the newest. The version is not parsed here.
     /// </summary>
     [Fact]
-    public void R11_81_AFC26_CuriaMcpIsTheVersionR1181Names()
+    public void R11_81_AFC26_CuriaMcpIsTheNewestVersionAndR1181StatesTheOneItWasBuiltAt()
     {
         var code = ToolCatalogue.Version;
         var parser = PublishedReadersLastWords.Version();
-        var stated = PublishedConfirmWords.Paragraph("R11.81 words").Contains($"`curia-mcp` {code}.", StringComparison.Ordinal);
+        var history = PublishedConfirmWords.Paragraph("R11.81 words").Contains("`curia-mcp` 0.10.0.", StringComparison.Ordinal);
+        const string Expected = "R11.81 words state 0.10.0 (history), and the catalogue reports the version the parser reads";
         Said(
-            "the catalogue reports the version R11.81 words state, and the parser reads the same",
-            stated && string.Equals(code, parser, StringComparison.Ordinal)
-                ? "the catalogue reports the version R11.81 words state, and the parser reads the same"
-                : $"the catalogue reports {code}; the parser reads {parser}; R11.81 words {(stated ? "state" : "do not state")} {code}");
+            Expected,
+            history && string.Equals(code, parser, StringComparison.Ordinal)
+                ? Expected
+                : $"the catalogue reports {code}; the parser reads {parser}; R11.81 words {(history ? "state" : "do not state")} 0.10.0");
     }
 }

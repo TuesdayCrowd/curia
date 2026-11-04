@@ -11,10 +11,10 @@ namespace Curia.Client;
 public static class ResendWording
 {
     /// <summary>R11.81 (a): printed after the refusal of a resend that is not <c>201</c> or <c>already-recorded</c>.</summary>
-    public static string NotResolved(string digest)
+    public static string NotResolved(string digest, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(digest);
-        return "This refusal does not say whether the first send was recorded: the act stays kept. `curia recheck " + digest + "` (in `curia-mcp`, `curia_recheck`) says whether it is recorded as of the moment it is asked; `curia acts --discard " + digest + "` (in `curia-mcp`, `curia_discard`) drops the kept copy.";
+        return "This refusal does not say whether the first send was recorded: the act stays kept. `curia recheck " + digest + "` (in `curia-mcp`, `curia_recheck`) says whether it is recorded as of the moment it is asked; " + PrintedCommand.Span("curia acts --discard " + digest, agent) + " (in `curia-mcp`, `curia_discard`) drops the kept copy.";
     }
 
     /// <summary>R11.81 (a)'s sentence for a resend refused <c>curia/log/unreadable</c>: R11.72's sentence with its subject named, so that (a) is the only statement about the first send.</summary>
@@ -34,12 +34,12 @@ public static class ResendWording
     /// header's count of those sends, <paramref name="attempts"/> the sends in all and <paramref name="digest"/> the act's. Advice, not enforcement: a resend is safe at any moment (R8.86). The
     /// wait is the 5 minutes the errata derives (three times the longest stall measured, 100 seconds). It does not say the Forum's store is not answering: an unheard send or a <c>502</c> shows no store.
     /// </summary>
-    public static string Stop(int unanswered, int attempts, string digest)
+    public static string Stop(int unanswered, int attempts, string digest, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(digest);
         var u = unanswered.ToString(CultureInfo.InvariantCulture);
         var n = attempts.ToString(CultureInfo.InvariantCulture);
-        return "The Forum has not answered the last " + u + " sends of this act (it has been sent " + n + " times in all). Stop here: tell whoever asked for the act that the Forum is not answering and that the act is kept (digest " + digest + "). Send it again with `curia resend " + digest + "` (in `curia-mcp`, `curia_resend`) after 5 minutes or more; sending it sooner is safe, because the Forum records one act once, but it has not answered the last " + u + " sends.";
+        return "The Forum has not answered the last " + u + " sends of this act (it has been asked to send " + n + " times in all). Stop here: tell whoever asked for the act that the Forum is not answering and that the act is kept (digest " + digest + "). Send it again with " + PrintedCommand.Span("curia resend " + digest, agent) + " (in `curia-mcp`, `curia_resend`) after 5 minutes or more; sending it sooner is safe, because the Forum records one act once, but it has not answered the last " + u + " sends.";
     }
 
     /// <summary>
@@ -67,7 +67,7 @@ public static class ResendWording
             ? "last answered " + DisplayLiteral.Of(answer) + (header.LastAttemptAt is { } at ? " " + Age(now - at) + " ago" : string.Empty)
             : "not answered";
         var kind = header.Kind.All(char.IsAsciiLetterLower) && header.Kind.Length is > 0 and <= 16 ? header.Kind : DisplayLiteral.Of(header.Kind);
-        return $"{header.Digest}  {kind}  board {DisplayLiteral.Of(header.Board)}  sent {attempts} time(s)  {last}  kept {Age(now - header.KeptAt)} ago";
+        return $"{header.Digest}  {kind}  board {DisplayLiteral.Of(header.Board)}  asked {attempts} time(s)  {last}  kept {Age(now - header.KeptAt)} ago";
     }
 
     /// <summary>
@@ -75,16 +75,16 @@ public static class ResendWording
     /// file counts toward it until it is dropped), and the two verbs that act on one, each with the other client's name. The <c>&lt;digest&gt;</c> placeholders are literal: the line is advice for any act
     /// listed above it.
     /// </summary>
-    public static string ListingFooter(IReadOnlyList<KeptActListing> listed)
+    public static string ListingFooter(IReadOnlyList<KeptActListing> listed, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(listed);
         var damaged = listed.Count(l => l.Header is null);
         var acts = listed.Count - damaged;
         var bound = KeptActs.Bound.ToString(CultureInfo.InvariantCulture);
-        const string Verbs = "`curia resend <digest>` (in `curia-mcp`, `curia_resend`) sends exactly the act kept; `curia acts --discard <digest>` (in `curia-mcp`, `curia_discard`) drops one.";
+        var verbs = PrintedCommand.Span("curia resend <digest>", agent) + " (in `curia-mcp`, `curia_resend`) sends exactly the act kept; " + PrintedCommand.Span("curia acts --discard <digest>", agent) + " (in `curia-mcp`, `curia_discard`) drops one.";
         return damaged == 0
-            ? acts.ToString(CultureInfo.InvariantCulture) + " kept (at most " + bound + "). " + Verbs
-            : acts.ToString(CultureInfo.InvariantCulture) + " kept, " + damaged.ToString(CultureInfo.InvariantCulture) + " damaged (" + listed.Count.ToString(CultureInfo.InvariantCulture) + " files; at most " + bound + " files are held). A damaged file counts toward the " + bound + " until it is dropped. " + Verbs;
+            ? acts.ToString(CultureInfo.InvariantCulture) + " kept (at most " + bound + "). " + verbs
+            : acts.ToString(CultureInfo.InvariantCulture) + " kept, " + damaged.ToString(CultureInfo.InvariantCulture) + " damaged (" + listed.Count.ToString(CultureInfo.InvariantCulture) + " files; at most " + bound + " files are held). A damaged file counts toward the " + bound + " until it is dropped. " + verbs;
     }
 
     /// <summary>
@@ -113,12 +113,12 @@ public static class ResendWording
     /// One line for a file a listing could not read: its name as a display literal, why, and, where its name carries a digest (<c>&lt;64 hex&gt;.act</c>), how to drop it, which is the one way a file
     /// nothing can resend leaves its slot (the bound counts files, plan ruling 40). A name that is no digest is not one a discard can name, and the line says nothing of dropping it.
     /// </summary>
-    public static string DamagedLine(string file)
+    public static string DamagedLine(string file, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(file);
         var line = "damaged  " + DisplayLiteral.Of(file) + "  its first line is not a header this client reads; `curia resend` (in `curia-mcp`, `curia_resend`) refuses it and the file is untouched";
         return DigestOfFileName(file) is { } digest
-            ? line + "; `curia acts --discard " + digest + "` (in `curia-mcp`, `curia_discard`) drops it"
+            ? line + "; " + PrintedCommand.Span("curia acts --discard " + digest, agent) + " (in `curia-mcp`, `curia_discard`) drops it"
             : line;
     }
 

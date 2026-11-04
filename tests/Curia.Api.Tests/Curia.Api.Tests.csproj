@@ -95,6 +95,7 @@
     <Compile Include="../Shared/PublishedResendWords.cs" Link="Shared/PublishedResendWords.cs" />
     <Compile Include="../Shared/PublishedClientWords.cs" Link="Shared/PublishedClientWords.cs" />
     <Compile Include="../Shared/PublishedConfirmWords.cs" Link="Shared/PublishedConfirmWords.cs" />
+    <Compile Include="../Shared/PublishedAgentWords.cs" Link="Shared/PublishedAgentWords.cs" />
     <Compile Include="../Shared/ReceivedAct.cs" Link="Shared/ReceivedAct.cs" />
   </ItemGroup>
 

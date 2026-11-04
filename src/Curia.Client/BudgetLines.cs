@@ -47,15 +47,15 @@ public static class BudgetLines
     }
 
     /// <summary>The line a receipt prints for the budget its act spent: the standing after the act as the Forum stated it, or <c>budget  NOT STATED</c> where it sent none.</summary>
-    public static string Receipt(BudgetReceipt? budget) => ReceiptFrame(budget).ToString();
+    public static string Receipt(BudgetReceipt? budget, string? agent = null) => ReceiptFrame(budget, agent).ToString();
 
     /// <summary>The same line as a frame.</summary>
-    public static FrameBuilder ReceiptFrame(BudgetReceipt? budget) => new FrameBuilder().Line($"{ReceiptLine(budget)}");
+    public static FrameBuilder ReceiptFrame(BudgetReceipt? budget, string? agent = null) => new FrameBuilder().Line($"{ReceiptLine(budget, agent)}");
 
     /// <summary>The receipt's budget line without its line feed, as text of this client's own with the Forum's strings quoted: for a frame that places it itself.</summary>
-    public static OwnText ReceiptLine(BudgetReceipt? budget) =>
+    public static OwnText ReceiptLine(BudgetReceipt? budget, string? agent = null) =>
         new((budget is null
-            ? new FrameBuilder().Line($"budget  {new OwnText("NOT STATED")}   (the Forum's receipt did not say where this budget stands; `curia budget` reads it)")
+            ? new FrameBuilder().Line($"budget  {new OwnText("NOT STATED")}   (the Forum's receipt did not say where this budget stands; {new OwnText(PrintedCommand.Span("curia budget", agent))} reads it)")
             : new FrameBuilder().Line($"budget  {budget.Name}  {new OwnText("after this act:")} {Counts(budget.Limit, budget.Used, budget.Remaining)}")).ToString().TrimEnd('\n'));
 
     private static OwnText NextWords(BudgetEntryStanding entry)

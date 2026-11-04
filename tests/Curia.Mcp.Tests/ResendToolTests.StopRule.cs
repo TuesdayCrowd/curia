@@ -87,7 +87,7 @@ public sealed partial class ResendToolTests
         None(problems, "the stop sentence from the second consecutive unanswered send, naming that count and the sends in all, on a refusal that is itself unanswered, and nowhere else");
     }
 
-    /// <summary>ASA54, the tools' half: <c>attempts</c> counts every send, <c>unanswered</c> the trailing run, the other members and the mode are unchanged, a header with no <c>unanswered</c> reads as 0, and <c>curia_acts</c> says sent n time(s) equal to <c>attempts</c>.</summary>
+    /// <summary>ASA54, the tools' half: <c>attempts</c> counts every send, <c>unanswered</c> the trailing run, the other members and the mode are unchanged, a header with no <c>unanswered</c> reads as 0, and <c>curia_acts</c> says asked n time(s) equal to <c>attempts</c>.</summary>
     [Fact]
     public async Task R11_80_ASA54_TheHeaderCountsEverySendAndTheTrailingRunUnanswered()
     {
@@ -114,7 +114,7 @@ public sealed partial class ResendToolTests
             if (!names.SequenceEqual(members.Order(StringComparer.Ordinal))) problems.Add($"header: the members are {string.Join(",", names)}, expected {string.Join(",", members.Order(StringComparer.Ordinal))}");
             if (File.GetUnixFileMode(path) != (UnixFileMode.UserRead | UnixFileMode.UserWrite)) problems.Add($"header: the mode is {File.GetUnixFileMode(path)}, expected 0600");
             var listing = await CallAsync(() => kit.Tools.ActsAsync(Ct));
-            if (!listing.Text.Contains("sent 4 time(s)", StringComparison.Ordinal)) problems.Add($"header: curia_acts does not say sent 4 time(s) ({listing.Text})");
+            if (!listing.Text.Contains("asked 4 time(s)", StringComparison.Ordinal)) problems.Add($"header: curia_acts does not say asked 4 time(s) ({listing.Text})");
         }
 
         using var oldLog = new StubLog();
@@ -127,7 +127,7 @@ public sealed partial class ResendToolTests
         if (after.Unanswered != 1) problems.Add($"header: a planted file with no unanswered member says {after.Unanswered?.ToString(CultureInfo.InvariantCulture) ?? "missing"} after one unheard send, expected 1 (absent reads as 0)");
         if (StopRuleOracle.SaysStop(run.Text)) problems.Add("header: a file with no unanswered member and one unheard send printed a stop sentence");
 
-        None(problems, "attempts counts every send, unanswered the trailing run, nothing else in the header moves, absent reads as 0, and the listing's sent n time(s) is attempts");
+        None(problems, "attempts counts every send, unanswered the trailing run, nothing else in the header moves, absent reads as 0, and the listing's asked n time(s) is attempts");
     }
 
     /// <summary>ASA55, the tools' half: the definite words once after a definite refusal of <c>curia_resend</c> with (a) first; never after an unanswered refusal or after a first send's refusal.</summary>

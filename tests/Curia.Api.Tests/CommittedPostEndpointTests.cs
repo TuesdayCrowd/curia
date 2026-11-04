@@ -159,6 +159,12 @@ public sealed class CommittedPostEndpointTests(AgentWriteGateForumFixture forum)
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         var send = Task.Run(() => Probe.SendAsync(forum, fresh.Actor, fresh.Wire, null, cts.Token), Ct);
         var held = await forum.Index.WaitForHeldAsync(TimeSpan.FromSeconds(15));
+
+        // The cancel must come after this request's append. On the shared fixture the catch-up retrying an earlier test's pending post can trip the hold first, and a cancel
+        // then lands before the append (seen once in CI: held, nothing stored). So the log is asked for this post before the cancel.
+        for (var i = 0; i < 300 && (await IndexLag.DigestsOfAsync(forum, id)).Length == 0; i++)
+            await Task.Delay(50, Ct);
+
         await cts.CancelAsync();
         await Task.Delay(400, Ct);
         forum.Index.ReleaseUpserts();

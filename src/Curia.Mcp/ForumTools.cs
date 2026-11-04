@@ -373,7 +373,10 @@ internal sealed partial class ForumTools(
         var batch = await _forum.BatchAsync(digests, _marking, cancellationToken).ConfigureAwait(false);
         if (!batch.TryGetValue(out var items, out var refusal)) throw Refused(refusal!);
 
-        var report = CitationLines.For(digests, items, _clock.GetUtcNow());
+        // The surface is a fact of the session (plan ruling 42): a session with no agent registers no curia_resend, and its line says who can send a kept act again.
+        var report = _writer is null
+            ? CitationLines.For(digests, items, _clock.GetUtcNow(), CitationSurface.McpReadOnly)
+            : CitationLines.For(digests, items, _clock.GetUtcNow(), CitationSurface.McpAgent, _writer.Agent.Profile.Slug);
         if (report.Error is { } mismatch)
         {
             // R9.34: an error and no standing, in this client's own words (the counts and a position are the request's, never the Forum's text).

@@ -60,6 +60,7 @@
     <Compile Include="../Shared/PublishedClientWords.cs" Link="Shared/PublishedClientWords.cs" />
     <Compile Include="../Shared/PublishedConfirmWords.cs" Link="Shared/PublishedConfirmWords.cs" />
     <Compile Include="../Shared/PublishedResendWords.cs" Link="Shared/PublishedResendWords.cs" />
+    <Compile Include="../Shared/PublishedAgentWords.cs" Link="Shared/PublishedAgentWords.cs" />
     <Compile Include="../Shared/KeptActFiles.cs" Link="Shared/KeptActFiles.cs" />
     <Compile Include="../Shared/StopRuleOracle.cs" Link="Shared/StopRuleOracle.cs" />
     <Compile Include="../Shared/PublishedLateCommitWords.cs" Link="Shared/PublishedLateCommitWords.cs" />

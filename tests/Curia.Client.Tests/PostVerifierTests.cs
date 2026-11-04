@@ -280,7 +280,7 @@ public sealed class PostVerifierTests : IDisposable
         var second = await VerifyAsync(log, heads);
 
         Assert.Equal(CheckOutcome.Verified, second.Consistency.Outcome);
-        Assert.Contains("extends the head this client retained", second.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains("the head the Forum now serves (tree size 8) extends the retained head (tree size 4)", second.Consistency.Detail, StringComparison.Ordinal);
         Assert.Equal(8, heads.Read(StubLog.Forum)!.TreeSize);
         Assert.Equal(CheckOutcome.Verified, second.Overall);
     }
@@ -304,7 +304,7 @@ public sealed class PostVerifierTests : IDisposable
         var retained = heads.Read(StubLog.Forum)!;
 
         // A second Forum on the same origin, with a different tree at the same size: the fork.
-        var fork = Log();
+        var fork = Log(logKeyOf: log);
         Assert.NotEqual(retained.RootHash, ForkRoot(fork, log.HeadTreeSize));
 
         var result = await VerifyAsync(fork, heads);
@@ -314,6 +314,36 @@ public sealed class PostVerifierTests : IDisposable
         Assert.Equal(CheckOutcome.Failed, result.Overall);
 
         Assert.Equal(retained.RootHash, heads.Read(StubLog.Forum)!.RootHash);
+    }
+
+    /// <summary>
+    /// CWK57 (the verifier's half; errata G59, R6.61, R11.83; plan ruling 36). A Forum that serves, for two heads it signed, a consistency proof whose path holds something that is not a sha256
+    /// digest: <c>FAILED</c> (a failure of what the Forum served, never could-not-be-checked, so a Forum cannot make equivocation cheaper by answering every proof malformed), the line inside
+    /// the published frame with the node as a display literal, and the retained file byte-identical, in both orientations (the Forum served the larger head, then the smaller).
+    /// </summary>
+    [Theory]
+    [InlineData(4, 8)]
+    [InlineData(8, 4)]
+    public async Task R6_61_CWK57_AMalformedPathNodeIsAFailureAndTheRetainedHeadIsKept(int retainedSize, int servedSize)
+    {
+        var log = Log(treeSize: 8, postIndex: 2);
+        var heads = new HeadStore(_home);
+
+        log.HeadTreeSize = retainedSize;
+        await VerifyAsync(log, heads);
+        var before = heads.Read(StubLog.Forum)!;
+
+        log.HeadTreeSize = servedSize;
+        log.ConsistencyPathNode = "sha256:zz";
+        var result = await VerifyAsync(log, heads);
+
+        Assert.Equal(CheckOutcome.Failed, result.Consistency.Outcome);
+        Assert.Contains("the Forum's proof holds a path node that is not a sha256 digest: \"sha256:zz\"", result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains($"the head this client retained (tree size {retainedSize}", result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains($"the head the Forum serves (tree size {servedSize}", result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains("The retained head is kept.", result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Equal(before.TreeSize, heads.Read(StubLog.Forum)!.TreeSize);
+        Assert.Equal(before.RootHash, heads.Read(StubLog.Forum)!.RootHash);
     }
 
     /// <summary>
@@ -1038,9 +1068,9 @@ public sealed class PostVerifierTests : IDisposable
     private static string ForkRoot(StubLog fork, int treeSize) =>
         Curia.Domain.Acta.LogEntries.Prefixed(fork.RootAt(treeSize));
 
-    private StubLog Log(int treeSize = 5, int postIndex = 2, int keyIndex = 1)
+    private StubLog Log(int treeSize = 5, int postIndex = 2, int keyIndex = 1, StubLog? logKeyOf = null)
     {
-        var log = new StubLog(treeSize, postIndex, keyIndex);
+        var log = new StubLog(treeSize, postIndex, keyIndex, logKeyOf: logKeyOf);
         _logs.Add(log);
         return log;
     }

@@ -315,7 +315,7 @@ internal sealed partial class ForumTools
                 .Line($"thread      {receipt.ThreadRoot}")
                 .Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}")
                 .Line($"first accepted at {receipt.AcceptedAt}")
-                .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")
+                .Line($"{BudgetLines.ReceiptLine(receipt.Budget, writer.Agent.Profile.Slug)}")
                 .Blank()
                 .Append($"This answer already stood as the thread's accepted one, so the Forum's log gained no event ")
                 .Append($"and the time above is the first acceptance's. A thread has one accepted answer: accepting ")
@@ -329,7 +329,7 @@ internal sealed partial class ForumTools
                         .Line($"{AcceptWording.ReceiptKind(receipt.PostKind, receipt.PostId, receipt.TextOf)}")
                         .Line($"accepted_at {receipt.AcceptedAt}"),
                     receipt.Replaced, receipt.ReplacedRelation)
-                .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")
+                .Line($"{BudgetLines.ReceiptLine(receipt.Budget, writer.Agent.Profile.Slug)}")
                 .Blank()
                 .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
                 .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
@@ -398,11 +398,11 @@ internal sealed partial class ForumTools
             .Line($"kind        {receipt.Kind}")
             .Line($"raised_at   {receipt.RaisedAt}")
             .Line($"by          {writer.Agent.Profile.AgentId}")
-            .Line($"{BudgetLines.ReceiptLine(receipt.Budget)}")
+            .Line($"{BudgetLines.ReceiptLine(receipt.Budget, writer.Agent.Profile.Slug)}")
             .Blank();
 
         // R10.88 (errata G47): from the one definition curia flag prints, with the adapter's place to read flags (it has no tool for it).
-        foreach (var statement in FlagReceiptWords.Statements(receipt.Served, FlagReceiptWords.WhereInTheAdapter))
+        foreach (var statement in FlagReceiptWords.Statements(receipt.Served, FlagReceiptWords.WhereInTheAdapter(writer.Agent.Profile.Slug)))
             frame.Line($"{new OwnText(statement)}");
 
         return Said(frame
@@ -479,7 +479,7 @@ internal sealed partial class ForumTools
         text.Line($"server_ts   {receipt.ServerTs}");
 
         // R7.29, R11.65: the standing of the budget this act spent, after it, as the Forum stated it (budget NOT STATED where it sent none).
-        text.Line($"{BudgetLines.ReceiptLine(receipt.Budget)}");
+        text.Line($"{BudgetLines.ReceiptLine(receipt.Budget, writer.Agent.Profile.Slug)}");
 
         // R11.70: whether the post's vector is stored, in the one set of words both clients print; `pending` is a stored post and not an error.
         text.Line($"{new OwnText(IndexWording.ReceiptLine(receipt.VectorIndex))}");
@@ -597,7 +597,7 @@ internal sealed partial class ForumTools
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). Today's flag budget is ")
             .Append($"spent: R7.22 allows {TierPolicy.FlagsPerDay(PrincipalTier.T0)} flags at T0, ")
             .Append($"{TierPolicy.FlagsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.FlagsPerDay(PrincipalTier.T2)} ")
-            .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. {Refusal.ReadWhere}")
+            .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. {refusal.ReadWhere}")
             .ToString())),
         // R7.26 (errata G46): composed from TierPolicy, as the flag budget's is.
         RefusalKind.RateBudget when refusal.Error.Detail?.StartsWith("table-11/accept-budget-exhausted", StringComparison.Ordinal) == true
@@ -606,13 +606,13 @@ internal sealed partial class ForumTools
             .Append($"spent: R7.26 allows {TierPolicy.AcceptsPerDay(PrincipalTier.T0)} acceptances at T0, ")
             .Append($"{TierPolicy.AcceptsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.AcceptsPerDay(PrincipalTier.T2)} ")
             .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. Your posting budget is untouched, ")
-            .Append($"and accepting the answer that already stands is a replay and free. {Refusal.ReadWhere}")
+            .Append($"and accepting the answer that already stands is a replay and free. {refusal.ReadWhere}")
             .ToString())),
         RefusalKind.RateBudget => new McpException(refusal.WithNothingRecorded(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is ")
             .Append($"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, ")
             .Append($"{TierPolicy.PostsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.PostsPerDay(PrincipalTier.T2)} ")
-            .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. {Refusal.ReadWhere}")
+            .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. {refusal.ReadWhere}")
             .ToString())),
 
         // G28 (amendment, lead L3): accepting a post that is no answer is the Forum's 400 with a cause and no way

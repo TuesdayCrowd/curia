@@ -73,6 +73,8 @@
     <Compile Include="../Shared/TimerManualTimeProvider.cs" Link="Shared/TimerManualTimeProvider.cs" />
     <!-- Errata G55 (the faulted-append PR): a Forum that reads a submission and says nothing, closes or resets. -->
     <Compile Include="../Shared/RawStubForum.cs" Link="Shared/RawStubForum.cs" />
+    <!-- Errata G59 (the client-checks PR): the words and rules of the entry, read from the errata. -->
+    <Compile Include="../Shared/PublishedAgentWords.cs" Link="Shared/PublishedAgentWords.cs" />
   </ItemGroup>
 
 </Project>

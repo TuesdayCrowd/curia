@@ -349,7 +349,7 @@ public sealed partial class UnheardActTests
     {
         const string Digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
         var printed = StoreWording.ActLine(Digest);
-        var published = PublishedStoreFaults.ActLine(Digest);
+        var published = PublishedStoreFaults.ActLine(Digest, null);
 
         Said(Fold(published), Fold(printed));
     }

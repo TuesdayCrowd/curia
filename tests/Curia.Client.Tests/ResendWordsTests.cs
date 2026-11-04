@@ -238,7 +238,7 @@ public sealed partial class ResendWordsTests
         log.BatchAnswer = _ => [StubLog.BatchItem(unknown, "unknown")];
         var served = await log.Client().BatchAsync([unknown], MarkingMode.None, Ct);
         Assert.True(served.TryGetValue(out var items, out var refusal), refusal?.Summary);
-        var run = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportRecheck([unknown], items)));
+        var run = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportRecheck([unknown], items, PublishedResendWords.KitAgent)));
 
         var line = Fold(run.Stdout);
         var expectedLine = Pattern(Fold(PublishedResendWords.UnknownLine), ("<instant>", @"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"), ("<digest>", @"(?:<digest>|""?sha256:[0-9a-f]{64}""?)"));
@@ -521,7 +521,7 @@ public sealed partial class ResendWordsTests
             var printed = Fold(c.Refusal.Summary);
             var found = NothingWas().Count(printed);
             if (found != c.Says) problems.Add($"{c.Name}: expected {c.Says} occurrence{(c.Says == 1 ? string.Empty : "s")} of the phrase, found {found}");
-            if (c.Act == ActContext.Resend && !printed.Contains(Fold(PublishedResendWords.ResendRefusalWords.Replace("<digest>", "sha256:" + new string('c', 64), StringComparison.Ordinal)), StringComparison.Ordinal))
+            if (c.Act == ActContext.Resend && !printed.Contains(Fold(PublishedResendWords.As(PublishedResendWords.ResendRefusalWords.Replace("<digest>", "sha256:" + new string('c', 64), StringComparison.Ordinal), null)), StringComparison.Ordinal))
                 problems.Add($"{c.Name}: a resend's refusal does not say (a)");
         }
 

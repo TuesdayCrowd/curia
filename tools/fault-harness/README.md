@@ -92,6 +92,16 @@ admin (pgvector is needed by `db/0003`).
   printing the start and the kill as epoch milliseconds, so a client can disappear at a known instant. Exit 0 when it killed the command,
   3 when the command ended first, 2 for a bad argument, `<seconds>` above 86400 or a command that cannot start. It touches no database. The command's
   process group is killed on every way out (the instant, the command ending first, SIGINT, SIGTERM, SIGHUP); only SIGKILL of `killat.sh` itself leaves it.
+- `plant-head.sh <client-home> <from-dir> <to-dir>`: copies the head the client retained for one Forum (`<client-home>/logs/<from-dir>/head.json`) over the one
+  it keeps for another (`logs/<to-dir>/head.json`), so the next verification against the second Forum meets a retained head that Forum did not serve: the
+  signed-versus-signed `FAILED` of errata G59 (R6.61), from a head the operator really signed over a different tree. Both arguments are directory
+  names as `ls <client-home>/logs` prints them; **the script never computes a name** (the name is the origin plus a hash, `HeadStore.DirectoryFor`'s,
+  and a second computation of it would be a second implementation), so the target directory must already exist: run one verification against the second
+  Forum first, which makes it. Exit 2, nothing copied, for a wrong argument count, a home with no `logs/`, a name that is empty, holds a slash or a backslash,
+  or is `.` or `..`, the same name twice, a source with no `head.json`, and an absent target (the message says to run one verification against that Forum
+  first). It overwrites the target's `head.json` (that is the plant), checks the copy byte for byte (exit 1 if it cannot copy or the copy differs) and touches
+  no database. A stub that serves a head whose root was edited after signing is `COULD NOT BE CHECKED` now and not a fork; keep it only as the control.
+  `HarnessRehearsalTests` rehearses the refusals and a byte-identical copy.
 - `landing.sh <sha256:digest>...` (read-only; `LAND_DEADLINE` seconds, default 150, at most 3600): polls `events` every 100 ms and prints, per
   digest, `first_seen_ms=<epoch ms>` (the poll that first saw its `post.accepted`, good to about 100 ms plus one `psql` round trip) with the
   row's sequence and `server_ts`, or `absent`. The digest is matched on `payload->>'digest'` of a `post.accepted`. Standalone (it needs
