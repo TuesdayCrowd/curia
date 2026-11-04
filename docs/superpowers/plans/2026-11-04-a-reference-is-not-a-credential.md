@@ -343,7 +343,7 @@ Each is one change to a kept copy of the built tree, one probe set, a stated red
 | FRNC32 | the version moved, G60 naming another date | RNC12 |
 | FRNC33 | the predicate placed in the envelope path alone | RNC15 |
 | FRNC34 | the predicate widened to clear `changeme`-class lower-case words | RNC10, and the known-false-positive row stops firing (the corpus's own rule) |
-| FRNC35 | the name's length counts its underscores (`${A_}` clears in the original) | RNC25 (b) and (a); the whole-screener probes stay green, because the markup view refuses it: the second form is the per-view `Scan` leg, so the row is not green on its first form and called equivalent |
+| FRNC35 | the name's length counts its underscores (`${A_}` clears in the original) | RNC25 (b) and (a); the per-view `Scan` leg is the claim, because the markup view refuses `${A_}` through the whole screener (amended after Task 6: RNC5 was red too, where this row expected it green) |
 | FRNC36 | the "a letter first once any underscores are passed" test removed (`$_1X`, `<_1>` clear) | RNC25 (b) |
 | FRNC37 | one client compares the first type literal only (the connection-string refusal is not exit 3 / `NOT SENT` there) | RNC26, RNC18, RNC20 |
 | FRNC38 | `curia flag` prints the R11.84 sentence for `curia/flag/rationale-rejected`, or `curia_flag`'s description gains the credentials sentence | RNC27 |
@@ -353,7 +353,7 @@ Each is one change to a kept copy of the built tree, one probe set, a stated red
 | FRNC42 | the exception keyed to the text (any cleared match suppresses every `unmarked-up` flag) and not to the keyword's offset | RNC29's two-line text |
 | FRNC43 | the exception keyed to the view's own reading and not to the original's clearing | RNC29 `pass**word= EXAMPLE...` |
 | FRNC44 | the exception omitted for the `pwd` alternative | RNC28 `Server=db;Pwd=**** and ...` |
-| FRNC45 | the exception keyed to any keyword the original matched, cleared or not | RNC29 `password=****EXAMPLE...` |
+| FRNC45 | the exception keyed to any keyword the original matched, cleared or not | RNC29 `password=****EXAMPLE...`. Amended after Task 6: the first form is an equivalent mutant and not claimed (the original already flags such a keyword at that offset, and the screener keeps the first flag per category and offset); the second form, the callback fed from every view, is the harm and red |
 | FRNC46 | whitespace (first form) and `#` (second form) dropped from `ClearsUri`'s stops | RNC30 |
 
 ## Traps applied (the point of each, in this PR)
