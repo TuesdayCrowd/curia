@@ -85,6 +85,9 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// <summary>The digest of the signed act this refusal refused, as this client computed it from the bytes (R11.79); null for a call that signed nothing. Set by the session.</summary>
     public string? ActDigest { get; init; }
 
+    /// <summary>The slug of the profile the session ran as (errata G59, R11.82): set by the session beside <see cref="Act"/>, so a refusal knows whom it was for. Read by nothing yet.</summary>
+    public string? Agent { get; init; }
+
     /// <summary>
     /// The number of sends of the act so far when the act is still kept after this answer (R11.80's stop rule), and 0 when it is not kept: a first send answered definitely, or a call that keeps
     /// nothing. Set by the session; it is the number of sends in all, and the stop sentence counts <see cref="KeptUnanswered"/>.

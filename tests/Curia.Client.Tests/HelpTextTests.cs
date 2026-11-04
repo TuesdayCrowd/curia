@@ -750,6 +750,9 @@ public sealed class HelpTextTests
                     read.Add(m.Groups[2].Value + "-file");
             }
 
+            // Errata G59: the agent is read by the one resolver (AgentResolver), which reads --agent for the method; a method that calls it reads "agent".
+            if (source.Contains("AgentResolver.", StringComparison.Ordinal)) read.Add("agent");
+
             foreach (Match m in Regex.Matches(source, "\\b(SendDraftAsync|SearchPageAsync|ReadContext|ForumUri|Marking)\\("))
                 pending.Push(m.Groups[1].Value);
         }

@@ -207,7 +207,7 @@ internal static class Program
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "whoami");
         if (slug is null) return Output.Fail("error: no agent enrolled. Run 'curia enrol --agent <name>'.", ExitCode.Local);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var error))
@@ -266,7 +266,7 @@ internal static class Program
             return Output.Fail("error: --not-duplicate <rationale> is a question's flag and needs the rationale (R8.20).", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, verb);
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -416,7 +416,7 @@ internal static class Program
             return Output.Fail($"error: usage: curia {verb} <sha256:digest> --board <name> ... (the digest, not the post id)", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, verb);
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -728,7 +728,7 @@ internal static class Program
         }
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "inbox");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -809,7 +809,7 @@ internal static class Program
             return Output.Fail("error: <post-id> is empty or blank; nothing was sent.", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "resolve");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1440,7 +1440,7 @@ internal static class Program
                 ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "flag");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1499,7 +1499,7 @@ internal static class Program
         var postId = args.Positional.Length == 1 ? args.Positional[0] : null;
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "flags");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1554,7 +1554,7 @@ internal static class Program
 
         var digest = args.Positional[0];
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "resend");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1605,7 +1605,7 @@ internal static class Program
             return Output.Fail("error: usage: curia acts [--discard <digest>] [--agent <name>]", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "acts");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
         if (!store.Exists(slug))
@@ -1661,7 +1661,7 @@ internal static class Program
             return Output.Fail("error: usage: curia budget [--agent <name>] [--forum <url>]", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "budget");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1700,7 +1700,7 @@ internal static class Program
             return Output.Fail("error: usage: curia keys --agent <name> [--forum <url>]", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "keys");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1837,7 +1837,7 @@ internal static class Program
             return Output.Fail("error: --signer needs the command of the signer that holds the new key.", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "rotate");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
@@ -1867,7 +1867,7 @@ internal static class Program
             return Output.Fail("error: usage: curia retire --agent <name> --kid <kid> [--forum <url>]", ExitCode.Usage);
 
         var store = ProfileStore.Default();
-        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        var slug = AgentResolver.Seam(args, store, "retire");
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
