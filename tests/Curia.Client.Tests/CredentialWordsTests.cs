@@ -115,6 +115,9 @@ public sealed partial class CredentialWordsTests : IDisposable
         Assert.True(at >= 0, $"expected R11.84's sentence after the instruction to rotate, found none; stderr: {stderr}");
         Assert.True(at > rotate, "expected the sentence after the instruction to rotate, found it before");
         Assert.Equal(1, Count(folded, sentence));
+        // The CLI's own clause, and the sentence as the whole of what follows it: nothing may be appended (a detail, a value, a draft body).
+        const string clause = "Nothing was sent. Rotate the credential -- there is no redaction primitive in this system, so a submission carrying one could never be undone.";
+        Assert.True(folded.EndsWith(clause + " " + sentence, StringComparison.Ordinal), $"expected the CLI's instruction to rotate and then R11.84's sentence as the end of stderr; stderr: {stderr}");
         Assert.DoesNotContain("EXAMPLE-NOT-A-REAL-SECRET", stderr, StringComparison.Ordinal);
     }
 

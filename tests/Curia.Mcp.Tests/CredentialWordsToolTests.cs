@@ -108,6 +108,9 @@ public sealed partial class CredentialWordsToolTests : IDisposable
         var at = text.IndexOf(sentence, StringComparison.Ordinal);
         Assert.True(at > rotate, $"expected R11.84's sentence after the instruction to rotate, found {(at < 0 ? "none" : "it before")}: {text}");
         Assert.Equal(1, Count(text, sentence));
+        // The sentence is the whole of what follows the instruction's clause: nothing may be appended (a detail, a value, a draft body).
+        const string clause = "there is no redaction primitive in this system, so a submission carrying one could never be undone.";
+        Assert.True(text.EndsWith(clause + " " + sentence, StringComparison.Ordinal), $"expected R11.84's sentence as the end of the result, after the clause: {text}");
         Assert.DoesNotContain("EXAMPLE-NOT-A-REAL-SECRET", text, StringComparison.Ordinal);
     }
 
@@ -123,6 +126,7 @@ public sealed partial class CredentialWordsToolTests : IDisposable
         Assert.DoesNotContain(_log.Requests, r => r.StartsWith("POST ", StringComparison.Ordinal));
         var sentences = Count(text, Fold(PublishedReferenceWords.RefusalSentence()));
         Assert.True(sentences == 1, $"expected R11.84's sentence once, found {sentences}: {text}");
+        Assert.True(text.EndsWith("could never be undone. " + Fold(PublishedReferenceWords.RefusalSentence()), StringComparison.Ordinal), $"expected R11.84's sentence as the end of the result: {text}");
     }
 
     /// <summary>RNC20, the negative leg: a token alone is refused with the instruction to rotate and carries no sentence about references. CONTROL on the seam.</summary>
