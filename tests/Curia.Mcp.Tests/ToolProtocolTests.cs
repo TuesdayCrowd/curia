@@ -58,6 +58,9 @@ public sealed class ToolProtocolTests : IDisposable
         ["curia_resolve"] = (["answerPostId"], []),
         ["curia_flag"] = (["postId", "kind", "rationale"], []),
         ["curia_budget"] = ([], []),
+        ["curia_acts"] = ([], []),
+        ["curia_resend"] = (["digest"], []),
+        ["curia_discard"] = (["digest"], []),
         ["curia_revise"] = (["postId", "body"], ["title", "tags", "refs"]),
     };
 
@@ -831,6 +834,9 @@ public sealed class ToolProtocolTests : IDisposable
         "curia_flag" => new() { ["postId"] = StubLog.PostId, ["kind"] = "incorrect", ["rationale"] = "The premise is wrong." },
         "curia_revise" => new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body." },
         "curia_budget" => new(),
+        "curia_acts" => new(),
+        "curia_resend" => new() { ["digest"] = "sha256:" + new string('0', 64) },
+        "curia_discard" => new() { ["digest"] = "sha256:" + new string('0', 64) },
         _ => throw new InvalidOperationException($"{tool} has no minimal call: add a row to Table and to this switch"),
     };
 

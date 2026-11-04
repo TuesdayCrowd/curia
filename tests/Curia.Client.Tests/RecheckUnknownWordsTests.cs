@@ -69,9 +69,9 @@ public sealed class RecheckUnknownWordsTests : IDisposable
             if (positions[i] < 0) problems.Add($"lacks \"{starts[i]}\"");
         }
 
-        if (positions.All(p => p >= 0) && !(positions[0] < positions[1] && positions[1] < positions[2])) problems.Add($"the clauses are out of order (at {string.Join(", ", positions)})");
+        if (positions.All(p => p >= 0) && !(positions[0] < positions[1])) problems.Add($"the clauses are out of order (at {string.Join(", ", positions)})");
 
-        var published = PublishedClientWords.Fold(PublishedClientWords.UnknownLineAt(InstantOf(at)));
+        var published = PublishedClientWords.Fold(PublishedClientWords.UnknownLineAt(InstantOf(at)).Replace("<digest>", Digest, StringComparison.Ordinal));
         if (!line.Contains(published, StringComparison.Ordinal)) problems.Add($"lacks the published line \"{published}\"");
         if (!Regex.IsMatch(line, "^unknown \"?" + Regex.Escape(Digest) + "\"? ", RegexOptions.CultureInvariant)) problems.Add("does not begin with the state word and the digest");
 
@@ -117,8 +117,8 @@ public sealed class RecheckUnknownWordsTests : IDisposable
 
         if (Regex.IsMatch(help, @"\bunknown\b['""`]?\s+(says|means)\s+(to\s+)?drop", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)) problems.Add("says that unknown means drop the citation");
         if (!help.Contains("names no post", StringComparison.Ordinal)) problems.Add("lacks \"names no post\"");
-        var clause = $"{PublishedClientWords.UnknownClauses()[1]} {PublishedClientWords.Wait} old";
-        if (!help.Contains(clause, StringComparison.Ordinal)) problems.Add($"lacks the wait in its clause \"{clause}\"");
+        if (!help.Contains("resend", StringComparison.Ordinal)) problems.Add("lacks the resend for an act this host kept (R10.95)");
+        if (Regex.IsMatch(help, @"\d+\s+seconds", RegexOptions.CultureInvariant)) problems.Add("carries a wait in seconds, which errata G58 withdrew");
 
         Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Help: \"{help}\"");
     }
@@ -186,11 +186,11 @@ public sealed class RecheckUnknownWordsTests : IDisposable
         var line = PublishedClientWords.Fold(PublishedClientWords.UnknownLine);
         var starts = PublishedClientWords.UnknownClauses().Select(PublishedClientWords.Fold).ToArray();
 
-        Assert.Equal(3, starts.Length);
+        Assert.Equal(2, starts.Length);
         var positions = starts.Select(s => line.IndexOf(s, StringComparison.Ordinal)).ToArray();
         Assert.True(positions.All(p => p >= 0), $"a clause start is not in the line: {string.Join(", ", positions)}");
-        Assert.True(positions[0] < positions[1] && positions[1] < positions[2], $"the clauses are out of order: {string.Join(", ", positions)}");
+        Assert.True(positions[0] < positions[1], $"the clauses are out of order: {string.Join(", ", positions)}");
         Assert.Equal(1, Regex.Count(line, "<instant>", RegexOptions.CultureInvariant));
-        Assert.Contains(PublishedClientWords.Wait, line, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"\d+\s+seconds", line);
     }
 }

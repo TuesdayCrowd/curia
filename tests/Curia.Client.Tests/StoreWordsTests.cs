@@ -30,7 +30,8 @@ public sealed partial class StoreWordsTests
     private static Case[] Cases() =>
     [
         new("log", PublishedStoreFaults.LogUnreadableTitle, PublishedStoreFaults.LogUnreadableType, PublishedStoreFaults.LogUnreadableSentence, false),
-        new("store", PublishedStoreFaults.StoreUnavailableTitle, PublishedStoreFaults.StoreUnavailableType, PublishedStoreFaults.StoreUnavailableSentence, false),
+        // The run is `curia budget`, a read: the clause of a request that is none of the acts (errata G58, R11.80 clause words (other)).
+        new("store", PublishedStoreFaults.StoreUnavailableTitle, PublishedStoreFaults.StoreUnavailableType, PublishedResendWords.Clauses().Other, false),
         new("token", PublishedStoreFaults.TokenCode, PublishedStoreFaults.TokenCode, PublishedStoreFaults.TokenSentence, true),
     ];
 
@@ -153,8 +154,10 @@ public sealed partial class StoreWordsTests
         var program = File.ReadAllText(Path.Combine(dir?.FullName ?? throw new InvalidOperationException("Curia.sln not found"), "src", "Curia.Client.Cli", "Program.cs"));
 
         var verbs = Writers().Matches(program).Select(m => m.Groups["verb"].Value).Order(StringComparer.Ordinal).ToArray();
-        var sentence = Fold(PublishedStoreFaults.RepeatSentence);
-        var missing = verbs.Where(v => !Fold(Help.For(v) ?? string.Empty).Contains(sentence, StringComparison.Ordinal)).ToArray();
+        // Errata G58 (R11.80): the help of a verb carries the clause of its own act: a signed post's for the eight signing verbs, a resolve's, a flag's.
+        var (post, resolve, flag, _) = PublishedResendWords.Clauses();
+        string ClauseOf(string verb) => Fold(verb == "resolve" ? resolve : verb == "flag" ? flag : post);
+        var missing = verbs.Where(v => !Fold(Help.For(v) ?? string.Empty).Contains(ClauseOf(v), StringComparison.Ordinal)).ToArray();
         var expected = $"the repeat sentence is in the help of 10 verbs ({string.Join(' ', verbs)})";
 
         var actual = verbs.Length == 10 && missing.Length == 0
@@ -241,9 +244,9 @@ public sealed partial class StoreWordsTests
         var problems = new List<string>();
         if (act.Length == 0) problems.Add("no act line was printed");
         if (!act.Contains("as of the moment it is asked", StringComparison.Ordinal)) problems.Add("the act line lacks \"as of the moment it is asked\"");
-        if (act.Contains(PublishedClientWords.Wait, StringComparison.Ordinal) || act.Contains("seconds", StringComparison.Ordinal)) problems.Add("the act line carries a wait");
-        if (act.Contains("send", StringComparison.Ordinal)) problems.Add("the act line carries an instruction to send");
-        if (!Fold(run.Text).Contains(PublishedClientWords.Wait, StringComparison.Ordinal)) problems.Add("the store sentence beside it does not carry the wait");
+        if (act.Contains("seconds", StringComparison.Ordinal)) problems.Add("the act line carries a wait");
+        if (!act.Contains("Send exactly this act again", StringComparison.Ordinal)) problems.Add("the act line carries no instruction to send the act again (errata G58)");
+        if (Fold(run.Text).Contains("seconds old", StringComparison.Ordinal)) problems.Add("the store sentence beside it carries a wait, which errata G58 withdrew");
 
         Assert.True(problems.Count == 0, $"{string.Join("; ", problems)}. Printed: \"{run.Text}\"");
     }
@@ -287,7 +290,7 @@ public sealed partial class StoreWordsTests
     {
         var ask = SigningArgs("ask");
         string text;
-        var carriesStoreSentence = false;
+        string? carriesStoreSentence = null;
         switch (name)
         {
             case "log-unreadable":
@@ -301,21 +304,21 @@ public sealed partial class StoreWordsTests
                 break;
             case "resolve":
                 text = (await RunAgainstStubAsync(StubIngestRefusal.StoreUnavailable, null, "resolve", StubLog.PostId, "--agent", "alice")).Text;
-                carriesStoreSentence = true;
+                carriesStoreSentence = PublishedResendWords.Clauses().Resolve;
                 break;
             case "flag":
                 text = (await RunAgainstStubAsync(StubIngestRefusal.StoreUnavailable, null, "flag", StubLog.PostId, "--kind", "spam", "--rationale", "this reads as spam", "--agent", "alice")).Text;
-                carriesStoreSentence = true;
+                carriesStoreSentence = PublishedResendWords.Clauses().Flag;
                 break;
             default:
                 text = (await RunAsync(Cases().Single(x => x.Name == "store"))).Text;
-                carriesStoreSentence = true;
+                carriesStoreSentence = PublishedResendWords.Clauses().Other;
                 break;
         }
 
         var problems = new List<string>();
         if (text.Contains(ActLead(), StringComparison.Ordinal)) problems.Add("prints an act line");
-        if (carriesStoreSentence && !text.Contains(Fold(PublishedStoreFaults.StoreUnavailableSentence), StringComparison.Ordinal)) problems.Add("lacks the store sentence");
+        if (carriesStoreSentence is not null && !text.Contains(Fold(carriesStoreSentence), StringComparison.Ordinal)) problems.Add("lacks the store sentence of its act");
         if (text.Length == 0) problems.Add("printed nothing");
 
         Assert.True(problems.Count == 0, $"{name}: {string.Join("; ", problems)}. Printed: \"{text}\"");

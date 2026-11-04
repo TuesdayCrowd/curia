@@ -97,10 +97,12 @@ admin (pgvector is needed by `db/0003`).
   row's sequence and `server_ts`, or `absent`. The digest is matched on `payload->>'digest'` of a `post.accepted`. Standalone (it needs
   only `common.sh`). Exit 2 for a bad digest.
 - `forks.sh [mark]` (read-only; exit 1 if any row, 0 if none, 2 on a bad pair or mark): the oracle for what the Forum states as unique. It is
-  SQL on `events` and `flag_details` and never the Forum's answer. Five sections, each printed with its heading: **revision forks**
+  SQL on `events` and `flag_details` and never the Forum's answer. Six sections, each printed with its heading: **revision forks**
   (revisions sharing one `prev`, post ids and sequences), **digests stored twice**, **flag triples recorded twice** (private rows joined to
   their `flag.committed` entries on `event_id`, grouped by post, raiser and kind; the raiser is printed because the harness is for a
-  throwaway database and the admin session may read the private store), **votes by one author for one target more than once**, and, as
+  throwaway database and the admin session may read the private store), **votes by one author for one target more than once**, **bodies stored twice** (one author, kind, board and parent with an
+  identical `body` in the signed text, read by pattern and printed as its length and md5: the oracle for "the verb was run again", whose acts
+  differ in nonce and digest so the digest section never sees them; a `curia resend` stores nothing and leaves no row), and, as
   information only (not in the exit), **private flag rows with no entry**. With a mark only groups whose newest member is after the mark's
   sequence are printed, so a drill is judged on its own rows. **The `prev` and the vote's `target` are read from the signed canonical text by
   a pattern, never by a `jsonb` cast**: a stored post whose text holds a U+0000 (the eleventh exercise's dump does) fails the cast. The cost
@@ -109,9 +111,9 @@ admin (pgvector is needed by `db/0003`).
 - `reconcile.py <digests-file> [mark]` (run as `python3 -I reconcile.py ...`; read-only): for each digest, one line, `stored x<n>` with each
   sequence, aggregate id and `server_ts`, or `absent`, and a total. **Attributed by digest only**, never by a time window and never by
   `server_ts`. Exit 0 when it ran; 2 for a bad argument, digest or database.
-- `latecommit.sh revision|digest|flag|vote` (needs `FH_DB`, `FH_ROLE`, `FH_AGENT`, and `FH_POST`, `FH_TARGET` or `FH_SENDER` by kind; see
+- `latecommit.sh revision|digest|flag|vote` (needs `FH_DB`, `FH_ROLE`, `FH_AGENT`, and `FH_POST` or `FH_TARGET` by kind (the digest drill needs neither: A is a `curia ask` and B is `curia resend` of the digest `curia acts` lists); see
   its header): the late-commit drill described below. Exit 0 the oracle found nothing, 1 the oracle found a row, 2 refused **or the drill
-  could not run** (a sender whose `prepare` failed is 2 and prints no oracle section, never a quiet 0; `LCB24` rehearses it).
+  could not run** (a digest drill whose `curia ask` kept no act, so that `curia acts` lists nothing to resend, is 2 and prints no oracle section, never a quiet 0; `LCB24` rehearses it, and rehearses the drill's resend path with a stand-in client).
 - `common.sh`: the shared configuration and guard (sourced, not run).
 
 ## The late-commit drill (`latecommit.sh`)
@@ -150,8 +152,9 @@ hold released just before. Things the drill depends on:
   reproduced on the control" and let its in-process probe carry it. An oracle that returns no rows proves nothing unless the same drill on the
   control returned rows. `latecommit.sh` refuses (exit 2, nothing sent) a hold under twice the command timeout (`FH_COMMAND_TIMEOUT`, default
   2) and a Forum whose host is not loopback, and releases the hold on every way out.
-- The digest drill's sender is a throwaway (`FH_SENDER prepare` signs one wire and prints `digest=sha256:...`; `FH_SENDER send` sends the same
-  bytes) until the client has a resend verb.
+- The digest drill is the real path of errata G58: A is `curia ask` (unique words), kept on the host before a byte is sent; the drill reads A's
+  digest from `curia acts` while A waits and sends B as `curia resend <digest>` (the same signed bytes, a fresh proof; `FH_CURIA` is the client
+  command). A resend of an act the Forum already holds is answered `409 already-recorded` and stores nothing, so the oracle finds no row.
 
 ## The unindexed count
 

@@ -60,8 +60,8 @@ public sealed class WordsAfterFaultToolTests : IDisposable
         if (Regex.IsMatch(description, @"\bunknown\b['""`]?\s+(says|means)\s+(to\s+)?drop", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase))
             problems.Add("ToolText.cs: \"'unknown' says to drop the citation\"");
         if (!description.Contains("names no post", StringComparison.Ordinal)) problems.Add("lacks \"names no post\"");
-        var clause = $"{PublishedClientWords.UnknownClauses()[1]} {PublishedClientWords.Wait} old";
-        if (!description.Contains(clause, StringComparison.Ordinal)) problems.Add($"lacks the wait in its clause \"{clause}\"");
+        if (!description.Contains("curia_resend", StringComparison.Ordinal)) problems.Add("lacks curia_resend for an act this host kept (R10.95)");
+        if (Regex.IsMatch(description, @"\d+\s+seconds", RegexOptions.CultureInvariant)) problems.Add("carries a wait in seconds, which errata G58 withdrew");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
@@ -98,15 +98,16 @@ public sealed class WordsAfterFaultToolTests : IDisposable
         using var log = new StubLog();
         var tools = AliceTools(log);
         var names = ToolCatalogue.WriteToolNames(tools);
-        var missing = names.Where(n => !Fold(DescriptionOf(tools, n)).Contains(sentence, StringComparison.Ordinal)).ToArray();
-        if (names.Count != 6) problems.Add($"{names.Count} write tools, expected 6 ({string.Join(' ', names.Order(StringComparer.Ordinal))})");
+string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWords.Clauses().Resolve : tool == "curia_flag" ? PublishedResendWords.Clauses().Flag : PublishedResendWords.Clauses().Post);
+        var missing = names.Where(n => !Fold(DescriptionOf(tools, n)).Contains(ClauseOf(n), StringComparison.Ordinal)).ToArray();
+        if (names.Count != 7) problems.Add($"{names.Count} write tools, expected 7 ({string.Join(' ', names.Order(StringComparer.Ordinal))})");
         if (missing.Length > 0) problems.Add($"the sentence is absent from the description of {missing.Length} write tool(s) ({string.Join(' ', missing)})");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 
     /// <summary>
-    /// WAF31. <c>curia-mcp</c> is the version the newest entry that bumped it names (G53's R11.74, 0.9.4, when written; G54's R11.75, 0.9.5; G55's R11.77, 0.9.6; G56's R11.78, 0.9.7, since the board-and-blank PR): the catalogue reports it, the one reader of a version
+    /// WAF31. <c>curia-mcp</c> is the version the newest entry that bumped it names (G53's R11.74, 0.9.4, when written; G54's R11.75, 0.9.5; G55's R11.77, 0.9.6; G56's R11.78, 0.9.7; G58's R11.81, 0.10.0, since the resend PR): the catalogue reports it, the one reader of a version
     /// (<c>PublishedReadersLastWords.Version()</c>, which the build re-points from R11.72's paragraph to R11.74's) reads it, the README says it, and the two
     /// hand-written twins (<c>BudgetToolTests</c>, <c>IndexLagEntryTests</c>) have it as their newest literal. The version is read from G53 here with a pattern built
     /// at run time, so RLW40's scan of <c>GeneratedRegex</c> readers is not given a second reader.
@@ -115,9 +116,9 @@ public sealed class WordsAfterFaultToolTests : IDisposable
     public void R11_74_WAF31_CuriaMcpIsTheVersionG53NamesByTheOneParserThePinsAndTheTwins()
     {
         var named = new Regex("`curia-mcp` is (" + @"\d+\.\d+\.\d+" + ")", RegexOptions.CultureInvariant)
-            .Match(PublishedAcceptBudget.Paragraph("**R11.78**")) is { Success: true } m
+            .Match(PublishedAcceptBudget.Paragraph("**R11.81**")) is { Success: true } m
             ? m.Groups[1].Value
-            : throw new InvalidOperationException("the errata's R11.78 names no curia-mcp version");
+            : throw new InvalidOperationException("the errata's R11.81 names no curia-mcp version");
 
         var problems = new List<string>();
         void Expect(string where, string actual)
@@ -137,7 +138,7 @@ public sealed class WordsAfterFaultToolTests : IDisposable
         foreach (var twin in new[] { Path.Combine("Curia.Mcp.Tests", "BudgetToolTests.cs"), Path.Combine("Curia.Architecture.Tests", "IndexLagEntryTests.cs") })
         {
             // The newest version a twin writes: an older literal in the same file belongs to an earlier entry's history.
-            var newest = Regex.Matches(File.ReadAllText(Path.Combine(root, "tests", twin)), @"\b0\.9\.\d+\b", RegexOptions.CultureInvariant)
+            var newest = Regex.Matches(File.ReadAllText(Path.Combine(root, "tests", twin)), @"\b0\.\d+\.\d+\b", RegexOptions.CultureInvariant)
                 .Select(v => Version.Parse(v.Value)).DefaultIfEmpty(new Version(0, 0, 0)).Max()!.ToString();
             Expect(Path.GetFileName(twin), newest);
         }

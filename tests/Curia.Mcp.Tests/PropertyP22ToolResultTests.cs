@@ -69,6 +69,13 @@ public sealed class PropertyP22ToolResultTests : IDisposable
         // A readout (errata G49): the Forum's own numbers, tier and instants, quoted; no author wrote any of it, so there is nothing to serve as content.
         ["curia_budget"] = null,
 
+        // Errata G58 (the seam): neither tool returns anything an author wrote; the kept-act listing carries digests, kinds and instants, and the resend's answer the Forum's own ids.
+        ["curia_acts"] = null,
+        ["curia_resend"] = null,
+
+        // Errata G58, plan ruling 40: a removal and its refusals hold this adapter's own words and no text an author wrote.
+        ["curia_discard"] = null,
+
         // Receipts. A comment reads its parent for the board and returns none of it; an acceptance
         // reports the answer's id, its thread and the instant, and none of the answer (errata G26).
         ["curia_comment"] = null,
@@ -328,6 +335,9 @@ public sealed class PropertyP22ToolResultTests : IDisposable
             "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
             "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
             "curia_budget" => await tools.BudgetAsync(ct),
+            "curia_acts" => await tools.ActsAsync(ct),
+            "curia_resend" => await tools.ResendAsync("sha256:" + new string('0', 64), ct),
+            "curia_discard" => await tools.DiscardAsync("sha256:" + new string('0', 64), ct),
             _ => throw new InvalidOperationException(
                 $"{name} is classified for P22 and this gate does not know how to call it. Add the "
                 + "call: a classification whose tool is never invoked asserts nothing."),

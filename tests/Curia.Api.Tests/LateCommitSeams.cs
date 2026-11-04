@@ -110,11 +110,26 @@ internal sealed class LateInjectingStore(IEventStore inner) : IEventStore
         await BeforeAsync(aggregateId, cancellationToken).ConfigureAwait(false)
         ?? await inner.AppendAsync(aggregateId, expectedVersion, events, condition, guard, cancellationToken).ConfigureAwait(false);
 
-    public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default) =>
-        inner.ReadByAggregateAsync(aggregateId, cancellationToken);
+    private int _byAggregate;
+    private int _forward;
 
-    public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
-        inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+    /// <summary>How many reads of one stream the store has been asked for since it was made (errata G58's ASA37 counts the reads a request makes by differences of these).</summary>
+    internal int ReadsByAggregate => Volatile.Read(ref _byAggregate);
+
+    /// <summary>How many forward reads of the whole log the store has been asked for since it was made.</summary>
+    internal int ReadsForward => Volatile.Read(ref _forward);
+
+    public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _byAggregate);
+        return inner.ReadByAggregateAsync(aggregateId, cancellationToken);
+    }
+
+    public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _forward);
+        return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+    }
 }
 
 /// <summary>

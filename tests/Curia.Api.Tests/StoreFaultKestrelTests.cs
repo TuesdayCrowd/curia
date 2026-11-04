@@ -292,9 +292,9 @@ public sealed class StoreFaultStatusQuoTests(FaultableKestrelFixture forum) : IC
         // The control: the same signed bytes twice.
         var draft = new PostDraft { Kind = PostKind.Comment, Board = board, Parent = questionId, Body = "Sent as the same bytes, twice." };
         Assert.True(SubmissionBuilder.Build(agent, draft, forum.Now).TryGetValue(out var signed, out var buildError), buildError?.Detail);
-        var once = await session.SubmitAsync(signed!.Wire, Ct);
+        var once = await session.SubmitAsync(signed!, MarkingMode.None, Ct);
         if (!once.TryGetValue(out _, out var onceRefusal)) problems.Add($"the same bytes, first send: {onceRefusal!.Summary}");
-        var again = await session.SubmitAsync(signed.Wire, Ct);
+        var again = await session.SubmitAsync(signed, MarkingMode.None, Ct);
         if (again.TryGetValue(out _, out var againRefusal)) problems.Add("the same bytes, second send: recorded again");
         else if (againRefusal!.Status != 409 || againRefusal.Error.Type != "curia/ingest/already-recorded")
             problems.Add($"the same bytes, second send: expected 409 curia/ingest/already-recorded, actual {againRefusal.Status} {againRefusal.Error.Type}");

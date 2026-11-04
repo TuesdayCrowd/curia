@@ -175,12 +175,15 @@ public sealed partial class BoardNameToolTests : IDisposable
         Assert.True(missing.Length == 0, $"gate sites lack {string.Join(", ", missing)}");
     }
 
-    /// <summary>NAM32: the version the catalogue reports is the one R11.78 names.</summary>
+    /// <summary>
+    /// NAM32: the version the catalogue reports is the one the newest entry names, read by the one parser (<c>PublishedReadersLastWords.Version()</c>); R11.78 named 0.9.7 when it was built,
+    /// and the resend PR (errata G58, R11.81) bumped to 0.10.0, so the sentence "The version in R11.78 is" is history and is held only to be the version R11.78 was built at.
+    /// </summary>
     [Fact]
     public void R11_78_NAM32_TheVersionIsTheOneTheErrataNames() =>
         Assert.True(
-            string.Equals(PublishedBoardWords.Version(), ToolCatalogue.Version, StringComparison.Ordinal),
-            $"expected {PublishedBoardWords.Version()}, was {ToolCatalogue.Version}");
+            string.Equals(PublishedReadersLastWords.Version(), ToolCatalogue.Version, StringComparison.Ordinal) && string.Equals(PublishedBoardWords.Version(), "0.9.7", StringComparison.Ordinal),
+            $"expected {PublishedReadersLastWords.Version()} (R11.78 history: {PublishedBoardWords.Version()}), was {ToolCatalogue.Version}");
 
     /// <summary>NAM12's tool leg: a filter is never refused for its grammar: <c>criteria.board</c> of <c>Meta</c> and of a name with a space are sent as typed (a control, green on the seam).</summary>
     [Theory]

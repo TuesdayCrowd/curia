@@ -46,5 +46,6 @@
     <Compile Include="../Shared/PublishedIndexLag.cs" Link="Shared/PublishedIndexLag.cs" />
     <!-- Errata G52 (the D95 PR): the words of the entry, read from the errata at test time. -->
     <Compile Include="../Shared/PublishedStoreFaults.cs" Link="Shared/PublishedStoreFaults.cs" />
+    <Compile Include="../Shared/PublishedResendWords.cs" Link="Shared/PublishedResendWords.cs" />
   </ItemGroup>
 </Project>

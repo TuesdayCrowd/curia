@@ -22,7 +22,9 @@ namespace Curia.Mcp;
 /// and <c>curia_verify</c>, all three anonymous; and, when an identity is configured,
 /// <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_revise</c> (R11.40, errata G28),
 /// signed through R11.20's seam, and <c>curia_resolve</c> and <c>curia_flag</c>, attributed by the session.
-/// <c>curia_publish_finding</c> waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt.</para>
+/// <c>curia_publish_finding</c> waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt.
+/// With an identity the host also offers the kept acts (R11.79, errata G58, 0.10.0): <c>curia_acts</c> lists what this host
+/// keeps, <c>curia_resend</c> sends exactly one kept act again and <c>curia_discard</c> drops one; none is a write tool of R11.17's table.</para>
 ///
 /// <para><b>A tool listed is a tool that can work.</b> Without an identity the write tools are not
 /// registered at all, rather than registered to refuse: a model shown <c>curia_ask</c> tries it, and
@@ -38,7 +40,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.9.7";
+    internal const string Version = "0.10.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
@@ -141,6 +143,34 @@ internal static class ToolCatalogue
                 Idempotent = true,
                 OpenWorld = true,
             });
+
+        // Errata G58, R11.79: the kept acts, listed from the host's own files. Local: no Forum call, so not open-world.
+        yield return McpServerTool.Create(
+            tools.ActsAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_acts",
+                Description = ToolText.Compose(
+                    ToolText.ActsTemplate,
+                    TierSpan.For(ResourceKind.Budget, ActionKind.Read)),
+                ReadOnly = true,
+                Idempotent = true,
+                OpenWorld = false,
+            });
+
+        // Errata G58, R11.79 (plan ruling 40): drops one kept act by its digest. Local: no Forum call. It writes nothing to the Forum, so like curia_acts it is not among WriteToolNames; it is
+        // destructive of the one local file (the only copy from which exactly that act can be sent), idempotent (a second call finds none held), and has no Table 10 row, so no tier span.
+        yield return McpServerTool.Create(
+            tools.DiscardAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_discard",
+                Description = ToolText.Compose(ToolText.DiscardTemplate, string.Empty),
+                ReadOnly = false,
+                Destructive = true,
+                Idempotent = true,
+                OpenWorld = false,
+            });
     }
 
     private static IEnumerable<McpServerTool> WriteTools(ForumTools tools)
@@ -235,6 +265,21 @@ internal static class ToolCatalogue
                 ReadOnly = false,
                 Destructive = false,
                 Idempotent = false,
+                OpenWorld = true,
+            });
+
+        // Errata G58, R11.79: sends exactly the bytes of a kept act. Idempotent in the Forum's own sense (R8.78, R8.86: it records one act once), and not destructive.
+        // No tier span (plan ruling 44, M8): the Table 10 row it is held to is the kept act's own kind's, which a static description cannot state, so the description says that a refusal at a tier
+        // names the tier (Refusal.Summary does, ruling 39) and carries no row of one kind for every kind.
+        yield return McpServerTool.Create(
+            tools.ResendAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_resend",
+                Description = ToolText.Compose(ToolText.ResendTemplate, string.Empty),
+                ReadOnly = false,
+                Destructive = false,
+                Idempotent = true,
                 OpenWorld = true,
             });
     }

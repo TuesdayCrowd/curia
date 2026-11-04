@@ -328,11 +328,10 @@ public sealed partial class UnheardActTests
     {
         var sentence = PublishedConfirmWords.UnheardSentence;
         var act = PublishedStoreFaults.ActSentence;
-        var wait = PublishedClientWords.Wait;
         var problems = new List<string>();
-        if (Regex.Count(sentence, Regex.Escape(wait)) != 1) problems.Add($"the unheard sentence does not carry \"{wait}\" once");
-        if (act.Contains("seconds", StringComparison.Ordinal) || act.Contains(wait, StringComparison.Ordinal)) problems.Add("the act line carries a wait");
-        if (act.Contains("send", StringComparison.Ordinal)) problems.Add("the act line carries an instruction to send");
+        if (Regex.IsMatch(sentence, @"\d+\s+seconds", RegexOptions.CultureInvariant)) problems.Add("the unheard sentence carries a wait, which errata G58 withdrew");
+        if (act.Contains("seconds", StringComparison.Ordinal)) problems.Add("the act line carries a wait");
+        if (!act.Contains("Send exactly this act again", StringComparison.Ordinal)) problems.Add("the act line carries no instruction to send the act again (errata G58)");
         if (!act.Contains("as of the moment it is asked", StringComparison.Ordinal)) problems.Add("the act line lacks \"as of the moment it is asked\"");
         if (sentence.Contains("as of the moment", StringComparison.Ordinal)) problems.Add("the unheard sentence claims the act line's reading");
 

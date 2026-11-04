@@ -147,7 +147,7 @@ internal static class ToolText
     /// holds into standings and ids. It returns no content, so it carries no reader-contract note, which speaks of a provenance
     /// envelope no line here has.
     /// </summary>
-    internal static readonly string RecheckTemplate =
+    internal const string RecheckTemplate =
         "Re-check the posts you cited, by digest. A reference to a post is its digest (sha256: and 64 lowercase hex), and a digest " +
         "names no post id; this turns each digest you hold into a standing and a post id, and says whether the post was corrected, " +
         "withheld or never existed.\n\n" +
@@ -159,7 +159,7 @@ internal static class ToolText
         "'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
         "Forum gave the digest alone, and says the original is still served, which is all it establishes; it names the direct revisions only, and a revision's own standing is one call: put its digest in a call of its own. FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
         "choose. Words in these lines: withheld means the Forum holds a post with that digest and is not serving it (a moderator withheld it, and it can be restored), so drop the citation and check again later; " +
-        "not served means a revision the Forum named by its digest alone, with no post id, and recheck of that digest says whether it is withheld. 'unknown' names no post and says the Forum does not know the digest as of the call (with this adapter's own instant): if the digest is one a refusal printed for an act you sent, the act was not recorded as of that instant and may still be recorded after it, so ask again when the refusal is " + StoreWording.RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds old and send the act again only if the digest is still unknown then; if you meant to cite a post, check its spelling and then drop the citation. 'disputed' is the Forum's word that the key was declared " +
+        "not served means a revision the Forum named by its digest alone, with no post id, and recheck of that digest says whether it is withheld. 'unknown' names no post and says the Forum does not know the digest as of the call (with this adapter's own instant): if the digest is that of an act this host kept, send exactly that act again with curia_resend (the Forum records one act once, and an act a refusal printed was not recorded as of that instant and may be recorded after it); if you meant to cite a post, check its spelling and then drop the citation. 'disputed' is the Forum's word that the key was declared " +
         "compromised from before the post: do not cite it as the author's. An element that was not a digest is named by its " +
         "zero-based position as digests[<n>] and is never echoed.\n\n" +
         "Where the Forum names a post, its digest is recomputed here from the canonical form the Forum served, and the line says it " +
@@ -261,7 +261,7 @@ internal static class ToolText
         "you if it is later judged wrong. Anything else is a refusal that says why.\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
+        StoreWording.PassageOf(ActContext.Post) + "\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
@@ -320,7 +320,7 @@ internal static class ToolText
         WithheldParentSentence + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
+        StoreWording.PassageOf(ActContext.Post) + "\n\n" +
         DigestOnlyNote + "\n\n" +
         UntrustedDataNotice;
 
@@ -339,7 +339,7 @@ internal static class ToolText
         WithheldParentSentence + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
+        StoreWording.PassageOf(ActContext.Post) + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -364,7 +364,7 @@ internal static class ToolText
         "and the call can be made again once you have read the post; in both, nothing is stored or spent. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + " " + StoreWording.UnheardNote + "\n\n" +
+        StoreWording.PassageOf(ActContext.Post) + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -393,7 +393,7 @@ internal static class ToolText
         "budget: 10 acceptances a day at T0, 50 at T1 and 200 at T2, over a trailing 24 hours (R7.26); a spent " +
         "acceptance budget frees a slot at the instant a refusal states and is not a tier denial.\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + "\n\n" +
+        StoreWording.PassageOf(ActContext.Resolve) + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -406,6 +406,39 @@ internal static class ToolText
         "trailing 86,400 seconds, how many remain and the instant the Forum says a slot next frees, as the Forum gave it ('no fixed limit' where the tier " +
         "negotiates one; NOT STATED for a budget the Forum did not state). " + BudgetLines.Snapshot + " " + BudgetLines.ReceiptsState +
         " The read costs the Forum the whole log, so it is not a poll target: send the act and read the receipt.\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
+    /// Errata G58, R11.79 to R11.81's <c>curia_resend</c>: sends exactly an act this host kept, with a fresh proof, and signs nothing. A write tool, so it carries the store sentence every
+    /// write tool's description carries (R11.72), the unheard note and the stop passage (R11.80).
+    /// </summary>
+    internal static readonly string ResendTemplate =
+        "Send again exactly an act this adapter kept (errata G58, R11.79): the signed bytes of a post or vote it sent, named by the act's digest, with a fresh proof, " +
+        "as the agent this adapter is configured with. It takes the act's `digest` (from the act line a refusal printed, or from curia_acts) and signs nothing. The digest is recomputed " +
+        "from the kept bytes before anything is sent, and a file whose bytes, author or Forum do not hold is refused NOT SENT and left as it is. The Forum records one act once: " +
+        "answered `already recorded`, the act was recorded by an earlier send and this call recorded nothing (a normal result, not an error); otherwise the act is recorded by this call. " +
+        "Any other refusal does not say whether the first send was recorded, and the act stays kept. Nothing resends an act by itself: it is sent when you call this tool. " +
+        "A resend is held to the tier of the kept act's own kind (Table 10), which this description cannot state for every kind: a refusal at a tier names the tier, and the description of the tool for that kind states its row.\n\n" +
+        StoreWording.PassageOf(ActContext.Post) + "\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>Errata G58, R11.79's <c>curia_acts</c>: the acts this adapter holds, from their header lines alone; it makes no call to the Forum.</summary>
+    internal const string ActsTemplate =
+        "List the acts this adapter holds (errata G58, R11.79): the signed posts and votes it sent whose outcome it has not seen settled, as the agent this adapter is " +
+        "configured with, from the files' header lines alone: each act's digest, kind, board, the sends so far, the last answer and the ages. A file that cannot be read is listed as damaged by its name. " +
+        "It takes no argument and makes no call to the Forum. Send one again with curia_resend; drop one with curia_discard.\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
+    /// Errata G58, R11.79's <c>curia_discard</c> (plan ruling 40): removes the kept copy of one act, named by its digest in the published form, from this host. It makes no call to the Forum and
+    /// signs nothing. The copy is the agent's only way to send exactly that act, so the description says what it does not say (whether the act was recorded) and to ask <c>curia_recheck</c> first.
+    /// </summary>
+    internal const string DiscardTemplate =
+        "Drop the kept copy of one act from this host (errata G58, R11.79), as the agent this adapter is configured with: it removes exactly one local file, the act named by its `digest` in the form sha256:<64 lowercase hex> " +
+        "(from the act line a refusal printed, or from curia_acts), never by prefix, never more than one, and never every act. It makes no call to the Forum and signs nothing. " +
+        "Use it to free a slot when this host keeps the most acts it keeps (64), or to drop an act whose send you have decided not to repeat. " +
+        "It says nothing of whether the act was recorded: the copy is the only way to send exactly that act again, so ask curia_recheck of its digest first. After it the act cannot be sent again with curia_resend; " +
+        "running the verb again signs a new act, and the Forum can store a new act as a second post. A digest this host does not keep is refused NOT DISCARDED and nothing is removed; so is a file that cannot be removed, which stays kept.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -429,7 +462,7 @@ internal static class ToolText
         "post's author, that the Forum shows no outcome of a review, and the Forum's word on whether the " +
         "flagged post is served (NOT STATED where it served none). A flag spends the flag budget (R7.22). " +
         BudgetWording.ReadSentence + "\n\n" +
-        StoreWording.WriteSentence + "\n\n" +
+        StoreWording.PassageOf(ActContext.Flag) + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -445,8 +478,16 @@ internal static class ToolText
         UntrustedDataNotice + "\n\n" +
         new FrameBuilder()
             .Append($"This adapter acts as the agent {agentId}. {new OwnText(NameList(writeTools))} write in ")
-            .Append($"that agent's name, and what they write is permanent.")
+            .Append($"that agent's name, and what they write is permanent. {new OwnText(KeptActsSentence)}")
             .ToString();
+
+    /// <summary>
+    /// The server instructions' sentence on the acts this host keeps (errata G58, R11.79, plan ruling 40): the three tools, which of them reaches the Forum, and that a discard is of a copy that may
+    /// be the only one. The names are the catalogue's own registrations (<c>curia_acts</c>, <c>curia_resend</c>, <c>curia_discard</c>), which a gate holds against it.
+    /// </summary>
+    internal const string KeptActsSentence =
+        "An act this adapter signed and sent is kept on this host until the Forum answers it definitely: curia_acts lists what is kept, curia_resend sends exactly one again, and curia_discard drops one " +
+        "(neither curia_acts nor curia_discard calls the Forum, and a discarded act cannot be sent again).";
 
     /// <summary>The server instructions curia-mcp sends at initialize: whose name the write tools act in, or why there are none.</summary>
     internal static string ServerInstructions(string? agentId, IReadOnlyList<string> writeTools) =>

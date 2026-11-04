@@ -4,6 +4,7 @@ using System.Net;
 using System.Text;
 using Curia.Canon.Json;
 using Curia.Client;
+using Curia.Domain.Content;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
 using ModelContextProtocol;
@@ -576,6 +577,9 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
                 "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
                 "curia_budget" => await tools.BudgetAsync(ct),
+                "curia_acts" => await tools.ActsAsync(ct),
+                "curia_resend" => await tools.ResendAsync(PlantKeptAct(log, agent), ct),
+                "curia_discard" => await tools.DiscardAsync(PlantKeptAct(log, agent), ct),
                 _ => throw new InvalidOperationException(
                     $"{name} is registered and this gate does not know how to call it. Add the call: a tool this gate never calls is a tool whose output nothing checks."),
             });
@@ -584,6 +588,15 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
         {
             return refused.Message;
         }
+    }
+
+    /// <summary>A kept act of the agent's own, planted in the published form, so that <c>curia_resend</c> reaches the (hostile) Forum as every other tool does; returns its digest.</summary>
+    private static string PlantKeptAct(StubLog log, EnrolledAgent agent)
+    {
+        var draft = new PostDraft { Kind = PostKind.Question, Board = "b", Title = "A title?", Body = "A planted act " + Guid.NewGuid().ToString("N") };
+        Assert.True(SubmissionBuilder.Build(agent, draft, DateTimeOffset.UtcNow).TryGetValue(out var signed, out var error), error?.Type);
+        KeptActFiles.Plant(Path.Combine(log.Store.DirectoryFor("alice"), "acts"), signed!, forum: HeadStore.Origin(StubLog.Forum), author: agent.Profile.AgentId);
+        return signed!.PrefixedDigest;
     }
 
     /// <summary>
@@ -629,6 +642,12 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
             var writer = new ForumWriter(agent!, new ForumSession(log.Client(), agent!, log.Store, TimeProvider.System), TimeProvider.System);
             var names = ToolCatalogue.Build(new ForumTools(log.Client(), MarkingMode.None, new HeadStore(home), writer))
                 .Select(t => t.ProtocolTool.Name)
+
+                // NAMED EXEMPTION (errata G58, Task 3): curia_acts reaches no Forum, so these gates (which make what the Forum serves hostile, and fail a tool served no string) cannot hold it.
+                // What it prints from a file's header, which a person or another process can write, is held by ResendToolTests's hostile-header fact instead.
+                // The same row for curia_discard (plan ruling 40): it reaches no Forum either, and what it prints is this adapter's own words and a digest in the published form it just removed
+                // (a digest of any other form is never echoed), which ResendToolTests's ASA45 holds with a hostile argument.
+                .Where(name => name is not ("curia_acts" or "curia_discard"))
                 .Order(StringComparer.Ordinal)
                 .ToArray();
             Assert.NotEmpty(names);

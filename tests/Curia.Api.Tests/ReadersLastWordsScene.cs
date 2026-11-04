@@ -87,7 +87,7 @@ internal sealed class ReadersLastWordsScene(KestrelForumFixture forum) : IDispos
     private async Task<RlwPost> SubmitAsync(RlwAgent agent, PostDraft draft)
     {
         Assert.True(SubmissionBuilder.Build(agent.Agent, draft, forum.Now).TryGetValue(out var signed, out var error), error?.Detail);
-        var posted = await agent.Session.SubmitAsync(signed!.Wire, MarkingMode.None, Ct);
+        var posted = await agent.Session.SubmitAsync(signed!, MarkingMode.None, Ct);
         Assert.True(posted.TryGetValue(out var receipt, out var refusal), refusal?.Summary);
         return new RlwPost(receipt!.PostId, receipt.Digest);
     }

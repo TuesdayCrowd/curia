@@ -100,7 +100,7 @@ public static class CitationLines
                 return new CitationLine("withheld", Of($"withheld    {asked}  drop this citation; it is no longer served (withholding can be reversed -- re-check later)"), true, false, false, false);
 
             case "unknown":
-                return new CitationLine("unknown", Of($"unknown     {asked}  {UnknownWords(answeredAt)}"), true, false, false, false);
+                return new CitationLine("unknown", Of($"unknown     {asked}  {UnknownWords(asked, answeredAt)}"), true, false, false, false);
 
             case "malformed" when IsDigestShape(asked):
                 return new CitationLine("malformed", Of($"malformed   {asked}  the Forum answered malformed for a digest of the expected shape (the Forum's word); treat the citation as changed"), true, false, false, false);
@@ -114,19 +114,25 @@ public static class CitationLines
     }
 
     /// <summary>
-    /// R10.93 words (errata G53): what an <c>unknown</c> line says after its digest. The Forum cannot tell a mistyped citation from an act a refusal printed that was
-    /// not recorded, so the line says both, the act first, with the reader's own instant (UTC to the second) and the wait (<see cref="StoreWording.RecheckWaitSeconds"/>),
-    /// because a store that timed out can record after it answered. It never says to drop a digest without the first reading, and never of an act.
+    /// R10.95 words (errata G58): what an <c>unknown</c> line says after its digest. The Forum cannot tell a mistyped citation from an act a refusal printed that was not
+    /// recorded, so the line says both readings: an act this host kept is sent again with <c>curia resend</c> (the Forum records one act once), and a citation meant is
+    /// spelled right and then dropped. It carries the reader's own instant (UTC to the second) and no wait: a resend is safe at any moment, so the answer is not a precondition.
     /// </summary>
-    private static OwnText UnknownWords(DateTimeOffset answeredAt) =>
+    private static OwnText UnknownWords(string asked, DateTimeOffset answeredAt) =>
         new(
             "no post here bears this digest as of this call (answered at "
             + answeredAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)
-            + ", by this client's clock). If it is the digest of an act a refusal printed, the act was not recorded as of that instant and may still be recorded after it, "
-            + "because a store that timed out can finish after it answered: ask again when the refusal is "
-            + StoreWording.RecheckWaitSeconds.ToString(CultureInfo.InvariantCulture)
-            + " seconds old, and send the act again only if the digest is still unknown then; "
-            + "if you meant to cite a post, check the spelling (sha256:<64 hex>), then drop the citation");
+            + ", by this client's clock). If it is the digest of an act this host kept, send exactly that act again with `curia resend " + asked + "`: "
+            + "the Forum records one act once, and an act a refusal printed was not recorded as of that instant and may be recorded after it. "
+            + "If you meant to cite a post, check the spelling (sha256:<64 hex>), then drop the citation");
+
+    /// <summary>
+    /// R10.95 words: the closing line a batch that exits 5 prints on standard error, saying what 5 means and that <c>withheld</c> and <c>unknown</c> are different.
+    /// </summary>
+    public const string ClosingLine =
+        "exit 5: at least one digest above is withheld or unknown. withheld names a post the Forum holds and does not serve (drop the citation; it can be restored). " +
+        "unknown names no post as of this call: for a digest you meant to cite it is mistyped or not recorded, and for a digest of an act this host kept it is an act to send again with `curia resend <digest>`. " +
+        "Neither is a failure of this command.";
 
     /// <summary>True when <paramref name="value"/> is <c>sha256:</c> and 64 lowercase hex digits, decided here and not by the Forum.</summary>
     private static bool IsDigestShape(string value)

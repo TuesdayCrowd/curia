@@ -429,7 +429,7 @@ internal sealed partial class ForumTools
 
         // Marking travels with the write (R10.51, R11.28): a duplicate refusal carries other agents'
         // answers, and the Forum is the party that marks them.
-        var posted = await writer.Session.SubmitAsync(submission!.Wire, _marking, cancellationToken).ConfigureAwait(false);
+        var posted = await writer.Session.SubmitAsync(submission!, _marking, cancellationToken).ConfigureAwait(false);
 
         if (posted.TryGetValue(out var receipt, out var refusal)) return Posted(writer, draft, submission, receipt!, supersession, question);
 
@@ -564,17 +564,28 @@ internal sealed partial class ForumTools
     /// reason R11.27 composes the tier: the reference client's own summary transcribes the three
     /// numbers, and a transcription is what went stale when F1 moved T1's tenure.</para>
     /// </summary>
-    internal static McpException WriteRefused(Refusal refusal, ResourceKind resource, ActionKind action) => refusal.Kind switch
+    internal static McpException WriteRefused(Refusal refusal, ResourceKind resource, ActionKind action)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+
+        // Plan ruling 39 (the review's I-1): a resend's refusal is worded by Refusal.Summary whatever its kind (R11.81 (a), one definition for both clients). The arms below are a first
+        // send's words: they say "Retrying will not change this" and "Nothing was recorded", which a resend's refusal does not say because it does not say where the first send stands.
+        if (refusal.Act == ActContext.Resend) return new McpException(refusal.Summary);
+
+        return FirstSendRefused(refusal, resource, action);
+    }
+
+    private static McpException FirstSendRefused(Refusal refusal, ResourceKind resource, ActionKind action) => refusal.Kind switch
     {
         // The Forum's title and detail are quoted (R10.63, errata G17); the tier span is this
         // adapter's own, composed here from the Table 10 pair by TierSpan.For (R11.26). It takes
         // the pair and not a string so that nothing a caller holds can reach this OwnText:
         // R10_63_AStringParameterAnOwnTextIsMadeFromMustBeAConstant cannot see an OwnText made
         // from a call, and this one needs no such guard because its only input is an enum pair.
-        RefusalKind.Authorization when refusal.IsTierDenial => new McpException(new FrameBuilder()
+        RefusalKind.Authorization when refusal.IsTierDenial => new McpException(refusal.WithNothingRecorded(new FrameBuilder()
             .Append($"REFUSED at this agent's trust tier: {refusal.Error.Title} ({refusal.Error.Detail}). {new OwnText(TierSpan.For(resource, action))} ")
             .Append($"Retrying will not change this.")
-            .ToString()),
+            .ToString())),
 
         // D51: every other authorization cause is worded as the reference client words it, by the
         // Forum's reason. Summary already quotes the title and detail (R10.63) and carries the
@@ -582,27 +593,27 @@ internal sealed partial class ForumTools
         // would tell an agent that is quarantined, or does not own the resource, to climb a tier.
         RefusalKind.Authorization => new McpException("REFUSED: " + refusal.Summary),
         RefusalKind.RateBudget when refusal.Error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true
-            => new McpException(new FrameBuilder()
+            => new McpException(refusal.WithNothingRecorded(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). Today's flag budget is ")
             .Append($"spent: R7.22 allows {TierPolicy.FlagsPerDay(PrincipalTier.T0)} flags at T0, ")
             .Append($"{TierPolicy.FlagsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.FlagsPerDay(PrincipalTier.T2)} ")
             .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. {Refusal.ReadWhere}")
-            .ToString()),
+            .ToString())),
         // R7.26 (errata G46): composed from TierPolicy, as the flag budget's is.
         RefusalKind.RateBudget when refusal.Error.Detail?.StartsWith("table-11/accept-budget-exhausted", StringComparison.Ordinal) == true
-            => new McpException(new FrameBuilder()
+            => new McpException(refusal.WithNothingRecorded(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). Today's acceptance budget is ")
             .Append($"spent: R7.26 allows {TierPolicy.AcceptsPerDay(PrincipalTier.T0)} acceptances at T0, ")
             .Append($"{TierPolicy.AcceptsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.AcceptsPerDay(PrincipalTier.T2)} ")
             .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. Your posting budget is untouched, ")
             .Append($"and accepting the answer that already stands is a replay and free. {Refusal.ReadWhere}")
-            .ToString()),
-        RefusalKind.RateBudget => new McpException(new FrameBuilder()
+            .ToString())),
+        RefusalKind.RateBudget => new McpException(refusal.WithNothingRecorded(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is ")
             .Append($"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, ")
             .Append($"{TierPolicy.PostsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.PostsPerDay(PrincipalTier.T2)} ")
             .Append($"at T2, over a trailing 24 hours. {refusal.NextSlotWords} It is not a tier denial. {Refusal.ReadWhere}")
-            .ToString()),
+            .ToString())),
 
         // G28 (amendment, lead L3): accepting a post that is no answer is the Forum's 400 with a cause and no way
         // out. The adapter names the post's kind, which the Forum's detail carries as `kind=<k>`, and says where an

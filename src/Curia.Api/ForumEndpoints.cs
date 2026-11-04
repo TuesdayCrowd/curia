@@ -922,6 +922,19 @@ public static class ForumEndpoints
         if (d!.Qualifier is GrantQualifier.OwnResourceOnly)
             d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId.Value));
 
+        // R7.32 (errata G58): the posting budget, and no other denial, gives way to R8.78. A recorded act has already spent its slot, so refusing the very
+        // bytes for that slot says something true of the budget and false of the act. The check is the one the allowed path makes below, on this same
+        // log read, asked once; it is asked only for the posting budget's own reason and only of a credential that is not set aside (a quarantine, a tier
+        // or an ownership denial is a statement about the caller that holds whether or not the act was recorded). The policy decides the posting budget before the quarantine
+        // intersection, so a quarantined credential at a spent budget is answered with the budget's reason and not the quarantine's, which is why the credential's state is read here: ASA50
+        // (Domain, AccessPolicy and the posture facts directly) holds that order. The Active clause itself has no probe, because no event yet quarantines a credential (the plan's ruling 42: the
+        // quarantine leg is implemented and not discharged). An act whose digest is not held is refused for the budget as before.
+        if (!d.IsAllowed
+            && string.Equals(d.Reason, BudgetKinds.All.First(k => string.Equals(k.Name, BudgetKinds.Posting, StringComparison.Ordinal)).DenialReason, StringComparison.Ordinal)
+            && facts!.CredentialState == CredentialState.Active
+            && AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } spentRecordedPostId)
+            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(spentRecordedPostId));
+
         if (!d.IsAllowed)
             return Problem(
                 StatusCodes.Status403Forbidden,
@@ -929,7 +942,7 @@ public static class ForumEndpoints
 
         // R8.78 (errata G45): the same bytes are not recorded twice. The envelope carries its author and a signed nonce, so an
         // equal digest is the same author and the very bytes; a fresh nonce is a new post. After AUTHORIZE (a caller denied by
-        // tier is told the tier and never whether a post exists), before the parent checks, the near-duplicate check, SCREEN and
+        // tier is told the tier and never whether a post exists; the posting budget's denial alone gives way, R7.32, above), before the parent checks, the near-duplicate check, SCREEN and
         // PERSIST (nothing is screened, stored or spent). It counts stored posts, not served ones: withheld bytes sent again are
         // not a correction. The first post of the digest in log order is named, by its id and nothing an author wrote.
         if (AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } recordedPostId)

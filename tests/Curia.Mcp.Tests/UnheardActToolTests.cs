@@ -227,30 +227,31 @@ public sealed partial class UnheardActToolTests : IDisposable
 
         var names = ToolCatalogue.WriteToolNames(tools);
         var descriptions = ToolCatalogue.Build(tools).ToDictionary(t => t.ProtocolTool.Name, t => Fold(t.ProtocolTool.Description ?? string.Empty), StringComparer.Ordinal);
-        var sentence = Fold(PublishedConfirmWords.StoreSentence);
-        var missing = names.Where(n => !descriptions.TryGetValue(n, out var d) || !d.Contains(sentence, StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray();
-        var expected = $"R11.76's sentence is in the description of 6 write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))})";
-        var actual = names.Count == 6 && missing.Length == 0
+        // Errata G58 (R11.80): the description of a tool carries the clause of its own act.
+        string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWords.Clauses().Resolve : tool == "curia_flag" ? PublishedResendWords.Clauses().Flag : PublishedResendWords.Clauses().Post);
+        var missing = names.Where(n => !descriptions.TryGetValue(n, out var d) || !d.Contains(ClauseOf(n), StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToArray();
+        var expected = $"R11.76's sentence is in the description of 7 write tools ({string.Join(' ', names.Order(StringComparer.Ordinal))})";
+        var actual = names.Count == 7 && missing.Length == 0
             ? expected
             : $"{names.Count} write tools; R11.76's sentence is absent from the description of {missing.Length} ({string.Join(' ', missing)})";
         Said(expected, actual);
     }
 
     /// <summary>
-    /// AFC26. <c>curia-mcp</c>'s version is the one the newest entry names: the code's version, the parser's, and that entry's R11.78 words agree (it read R11.77's until
-    /// the board-and-blank PR, which bumped to 0.9.7). The version is not parsed here: the one parser is <c>PublishedReadersLastWords.Version()</c>, and this fact asks only
-    /// whether R11.78's words state the version the code reports.
+    /// AFC26. <c>curia-mcp</c>'s version is the one the newest entry names: the code's version, the parser's, and that entry's R11.81 words agree (it read R11.78's until
+    /// the resend PR, which bumped to 0.10.0). The version is not parsed here: the one parser is <c>PublishedReadersLastWords.Version()</c>, and this fact asks only
+    /// whether R11.81's words state the version the code reports.
     /// </summary>
     [Fact]
-    public void R11_78_AFC26_CuriaMcpIsTheVersionR1178Names()
+    public void R11_81_AFC26_CuriaMcpIsTheVersionR1181Names()
     {
         var code = ToolCatalogue.Version;
         var parser = PublishedReadersLastWords.Version();
-        var stated = PublishedConfirmWords.Paragraph("R11.78 words").Contains($"`curia-mcp` {code}.", StringComparison.Ordinal);
+        var stated = PublishedConfirmWords.Paragraph("R11.81 words").Contains($"`curia-mcp` {code}.", StringComparison.Ordinal);
         Said(
-            "the catalogue reports the version R11.78 words state, and the parser reads the same",
+            "the catalogue reports the version R11.81 words state, and the parser reads the same",
             stated && string.Equals(code, parser, StringComparison.Ordinal)
-                ? "the catalogue reports the version R11.78 words state, and the parser reads the same"
-                : $"the catalogue reports {code}; the parser reads {parser}; R11.78 words {(stated ? "state" : "do not state")} {code}");
+                ? "the catalogue reports the version R11.81 words state, and the parser reads the same"
+                : $"the catalogue reports {code}; the parser reads {parser}; R11.81 words {(stated ? "state" : "do not state")} {code}");
     }
 }

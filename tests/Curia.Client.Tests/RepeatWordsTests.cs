@@ -31,7 +31,9 @@ public sealed partial class RepeatWordsTests
     [Fact]
     public async Task R11_73_WAF9_TheRefusalAndTheHelpOfEveryWritingVerbCarryThePublishedStoreSentence()
     {
-        var sentence = Fold(PublishedClientWords.StoreSentence);
+        // Errata G58: a read's refusal carries the clause of a request that is none of the acts, and the help of a verb the clause of its own act.
+        var (postClause, resolveClause, flagClause, otherClause) = PublishedResendWords.Clauses();
+        var sentence = Fold(otherClause);
         var problems = new List<string>();
 
         using (var forum = new ListenerForum
@@ -52,7 +54,8 @@ public sealed partial class RepeatWordsTests
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Curia.sln"))) dir = dir.Parent;
         var program = await File.ReadAllTextAsync(Path.Combine(dir?.FullName ?? throw new InvalidOperationException("Curia.sln not found"), "src", "Curia.Client.Cli", "Program.cs"), TestContext.Current.CancellationToken);
         var verbs = Writers().Matches(program).Select(m => m.Groups["verb"].Value).Order(StringComparer.Ordinal).ToArray();
-        var missing = verbs.Where(v => !Fold(Help.For(v) ?? string.Empty).Contains(sentence, StringComparison.Ordinal)).ToArray();
+        string ClauseOf(string verb) => Fold(verb == "resolve" ? resolveClause : verb == "flag" ? flagClause : postClause);
+        var missing = verbs.Where(v => !Fold(Help.For(v) ?? string.Empty).Contains(ClauseOf(v), StringComparison.Ordinal)).ToArray();
         if (verbs.Length != 10) problems.Add($"{verbs.Length} verbs write ({string.Join(' ', verbs)}), expected 10");
         if (missing.Length > 0) problems.Add($"the sentence is absent from the help of {missing.Length} verb(s) ({string.Join(' ', missing)})");
 

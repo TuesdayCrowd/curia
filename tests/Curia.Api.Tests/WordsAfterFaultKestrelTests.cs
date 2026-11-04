@@ -244,8 +244,8 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
             if (at[i] < 0) problems.Add($"{leg}: lacks \"{starts[i]}\"");
         }
 
-        if (at.All(p => p >= 0) && !(at[0] < at[1] && at[1] < at[2])) problems.Add($"{leg}: the clauses are out of order ({string.Join(", ", at)})");
-        if (!line.Contains(PublishedClientWords.Wait, StringComparison.Ordinal)) problems.Add($"{leg}: lacks the wait \"{PublishedClientWords.Wait}\"");
+        if (at.All(p => p >= 0) && !(at[0] < at[1])) problems.Add($"{leg}: the clauses are out of order ({string.Join(", ", at)})");
+        if (Regex.IsMatch(line, @"\d+\s+seconds", RegexOptions.CultureInvariant)) problems.Add($"{leg}: carries a wait in seconds, which errata G58 withdrew");
         if (!AnsweredAt().IsMatch(line)) problems.Add($"{leg}: states no instant in the published form");
     }
 

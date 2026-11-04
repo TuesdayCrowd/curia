@@ -136,7 +136,7 @@ public sealed class PathIdWriteEndToEndTests(KeyRouteKestrelFixture forum) : ICl
                 new PostDraft { Kind = PostKind.Question, Board = board, Title = "A real post?", Body = "A premise worth flagging." },
                 forum.Now).TryGetValue(out var signed, out var buildError),
             buildError?.Title);
-        var posted = await SessionFor(asker).SubmitAsync(signed!.Wire, Ct);
+        var posted = await SessionFor(asker).SubmitAsync(signed!, MarkingMode.None, Ct);
         Assert.True(posted.TryGetValue(out var receipt, out var postRefusal), postRefusal?.Summary);
 
         var flagged = await SessionFor(flagger).FlagAsync(receipt!.PostId, "incorrect", "The premise is wrong.", Ct);

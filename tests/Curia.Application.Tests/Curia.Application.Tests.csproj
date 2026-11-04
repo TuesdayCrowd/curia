@@ -19,6 +19,7 @@
     <Compile Include="../Shared/PublishedBudgetReadout.cs" Link="Shared/PublishedBudgetReadout.cs" />
     <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
     <Compile Include="../Shared/PublishedConfirmWords.cs" Link="Shared/PublishedConfirmWords.cs" />
+    <Compile Include="../Shared/PublishedResendWords.cs" Link="Shared/PublishedResendWords.cs" />
     <Compile Include="../Shared/PublishedReadersLastWords.cs" Link="Shared/PublishedReadersLastWords.cs" />
     <Compile Include="../Shared/ConflictingEventStore.cs" Link="Shared/ConflictingEventStore.cs" />
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />

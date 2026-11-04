@@ -23,10 +23,7 @@ public static class StoreWording
 
     private const string LogUnreadableSentence = FaultOfTheForum + "Nothing was recorded: the request can be sent again later";
 
-    // Errata G53's published words (R10.93 wait, R11.73 words). The token sentence and the whoami line follow in the same file.
-
-    /// <summary>R10.93 wait, R11.76 words: the figure of the wait, in seconds, before an act a refusal printed may be sent again.</summary>
-    public const int RecheckWaitSeconds = 60;
+    // Errata G58's published words (R11.80 clause words, act words, kind words, unheard words; R11.81). The sixty-second rule of G53 and G55 is withdrawn.
 
     /// <summary>R11.73 words: the phrase a replayed resolve prints, which means the first call was recorded.</summary>
     public const string ResolveReplayPhrase = "already the accepted answer; nothing was recorded";
@@ -34,20 +31,32 @@ public static class StoreWording
     /// <summary>R11.73 words: the phrase the refusal of a repeated flag prints, which means the first call was recorded.</summary>
     public const string FlagRepeatPhrase = "has already raised a flag of this type against this post";
 
-    /// <summary>
-    /// R11.76 words (errata G55; it replaced R11.73 words' first form): the sentence for <see cref="StoreUnavailableType"/>. For a post it says the Forum has not confirmed that the act was recorded (it tried to read its log and, where the read finished, did not find it as of that read; a read that did not finish says nothing). It says how a repeat of a resolve or of a flag is read, in the words the repeat prints
-    /// (<see cref="ResolveReplayPhrase"/>, <see cref="FlagRepeatPhrase"/>, which the printers share), under the condition that holds for a resolve, and what an answer of any other
-    /// kind says; and for a post it sends the act again only if the Forum's recheck still does not know it when the refusal is <see cref="RecheckWaitSeconds"/> seconds old.
-    /// </summary>
-    private static readonly string StoreUnavailableSentence = FaultOfTheForum +
-        "If the request was a write it may or may not have been recorded: do not run the verb again to find out, because ask, answer and comment each sign a new act and the Forum can store it as a second post; " +
-        "for a post, the Forum has not confirmed that the act was recorded (where its append failed it tried to read its own log for the act's digest, and where that read finished it did not find it as of that read; that does not say the act will not be recorded, " +
-        "because a store that timed out can record the act after it answered, and a read that did not finish says nothing): ask the Forum's recheck about the digest of the act sent, which is printed with this refusal, and send it again only if the Forum still does not know it when the refusal is " +
-        RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds old; " +
-        "a repeat of a resolve or of a flag is safe, and how the Forum answers it says whether the first call was recorded: " +
-        "a resolve answered \"" + ResolveReplayPhrase + "\" was recorded the first time, and a resolve answered without those words was not recorded and now is; " +
-        "a flag refused as \"" + FlagRepeatPhrase + "\" was recorded the first time, and a flag not refused so was not recorded and now is; " +
-        "a resolve's reading holds only if no other call changed the thread's accepted answer between the two calls, and an answer of any other kind says nothing of the first call";
+    /// <summary>R11.80 clause words (post): the sentence for <see cref="StoreUnavailableType"/> when the refusal's act is a signed post or vote, or a resend of one.</summary>
+    private const string PostClause = FaultOfTheForum + "The Forum has not confirmed that the act was recorded and has not refused it";
+
+    /// <summary>R11.80 clause words (resolve): names no digest, and carries the reading pair of a repeated resolve.</summary>
+    private const string ResolveClause = FaultOfTheForum +
+        "Whether this resolve was recorded is not known. Running it again is safe, and the answer says what happened the first time: \"" + ResolveReplayPhrase +
+        "\" means the first call was recorded, and any other success means the first call was not recorded and this one has recorded it. " +
+        "This reading holds only if no other call changed the thread's accepted answer between the two calls";
+
+    /// <summary>R11.80 clause words (flag): names no digest, and carries the reading pair of a repeated flag.</summary>
+    private const string FlagClause = FaultOfTheForum +
+        "Whether this flag was recorded is not known. Raising it again is safe: a refusal \"" + FlagRepeatPhrase +
+        "\" means the first call was recorded, and an accepted flag means the first call was not recorded and this one has recorded it";
+
+    /// <summary>R11.80 clause words (other): a request that is none of the above; read what it would have changed before sending it again.</summary>
+    private const string OtherClause = FaultOfTheForum + "If the request was a write it may or may not have been recorded: read what the request would have changed before sending it again";
+
+    /// <summary>The clause for <paramref name="act"/> (R11.80): chosen by the act the refusal refused and by nothing else.</summary>
+    public static string Clause(ActContext act) => act switch
+    {
+        ActContext.Post or ActContext.Resend => PostClause,
+        ActContext.Resolve => ResolveClause,
+        ActContext.Flag => FlagClause,
+        ActContext.Other => OtherClause,
+        _ => throw new ArgumentOutOfRangeException(nameof(act), act, "Not an act a refusal can refuse"),
+    };
 
     /// <summary>
     /// R11.74 words: the sentence for the token's refusal. No call is a token request, so it says what is true of every call that prints it: the Forum could not
@@ -60,74 +69,104 @@ public static class StoreWording
     public const string WhoamiExpiredLine = "cached, expired; a new one is requested at the next call";
 
     /// <summary>
-    /// The sentence a refusal of <paramref name="type"/> carries after its title and type, or the empty string for a type that is not one of the three. The
-    /// token's is chosen by the code <c>temporarily_unavailable</c>, which the token endpoint's answer carries as its type.
+    /// The sentence a refusal of <paramref name="type"/> carries after its title and type, or the empty string for a type that is not one of the three: for
+    /// <see cref="StoreUnavailableType"/> the clause of the act refused (<paramref name="act"/>, R11.80). The token's is chosen by the code <c>temporarily_unavailable</c>,
+    /// which the token endpoint's answer carries as its type.
     /// </summary>
-    public static string Sentence(string type)
+    public static string Sentence(string type, ActContext act = ActContext.Other)
     {
         ArgumentNullException.ThrowIfNull(type);
         return type switch
         {
             LogUnreadableType => LogUnreadableSentence,
-            StoreUnavailableType => StoreUnavailableSentence,
+            StoreUnavailableType => Clause(act),
             TemporarilyUnavailableCode => TokenSentence,
             _ => string.Empty,
         };
     }
 
     /// <summary>
-    /// The sentence about repeating a write that the write tools' descriptions and the writing verbs' helps carry: the <c>curia/store/unavailable</c> sentence,
-    /// the one that says not to run the verb again to find out and where to ask instead (R11.72).
+    /// R11.80 act words: the line printed after a refusal of <see cref="StoreUnavailableType"/> to a signed post or vote, with the digest of the act the client signed (computed here
+    /// from the canonical bytes, never read from the Forum's refusal), and for a <c>revision</c> and an <c>endorse</c> the kind words. It holds no state, calls nothing (R11.64) and
+    /// carries no wait: it says that the act is kept on this host, names the resend as the one action and the recheck as an optional question.
     /// </summary>
-    public static readonly string RepeatSentence = StoreUnavailableSentence;
-
-    /// <summary>
-    /// What the six write tools' descriptions and the ten writing verbs' helps say of the two <c>503</c> types, in the published words: the one that says a
-    /// write may or may not have been recorded and, for a post, that the Forum has not confirmed it was (<see cref="RepeatSentence"/>, R11.76) and the one that says nothing was recorded.
-    /// </summary>
-    public static readonly string WriteSentence =
-        "A 503 " + StoreUnavailableType + " means " + StoreUnavailableSentence + ". A 503 " + LogUnreadableType + " means " + LogUnreadableSentence + ". " +
-        "Neither is retried for you.";
-
-    /// <summary>
-    /// R11.73's act words (errata G53, ruling 18): the line printed after a refusal of <see cref="StoreUnavailableType"/> to a signed post, with the digest of the act
-    /// the client sent. The digest is the act's <c>sha256:</c> and 64 lowercase hex digits, the spelling <c>recheck</c> takes, computed here from the canonical
-    /// bytes signed, never read from the Forum's refusal. The line holds no state, calls nothing (R11.64) and carries no wait: it says where to ask and what the answer is of.
-    /// </summary>
-    public static string ActLine(string prefixedDigest)
+    public static string ActLine(string prefixedDigest, string? kind = null)
     {
         ArgumentNullException.ThrowIfNull(prefixedDigest);
-        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed); the Forum's recheck of it says whether the act was recorded as of the moment it is asked, not whether it may still be recorded after it.";
+        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed), kept on this host. Send exactly this act again with `curia resend " + prefixedDigest + "` (in `curia-mcp`, `curia_resend`): " +
+            "the Forum records one act once, so if the first call was recorded the resend is answered \"already recorded\" and names the post, and if it was not the resend records it. " +
+            "Do not run the verb again: that signs a new act, and the Forum can store a new act as a second post. " +
+            "To know first, `curia recheck " + prefixedDigest + "` (`curia_recheck`) says whether the act was recorded as of the moment it is asked; it cannot say the act will not be recorded after it, so \"unknown\" is not a reason to wait." +
+            (kind is "revision" or "vote" ? KindWords : string.Empty);
     }
 
-    /// <summary>
-    /// R11.77 words (errata G55): the sentence printed after the client's own refusal for an unheard signed post, directly above <see cref="ActLine"/>. It says the
-    /// request was sent and no answer was read, that a Forum still working on it can record the act after this client gave up, and carries the wait once
-    /// (<see cref="RecheckWaitSeconds"/>); it does not say what the act line says, that the recheck answers as of the moment it is asked.
-    /// </summary>
-    public static readonly string UnheardSentence =
-        "The Forum was not heard from: the request was sent and no answer was read, so the act sent may or may not have been recorded, and a Forum still working on it can record it after this client gave up. " +
-        "Do not run the verb again to find out: ask the Forum's recheck about the digest below when " +
-        RecheckWaitSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) +
-        " seconds have passed since this message, and send the act again only if the Forum still does not know it then.";
+    /// <summary>R11.80 kind words: appended to the act line for a <c>revision</c> and for an <c>endorse</c> only.</summary>
+    public const string KindWords = " A repeat of this verb would be refused rather than stored twice (the Forum serves one revision of a post and keeps one vote per target), but the resend is exact for every kind.";
 
     /// <summary>
-    /// The passage the helps of the verbs that sign a post and the descriptions of the tools that do carry for R11.77 (errata G55): what is printed when the request is
-    /// sent and no answer is read. A resolve and a flag do not carry it, because they print neither line.
+    /// R11.80 unheard words: the sentence printed after the client's own refusal for an unheard signed post, directly above <see cref="ActLine"/>. It says the request was sent and no
+    /// answer was read, and that a Forum still working on it can record the act after this client gave up. No wait is in it.
     /// </summary>
-    public static readonly string UnheardNote =
-        "If the request is sent and no answer is read (a timeout, or a connection that ends after the request was sent), the refusal is titled \"No answer was read from the Forum\" and is followed by this sentence and then the act line, which names the digest: " + UnheardSentence;
+    public const string UnheardSentence = "The Forum was not heard from: the request was sent and no answer was read, so the act sent may or may not have been recorded, and a Forum still working on it can record it after this client gave up.";
+
+    /// <summary>
+    /// The passage the helps of the verbs that sign a post or a vote and the descriptions of the tools that do carry for the act line (R11.72 (rev.), R11.80): what a <c>503</c> is, what
+    /// follows it and the one action, and what is printed when the request is sent and no answer is read. It carries no wait in seconds.
+    /// </summary>
+    public static readonly string PostPassage =
+        "A 503 " + StoreUnavailableType + " means " + PostClause + ". It is followed by the act line, which names the digest of the act computed here, says the act is kept on this host and names the one action: " +
+        "the resend, resend <digest> (in curia-mcp, curia_resend), sends exactly the act kept, and the Forum records one act once. Do not run the verb again: that signs a new act, and the Forum can store it as a second post. " +
+        "If the request is sent and no answer is read (a timeout, or a connection that ends after the request was sent), the refusal is titled \"No answer was read from the Forum\" and is followed by this sentence and then the act line: " + UnheardSentence + " " +
+        ResendWording.StopPassage;
+
+    /// <summary>The passage of a resolve's help and description (R11.80): its own clause, which names no digest.</summary>
+    public static readonly string ResolvePassage = "A 503 " + StoreUnavailableType + " means " + ResolveClause + ".";
+
+    /// <summary>The passage of a flag's help and description (R11.80): its own clause, which names no digest.</summary>
+    public static readonly string FlagPassage = "A 503 " + StoreUnavailableType + " means " + FlagClause + ".";
+
+    /// <summary>
+    /// What the help of a verb and the description of a tool carries for a refusal of its own act (R11.72 (rev.), R11.80): the passage of that act, then the sentence for the other 503.
+    /// A signed post or vote's names the act line and the resend; a resolve's and a flag's name no digest.
+    /// </summary>
+    public static string PassageOf(ActContext act) => act switch
+    {
+        ActContext.Post or ActContext.Resend => PostPassage + " " + LogUnreadablePassage,
+        ActContext.Resolve => ResolvePassage + " " + LogUnreadablePassage,
+        ActContext.Flag => FlagPassage + " " + LogUnreadablePassage,
+        ActContext.Other => "A 503 " + StoreUnavailableType + " means " + OtherClause + ". " + LogUnreadablePassage,
+        _ => throw new ArgumentOutOfRangeException(nameof(act), act, "Not an act a refusal can refuse"),
+    };
+
+    /// <summary>The sentence every write's help and description carries for the other 503 and for retries (R11.72, R11.64).</summary>
+    public static readonly string LogUnreadablePassage = "A 503 " + LogUnreadableType + " means " + LogUnreadableSentence + ". Neither is retried for you.";
 
     /// <summary>
     /// What follows a refusal of a signed post, given the digest of the act the client signed (null where no signed post's digest is held: a read, a resolve, a flag):
-    /// the act line for <see cref="StoreUnavailableType"/>; the unheard sentence and then the act line for an unheard refusal (R11.77); nothing otherwise. The one
+    /// the act line for <see cref="StoreUnavailableType"/> and for any refusal that leaves the act kept (R11.80, plan ruling 43); the unheard sentence and then the act line for an unheard refusal (R11.77); nothing otherwise. The one
     /// definition both printers call, so neither compares a problem type itself and neither can add a line the other does not. It calls nothing and waits for nothing (R11.64).
     /// </summary>
     public static IReadOnlyList<string> AfterRefusal(Refusal refusal, string? actDigest)
     {
         ArgumentNullException.ThrowIfNull(refusal);
         if (actDigest is null) return [];
-        if (refusal.Unheard) return [UnheardSentence, ActLine(actDigest)];
-        return string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) ? [ActLine(actDigest)] : [];
+
+        // A resend's refusal carries its own words (R11.81 (a), composed by Refusal.Summary: the unheard sentence included) and no act line, which is a first send's. What follows is
+        // the stop sentence or the definite words (R11.80, plan rulings 13 and 46 to 49): advice that is never enforced.
+        var lines = new List<string>();
+        if (refusal.Act != ActContext.Resend)
+        {
+            // Plan ruling 43 (R11.80): the act line follows every refusal of a signed post that leaves the act kept (the session sets KeptAttempts only then), whatever the status and whether or not the Forum
+            // named a problem type: the file is kept, the slot is held, and the agent is told the digest. `curia/store/unavailable` is the same condition and stays named.
+            if (refusal.Unheard) lines.AddRange([UnheardSentence, ActLine(actDigest, refusal.ActKind)]);
+            else if (string.Equals(refusal.Error.Type, StoreUnavailableType, StringComparison.Ordinal) || refusal.KeptAttempts >= 1) lines.Add(ActLine(actDigest, refusal.ActKind));
+        }
+
+        // R11.80 (plan rulings 46 to 49): the stop sentence counts only sends the Forum did not answer, so it follows a refusal that is itself unanswered, from the second in a row and nowhere else; a
+        // resend the Forum answered with a refusal (a 4xx) is followed by the definite words in its place, once. A first send's refusal gets neither definite words nor, unless it is the second in a
+        // row, the stop sentence.
+        if (refusal.KeptSend == SendClass.Unanswered && refusal.KeptUnanswered >= ResendWording.StopFromUnanswered) lines.Add(ResendWording.Stop(refusal.KeptUnanswered, refusal.KeptAttempts, actDigest));
+        else if (refusal.Act == ActContext.Resend && refusal.KeptSend == SendClass.Answered && refusal.Status is >= 400 and <= 499) lines.Add(ResendWording.DefiniteWords);
+        return lines;
     }
 }

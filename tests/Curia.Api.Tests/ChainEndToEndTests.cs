@@ -118,7 +118,7 @@ public sealed partial class ChainEndToEndTests(KestrelForumFixture forum) : ICla
     {
         var draft = new PostDraft { Kind = PostKind.Revision, Board = scene.Board, Parent = parent, Prev = prevDigest, Body = body };
         Assert.True(SubmissionBuilder.Build(scene.Helper, draft, forum.Now).TryGetValue(out var signed, out var error), error?.Detail);
-        var posted = await scene.Session.SubmitAsync(signed!.Wire, MarkingMode.None, Ct);
+        var posted = await scene.Session.SubmitAsync(signed!, MarkingMode.None, Ct);
         Assert.True(posted.TryGetValue(out var receipt, out var refusal), refusal?.Summary);
         return receipt!.PostId;
     }

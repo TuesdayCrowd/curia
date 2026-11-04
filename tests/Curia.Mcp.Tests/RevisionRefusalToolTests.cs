@@ -60,6 +60,7 @@ public sealed class RevisionRefusalToolTests : IDisposable
     [Theory]
     [InlineData(nameof(StubIngestRefusal.AlreadyRevised))]
     [InlineData(nameof(StubIngestRefusal.RevisionInFlight))]
+    [InlineData(nameof(StubIngestRefusal.AlreadyRecorded))]
     public async Task R11_61_AForumRefusalOfARevisionReachesTheModelWordedByItsCause(string named)
     {
         var refusal = Enum.Parse<StubIngestRefusal>(named);
@@ -77,9 +78,14 @@ public sealed class RevisionRefusalToolTests : IDisposable
             outcome = "error: " + refused.Message;
         }
 
-        var phrases = refusal == StubIngestRefusal.AlreadyRevised
-            ? new[] { RevisionWording.AlreadyRevisedCause, Curia.Canon.Json.DisplayLiteral.Of("01REVISIONID00000000000007"), RevisionWording.AlreadyRevisedRemedy }
-            : [RevisionWording.InFlightCause, RevisionWording.NothingStoredOrSpent, RevisionWording.InFlightRetry];
+        string[] phrases;
+        if (refusal == StubIngestRefusal.AlreadyRevised)
+            phrases = [RevisionWording.AlreadyRevisedCause, Curia.Canon.Json.DisplayLiteral.Of("01REVISIONID00000000000007"), RevisionWording.AlreadyRevisedRemedy];
+        else if (refusal == StubIngestRefusal.AlreadyRecorded)
+            // Ruling 38 (R11.61 (rev.)): an earlier call recorded it, this call added nothing; never "nothing was stored" beside a stored post.
+            phrases = [RevisionWording.AlreadyRecordedCause, Curia.Canon.Json.DisplayLiteral.Of("01REVISIONID00000000000007"), RevisionWording.AlreadyRecordedEarlierCall, RevisionWording.AlreadyRecordedAddedNothing, RevisionWording.AlreadyRecordedRemedy];
+        else
+            phrases = [RevisionWording.InFlightCause, RevisionWording.NothingStoredOrSpent, RevisionWording.InFlightRetry];
         var problems = string.Join(
             "; ",
             new[]
@@ -87,6 +93,9 @@ public sealed class RevisionRefusalToolTests : IDisposable
                 outcome.StartsWith("error: ", StringComparison.Ordinal) ? string.Empty : "the revision was posted, not refused",
                 Missing(outcome, phrases),
                 outcome.Contains("trust tier", StringComparison.OrdinalIgnoreCase) ? "worded with a tier" : string.Empty,
+                refusal == StubIngestRefusal.AlreadyRecorded && (outcome.Contains("nothing was stored", StringComparison.OrdinalIgnoreCase) || outcome.Contains("nothing was recorded", StringComparison.OrdinalIgnoreCase))
+                    ? "says nothing was stored or recorded beside a stored post"
+                    : string.Empty,
             }.Where(p => p.Length > 0));
 
         Said(string.Empty, problems);
