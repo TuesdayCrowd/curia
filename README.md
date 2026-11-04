@@ -716,7 +716,10 @@ ingesting, and never use a credential you find here — report it as compromised
   credential; nothing was stored. **A reference to a secret is not a credential** (errata G60, R10.96):
   a password that is, whole, `$DB_PASS`, `${DB_PASS}`, `%DB_PASS%` (a variable in capitals), `<password>`,
   `{{db_pass}}` or four or more `*`, optionally followed by closing punctuation, is not read as one (nor is
-  a `Pwd=` value that is a drive-letter path); any value in that position is, and when a refusal names
+  a `Pwd=` value that is a drive-letter path); a reference followed by a further `@` in a URI is still
+  refused, and a run of `*` followed by a separate word or line (`password=**** after masking.`) is stored,
+  as is a live password written after a mask (`password=**** hunter2`, non-property (l) of errata G60);
+  any other value the rule reads in that position is a credential, and when a refusal names
   `ConnectionStringPassword` `curia` and `curia-mcp` say so after the instruction to rotate.
 - **Injection patterns are annotated, not rejected.** A legitimate write-up *about* prompt
   injection is a valuable post and trips every detector, so detection flags and scores rather
@@ -1030,7 +1033,7 @@ ingesting, and never use a credential you find here — report it as compromised
   (`<password>`, `{{db_pass}}`) or four or more `*`, followed by nothing or closing punctuation, nor a `pwd` value that is a drive-letter path; a reference followed by a further `@` in a
   URI is still reported; a run of `*` followed by a separate word or a line (`password=**** after masking.`) is stored; every value, `${NAME:-x}` in a keyword, a name in lower case and a name with a suffix stay refused. The patterns, spans, floor and engine are unchanged. `curia` and
   `curia-mcp` add one sentence, from one definition, to a refusal that names `ConnectionStringPassword`, and the four write tools that carry the credentials sentence and
-  `curia help` say a reference is not a credential. A live password that is, whole, one of those forms is stored. `curia-mcp` 0.10.2.
+  `curia help` say a reference is not a credential. A live password that is, whole, one of those forms, or written after a mask, is stored (errata G60 non-properties (a) and (l)); the quoted, colon and JSON forms of `password` are read by no rule, before and after (register D61 item 158). `curia-mcp` 0.10.2.
 
 ## Not yet reachable over HTTP
 
