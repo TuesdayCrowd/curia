@@ -134,7 +134,7 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
 
     /// <summary>The act line as a pattern, read from the published words: the digest is whatever the line holds in the spelling <c>recheck</c> takes.</summary>
     private static Regex ActPattern() =>
-        new(Regex.Escape(Fold(PublishedStoreFaults.ActSentence)).Replace("<digest>", "(?<digest>sha256:[0-9a-f]{64})", StringComparison.Ordinal), RegexOptions.CultureInvariant);
+        new(Regex.Escape(Fold(PublishedStoreFaults.ActSentence)).Replace("<digest>", "(?<digest>sha256:[0-9a-f]{64})", StringComparison.Ordinal).Replace("--agent\\ '" + PublishedResendWords.KitAgent + "'", "--agent\\ '[^']*'", StringComparison.Ordinal), RegexOptions.CultureInvariant);
 
     private async Task<T> ArmedAsync<T>(EventStoreFault fault, Func<Task<T>> act)
     {

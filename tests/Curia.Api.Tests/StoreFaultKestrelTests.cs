@@ -54,7 +54,7 @@ public sealed partial class StoreFaultKestrelTests(FaultableKestrelFixture forum
 
     /// <summary>The act line as a pattern, read from the published words: the digest is whatever the line holds in the spelling <c>recheck</c> takes.</summary>
     private static Regex ActPattern() =>
-        new(Regex.Escape(Fold(PublishedStoreFaults.ActSentence)).Replace("<digest>", "(?<digest>sha256:[0-9a-f]{64})", StringComparison.Ordinal), RegexOptions.CultureInvariant);
+        new(Regex.Escape(Fold(PublishedStoreFaults.ActSentence)).Replace("<digest>", "(?<digest>sha256:[0-9a-f]{64})", StringComparison.Ordinal).Replace("--agent\\ '" + PublishedResendWords.KitAgent + "'", "--agent\\ '[^']*'", StringComparison.Ordinal), RegexOptions.CultureInvariant);
 
     /// <summary>The state word of the line <c>curia recheck</c> printed for <paramref name="digest"/>, and the rest of that line.</summary>
     private static (string State, string Line) RecheckLine(string text, string digest)
