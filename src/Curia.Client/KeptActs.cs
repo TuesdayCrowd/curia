@@ -228,7 +228,7 @@ public sealed class KeptActs
             }
 
             if (Count() >= Bound)
-                return Result<KeptAct>.Fail(new Error(KeptActsFullType, "NOT SENT: this host already keeps the most acts it keeps", Bound.ToString(CultureInfo.InvariantCulture) + " acts are kept and none was answered definitely; `" + PrintedCommand.AsAgent("curia acts", _slug) + "` (in `curia-mcp`, `curia_acts`) lists them; `" + PrintedCommand.AsAgent("curia acts --discard <digest>", _slug) + "` (in `curia-mcp`, `curia_discard`) drops one. Nothing was sent."));
+                return Result<KeptAct>.Fail(new Error(KeptActsFullType, "NOT SENT: this host already keeps the most acts it keeps", Bound.ToString(CultureInfo.InvariantCulture) + " acts are kept and none was answered definitely; " + PrintedCommand.Span("curia acts", _slug) + " (in `curia-mcp`, `curia_acts`) lists them; " + PrintedCommand.Span("curia acts --discard <digest>", _slug) + " (in `curia-mcp`, `curia_discard`) drops one. Nothing was sent."));
 
             var text = HeaderLine(header);
             if (Encoding.UTF8.GetByteCount(text) >= HeaderBlockBytes) return Result<KeptAct>.Fail(NotKept("the header is longer than the block a listing reads"));
@@ -266,7 +266,7 @@ public sealed class KeptActs
         foreach (var listed in List().Where(l => l.Header is not null && string.Equals(l.Header.Digest, digest, StringComparison.Ordinal)))
             return Result<KeptAct>.Fail(Damaged(listed.Name ?? string.Empty, "the file's name does not name the digest in its header"));
 
-        return Result<KeptAct>.Fail(new Error(NoKeptActType, "NOT SENT: no act of that digest is kept on this host", "`" + PrintedCommand.AsAgent("curia acts", _slug) + "` (in `curia-mcp`, `curia_acts`) lists the acts this host keeps"));
+        return Result<KeptAct>.Fail(new Error(NoKeptActType, "NOT SENT: no act of that digest is kept on this host", PrintedCommand.Span("curia acts", _slug) + " (in `curia-mcp`, `curia_acts`) lists the acts this host keeps"));
     }
 
     private static Error Damaged(string file, string why) =>

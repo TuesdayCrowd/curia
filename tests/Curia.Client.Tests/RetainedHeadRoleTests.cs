@@ -92,7 +92,9 @@ public sealed partial class RetainedHeadRoleTests : IDisposable
         Assert.Equal(3, PublishedAgentWords.ProofReasons.Length);
         Assert.Equal(2, PublishedAgentWords.UnreadableProofReasons.Length);
         Assert.Contains("changed or damaged", PublishedAgentWords.KeyWords, StringComparison.Ordinal);
-        Assert.Contains("copy it aside", PublishedAgentWords.KeyWords, StringComparison.Ordinal);
+        Assert.Contains("copy head.json aside", PublishedAgentWords.KeyWords, StringComparison.Ordinal);
+        Assert.Contains("leave head.lock where it is", PublishedAgentWords.KeyWords, StringComparison.Ordinal);
+        Assert.Contains("(head.lock stays)", PublishedAgentWords.SignatureWords, StringComparison.Ordinal);
         Assert.Contains("makes no claim about the Forum", PublishedAgentWords.SignatureWords, StringComparison.Ordinal);
         foreach (var words in new[] { PublishedAgentWords.SeveralWords, PublishedAgentWords.BlankWords, PublishedAgentWords.SignatureWords, PublishedAgentWords.KeyWords, PublishedAgentWords.FailedEqualWords, PublishedAgentWords.FailedProofWords, PublishedAgentWords.LaggingWords })
             Assert.NotEmpty(PublishedAgentWords.Stretches(words));

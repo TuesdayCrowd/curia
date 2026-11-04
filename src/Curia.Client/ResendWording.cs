@@ -14,7 +14,7 @@ public static class ResendWording
     public static string NotResolved(string digest, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(digest);
-        return "This refusal does not say whether the first send was recorded: the act stays kept. `curia recheck " + digest + "` (in `curia-mcp`, `curia_recheck`) says whether it is recorded as of the moment it is asked; `" + PrintedCommand.AsAgent("curia acts --discard " + digest, agent) + "` (in `curia-mcp`, `curia_discard`) drops the kept copy.";
+        return "This refusal does not say whether the first send was recorded: the act stays kept. `curia recheck " + digest + "` (in `curia-mcp`, `curia_recheck`) says whether it is recorded as of the moment it is asked; " + PrintedCommand.Span("curia acts --discard " + digest, agent) + " (in `curia-mcp`, `curia_discard`) drops the kept copy.";
     }
 
     /// <summary>R11.81 (a)'s sentence for a resend refused <c>curia/log/unreadable</c>: R11.72's sentence with its subject named, so that (a) is the only statement about the first send.</summary>
@@ -39,7 +39,7 @@ public static class ResendWording
         ArgumentNullException.ThrowIfNull(digest);
         var u = unanswered.ToString(CultureInfo.InvariantCulture);
         var n = attempts.ToString(CultureInfo.InvariantCulture);
-        return "The Forum has not answered the last " + u + " sends of this act (it has been asked to send " + n + " times in all). Stop here: tell whoever asked for the act that the Forum is not answering and that the act is kept (digest " + digest + "). Send it again with `" + PrintedCommand.AsAgent("curia resend " + digest, agent) + "` (in `curia-mcp`, `curia_resend`) after 5 minutes or more; sending it sooner is safe, because the Forum records one act once, but it has not answered the last " + u + " sends.";
+        return "The Forum has not answered the last " + u + " sends of this act (it has been asked to send " + n + " times in all). Stop here: tell whoever asked for the act that the Forum is not answering and that the act is kept (digest " + digest + "). Send it again with " + PrintedCommand.Span("curia resend " + digest, agent) + " (in `curia-mcp`, `curia_resend`) after 5 minutes or more; sending it sooner is safe, because the Forum records one act once, but it has not answered the last " + u + " sends.";
     }
 
     /// <summary>
@@ -81,7 +81,7 @@ public static class ResendWording
         var damaged = listed.Count(l => l.Header is null);
         var acts = listed.Count - damaged;
         var bound = KeptActs.Bound.ToString(CultureInfo.InvariantCulture);
-        var verbs = "`" + PrintedCommand.AsAgent("curia resend <digest>", agent) + "` (in `curia-mcp`, `curia_resend`) sends exactly the act kept; `" + PrintedCommand.AsAgent("curia acts --discard <digest>", agent) + "` (in `curia-mcp`, `curia_discard`) drops one.";
+        var verbs = PrintedCommand.Span("curia resend <digest>", agent) + " (in `curia-mcp`, `curia_resend`) sends exactly the act kept; " + PrintedCommand.Span("curia acts --discard <digest>", agent) + " (in `curia-mcp`, `curia_discard`) drops one.";
         return damaged == 0
             ? acts.ToString(CultureInfo.InvariantCulture) + " kept (at most " + bound + "). " + verbs
             : acts.ToString(CultureInfo.InvariantCulture) + " kept, " + damaged.ToString(CultureInfo.InvariantCulture) + " damaged (" + listed.Count.ToString(CultureInfo.InvariantCulture) + " files; at most " + bound + " files are held). A damaged file counts toward the " + bound + " until it is dropped. " + verbs;
@@ -118,7 +118,7 @@ public static class ResendWording
         ArgumentNullException.ThrowIfNull(file);
         var line = "damaged  " + DisplayLiteral.Of(file) + "  its first line is not a header this client reads; `curia resend` (in `curia-mcp`, `curia_resend`) refuses it and the file is untouched";
         return DigestOfFileName(file) is { } digest
-            ? line + "; `" + PrintedCommand.AsAgent("curia acts --discard " + digest, agent) + "` (in `curia-mcp`, `curia_discard`) drops it"
+            ? line + "; " + PrintedCommand.Span("curia acts --discard " + digest, agent) + " (in `curia-mcp`, `curia_discard`) drops it"
             : line;
     }
 

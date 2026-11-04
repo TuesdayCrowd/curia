@@ -343,7 +343,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     }
 
     /// <summary>R11.65: where the whole standing can be read.</summary>
-    public OwnText ReadWhere => new("`" + PrintedCommand.AsAgent("curia budget", Agent) + "` or `curia_budget` reads where every budget stands.");
+    public OwnText ReadWhere => new(PrintedCommand.Span("curia budget", Agent) + " or `curia_budget` reads where every budget stands.");
 
     private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
 

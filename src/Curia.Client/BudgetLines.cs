@@ -55,7 +55,7 @@ public static class BudgetLines
     /// <summary>The receipt's budget line without its line feed, as text of this client's own with the Forum's strings quoted: for a frame that places it itself.</summary>
     public static OwnText ReceiptLine(BudgetReceipt? budget, string? agent = null) =>
         new((budget is null
-            ? new FrameBuilder().Line($"budget  {new OwnText("NOT STATED")}   (the Forum's receipt did not say where this budget stands; `{new OwnText(PrintedCommand.AsAgent("curia budget", agent))}` reads it)")
+            ? new FrameBuilder().Line($"budget  {new OwnText("NOT STATED")}   (the Forum's receipt did not say where this budget stands; {new OwnText(PrintedCommand.Span("curia budget", agent))} reads it)")
             : new FrameBuilder().Line($"budget  {budget.Name}  {new OwnText("after this act:")} {Counts(budget.Limit, budget.Used, budget.Remaining)}")).ToString().TrimEnd('\n'));
 
     private static OwnText NextWords(BudgetEntryStanding entry)

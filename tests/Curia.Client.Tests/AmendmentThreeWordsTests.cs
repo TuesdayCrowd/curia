@@ -110,7 +110,7 @@ public sealed class AmendmentThreeWordsTests
             if (!first.Text.Contains("head.json", StringComparison.Ordinal)) problems.Add($"[{name}] head.json exists in the printed directory and the sentence does not name it");
 
             var line = first.Text[(first.Text.IndexOf("consistency COULD NOT BE CHECKED: the head this client retained", StringComparison.Ordinal) is var from and >= 0 ? from : 0)..];
-            if (Regex.IsMatch(line, @"\bremov(e|ing) it\b", RegexOptions.CultureInvariant)) problems.Add($"[{name}] \"remove it\" or \"removing it\" is printed with a directory named, and the pronoun's antecedent is the directory");
+            if ((Regex.IsMatch(line, @"\bremove it\b", RegexOptions.CultureInvariant) || line.Contains("copy it aside", StringComparison.Ordinal))) problems.Add($"[{name}] \"remove it\" or \"copy it aside\" is printed with a directory named, and the pronoun's antecedent is the directory");
             if (!line.Contains(lockPhrase, StringComparison.Ordinal)) problems.Add($"[{name}] \"{lockPhrase}\" is not printed");
             var withoutLockPhrase = line.Replace(lockPhrase, string.Empty, StringComparison.Ordinal);
             if (withoutLockPhrase.Contains("head.lock", StringComparison.Ordinal)) problems.Add($"[{name}] head.lock is named outside the phrase that leaves it");

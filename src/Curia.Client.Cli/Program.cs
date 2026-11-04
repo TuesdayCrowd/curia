@@ -678,7 +678,7 @@ internal static class Program
     /// </summary>
     internal static int ReportRecheck(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items, string? agent = null)
     {
-        var report = CitationLines.For(sent, items, TimeProvider.System.GetUtcNow(), agent);
+        var report = CitationLines.For(sent, items, TimeProvider.System.GetUtcNow(), CitationSurface.Cli, agent);
         if (report.Error is { } refused)
             return Output.Fail(new Refusal(RefusalKind.Malformed, 0, refused));
 

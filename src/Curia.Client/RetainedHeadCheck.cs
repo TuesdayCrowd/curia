@@ -16,7 +16,7 @@ public static class RetainedHeadCheck
 {
     /// <summary>
     /// The retained head does not verify under the log's published key set (R6.61), worded for the state it is in: the Forum publishes no key with the head's <c>kid</c> (the key words) or publishes one
-    /// and the signature does not hold under it (the signature words). The file is left exactly as it is, in <paramref name="directory"/>. A <see cref="CheckOutcome.CouldNotCheck"/>, never a failure.
+    /// and the signature does not hold under it (the signature words). The file <c>head.json</c> is left exactly as it is, in <paramref name="directory"/>, and the words name it and say the lock stays (plan rulings 44 and 45). A <see cref="CheckOutcome.CouldNotCheck"/>, never a failure.
     /// </summary>
     public static Check NotUsable(SignedHeadDocument retained, DateTimeOffset? retainedAt, ImmutableArray<LogJwk> keys, string directory)
     {
@@ -28,10 +28,12 @@ public static class RetainedHeadCheck
         return Check.CouldNotCheck(published
             ? $"{named} does not verify under the key the log publishes as that kid, so this client cannot use it as evidence, and nothing was compared with it. "
                 + "It cannot tell whether the file was changed or damaged, is from another log, or the Forum now publishes other key material under that kid; this check makes no claim about the Forum's history. "
-                + $"The file is left exactly as it is, in {Check.Quote(directory)}. To start again remove it: the next verification retains the head the Forum serves, as a first read, and consistency is not checked that once."
+                + $"The file {HeadStore.HeadFile} is left exactly as it is, in {Check.Quote(directory)}. To start again remove {HeadStore.HeadFile} from that directory and nothing else in it ({HeadStore.LockFile} stays): the next verification retains the head the Forum serves, as a first read, and consistency is not checked that once. "
+                + $"If you cannot run commands on this host, ask whoever runs it to remove {HeadStore.HeadFile}."
             : $"{named} names a key the log does not publish, though the log publishes every key it has used (R6.50), so nothing was compared. "
                 + "The file was changed or damaged, is from another log, or the Forum has stopped publishing a key; this client cannot tell which. "
-                + $"It is left exactly as it is, in {Check.Quote(directory)}; copy it aside before removing it, because a removed file starts the next verification as a first read.");
+                + $"It is left exactly as it is: the file {HeadStore.HeadFile}, in {Check.Quote(directory)}; copy {HeadStore.HeadFile} aside before removing it, because a removed file starts the next verification as a first read, and leave {HeadStore.LockFile} where it is. "
+                + $"If you cannot run commands on this host, ask whoever runs it to copy and remove {HeadStore.HeadFile}.");
     }
 
     /// <summary>Two heads that both verify carry different roots at one tree size.</summary>

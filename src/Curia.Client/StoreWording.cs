@@ -93,7 +93,7 @@ public static class StoreWording
     public static string ActLine(string prefixedDigest, string? kind = null, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(prefixedDigest);
-        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed), kept on this host. Send exactly this act again with `" + PrintedCommand.AsAgent("curia resend " + prefixedDigest, agent) + "` (in `curia-mcp`, `curia_resend`): " +
+        return "The act sent: digest " + prefixedDigest + " (computed here from the bytes signed), kept on this host. Send exactly this act again with " + PrintedCommand.Span("curia resend " + prefixedDigest, agent) + " (in `curia-mcp`, `curia_resend`): " +
             "the Forum records one act once, so if the first call was recorded the resend is answered \"already recorded\" and names the post, and if it was not the resend records it. " +
             "Do not run the verb again: that signs a new act, and the Forum can store a new act as a second post. " +
             "To know first, `curia recheck " + prefixedDigest + "` (`curia_recheck`) says whether the act was recorded as of the moment it is asked; it cannot say the act will not be recorded after it, so \"unknown\" is not a reason to wait." +

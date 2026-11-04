@@ -31,6 +31,22 @@ public sealed record CitationReport(ImmutableArray<CitationLine> Lines, Error? E
 }
 
 /// <summary>
+/// The surface a recheck line is composed for (errata G59, R10.95; plan ruling 42): what the reader of the line can do is a fact of the surface and is not read from whether an agent name is null, which stood for
+/// two states.
+/// </summary>
+public enum CitationSurface
+{
+    /// <summary><c>curia recheck</c>: the reader runs commands, acts as no profile, and may run a <c>curia-mcp</c> session of its own.</summary>
+    Cli,
+
+    /// <summary>A <c>curia-mcp</c> session with an agent configured: it registers <c>curia_resend</c>, <c>curia_acts</c> and <c>curia_discard</c>.</summary>
+    McpAgent,
+
+    /// <summary>A <c>curia-mcp</c> session with no agent configured: it registers none of the three, so it cannot send a kept act again; whoever runs the host can.</summary>
+    McpReadOnly,
+}
+
+/// <summary>
 /// R9.34 (errata G35): every word a recheck line uses, in one place, so <c>curia recheck</c> and <c>curia_recheck</c> compose
 /// from the same definition and no form edits its words alone (<see cref="Supersession"/>'s lesson).
 ///
@@ -50,10 +66,10 @@ public static class CitationLines
     /// <summary>
     /// The lines for <paramref name="items"/>, the Forum's answer to a batch of <paramref name="sent"/>. <paramref name="answeredAt"/> is the
     /// reader's own instant, taken by the caller right after the batch returned (errata G53, R10.93); the <c>unknown</c> line states it, UTC to the second.
-    /// <paramref name="agent"/> is the profile the caller was given or has configured (errata G59, R11.82 (b)): <c>recheck</c> acts as no one, so it never chooses one, and the <c>unknown</c> line
-    /// prints the resend command with that profile, or with <c>--agent &lt;name&gt;</c> and the sentence that says what <c>&lt;name&gt;</c> is where it was given none.
+    /// <paramref name="surface"/> is the surface the lines are composed for (errata G59, R10.95). <paramref name="agent"/> is the profile the caller was given or has configured (R11.82 (b)): <c>recheck</c> acts as no one,
+    /// so it never chooses one, and the <c>unknown</c> line prints the resend command with that profile, or with <c>--agent &lt;name&gt;</c> and the sentence that says what <c>&lt;name&gt;</c> is where it was given none.
     /// </summary>
-    public static CitationReport For(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items, DateTimeOffset answeredAt, string? agent = null)
+    public static CitationReport For(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items, DateTimeOffset answeredAt, CitationSurface surface, string? agent = null)
     {
         ArgumentNullException.ThrowIfNull(sent);
 
@@ -68,14 +84,14 @@ public static class CitationLines
 
         var lines = ImmutableArray.CreateBuilder<CitationLine>(items.Length);
         for (var i = 0; i < items.Length; i++)
-            lines.Add(LineOf(i, sent[i], items[i], answeredAt, agent));
+            lines.Add(LineOf(i, sent[i], items[i], answeredAt, surface, agent));
 
         return new CitationReport(lines.MoveToImmutable(), null);
     }
 
     private static CitationReport Refused(Error error) => new([], error);
 
-    private static CitationLine LineOf(int position, string asked, CitationDocument item, DateTimeOffset answeredAt, string? agent)
+    private static CitationLine LineOf(int position, string asked, CitationDocument item, DateTimeOffset answeredAt, CitationSurface surface, string? agent)
     {
         switch (item.State)
         {
@@ -102,7 +118,7 @@ public static class CitationLines
                 return new CitationLine("withheld", Of($"withheld    {asked}  drop this citation; it is no longer served (withholding can be reversed -- re-check later)"), true, false, false, false);
 
             case "unknown":
-                return new CitationLine("unknown", Of($"unknown     {asked}  {UnknownWords(asked, answeredAt, agent)}"), true, false, false, false);
+                return new CitationLine("unknown", Of($"unknown     {asked}  {UnknownWords(asked, answeredAt, surface, agent)}"), true, false, false, false);
 
             case "malformed" when IsDigestShape(asked):
                 return new CitationLine("malformed", Of($"malformed   {asked}  the Forum answered malformed for a digest of the expected shape (the Forum's word); treat the citation as changed"), true, false, false, false);
@@ -116,24 +132,42 @@ public static class CitationLines
     }
 
     /// <summary>
-    /// R10.95 words (errata G58): what an <c>unknown</c> line says after its digest. The Forum cannot tell a mistyped citation from an act a refusal printed that was not
-    /// recorded, so the line says both readings: an act this host kept is sent again with <c>curia resend</c> (the Forum records one act once), and a citation meant is
-    /// spelled right and then dropped. It carries the reader's own instant (UTC to the second) and no wait: a resend is safe at any moment, so the answer is not a precondition.
+    /// R10.95 words (errata G58, G59): what an <c>unknown</c> line says after its digest. The Forum cannot tell a mistyped citation from an act a refusal printed that was not
+    /// recorded, so the line says both readings: an act this host kept is sent again (the Forum records one act once), and a citation meant is spelled right and then dropped. It carries the reader's own
+    /// instant (UTC to the second) and no wait: a resend is safe at any moment, so the answer is not a precondition. <b>What the reader can do is a fact of <paramref name="surface"/></b>: the command line
+    /// and a session with an agent send the act again, the first with <c>curia resend</c> and the second also with <c>curia_resend</c>; a session with no agent registers no <c>curia_resend</c>, so its line says who can.
     /// </summary>
-    private static OwnText UnknownWords(string asked, DateTimeOffset answeredAt, string? agent) =>
-        new(
-            "no post here bears this digest as of this call (answered at "
+    private static OwnText UnknownWords(string asked, DateTimeOffset answeredAt, CitationSurface surface, string? agent)
+    {
+        var instant = "no post here bears this digest as of this call (answered at "
             + answeredAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)
-            + ", by this client's clock). If it is the digest of an act this host kept, send exactly that act again with `" + PrintedCommand.AsAgent("curia resend " + asked, agent) + "`: "
+            + ", by this client's clock). ";
+        const string Recorded = "The Forum records one act once, and an act a refusal printed was not recorded as of that instant and may be recorded after it. ";
+        const string Spelling = "If you meant to cite a post, check the spelling (sha256:<64 hex>), then drop the citation.";
+
+        if (surface == CitationSurface.McpReadOnly)
+        {
+            return new(
+                instant
+                + "If it is the digest of an act this host kept, this session cannot send it again: it has no agent configured and offers no `curia_resend`. "
+                + "Whoever runs the host can, with " + PrintedCommand.Span("curia resend " + asked, null) + "; a session configured as that agent can, with `curia_resend`. "
+                + PrintedCommand.NameSentence + " " + Recorded + Spelling);
+        }
+
+        return new(
+            instant
+            + "If it is the digest of an act this host kept, send exactly that act again with " + PrintedCommand.Span("curia resend " + asked, agent) + ": "
             + "the Forum records one act once, and an act a refusal printed was not recorded as of that instant and may be recorded after it. "
-            + "If you meant to cite a post, check the spelling (sha256:<64 hex>), then drop the citation. In `curia-mcp`, `curia_resend` sends that act again." + (agent is null ? " " + PrintedCommand.NameSentence : string.Empty));
+            + Spelling + " In a `curia-mcp` session configured as that agent, `curia_resend` sends that act again."
+            + (agent is null ? " " + PrintedCommand.NameSentence : string.Empty));
+    }
 
     /// <summary>
     /// R10.95 words: the closing line a batch that exits 5 prints on standard error, saying what 5 means and that <c>withheld</c> and <c>unknown</c> are different.
     /// </summary>
     public static string ClosingLine(string? agent) =>
         "exit 5: at least one digest above is withheld or unknown. withheld names a post the Forum holds and does not serve (drop the citation; it can be restored). " +
-        "unknown names no post as of this call: for a digest you meant to cite it is mistyped or not recorded, and for a digest of an act this host kept it is an act to send again with `" + PrintedCommand.AsAgent("curia resend <digest>", agent) + "`. " +
+        "unknown names no post as of this call: for a digest you meant to cite it is mistyped or not recorded, and for a digest of an act this host kept it is an act to send again with " + PrintedCommand.Span("curia resend <digest>", agent) + ". " +
         (agent is null ? PrintedCommand.NameSentence + " " : string.Empty) +
         "Neither is a failure of this command.";
 

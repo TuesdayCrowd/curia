@@ -151,7 +151,7 @@ public sealed class UnknownLineSurfacesTests : IDisposable
             var files = Directory.EnumerateFiles(directory).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToArray();
             if (!files.Contains("head.json") || !files.Contains("head.lock")) problems.Add($"[{name}] the printed directory holds {string.Join(", ", files)}, not head.json and head.lock");
             if (!text.Contains("head.json", StringComparison.Ordinal)) problems.Add($"[{name}] head.json exists in the printed directory and the sentence does not name it");
-            if (Regex.IsMatch(text, @"\bremov(e|ing) it\b", RegexOptions.CultureInvariant)) problems.Add($"[{name}] \"remove it\" or \"removing it\" is printed with a directory named");
+            if ((Regex.IsMatch(text, @"\bremove it\b", RegexOptions.CultureInvariant) || text.Contains("copy it aside", StringComparison.Ordinal))) problems.Add($"[{name}] \"remove it\" or \"copy it aside\" is printed with a directory named");
             if (!text.Contains(lockPhrase, StringComparison.Ordinal)) problems.Add($"[{name}] \"{lockPhrase}\" is not printed");
             if (text.Replace(lockPhrase, string.Empty, StringComparison.Ordinal).Contains("head.lock", StringComparison.Ordinal)) problems.Add($"[{name}] head.lock is named outside the phrase that leaves it");
 

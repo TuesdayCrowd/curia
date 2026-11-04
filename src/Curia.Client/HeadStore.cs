@@ -42,8 +42,11 @@ namespace Curia.Client;
 /// </summary>
 public sealed class HeadStore
 {
-    private const string HeadFile = "head.json";
-    private const string LockFile = "head.lock";
+    /// <summary>The file that holds the retained head: the one file a reader is told to remove (errata G59, R11.83), named from here wherever a line names it.</summary>
+    internal const string HeadFile = "head.json";
+
+    /// <summary>The file other processes hold open while they verify; a line names it only to say it stays (errata G59, R11.83).</summary>
+    internal const string LockFile = "head.lock";
     private const string RetainedAtMember = "retained_at";
 
     /// <summary>R11.74 words: the instant the retained head was stored, UTC to the millisecond.</summary>

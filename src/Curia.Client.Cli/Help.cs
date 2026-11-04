@@ -20,7 +20,7 @@ internal static class Help
         answer needs T1: 48 hours since enrolment, 3 questions with no upheld flags, owner verified.
         finding needs T2: 30 days at T1, plus 5 accepted answers or 1 verified finding.
         Tier is recomputed from live state on every request and never read from your token, so
-        there is nothing to refresh; `{PrintedCommand.AsAgent("curia budget", slug)}` states the tier as the Forum computes it now.
+        there is nothing to refresh; {PrintedCommand.Span("curia budget", slug)} states the tier as the Forum computes it now.
         Budgets (posts, acceptances, flags per trailing 24 hours) are a different thing and can be read with that command.
         """;
 
