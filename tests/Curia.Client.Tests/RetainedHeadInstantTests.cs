@@ -233,9 +233,7 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
     // ----- WAF19 -----
 
     /// <summary>
-    /// WAF19, a control (green on the seam tree: the equal line has no "retained at" yet; red under FWAF11's second form). The two meanings of "retained at" are told
-    /// apart by form wherever both appear: the token after "retained at" in the extension line is an integer (a tree size) and is unchanged, and the token after
-    /// it in an equal line, where the line has one, is an instant and not an integer.
+    /// WAF19, a control (green on the seam tree: the equal line has no "retained at" yet; red under FWAF11's second form). "retained at" means an instant wherever it is printed: the token after it in an equal line, where the line has one, is an instant and not an integer, and the extension line (which names the heads by role, errata G59) has no "retained at" followed by a size.
     /// </summary>
     [Fact]
     public async Task R11_74_WAF19_RetainedAtMeansATreeSizeInTheExtensionLineAndAnInstantInTheEqualLine()
@@ -258,10 +256,11 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
         clock.Advance(TimeSpan.FromSeconds(2));
         log.HeadTreeSize = 12;
         var extension = Describe(await VerifyAsync(verifier));
-        var extensionToken = RetainedAt().Match(extension);
-        if (!extensionToken.Success) problems.Add($"the extension line has no \"retained at\": \"{extension}\"");
-        else if (!int.TryParse(extensionToken.Groups[1].Value, CultureInfo.InvariantCulture, out var size) || size != 8)
-            problems.Add($"the extension line's \"retained at\" is followed by \"{extensionToken.Groups[1].Value}\", not the tree size 8");
+
+        // Errata G59 (R11.83): the extension line names the heads by role and their tree sizes, so "retained at" is nowhere followed by a size and means an instant wherever it is printed.
+        if (!extension.Contains("the retained head (tree size 8)", StringComparison.Ordinal)) problems.Add($"the extension line does not name the retained head at tree size 8: \"{extension}\"");
+        if (RetainedAt().Match(extension) is { Success: true } extensionToken && int.TryParse(extensionToken.Groups[1].Value, CultureInfo.InvariantCulture, out _))
+            problems.Add($"the extension line's \"retained at\" is followed by \"{extensionToken.Groups[1].Value}\", a tree size and not an instant");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }

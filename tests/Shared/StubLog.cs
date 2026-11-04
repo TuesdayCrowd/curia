@@ -76,7 +76,8 @@ internal sealed class StubLog : IDisposable
         int? enrolledIndex = null,
         string? refsJson = null,
         string? codeBlocksJson = null,
-        string? tagsJson = null)
+        string? tagsJson = null,
+        StubLog? logKeyOf = null)
     {
         _root = Directory.CreateTempSubdirectory("curia-stub-log-").FullName;
 
@@ -87,6 +88,10 @@ internal sealed class StubLog : IDisposable
             : throw new InvalidOperationException("the stub could not create an agent");
 
         _logKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+
+        // Errata G59 (R6.61): a retained head is verified under the key set the served head is, so a fork (two logs, one size, two roots) needs both heads signed by the log's key; a stub that is a fork of
+        // another shares its log key, as two databases do that one operator signs heads for.
+        if (logKeyOf is not null) _logKey.ImportParameters(logKeyOf._logKey.ExportParameters(includePrivateParameters: true));
 
         var draft = new PostDraft
         {

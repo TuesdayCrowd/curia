@@ -460,31 +460,40 @@ public static class ActaCheck
     }
 
     /// <summary>
-    /// R6.23's consistency proof: whether the log holding <paramref name="to"/> is an append-only
-    /// extension of the one holding <paramref name="from"/>.
+    /// R6.23's consistency proof between the head this client retained and the head the Forum serves, both of which the caller has verified (errata G59, R6.61, R11.83): whether the larger of the two
+    /// is an append-only extension of the smaller. The caller names the heads by <i>role</i>; the direction a proof runs (from the smaller tree to the larger) is worked out here and is never a label,
+    /// because which head is the smaller depends on whether the Forum served a lagging replica. Every line names the retained head and the served head, so a failure is attributed to the head it
+    /// is about.
     ///
     /// <para>The two roots come from the two <i>heads</i>, not from the proof, and the proof's own
-    /// <c>from_root</c>/<c>to_root</c> are checked against them. A proof that carried its own roots
-    /// unchallenged would let a Forum that had equivocated hand over a self-consistent proof between
-    /// two forks it invented, which is exactly the fork the retained head exists to catch.</para>
+    /// roots are checked against them. A proof that carried its own roots unchallenged would let a
+    /// Forum that had equivocated hand over a self-consistent proof between two forks it invented,
+    /// which is exactly the fork the retained head exists to catch. <paramref name="retainedAt"/> is
+    /// the instant the client's own file records for the retained head (<c>NOT STATED</c> where it
+    /// records none).</para>
     /// </summary>
     public static Check Consistency(
-        SignedHeadDocument from, SignedHeadDocument to, ConsistencyProofDocument proof)
+        SignedHeadDocument retained, SignedHeadDocument served, ConsistencyProofDocument proof, DateTimeOffset? retainedAt = null)
     {
-        ArgumentNullException.ThrowIfNull(from);
-        ArgumentNullException.ThrowIfNull(to);
+        ArgumentNullException.ThrowIfNull(retained);
+        ArgumentNullException.ThrowIfNull(served);
         ArgumentNullException.ThrowIfNull(proof);
 
-        if (proof.FromSize != from.TreeSize || proof.ToSize != to.TreeSize)
-            return Check.Failed(Text(
-                $"the proof runs {proof.FromSize} -> {proof.ToSize} and the heads are " +
-                $"{from.TreeSize} -> {to.TreeSize}"));
+        var retainedIsSmaller = retained.TreeSize < served.TreeSize;
+        var (smaller, larger) = retainedIsSmaller ? (retained, served) : (served, retained);
+        var (smallerRole, largerRole) = retainedIsSmaller ? ("the retained head's", "the served head's") : ("the served head's", "the retained head's");
 
-        if (!string.Equals(proof.FromRoot, from.RootHash, StringComparison.Ordinal))
-            return Check.Failed($"the proof's from_root is {Check.Quote(proof.FromRoot)} and the retained head's is {Check.Quote(from.RootHash)}");
+        Check Failed(string reason) => RetainedHeadCheck.FailedProof(retained, retainedAt, served, reason);
 
-        if (!string.Equals(proof.ToRoot, to.RootHash, StringComparison.Ordinal))
-            return Check.Failed($"the proof's to_root is {Check.Quote(proof.ToRoot)} and the served head's is {Check.Quote(to.RootHash)}");
+        if (proof.FromSize != smaller.TreeSize || proof.ToSize != larger.TreeSize)
+            return Failed(Text(
+                $"the Forum's proof runs from tree size {proof.FromSize} to {proof.ToSize} and {smallerRole} tree size is {smaller.TreeSize}, {largerRole} {larger.TreeSize}"));
+
+        if (!string.Equals(proof.FromRoot, smaller.RootHash, StringComparison.Ordinal))
+            return Failed($"the Forum's proof runs from {Check.Quote(proof.FromRoot)} and {smallerRole} root is {Check.Quote(smaller.RootHash)}");
+
+        if (!string.Equals(proof.ToRoot, larger.RootHash, StringComparison.Ordinal))
+            return Failed($"the Forum's proof runs to {Check.Quote(proof.ToRoot)} and {largerRole} root is {Check.Quote(larger.RootHash)}");
 
         if (LogEntries.Unprefixed(proof.FromRoot) is not { } fromRoot
             || LogEntries.Unprefixed(proof.ToRoot) is not { } toRoot)
@@ -499,14 +508,12 @@ public static class ActaCheck
             path.Add(decoded);
         }
 
-        return MerkleTree.VerifyConsistency(
-            proof.FromSize, proof.ToSize, fromRoot.AsSpan(), toRoot.AsSpan(), path.ToImmutable())
-            ? Check.Verified(Text(
-                $"the log at {proof.ToSize} leaves extends the head this client retained at {proof.FromSize}"))
-            : Check.Failed(Text(
-                $"the log at {proof.ToSize} leaves is NOT an extension of the head this client " +
-                $"retained at {proof.FromSize}. The log has equivocated, or one of the two heads is " +
-                "not this log's (R6.24)"));
+        if (MerkleTree.VerifyConsistency(proof.FromSize, proof.ToSize, fromRoot.AsSpan(), toRoot.AsSpan(), path.ToImmutable()))
+            return retainedIsSmaller ? RetainedHeadCheck.ServedExtends(retained, served) : RetainedHeadCheck.LaggingReplica(retained, served);
+
+        return Failed(retainedIsSmaller
+            ? Text($"the log at {served.TreeSize} leaves is not an extension of the log at {retained.TreeSize} leaves")
+            : Text($"the retained head's log at {retained.TreeSize} leaves does not extend the served head's at {served.TreeSize} leaves"));
     }
 
     /// <summary>

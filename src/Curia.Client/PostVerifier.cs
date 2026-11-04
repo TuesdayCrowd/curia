@@ -596,7 +596,7 @@ public sealed class PostVerifier
 
         try
         {
-            return await CompareAndRetainAsync(head, began, ct).ConfigureAwait(false);
+            return await CompareAndRetainAsync(head, anchor.LogKeys, began, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -608,7 +608,7 @@ public sealed class PostVerifier
     /// <see cref="ConsistencyAsync"/>'s read, fetch, compare and replace, which run only under the
     /// retained head's lock.
     /// </summary>
-    private async Task<Check> CompareAndRetainAsync(SignedHeadDocument head, DateTimeOffset began, CancellationToken ct)
+    private async Task<Check> CompareAndRetainAsync(SignedHeadDocument head, ImmutableArray<LogJwk> keys, DateTimeOffset began, CancellationToken ct)
     {
         // A head this client cannot read is not the same as one it never had. R6.53 permits
         // replacing a retained head only after a consistency proof verifies, and a file that is
@@ -632,23 +632,29 @@ public sealed class PostVerifier
                 $"this client had retained no earlier head for {Check.Quote(HeadStore.Origin(_forum.Forum))}, so there was nothing to compare against. The head at tree size {head.TreeSize} is now retained, and the next verification will check the log against it (R6.53)."));
         }
 
+        // R6.61: the retained head is verified by the check that verified the served head, under the key set that did, before anything about it is compared. A file that does not verify is evidence of
+        // nothing: could not be checked, nothing compared, the file left exactly as it is.
+        var retainedAt = retainedHead!.Value.RetainedAt;
+        if (ActaCheck.HeadSignature(retained, keys).Outcome is not CheckOutcome.Verified)
+            return RetainedHeadCheck.NotUsable(retained, retainedAt, keys, _heads.DirectoryFor(_forum.Forum));
+
         if (retained.TreeSize == head.TreeSize)
         {
             return string.Equals(retained.RootHash, head.RootHash, StringComparison.Ordinal)
                 ? Check.Verified(Invariant(
-                    $"the served head equals the head this client {RetainedWords(retainedHead!.Value.RetainedAt, began, head.TreeSize)}; no earlier tree was extended, so this shows the Forum has not changed this head, not that the log has grown consistently since"))
-                : Check.Failed(Invariant(
-                    $"two different roots at tree size {head.TreeSize}: this client retained {Check.Quote(retained.RootHash)} and the Forum now serves {Check.Quote(head.RootHash)}. The log has equivocated (R6.24). The retained head is kept."));
+                    $"the served head equals the head this client {RetainedWords(retainedAt, began, head.TreeSize)}; no earlier tree was extended, so this shows the Forum has not changed this head, not that the log has grown consistently since"))
+                : RetainedHeadCheck.FailedEqualSizes(retained, retainedAt, head);
         }
 
-        var (from, to) = retained.TreeSize < head.TreeSize ? (retained, head) : (head, retained);
+        // The proof runs from the smaller tree to the larger; which head that is, is worked out here and never printed as a label.
+        var (smallerSize, largerSize) = retained.TreeSize < head.TreeSize ? (retained.TreeSize, head.TreeSize) : (head.TreeSize, retained.TreeSize);
 
-        var fetched = await _forum.GetConsistencyProofAsync(from.TreeSize, to.TreeSize, ct).ConfigureAwait(false);
+        var fetched = await _forum.GetConsistencyProofAsync(smallerSize, largerSize, ct).ConfigureAwait(false);
         if (!fetched.TryGetValue(out var proof, out var refusal))
             return Check.CouldNotCheck(Invariant(
-                $"a consistency proof from {from.TreeSize} to {to.TreeSize} could not be fetched: {refusal!.Summary}. The retained head is kept."));
+                $"a consistency proof from {smallerSize} to {largerSize} could not be fetched: {refusal!.Summary}. The retained head is kept."));
 
-        var consistent = ActaCheck.Consistency(from, to, proof!);
+        var consistent = ActaCheck.Consistency(retained, head, proof!, retainedAt);
         if (consistent.Outcome is not CheckOutcome.Verified) return consistent;
 
         if (retained.TreeSize < head.TreeSize)
@@ -657,10 +663,7 @@ public sealed class PostVerifier
             return Check.Verified(consistent.Detail + "; the newer head is now the retained one");
         }
 
-        return Check.Verified(
-            consistent.Detail
-            + ". The Forum served an older head than this client retains -- a lagging replica rather "
-            + "than a rewrite -- so the retained head stands.");
+        return consistent;
     }
 
     /// <summary>

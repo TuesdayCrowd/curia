@@ -7,9 +7,9 @@ namespace Curia.Client.Tests;
 
 /// <summary>
 /// CWK54 and CWK34 (errata G59, R6.61, R11.83; plan ruling 21): the roles in the lagging replica's lines, from the stub log, and the words of the entry as the errata publishes them.
-/// CWK54 is in its failing form: on the seam <c>ActaCheck.Consistency</c> labels its two roots by the direction of the computation (<c>from</c> is the retained head, <c>to</c> the served one) and
-/// <c>CompareAndRetainAsync</c> makes the <i>served</i> head <c>from</c> when the Forum served the smaller (a lagging replica), so both labels are wrong together. The probe calls the check as the
-/// verifier does for the lagging shape (<c>from</c> is the served head); Task 4 moves the call to the retained-and-served signature it specifies.
+/// CWK54 held the defect that <c>ActaCheck.Consistency(from, to, proof)</c> labelled its two roots by the direction of the computation (<c>from</c> the retained head, <c>to</c> the served one) while the
+/// verifier made the <i>served</i> head <c>from</c> when the Forum served the smaller (a lagging replica), so both labels were wrong together; the check now takes the two heads by role
+/// (<c>Consistency(retained, served, proof)</c>), works the direction out itself and names each head by its role.
 /// </summary>
 [SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class RetainedHeadRoleTests : IDisposable
@@ -61,17 +61,17 @@ public sealed class RetainedHeadRoleTests : IDisposable
         var honest = Proof(4, 8);
         var problems = new List<string>();
 
-        var fromWrong = ActaCheck.Consistency(served, retained, honest with { FromRoot = honest.ToRoot });
+        var fromWrong = ActaCheck.Consistency(retained, served, honest with { FromRoot = honest.ToRoot });
         if (fromWrong.Outcome != CheckOutcome.Failed) problems.Add($"from_root wrong: expected FAILED, was {fromWrong.Outcome}");
         if (fromWrong.Detail.Contains($"the retained head's is {servedRoot}", StringComparison.Ordinal)) problems.Add($"from_root wrong: the retained head's is {servedRoot} (the served head's root, attributed to the retained head)");
         if (!fromWrong.Detail.Contains("served head", StringComparison.Ordinal)) problems.Add($"from_root wrong: the line does not name the served head (\"{fromWrong.Detail}\")");
 
-        var toWrong = ActaCheck.Consistency(served, retained, honest with { ToRoot = honest.FromRoot });
+        var toWrong = ActaCheck.Consistency(retained, served, honest with { ToRoot = honest.FromRoot });
         if (toWrong.Outcome != CheckOutcome.Failed) problems.Add($"to_root wrong: expected FAILED, was {toWrong.Outcome}");
         if (toWrong.Detail.Contains($"the served head's is {retainedRoot}", StringComparison.Ordinal)) problems.Add($"to_root wrong: the served head's is {retainedRoot} (the retained head's root, attributed to the served head)");
         if (!toWrong.Detail.Contains("retained head", StringComparison.Ordinal)) problems.Add($"to_root wrong: the line does not name the retained head (\"{toWrong.Detail}\")");
 
-        var success = ActaCheck.Consistency(served, retained, honest);
+        var success = ActaCheck.Consistency(retained, served, honest);
         if (success.Outcome != CheckOutcome.Verified) problems.Add($"honest proof: expected verified, was {success.Outcome}");
         if (!success.Detail.Contains("retained head (tree size 8)", StringComparison.Ordinal)) problems.Add($"honest proof: the line does not name the retained head as the larger (\"{success.Detail}\")");
         if (success.Detail.Contains("this client retained at 4", StringComparison.Ordinal)) problems.Add("honest proof: the line says the head was retained at 4, the served head's size");

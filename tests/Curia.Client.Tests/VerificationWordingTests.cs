@@ -29,9 +29,9 @@ public sealed class VerificationWordingTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private StubLog Log()
+    private StubLog Log(StubLog? logKeyOf = null)
     {
-        var log = new StubLog(5, 2, 1);
+        var log = new StubLog(5, 2, 1, logKeyOf: logKeyOf);
         _logs.Add(log);
         return log;
     }
@@ -74,8 +74,9 @@ public sealed class VerificationWordingTests : IDisposable
         scenarios.Add(new("no signed head", await VerifyAsync(unsigned, Heads("unsigned")), CheckOutcome.CouldNotCheck, 8));
 
         var forkHeads = Heads("fork");
-        await VerifyAsync(Log(), forkHeads);
-        scenarios.Add(new("fork at a size already seen", await VerifyAsync(Log(), forkHeads), CheckOutcome.Failed, 6));
+        var forkOne = Log();
+        await VerifyAsync(forkOne, forkHeads);
+        scenarios.Add(new("fork at a size already seen", await VerifyAsync(Log(forkOne), forkHeads), CheckOutcome.Failed, 6));
 
         var altered = Log();
         altered.AlterTheEntryPayload();

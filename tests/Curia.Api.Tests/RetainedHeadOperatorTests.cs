@@ -8,8 +8,12 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 using Curia.Canon.Json;
+using Curia.Canon.Jws;
+using Curia.Canon.Sodium;
 using Curia.Client;
+using Curia.Domain.Acta;
 using CliProgram = Curia.Client.Cli.Program;
 using Curia.Domain.Serving;
 using Curia.Mcp;
@@ -58,6 +62,9 @@ public sealed class HeadWorld : IAsyncLifetime
 
     internal SignedHeadDocument B4 { get; private set; } = null!;
 
+    /// <summary>Forum A's third head, with its size and root as served, signed by <see cref="ThirdKeyPem"/> under that key's kid (<see cref="B4"/>'s), which Forum A never publishes.</summary>
+    internal SignedHeadDocument A3ByThirdKey { get; private set; } = null!;
+
     /// <summary>The first post of Forum A: covered by every head of A.</summary>
     internal string PostId { get; private set; } = string.Empty;
 
@@ -104,6 +111,10 @@ public sealed class HeadWorld : IAsyncLifetime
         await SignAsync(B, ThirdKeyPem, ct);
         B4 = await HeadAsync(B, ct);
 
+        // Forum A's own head at its third size, signed again by the third key: a head of this very log, at a size and root Forum A serves, by a key Forum A has never published. A retained head
+        // that a build which compared before it verified would call a head that checks out (equal size, equal root), so the outcome tells the two builds apart and not only their words.
+        A3ByThirdKey = ResignedBy(A3, ThirdKeyPem, B4.Kid);
+
         KeyKid = A1.Kid;
         OtherKid = A3.Kid;
         Assert.NotEqual(KeyKid, OtherKid);
@@ -113,6 +124,22 @@ public sealed class HeadWorld : IAsyncLifetime
     {
         await A.DisposeAsync();
         await B.DisposeAsync();
+    }
+
+    /// <summary>
+    /// <paramref name="head"/>'s own object signed by <paramref name="pem"/> as a log head (the operator's typ and algorithm), under <paramref name="kid"/>: the same head, another key's signature.
+    /// </summary>
+    private static SignedHeadDocument ResignedBy(SignedHeadDocument head, string pem, string kid)
+    {
+        using var key = ECDsa.Create();
+        key.ImportFromPem(pem);
+        var canonical = LogEntries.HeadCanonical(head.Head).TryGetValue(out var bytes, out _) ? bytes : throw new InvalidOperationException("the head has no canonical form");
+        var jws = new DetachedJws(
+            new Dictionary<string, IContentSigner>(StringComparer.Ordinal) { ["ES256"] = new Es256Adapter() },
+            new Dictionary<string, IContentVerifier>(StringComparer.Ordinal),
+            DetachedJws.HeadTyp);
+        var signed = jws.Sign(canonical, new SigningKey("ES256", kid, key.ExportECPrivateKey()));
+        return signed.TryGetValue(out var value, out _) ? head with { Kid = kid, Signature = value!.Compact } : throw new InvalidOperationException("the head would not sign");
     }
 
     private static async Task<string> PostAsync(ForumFixture forum, ForumAgent agent, (DpopClient Client, string Token) session, string text, CancellationToken ct)
@@ -331,8 +358,8 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
     }
 
     /// <summary>
-    /// CWK24. A lagging replica that forked: the retained head (Forum B's, larger) against the served head (Forum A's older head): <c>FAILED</c>, the retained head's log named as not extending the
-    /// served head's, the roles right. Predicted red: <c>to_root: the line prints the retained head's root as "the served head's"</c> (measured by Task 0; the real plant reaches <c>to_root</c>).
+    /// CWK24. A lagging replica that forked: the retained head (Forum B's, larger) against the served head (Forum A's older head): <c>FAILED</c>, the retained head named by role as the head the Forum's proof
+    /// disagrees with, the roles right. Predicted red: <c>to_root: the line prints the retained head's root as "the served head's"</c> (measured by Task 0; the real plant reaches <c>to_root</c>).
     /// </summary>
     [Fact]
     public async Task R6_61_CWK24_ALaggingReplicaThatForkedNamesTheRolesRight()
@@ -347,7 +374,10 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
         if (run.Consistency.Outcome != CheckOutcome.Failed) problems.Add($"expected FAILED, was {Said(run)}");
         problems.AddRange(Missing(line, PublishedAgentWords.FailedProofWords));
         if (line.Contains("from_root", StringComparison.Ordinal) || line.Contains("to_root", StringComparison.Ordinal)) problems.Add($"{(line.Contains("to_root", StringComparison.Ordinal) ? "to_root" : "from_root")}: the line prints the proof's direction, not the heads' roles");
-        if (!line.Contains($"the retained head's log at {world.B3.TreeSize} leaves does not extend the served head's at {world.A1.TreeSize} leaves", StringComparison.Ordinal)) problems.Add("lacks the reason for the Forum having served the smaller head");
+        // The Forum's proof is computed from its own log (Forum A's), so its larger root is A's root at the retained head's size and disagrees with the retained head's: the reason of R11.83's list that a real plant
+        // reaches (plan ruling 21). The reason for a proof whose roots agree and whose path does not is the unit probes' (ActaCheckTests), which build the proof.
+        var expectedReason = $"the Forum's proof runs to {Check.Quote(world.A3.RootHash)} and the retained head's root is {Check.Quote(world.B3.RootHash)}";
+        if (!line.Contains(expectedReason, StringComparison.Ordinal)) problems.Add($"lacks the reason naming the retained head by role (\"{expectedReason}\")");
         if (problems.Count > 0) problems.Insert(0, $"actual line: \"{Start(line)}\"");
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
@@ -433,7 +463,7 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
     // ----- CWK26, CWK27, CWK28 -----
 
     /// <summary>
-    /// CWK26. A kid the Forum does not publish: a retained head signed by a key Forum A's set lacks (Forum B's third key): <c>COULD NOT BE CHECKED</c> in the key words (<c>copy it aside</c>); the control
+    /// CWK26. A kid the Forum does not publish: a retained head signed by a key Forum A's set lacks (the third key, over Forum A's own head at its served size and root): <c>COULD NOT BE CHECKED</c> in the key words (<c>copy it aside</c>); the control
     /// (M6): a head signed by a log key that is still published but no longer the newest verifies. Predicted red: <c>FAILED</c>.
     /// </summary>
     [Fact]
@@ -441,7 +471,8 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
     {
         var problems = new List<string>();
         var heads = Heads();
-        Retain(heads, world.B4);
+        // Forum A's own head at its served size and root, signed by a key Forum A does not publish: a build that compared first would call it a head that checks out.
+        Retain(heads, world.A3ByThirdKey);
         var run = await VerifyAsync(world.A.Client, heads);
         if (run.Consistency.Outcome != CheckOutcome.CouldNotCheck || run.Consistency.NothingToCompare) problems.Add($"expected COULD NOT BE CHECKED, was {Said(run)}");
         problems.AddRange(Missing(Line(run), PublishedAgentWords.KeyWords));
@@ -455,14 +486,14 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
     }
 
     /// <summary>
-    /// CWK27. A stranger's key under a published kid: Forum B's third-key head whose <c>kid</c> member names a kid the log does publish: the signature fails, so the signature words and not the key words.
+    /// CWK27. A stranger's key under a published kid: the third-key head whose <c>kid</c> member names a kid the log does publish: the signature fails, so the signature words and not the key words.
     /// Predicted red: <c>FAILED</c>.
     /// </summary>
     [Fact]
     public async Task R6_61_CWK27_AStrangersKeyUnderAPublishedKidIsTheSignatureCase()
     {
         var heads = Heads();
-        Retain(heads, EditedKid(world.B4, world.KeyKid));
+        Retain(heads, EditedKid(world.A3ByThirdKey, world.KeyKid));
         var run = await VerifyAsync(world.A.Client, heads);
         var problems = new List<string>();
         if (run.Consistency.Outcome != CheckOutcome.CouldNotCheck || run.Consistency.NothingToCompare) problems.Add($"expected COULD NOT BE CHECKED, was {Said(run)}");
@@ -631,8 +662,8 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
             heads.Write(world.Origin, head, RetainedAt);
             var cli = await VerifyWithTheCliAsync(world.A.Client, cliHome);
 
-            var mcpHeads = Heads();
-            Retain(mcpHeads, head);
+            // The same home for both clients: the line names the directory the file is in, so two homes would print two lines. The CLI left the file as it was (a bad head is never replaced).
+            var mcpHeads = new HeadStore(cliHome);
             var tools = new ForumTools(new ForumClient(world.A.Client, world.Origin), MarkingMode.None, mcpHeads);
             var result = await tools.VerifyAsync(world.PostId, null, Ct);
             var mcpText = string.Join('\n', result.Content.OfType<TextContentBlock>().Select(b => b.Text));
@@ -666,7 +697,7 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
     }
 
     /// <summary>
-    /// CWK35. The verdicts: a bad retained head with a good post is exit 8 and <c>NOT ESTABLISHED</c>, never 6; a fork is 6; the first read is the existing line (exit 0). Predicted red: <c>exit 6</c> for an edited
+    /// CWK35. The verdicts: a bad retained head with a good post is exit 8 (and <c>curia_verify</c>'s verdict <c>NOT ESTABLISHED</c>), never 6; a fork is 6; the first read is the existing line (exit 0). Predicted red: <c>exit 6</c> for an edited
     /// root, <c>exit 0</c> for a flipped signature.
     /// </summary>
     [Fact]
@@ -686,7 +717,13 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
             if (head is not null) new HeadStore(home).Write(world.Origin, head, RetainedAt);
             var run = await VerifyWithTheCliAsync(world.A.Client, home);
             if (run.Exit != exit) problems.Add($"{name}: exit {run.Exit}, expected {exit}");
-            if (exit == 8 && !(run.Stdout + run.Stderr).Contains("NOT ESTABLISHED", StringComparison.Ordinal)) problems.Add($"{name}: no \"NOT ESTABLISHED\" in the verdict");
+            if (exit == 8)
+            {
+                // The verdict's closing text ("NOT ESTABLISHED") is the one curia_verify prints (PostVerification.Render); curia verify prints the checks and exits with the verdict's code.
+                var tools = new ForumTools(new ForumClient(world.A.Client, world.Origin), MarkingMode.None, new HeadStore(home));
+                var verdict = await tools.VerifyAsync(world.PostId, null, Ct);
+                if (!string.Join('\n', verdict.Content.OfType<TextContentBlock>().Select(b => b.Text)).Contains("NOT ESTABLISHED", StringComparison.Ordinal)) problems.Add($"{name}: no \"NOT ESTABLISHED\" in curia_verify's verdict");
+            }
             Directory.Delete(home, recursive: true);
         }
 
@@ -697,7 +734,7 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
 
     /// <summary>
     /// CWK36. An independent verifier: the plants of CWK21, CWK25 and CWK26 given to <c>curia-testis log head --head &lt;retained file&gt; --log-jwks &lt;jwks&gt;</c>: it accepts the real heads and rejects the flipped,
-    /// edited and foreign ones, and the client's verdict on the retained head (<c>RetainedHeadCheck.Signature</c>) is asserted equal in accept or reject on each; the reasons are recorded, not asserted
+    /// edited and foreign ones, and the client's verdict on the retained head (through the verifier's real path, <c>PostVerifier</c>) is asserted equal in accept or reject on each; the reasons are recorded, not asserted
     /// equal (an edited <c>kid</c> is <c>kid-mismatch</c> there, signature or key words here). A missing binary is a failure, not a skip. Predicted red: the seam's check accepts every head.
     /// </summary>
     [Fact]
@@ -706,9 +743,6 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
         var jwks = Path.Combine(_home, "log-jwks.json");
         using (var response = await world.A.Client.GetAsync(new Uri("/v1/log/jwks", UriKind.Relative), Ct))
             await File.WriteAllBytesAsync(jwks, await response.Content.ReadAsByteArrayAsync(Ct), Ct);
-
-        var keys = await new ForumClient(world.A.Client, world.Origin).GetLogJwksAsync(Ct);
-        Assert.True(keys.TryGetValue(out var published, out var refusal), refusal?.Summary);
 
         var binary = TestisBinary.Locate();
         var plants = new (string Name, SignedHeadDocument Head)[]
@@ -726,7 +760,10 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
             Retain(heads, head);
             var (code, stdout, stderr) = TestisBinary.Run(binary, $"log head --head \"{FileOf(heads)}\" --log-jwks \"{jwks}\"");
             var testisAccepts = code == 0;
-            var clientAccepts = RetainedHeadCheck.Signature(head, published).Outcome == CheckOutcome.Verified;
+            // The client's verdict on the retained head is the one the verifier gives on the real path (R6.61): a head that does not verify is could-not-be-checked with something to compare; one that verifies is
+            // compared (verified, or failed against the served head). Run last, since a verified extension replaces the file.
+            var run = await VerifyAsync(world.A.Client, heads);
+            var clientAccepts = !(run.Consistency.Outcome == CheckOutcome.CouldNotCheck && !run.Consistency.NothingToCompare);
             reasons.Add($"{name}: testis {(testisAccepts ? "accepts" : "rejects")} ({Start(Fold((stdout + " " + stderr).Trim()))})");
             if (testisAccepts != clientAccepts) problems.Add($"{name}: the independent verifier {(testisAccepts ? "accepts" : "rejects")} and the client {(clientAccepts ? "accepts" : "rejects")}");
             Directory.Delete(heads.DirectoryFor(world.Origin), recursive: true);

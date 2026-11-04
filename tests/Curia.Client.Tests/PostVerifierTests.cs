@@ -280,7 +280,7 @@ public sealed class PostVerifierTests : IDisposable
         var second = await VerifyAsync(log, heads);
 
         Assert.Equal(CheckOutcome.Verified, second.Consistency.Outcome);
-        Assert.Contains("extends the head this client retained", second.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains("the head the Forum now serves (tree size 8) extends the retained head (tree size 4)", second.Consistency.Detail, StringComparison.Ordinal);
         Assert.Equal(8, heads.Read(StubLog.Forum)!.TreeSize);
         Assert.Equal(CheckOutcome.Verified, second.Overall);
     }
@@ -304,7 +304,7 @@ public sealed class PostVerifierTests : IDisposable
         var retained = heads.Read(StubLog.Forum)!;
 
         // A second Forum on the same origin, with a different tree at the same size: the fork.
-        var fork = Log();
+        var fork = Log(logKeyOf: log);
         Assert.NotEqual(retained.RootHash, ForkRoot(fork, log.HeadTreeSize));
 
         var result = await VerifyAsync(fork, heads);
@@ -1038,9 +1038,9 @@ public sealed class PostVerifierTests : IDisposable
     private static string ForkRoot(StubLog fork, int treeSize) =>
         Curia.Domain.Acta.LogEntries.Prefixed(fork.RootAt(treeSize));
 
-    private StubLog Log(int treeSize = 5, int postIndex = 2, int keyIndex = 1)
+    private StubLog Log(int treeSize = 5, int postIndex = 2, int keyIndex = 1, StubLog? logKeyOf = null)
     {
-        var log = new StubLog(treeSize, postIndex, keyIndex);
+        var log = new StubLog(treeSize, postIndex, keyIndex, logKeyOf: logKeyOf);
         _logs.Add(log);
         return log;
     }
