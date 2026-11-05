@@ -18,6 +18,7 @@ internal static partial class PublishedNameWords
     private const string MemberAnchor = "**R9.55 words.**";
     private const string BoardNewAnchor = "**R8.88 words.**";
     private const string ReadAnchor = "**R9.57 words.**";
+    private const string ClientAnchor = "**R11.86 and R11.87 words.**";
 
     /// <summary>R9.55's member name: the one span that follows "The member is".</summary>
     internal static string UnmatchedMember() => OneSpan(MemberAnchor, "unmatched_filters");
@@ -50,6 +51,9 @@ internal static partial class PublishedNameWords
 
     /// <summary>The tail of R9.57's detail: the span that begins "this route reads exactly these:".</summary>
     internal static string UnknownDetailTail() => OneSpan(ReadAnchor, "this route reads exactly these:");
+
+    /// <summary>R11.87's sentence the instructions of <c>curia-mcp</c> end with: the one span of R11.86 and R11.87 words that begins "A string argument is text:".</summary>
+    internal static string InstructionsSentence() => OneSpan(ClientAnchor, "A string argument is text:");
 
     /// <summary>The clause for a filter whose name is not in <c>unmatched_filters</c>, with <c>&lt;name&gt;</c> and <c>&lt;typed&gt;</c> as published.</summary>
     internal static string MatchedClause() => OneSpan(FiltersAnchor, "<name> <typed>: a post the Forum serves bears it");
@@ -112,10 +116,13 @@ internal static partial class PublishedNameWords
     }
 
     /// <summary>The code spans of the paragraph. Runs of spaces inside a span are kept (the labels of the lines are columns); only a line break inside a span is folded.</summary>
-    private static List<string> Spans(string anchor) =>
-        Span().Matches(Paragraph(anchor)).Select(m => LineBreak().Replace(m.Groups[1].Value, " ")).ToList();
+    private static List<string> Spans(string anchor) => SpansIn(ErrataText(), anchor);
 
-    private static string Paragraph(string anchor)
+    /// <summary>The code spans of the paragraph that begins <paramref name="anchor"/> in <paramref name="errataText"/> (a seam for NMN54: a text of the probe's own).</summary>
+    internal static List<string> SpansIn(string errataText, string anchor) =>
+        Span().Matches(ParagraphIn(errataText, anchor)).Select(m => LineBreak().Replace(m.Groups[1].Value, " ")).ToList();
+
+    private static string ErrataText()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, Errata)))
@@ -124,7 +131,11 @@ internal static partial class PublishedNameWords
         if (dir is null)
             throw new InvalidOperationException($"{Errata} not found above {AppContext.BaseDirectory}");
 
-        var text = File.ReadAllText(Path.Combine(dir.FullName, Errata));
+        return File.ReadAllText(Path.Combine(dir.FullName, Errata));
+    }
+
+    private static string ParagraphIn(string text, string anchor)
+    {
         var start = text.IndexOf(anchor, StringComparison.Ordinal);
         if (start < 0)
             throw new InvalidOperationException($"{Errata} has no paragraph that begins \"{anchor}\"");

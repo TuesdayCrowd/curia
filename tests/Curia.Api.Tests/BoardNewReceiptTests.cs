@@ -227,4 +227,54 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
             ["a served post on the spelling: false", "a board whose only post is withheld: true", "a served post under another case: true"],
             [$"a served post on the spelling: {BoardNewOf(control)}", $"a board whose only post is withheld: {BoardNewOf(withheld)}", $"a served post under another case: {BoardNewOf(differentCase)}"]);
     }
+
+    /// <summary>
+    /// NMN47 (Amendment 3, ruling 35). The member is computed before the near-duplicate check, so a question whose text the embedder finds no features in (the check answers <c>none</c> for it
+    /// before it looks at the board) still carries it: a first question of punctuation only is <c>board_new: true</c> and a second, different one on the same board is <c>false</c>. A control
+    /// that the embedder places neither text comes first (so the rows are the no-features case and not another). Red on the seam like NMN15; <b>green on the tree</b>, because the route's order
+    /// is right and nothing held it, so its value is FNMN50.
+    /// </summary>
+    [Fact]
+    public async Task R8_88_NMN47_AQuestionOfPunctuationOnlyStillCarriesTheMember()
+    {
+        var embedder = forum.Services.GetRequiredService<ITextEmbedder>();
+        foreach (var text in new[] { "?!\n?!", "??\n!?" })
+        {
+            var embedded = embedder.Embed(text);
+            Assert.False(embedded.TryGetValue(out _, out var embedError), $"NOT REACHED: the embedder placed {text.Replace("\n", " / ", StringComparison.Ordinal)}");
+            Assert.Equal(Curia.Domain.Search.EmbeddingErrors.NoFeatures().Type, embedError!.Type);
+        }
+
+        var asker = await AcceptedAnswerScene.EnrolAsync(forum, "nmn47", Ct);
+        var board = Board();
+
+        var first = await RevisionProbe.SendAsync(forum, asker, asker.Agent.SignQuestion(board, "?!", "?!", forum.Now, tags: []), cancellationToken: Ct);
+        var second = await RevisionProbe.SendAsync(forum, asker, asker.Agent.SignQuestion(board, "!?", "??", forum.Now, tags: []), cancellationToken: Ct);
+
+        Said(
+            ["a first question of punctuation: true", "a second, different one on the same board: false"],
+            [$"a first question of punctuation: {BoardNewOf(first)}", $"a second, different one on the same board: {BoardNewOf(second)}"]);
+    }
+
+    /// <summary>
+    /// NMN53 (ruling 36, M12; the half of non-property (d) that can be driven). One agent's two simultaneous first questions on one board are queued by the agent's hold (R7.27), so the second
+    /// is decided on a log that holds the first: exactly one answers <c>true</c> and one <c>false</c>, never both <c>true</c>. The race between two agents is a recorded non-property and has no
+    /// probe (ruling 37). Falsification FNMN56.
+    /// </summary>
+    [Fact]
+    public async Task R8_88_NMN53_OneAgentsTwoSimultaneousFirstQuestionsAnswerTrueOnceAndFalseOnce()
+    {
+        var asker = await AcceptedAnswerScene.EnrolAsync(forum, "nmn53", Ct);
+        var board = Board();
+        var token = await asker.Dpop.GetTokenAsync(forum.Client, RevisionProbe.TokenEndpoint, forum.Now, Ct);
+
+        var sent = await RevisionProbe.TogetherAsync(
+            Enumerable.Range(0, 2).Select<int, Func<Task<Sent>>>(_ => () => RevisionProbe.SendViaAsync(forum, null, asker, Question(asker, board, forum.Now), token, Ct)));
+
+        var statuses = string.Join(" and ", sent.Select(x => x.Says));
+        var members = string.Join(" and ", sent.Select(BoardNewOf).Order(StringComparer.Ordinal));
+        Said(
+            ["answered 201 and 201", "board_new false and true"],
+            [$"answered {statuses}", $"board_new {members}"]);
+    }
 }

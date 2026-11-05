@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Curia.Application.Ports;
 using Curia.Domain;
+using Curia.Domain.Authorization;
 using Curia.Domain.Primitives;
 using Curia.Tests.Shared;
 using Microsoft.AspNetCore.TestHost;
@@ -126,36 +127,84 @@ public sealed class ReadRouteUnknownNameTests(PassThroughGateForumFixture forum)
     }
 
     /// <summary>
-    /// NMN27. The order: the unknown-name refusal of each route reads the log exactly as many times as the board listing's refusal of a name does (both are made after the allowed
-    /// check and before the log), and the batch's refusals of its body (<c>batch-malformed</c>) keep their place before the name. Predicted red on the seam: the three routes read the
-    /// log and serve.
+    /// A decorator that denies an anonymous read of a thread (the resource and action the three read routes ask the policy about) while <c>deny</c> says so, and forwards everything else.
+    /// It is the seam that makes a denied anonymous read constructible; it fabricates nothing but the denial.
+    /// </summary>
+    private sealed class DenyingThreadReads(IPolicyDecisionPoint inner, Func<bool> deny) : IPolicyDecisionPoint
+    {
+        public ValueTask<Result<AuthorizationDecision>> EvaluateAsync(AuthorizationRequest request, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            return deny() && request.Resource == ResourceKind.Thread && request.Action == ActionKind.Read
+                ? ValueTask.FromResult(Result<AuthorizationDecision>.Ok(new AuthorizationDecision(DecisionEffect.Deny, "table-10/denied", GrantQualifier.None)))
+                : inner.EvaluateAsync(request, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// NMN27 (rewritten in Amendment 3, ruling 36, M4: as built it could not see the order, because the policy never denied). The order, in both of its halves, on each of the three routes:
+    /// with the policy denying an anonymous read of a thread, a request that carries an unknown name is answered the denial (<c>403 curia/authz/denied</c>) and not the name, and the log is read
+    /// zero times; with the policy allowing, the same request is answered the unknown-name refusal and the log is read zero times. So the name is refused after the allowed check and before the
+    /// log is read. The batch's refusal of its body (<c>batch-malformed</c>) keeps its place before the name. Falsification FNMN30 (the name before the allowed check) and FNMN31 (after the log read).
     /// </summary>
     [Fact]
     public async Task R9_57_NMN27_TheNameIsRefusedAfterTheAllowedCheckAndBeforeTheLogIsRead()
     {
         var counter = new Counter();
+        var deny = false;
         await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<IEventReader>(sp => new CountingReader(sp.GetRequiredService<IEventStore>(), counter))));
+        {
+            services.AddSingleton<IEventReader>(sp => new CountingReader(sp.GetRequiredService<IEventStore>(), counter));
+            var decisions = services.Last(d => d.ServiceType == typeof(IPolicyDecisionPoint));
+            if (decisions.ImplementationFactory is null) throw new InvalidOperationException("IPolicyDecisionPoint is registered by a factory; this decorator wraps what it builds");
+            services.Remove(decisions);
+            services.AddSingleton<IPolicyDecisionPoint>(sp => new DenyingThreadReads((IPolicyDecisionPoint)decisions.ImplementationFactory(sp), () => Volatile.Read(ref deny)));
+        }));
         using var client = host.CreateClient();
         var (_, stored) = await StoreQuestionAsync(forum, Board(), Ct);
         var batchBody = JsonSerializer.Serialize(new { digests = new[] { stored.Digest } });
+        var (postsType, threadsType) = PublishedNameWords.UnknownTypes();
 
-        async Task<int> ReadsAsync(Func<Task<NameReply>> request)
+        async Task<NameReply> Send(int route) => route switch
         {
-            counter.Count = 0;
-            await request();
-            return counter.Count;
+            0 => await GetAsync(client, $"/v1/posts/{stored.PostId}?x=1", ct: Ct),
+            1 => await GetAsync(client, $"/v1/threads/{stored.PostId}?x=1", ct: Ct),
+            _ => await BatchAsync(client, "?x=1", batchBody, Ct),
+        };
+
+        var routes = new (string Name, string Refused)[]
+        {
+            ("GET /v1/posts/{id}", "400 " + postsType),
+            ("GET /v1/threads/{id}", "400 " + threadsType),
+            ("POST /v1/posts/batch", "400 " + postsType),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var allowing in new[] { false, true })
+        {
+            Volatile.Write(ref deny, !allowing);
+            try
+            {
+                for (var route = 0; route < routes.Length; route++)
+                {
+                    counter.Count = 0;
+                    var reply = await Send(route);
+                    expected.Add($"{(allowing ? "allowed" : "denied")} {routes[route].Name} ?x=1: {(allowing ? routes[route].Refused : "403 curia/authz/denied")}, 0 reads");
+                    actual.Add($"{(allowing ? "allowed" : "denied")} {routes[route].Name} ?x=1: {reply.Says}, {counter.Count} reads");
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref deny, false);
+            }
         }
 
-        var listing = await ReadsAsync(() => GetAsync(client, "/v1/boards/b/posts?x=1", ct: Ct));
-        var single = await ReadsAsync(() => GetAsync(client, $"/v1/posts/{stored.PostId}?x=1", ct: Ct));
-        var thread = await ReadsAsync(() => GetAsync(client, $"/v1/threads/{stored.PostId}?x=1", ct: Ct));
-        var batch = await ReadsAsync(() => BatchAsync(client, "?x=1", batchBody, Ct));
         var malformed = await BatchAsync(client, "?x=1", """{"post_ids":"01ABC"}""", Ct);
+        expected.Add("a malformed body with a name: 400 curia/posts/batch-malformed");
+        actual.Add($"a malformed body with a name: {malformed.Says}");
 
-        Said(
-            [$"reads: single {listing}, thread {listing}, batch {listing} (the listing's own refusal's)", "a malformed body with a name: 400 curia/posts/batch-malformed"],
-            [$"reads: single {single}, thread {thread}, batch {batch} (the listing's own refusal's)", $"a malformed body with a name: {malformed.Says}"]);
+        Said(expected, actual);
     }
 
     /// <summary>

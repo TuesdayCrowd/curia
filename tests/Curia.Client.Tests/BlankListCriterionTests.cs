@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
@@ -139,6 +140,38 @@ public sealed class BlankListCriterionTests : IDisposable
             var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));
             if (!string.Equals(e, a, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {e}{Environment.NewLine}Actual:   {a}");
         }
+    }
+
+    /// <summary>
+    /// NMN52 (Amendment 3, ruling 36, M3). The library's <c>kinds</c> are judged by the test the Forum refuses a list by (<see cref="Curia.Domain.Primitives.QueryValue.NamesNothing"/>), and not
+    /// by <c>IsNullOrWhiteSpace</c> on each item: <c>[","]</c>, <c>[" "]</c> and <c>["question", ","]</c> are refused locally and nothing is sent, while <c>["question"]</c> is sent. A comma
+    /// item names nothing and the Forum refuses it as the blank <c>kind</c> it is; the old per-item test sent it. Predicted red on the tree: the comma rows are sent. Falsification FNMN55.
+    /// </summary>
+    [Fact]
+    public async Task R11_86_NMN52_TheLibraryRefusesKindsThatNameNothingIncludingAComma()
+    {
+        using var log = new StubLog();
+        var client = log.Client();
+        var rows = new (string Name, ImmutableArray<string> Kinds, bool Sent)[]
+        {
+            ("a real kind (the control)", ["question"], true),
+            ("a comma", [","], false),
+            ("a blank", [" "], false),
+            ("a real kind and a comma", ["question", ","], false),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (name, kinds, sent) in rows)
+        {
+            log.Requests.Clear();
+            var result = await client.SearchAsync(new SearchRequest("x") { Kinds = kinds }, MarkingMode.None, Ct);
+            expected.Add($"{name}: {(sent ? "served" : "refused locally")}, {(sent ? 1 : 0)} requests");
+            actual.Add($"{name}: {Said(result.TryGetValue(out _, out var refusal), refusal)}, {log.Requests.Count(r => r.StartsWith("GET /v1/search", StringComparison.Ordinal))} requests");
+        }
+
+        var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));
+        if (!string.Equals(e, a, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {e}{Environment.NewLine}Actual:   {a}");
     }
 
     /// <summary>What the net did, in the probe's words: a local refusal is one made on this side, before a request is built.</summary>

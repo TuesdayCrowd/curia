@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using Curia.Canon.Json;
 using Curia.Client;
+using Curia.Domain.Content;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
 using ModelContextProtocol.Protocol;
@@ -120,7 +121,7 @@ public sealed partial class NameWordsToolTests : IDisposable
     /// <summary>
     /// NMN38. The receipt of <c>curia_ask</c> carries the <c>board_new</c> line in each of the three states (true, false, <c>NOT STATED</c>) with the board a display literal;
     /// <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_revise</c> carry none even where the receipt holds the member. Predicted red on the seam: no line for the question. The
-    /// resend's receipt is not driven here (it needs a kept act); the one definition's fence is NMN42.
+    /// resend's receipt is NMN46's; the one definition's fence is NMN42.
     /// </summary>
     [Fact]
     public async Task R10_97_NMN38_TheReceiptOfAQuestionCarriesTheBoardNewLineAndNoOtherToolDoes()
@@ -157,10 +158,72 @@ public sealed partial class NameWordsToolTests : IDisposable
         if (!string.Equals(e, a, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {e}{Environment.NewLine}Actual:   {a}");
     }
 
+    /// <summary>A kept act of the agent's own (a question, a finding or an answer), planted in the published form for <c>curia_resend</c>; its digest.</summary>
+    private static string PlantKept(StubLog log, string kind, string board)
+    {
+        Assert.True(log.Store.Load("alice").TryGetValue(out var agent, out var loadError), loadError?.Detail);
+        using (agent)
+        {
+            var draft = new PostDraft
+            {
+                Kind = kind switch { "question" => PostKind.Question, "finding" => PostKind.Finding, _ => PostKind.Answer },
+                Board = board,
+                Title = kind == "answer" ? null : "A title?",
+                Parent = kind == "answer" ? StubLog.PostId : null,
+                Body = "A kept body " + Guid.NewGuid().ToString("N"),
+            };
+            Assert.True(SubmissionBuilder.Build(agent!, draft, DateTimeOffset.UtcNow).TryGetValue(out var signed, out var error), error?.Type);
+            KeptActFiles.Plant(Path.Combine(log.Store.DirectoryFor("alice"), "acts"), signed!, kind, HeadStore.Origin(StubLog.Forum), agent!.Profile.AgentId, attempts: 1, lastAnswer: "503", board: board);
+            return signed!.PrefixedDigest;
+        }
+    }
+
+    /// <summary>The text of <c>curia_resend</c>'s result for a kept act of <paramref name="kind"/> sent to a Forum whose receipt carries the given <c>board_new</c>.</summary>
+    private async Task<string> ResentTextAsync(string kind, string? boardNewJson)
+    {
+        using var log = new StubLog { ReceiptBoardNewJson = boardNewJson };
+        var digest = PlantKept(log, kind, "b");
+        return Text(await ToolsOver(log).ResendAsync(digest, Ct));
+    }
+
     /// <summary>
-    /// NMN41. The version of the adapter is 0.10.4 (R10.97 and R11.87 change what its tools print and describe), and its instructions, with an identity and without, say that a string
-    /// argument is text and must not hold an unpaired surrogate escape, which the protocol layer refuses before the adapter sees the call (item 95 is the SDK's: ruling 20). Predicted
-    /// red on the seam: 0.10.3 and no sentence.
+    /// NMN46 (Amendment 3, ruling 34). The receipt of <c>curia_resend</c> of a kept question and of a kept finding carries the <c>board_new</c> line in each of the three states, the board a
+    /// display literal from the kept act's header, and a kept answer's carries none even where the receipt holds the member. <b>A control on the tree</b> (<c>ResendTools</c> already writes the
+    /// line; the build left the probe unwritten, and a comment is not a probe): its value is FNMN48.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN46_TheReceiptOfAResendOfAKeptQuestionAndOfAKeptFindingCarriesTheBoardNewLine_Control()
+    {
+        var (lineTrue, lineFalse, lineNotStated) = PublishedNameWords.ReceiptLines();
+        string Of(string line) => Fold(line.Replace("<board>", Lit("b"), StringComparison.Ordinal));
+        var expected = new List<string>();
+        var actual = new List<string>();
+
+        var rows = new (string Kind, string? Json, string Line)[]
+        {
+            ("question", "false", lineFalse), ("question", "true", lineTrue), ("question", null, lineNotStated),
+            ("finding", "false", lineFalse), ("finding", "true", lineTrue), ("finding", null, lineNotStated),
+        };
+        foreach (var (kind, json, line) in rows)
+        {
+            var lines = (await ResentTextAsync(kind, json)).Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').Select(Fold).ToArray();
+            expected.Add($"resend {kind} {json ?? "(no member)"}: the line {Of(line)}");
+            actual.Add($"resend {kind} {json ?? "(no member)"}: {(lines.Contains(Of(line)) ? "the line " + Of(line) : "not the line; " + string.Join(" / ", lines.Where(l => l.StartsWith("board_new", StringComparison.Ordinal)).DefaultIfEmpty("no board_new line")))}");
+        }
+
+        var answered = await ResentTextAsync("answer", "true");
+        expected.Add("resend answer: no board_new line");
+        actual.Add($"resend answer: {(answered.Contains("board_new", StringComparison.Ordinal) ? "a board_new line" : "no board_new line")}");
+
+        var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));
+        if (!string.Equals(e, a, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {e}{Environment.NewLine}Actual:   {a}");
+    }
+
+    /// <summary>
+    /// NMN41. The version of the adapter is 0.10.4 (R10.97 and R11.87 change what its tools print and describe), and its instructions, with an identity and without, carry the sentence
+    /// R11.86 and R11.87 words publishes (read from the errata by <see cref="PublishedNameWords.InstructionsSentence"/>, character for character, whitespace folded), which says that a string
+    /// argument is text and must not hold an unpaired surrogate escape, which the protocol layer refuses before the adapter sees the call (item 95 is the SDK's: ruling 20). Amendment 3, ruling 36
+    /// (M5): the check is the published sentence and not two of its words. Predicted red on the seam: 0.10.3 and no sentence; on the tree the sentence is the published one, so FNMN60 is its row.
     /// </summary>
     [Fact]
     public void R11_87_NMN41_TheVersionIs0104AndTheInstructionsSayWhatAStringArgumentMayNotHold()
@@ -168,12 +231,12 @@ public sealed partial class NameWordsToolTests : IDisposable
         using var log = new StubLog();
         var tools = ToolsOver(log);
         var names = ToolCatalogue.WriteToolNames(tools);
-        var withIdentity = ToolText.ServerInstructions("urn:curia:agent:alice", names);
-        var withoutIdentity = ToolText.ServerInstructions(null, names);
-        var sentence = (string Text) => Text.Contains("string argument", StringComparison.Ordinal) && Text.Contains("unpaired surrogate", StringComparison.Ordinal);
+        var withIdentity = Fold(ToolText.ServerInstructions("urn:curia:agent:alice", names));
+        var withoutIdentity = Fold(ToolText.ServerInstructions(null, names));
+        var sentence = Fold(PublishedNameWords.InstructionsSentence());
 
-        var expected = "version 0.10.4; the instructions with an identity carry the sentence; the instructions without one carry the sentence";
-        var actual = $"version {ToolCatalogue.Version}; the instructions with an identity {(sentence(withIdentity) ? "carry" : "do not carry")} the sentence; the instructions without one {(sentence(withoutIdentity) ? "carry" : "do not carry")} the sentence";
+        var expected = "version 0.10.4; the instructions with an identity carry the published sentence; the instructions without one carry the published sentence";
+        var actual = $"version {ToolCatalogue.Version}; the instructions with an identity {(withIdentity.Contains(sentence, StringComparison.Ordinal) ? "carry" : "do not carry")} the published sentence; the instructions without one {(withoutIdentity.Contains(sentence, StringComparison.Ordinal) ? "carry" : "do not carry")} the published sentence";
         if (!string.Equals(expected, actual, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }
 

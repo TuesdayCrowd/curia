@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Curia.Canon.Json;
 using Curia.Client.Cli;
+using Curia.Domain.Content;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
 using Xunit;
@@ -219,6 +220,83 @@ public sealed class NameWordsCliTests
             ]);
     }
 
+    /// <summary>An inbox page whose member is the given JSON, or absent when <paramref name="unmatchedJson"/> is null (an older Forum's page).</summary>
+    private static string InboxPageOrOlder(string? unmatchedJson, int open) =>
+        unmatchedJson is not null
+            ? InboxPage(unmatchedJson, open)
+            : $$"""{"results":[],"open_before_exclusions":{{open}},"excluded_as_own":0,"excluded_as_already_answered":{{(open == 0 ? 0 : 1)}}}""";
+
+    /// <summary>
+    /// NMN49 (Amendment 3, ruling 36, M9). An inbox page whose <c>unmatched_filters</c> is no array of the two names (a string, null, an object, a foreign name, a non-string item) is a
+    /// malformed page and a non-zero exit, as the search page's is (NMN31's theory); it is never read as an absent member (a malformed word read as nothing). The inbox's reader is not the
+    /// search's, so the search's pin does not hold it. Falsification FNMN52.
+    /// </summary>
+    [Theory]
+    [InlineData("\"board\"")]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("[\"bogus\"]")]
+    [InlineData("[\"board\",7]")]
+    public async Task R10_97_NMN49_AnInboxMemberThatIsNoArrayOfTheTwoNamesIsAMalformedPage(string json)
+    {
+        var (exit, stdout, _) = await InboxAsync(InboxPage(json, open: 0), "--board", "rust");
+
+        Assert.True(exit != 0, $"Expected: a failure Actual: exit 0 and {stdout}");
+    }
+
+    /// <summary>
+    /// NMN50 (ruling 36, M9). An inbox board named against a page with no member (an older Forum) prints the <c>NOT STATED</c> clause and the nothing-needs-an-answer sentence: the page is
+    /// empty and the word about the name was not given, so the sentence stands and the line beside it says why nothing is claimed. Falsification FNMN53.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN50_AnInboxBoardWithNoMemberPrintsNotStatedAndTheNothingNeedsAnAnswerSentence()
+    {
+        var (exit, stdout, stderr) = await InboxAsync(InboxPageOrOlder(null, open: 0), "--board", "rust");
+
+        var lines = Lines(stdout);
+        Assert.True(exit == 0, $"exit {exit}; stderr: {stderr}");
+        Said(
+            ["the NOT STATED clause first", "the nothing-needs-an-answer sentence after it"],
+            [
+                lines.FirstOrDefault() == PublishedNameWords.FiltersLabel() + NotStated("board", "rust") ? "the NOT STATED clause first" : "no NOT STATED clause first: " + lines.FirstOrDefault(),
+                lines.Skip(1).Any(l => l.StartsWith(PublishedNameWords.NothingNeedsAnAnswer().TrimEnd('.'), StringComparison.Ordinal)) ? "the nothing-needs-an-answer sentence after it" : "no sentence after it: " + stdout,
+            ]);
+    }
+
+    /// <summary>
+    /// NMN51 (ruling 36, M9). A search whose board and author are both unmatched prints one <c>filters</c> line with the two clauses joined by <c>; </c>, the board first, and not two lines.
+    /// Falsification FNMN54.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN51_BothFiltersUnmatchedArePrintedOnOneLineJoinedBySemicolon()
+    {
+        var (exit, stdout, _) = await SearchAsync("""["board","author"]""", "--board", "RUST", "--author", "someone");
+
+        var expected = PublishedNameWords.FiltersLabel() + BoardUnmatched("RUST", "not-lower-case") + "; " + AuthorUnmatched("someone");
+        Assert.Equal(0, exit);
+        AssertPlaced(stdout, expected);
+    }
+
+    /// <summary>
+    /// NMN54. The words reader's paragraph stops where the next one begins: a text in which two <c>**R... words**</c> paragraphs follow one another with no blank line between them
+    /// gives each its own spans only (the planted text), and on the errata itself R9.57's paragraph holds none of R11.86 and R11.87's spans (the bleed the review found when a blank line
+    /// was missing). The planted text is red without the stop rule; the errata row is a control. Falsification FNMN57.
+    /// </summary>
+    [Fact]
+    public void R10_97_NMN54_AWordsParagraphStopsWhereTheNextOneBegins()
+    {
+        const string planted = "**R9.55 words.** the member `unmatched_filters`, names `board` and `author`.\n**R9.57 words.** the types `curia/posts/x` and `curia/threads/y`.\n\nProse.\n";
+
+        var first = string.Join(" | ", PublishedNameWords.SpansIn(planted, "**R9.55 words.**"));
+        var second = string.Join(" | ", PublishedNameWords.SpansIn(planted, "**R9.57 words.**"));
+        var onErrata = PublishedNameWords.UnknownDetailTail();
+
+        Said(
+            ["unmatched_filters | board | author", "curia/posts/x | curia/threads/y", "this route reads exactly these: marking"],
+            [first, second, onErrata]);
+        Assert.DoesNotContain("A string argument is text:", PublishedNameWords.UnknownTypes().Posts, StringComparison.Ordinal);
+    }
+
     private static void Said(IEnumerable<string> expected, IEnumerable<string> actual)
     {
         var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));
@@ -253,7 +331,7 @@ public sealed class NameWordsCliTests
     /// <summary>
     /// NMN33. The receipt of a question and a finding: one <c>board_new</c> line after the <c>kind</c> line in each of the three states (true, false, <c>NOT STATED</c> for a receipt
     /// that had none), with the board a display literal; <c>curia answer</c> and <c>curia comment</c> print none even where the receipt carries the member. Predicted red on the seam: no
-    /// line for the question and the finding. The resend's receipt (the same <c>PrintPostReceipt</c>) is not driven here; the one definition's fence is NMN42.
+    /// line for the question and the finding. The resend's receipt (the same <c>PrintPostReceipt</c>) is NMN45's; the one definition's fence is NMN42.
     /// </summary>
     [Fact]
     public async Task R10_97_NMN33_AQuestionAndAFindingPrintTheBoardNewLineInEveryStateAndNoOtherKindDoes()
@@ -287,6 +365,87 @@ public sealed class NameWordsCliTests
             expected.Add($"{verb}: exit 0, no board_new line");
             actual.Add($"{verb}: exit {exit}, {(stdout.Contains("board_new", StringComparison.Ordinal) ? "a board_new line" : "no board_new line")}");
         }
+
+        Said(expected, actual);
+    }
+
+    /// <summary>A kept question, finding or answer, planted as a host leaves one after a send that was not answered, sent by <c>curia resend</c> to a recorder that answers a receipt with the given <c>board_new</c>.</summary>
+    private static async Task<(int Exit, string Stdout, string Stderr)> ResendAsync(string kind, string? boardNewJson, string board)
+    {
+        using var forum = new RecordingForum
+        {
+            Responder = (method, path, body) => method == "POST" && path == "/v1/posts" && ReceivedAct.IsSubmission(body)
+                ? (201, Receipt(ReceivedAct.DigestOf(body), boardNewJson))
+                : null,
+        };
+        var home = CuriaCli.NewHome(forum.Address);
+        try
+        {
+            var store = new ProfileStore(home);
+            Assert.True(store.Load("alice").TryGetValue(out var agent, out var loadError), loadError?.Type);
+            using (agent)
+            {
+                var wire = kind switch
+                {
+                    "question" => PostKind.Question,
+                    "finding" => PostKind.Finding,
+                    _ => PostKind.Answer,
+                };
+                var draft = new PostDraft
+                {
+                    Kind = wire,
+                    Board = board,
+                    Title = kind == "answer" ? null : "A title",
+                    Parent = kind == "answer" ? "01ARZ3NDEKTSV4RRFFQ69G5FAV" : null,
+                    Body = "A kept body",
+                };
+                Assert.True(SubmissionBuilder.Build(agent!, draft, DateTimeOffset.UtcNow).TryGetValue(out var signed, out var error), error?.Type);
+                KeptActFiles.Plant(Path.Combine(store.DirectoryFor("alice"), "acts"), signed!, kind, forum.Address.ToString().TrimEnd('/'), agent!.Profile.AgentId, attempts: 1, lastAnswer: "503", board: board);
+
+                return await CuriaCli.RunAsync(home, Ct, ["resend", signed.PrefixedDigest, "--agent", "alice", "--forum", forum.Address.ToString()]);
+            }
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// NMN45 (Amendment 3, ruling 34). R10.97 says every receipt carries the line: <c>curia resend</c> of a kept question and of a kept finding prints the <c>board_new</c> line after the
+    /// <c>kind</c> line for <c>true</c>, <c>false</c> and a receipt that had none, in the published words (parsed from the errata, the board a display literal), and a kept answer prints
+    /// none even where the receipt carries the member. The verb's own send is NMN33; this is the same line through <c>PrintPostReceipt</c> from the kept act's header. <b>A control on
+    /// the tree</b> (the resend already prints the line; the build left the probe unwritten): its value is FNMN49.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN45_AResendOfAKeptQuestionAndOfAKeptFindingPrintsTheBoardNewLineInEveryState_Control()
+    {
+        var (lineTrue, lineFalse, lineNotStated) = PublishedNameWords.ReceiptLines();
+        string Of(string line, string board) => line.Replace("<board>", Lit(board), StringComparison.Ordinal);
+        var rows = new (string Kind, string? Json, string Expected)[]
+        {
+            ("question", "false", Of(lineFalse, "rust")),
+            ("question", "true", Of(lineTrue, "rust")),
+            ("question", null, Of(lineNotStated, "rust")),
+            ("finding", "false", Of(lineFalse, "rust")),
+            ("finding", "true", Of(lineTrue, "rust")),
+            ("finding", null, Of(lineNotStated, "rust")),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (kind, json, line) in rows)
+        {
+            var (exit, stdout, stderr) = await ResendAsync(kind, json, "rust");
+            var lines = Lines(stdout);
+            var kindAt = Array.FindIndex(lines, l => l.StartsWith("kind      ", StringComparison.Ordinal));
+            expected.Add($"resend {kind} {json ?? "(no member)"}: exit 0, the line right after the kind line is: {line}");
+            actual.Add($"resend {kind} {json ?? "(no member)"}: exit {exit}, the line right after the kind line is: {(kindAt >= 0 && kindAt + 1 < lines.Length ? lines[kindAt + 1] : "(none) stderr: " + stderr)}");
+        }
+
+        var (answerExit, answerOut, _) = await ResendAsync("answer", "true", "rust");
+        expected.Add("resend answer: exit 0, no board_new line");
+        actual.Add($"resend answer: exit {answerExit}, {(answerOut.Contains("board_new", StringComparison.Ordinal) ? "a board_new line" : "no board_new line")}");
 
         Said(expected, actual);
     }

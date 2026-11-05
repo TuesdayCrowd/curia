@@ -253,6 +253,65 @@ public sealed class NameMatchesNothingEndToEndTests(PassThroughGateForumFixture 
         Said($"200, nothing echoed", $"{(int)reply.Status}, {(found.Count == 0 ? "nothing echoed" : string.Join(" and ", found) + " echoed")}");
     }
 
+    private async Task<int> OperatorAsync(string pem, params string[] args)
+    {
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        return await Curia.OperatorTool.OperatorCommands.RunAsync(
+            args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), Curia.OperatorTool.OperatorCommands.LoadLogSigner, stdout, stderr, Ct,
+            readLogSigningKeyPem: () => pem);
+    }
+
+    /// <summary>
+    /// NMN48 (Amendment 3, ruling 36, M7; G62 non-property (f)). The member is a word about the names and not about what a search shows: a board and an author whose only post is disputed
+    /// (its key declared compromised from before it, R6.57) are served by name, so each is matched (<c>[]</c>), while the search for them is empty and says it removed the post
+    /// (<c>excluded_disputed</c> is not zero). The control, before the declaration, is that the same search finds the post. Falsification FNMN51 (the predicate patched to the search's own visibility).
+    /// </summary>
+    [Fact]
+    public async Task R9_55_NMN48_ABoardAndAnAuthorWhoseOnlyPostIsDisputedAreMatchedWhileTheSearchIsEmpty()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var board = Board();
+        var term = "znmn48" + suffix;
+        var thief = ForumAgent.Create("https://agents.example/nmn48-" + suffix, "only-" + suffix);
+        var (dpop, token) = await thief.AuthenticateAsync(forum.Client, "http://localhost/oauth/token", forum.Now, Ct);
+        using var created = await dpop.PostAsync(forum.Client, "http://localhost/v1/posts", token, thief.SignQuestion(board, "this post mentions " + term, "Signed by the thief " + term, forum.Now), forum.Now, Ct);
+        var createdText = await created.Content.ReadAsStringAsync(Ct);
+        Assert.True(created.StatusCode == HttpStatusCode.Created, createdText);
+        using var accepted = JsonDocument.Parse(createdText);
+        var postId = accepted.RootElement.GetProperty("post_id").GetString()!;
+        var served = await GetAsync(forum.Client, "/v1/posts/" + postId, ct: Ct);
+        var logIndex = served.Json.GetProperty("log_index").GetInt64();
+        var author = Uri.EscapeDataString(thief.AgentId);
+
+        static string Excluded(NameReply reply) =>
+            reply.Json.TryGetProperty("floor", out var floor) && floor.TryGetProperty("excluded_disputed", out var n) && n.ValueKind == JsonValueKind.Number ? (n.GetInt32() > 0 ? "some" : "none") : "(not stated)";
+
+        var beforeBoard = await SearchAsync(forum.Client, $"q={term}&board={board}", Ct);
+
+        var pem = Curia.OperatorTool.LogSigningKey.GeneratePem();
+        Assert.Equal(0, await OperatorAsync(pem, "sign-head", "--by", "ops"));
+        Assert.Equal(0, await OperatorAsync(pem, "compromise", "--agent", thief.AgentId, "--kid", thief.Kid, "--from-index", logIndex.ToString(System.Globalization.CultureInfo.InvariantCulture), "--reason", "owner-reported", "--operator", "ops"));
+
+        var byBoard = await SearchAsync(forum.Client, $"q={term}&board={board}", Ct);
+        var byAuthor = await SearchAsync(forum.Client, $"q={term}&author={author}", Ct);
+        var byBoardAlone = await SearchAsync(forum.Client, $"board={board}", Ct);
+
+        Said(
+            [
+                "before the declaration: 1 result, [], removed none",
+                "by board after it: 0 results, [], removed some",
+                "by author after it: 0 results, [], removed some",
+                "by board alone after it: 0 results, [], removed some",
+            ],
+            [
+                $"before the declaration: {beforeBoard.Results} result{(beforeBoard.Results == 1 ? string.Empty : "s")}, {beforeBoard.Unmatched}, removed {Excluded(beforeBoard)}",
+                $"by board after it: {byBoard.Results} results, {byBoard.Unmatched}, removed {Excluded(byBoard)}",
+                $"by author after it: {byAuthor.Results} results, {byAuthor.Unmatched}, removed {Excluded(byAuthor)}",
+                $"by board alone after it: {byBoardAlone.Results} results, {byBoardAlone.Unmatched}, removed {Excluded(byBoardAlone)}",
+            ]);
+    }
+
     /// <summary>NMN14. A refusal carries no member: a blank parameter, an unknown name, a bad limit and a cursor under another query. A control, green on the seam.</summary>
     [Fact]
     public async Task R9_55_NMN14_ARefusalCarriesNoMember()
@@ -274,7 +333,8 @@ public sealed class NameMatchesNothingEndToEndTests(PassThroughGateForumFixture 
 
     /// <summary>
     /// NMN44. <see cref="NamedFilters"/> is total over the closed fuzz's own value alphabet (the strings <see cref="Variations.Closed"/> renders for a query part, decoded) and over
-    /// a lone surrogate and U+0000: it never throws, for a projection that holds one served post. A control, green on the seam; its falsification is FNMN15 and the closed fuzz.
+    /// a lone surrogate and U+0000: it never throws, called over empty inputs and over a projection and a corpus that hold one served post each (Amendment 3, ruling 36, M2: a throw inside
+    /// the per-post comparison is unreachable over an empty list). A control, green on the seam; its falsification is FNMN15, FNMN59 and the closed fuzz.
     /// </summary>
     [Fact]
     [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "The fact is that nothing is thrown; any exception is the finding and is reported by type.")]
@@ -291,6 +351,12 @@ public sealed class NameMatchesNothingEndToEndTests(PassThroughGateForumFixture 
 
         Assert.True(values.Count > 10, $"NOT REACHED: the closed set rendered only {values.Count} values for a query part");
 
+        var onePost = System.Collections.Immutable.ImmutableArray.Create(new PostView(
+            "01JNMN44POST", "{}", "sig", "sha-256:nmn44", "https://agents.example/nmn44", "rust", "question", null,
+            Curia.Domain.Primitives.ServerTimestamp.At(new DateTimeOffset(2026, 11, 5, 12, 0, 0, TimeSpan.Zero)), []));
+        var oneSearchable = System.Collections.Immutable.ImmutableArray.Create(new Curia.Domain.Search.SearchablePost(
+            "01JNMN44POST", "sha-256:nmn44", "rust", Curia.Domain.Content.PostKind.Question, "A title", "A body", [], "https://agents.example/nmn44", 1));
+
         var failures = new List<string>();
         foreach (var value in values)
         {
@@ -299,6 +365,9 @@ public sealed class NameMatchesNothingEndToEndTests(PassThroughGateForumFixture 
                 _ = NamedFilters.Unmatched([], _ => true, value, value);
                 _ = NamedFilters.BoardHasServedPost([], _ => true, value ?? string.Empty);
                 _ = NamedFilters.BoardHasServedPost(System.Collections.Immutable.ImmutableArray<Curia.Domain.Search.SearchablePost>.Empty, value ?? string.Empty);
+                _ = NamedFilters.Unmatched(onePost, _ => true, value, value);
+                _ = NamedFilters.BoardHasServedPost(onePost, _ => true, value ?? string.Empty);
+                _ = NamedFilters.BoardHasServedPost(oneSearchable, value ?? string.Empty);
             }
             catch (Exception ex)
             {
