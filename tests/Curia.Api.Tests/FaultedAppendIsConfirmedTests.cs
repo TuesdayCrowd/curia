@@ -627,7 +627,7 @@ public sealed class FaultedAppendIsConfirmedTests(ConfirmFixture forum) : IClass
     }
 
     /// <summary>
-    /// AFC29, controls. The neighbours stay as they are: an ordinary receipt has the members <c>post_id digest server_ts risk_flags vector_index budget</c>; the same bytes sent
+    /// AFC29, controls. The neighbours stay as they are: an ordinary receipt of a question has the members <c>post_id digest server_ts risk_flags vector_index budget board_new</c> (errata G62, R8.88); the same bytes sent
     /// twice are refused 409 <c>already-recorded</c> naming the first post (R8.78); a second revision of a served <c>prev</c> is refused 409 <c>already-revised</c> (R8.77).
     /// </summary>
     [Fact]
@@ -648,7 +648,7 @@ public sealed class FaultedAppendIsConfirmedTests(ConfirmFixture forum) : IClass
         var secondRevision = await Probe.ReviseAsync(forum, reviser, board, question, "Another " + Probe.Unrelated(), null, Ct);
 
         Said(
-            $"members post_id digest server_ts risk_flags vector_index budget; the repeat 409 {IngestErrors.AlreadyRecordedType} naming {first?.PostId}; the second revision 409 {IngestErrors.AlreadyRevisedType}",
+            $"members post_id digest server_ts risk_flags vector_index budget board_new; the repeat 409 {IngestErrors.AlreadyRecordedType} naming {first?.PostId}; the second revision 409 {IngestErrors.AlreadyRevisedType}",
             $"members {string.Join(' ', Afc.MemberNames(body))}; the repeat {Answered(again)} naming {again.Detail?.Replace("post=", string.Empty, StringComparison.Ordinal)}; the second revision {Answered(secondRevision)}{(revised.Status == 201 ? string.Empty : $" (the first revision was {Answered(revised)})")}");
     }
 

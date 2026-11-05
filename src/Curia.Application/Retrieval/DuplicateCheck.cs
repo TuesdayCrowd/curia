@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Domain;
@@ -52,10 +53,19 @@ public sealed class DuplicateCheck
 
     public DuplicateThresholds Thresholds => _thresholds;
 
-    public async Task<Result<DuplicateAssessment>> AssessAsync(
+    public Task<Result<DuplicateAssessment>> AssessAsync(
         IReadOnlyList<AppendedEvent> log, PostEnvelope envelope, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(envelope);
+
+        return AssessAsync(SearchProjector.Fold(log), envelope, cancellationToken);
+    }
+
+    /// <summary>The same assessment over a corpus the caller folded (errata G62, ruling 18): the route folds once and shares the corpus with <c>board_new</c>.</summary>
+    public async Task<Result<DuplicateAssessment>> AssessAsync(
+        ImmutableArray<SearchablePost> corpus, PostEnvelope envelope, CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(envelope);
 
         var overridden = envelope.NotDuplicate == true;
@@ -72,7 +82,7 @@ public sealed class DuplicateCheck
 
         // R9.47: two stored posts of one digest resolve to the first in log order; a repeat never throws.
         var candidates = new Dictionary<string, SearchablePost>(StringComparer.Ordinal);
-        foreach (var post in SearchProjector.Fold(log)
+        foreach (var post in corpus
             .Where(p => p.Kind == envelope.Kind && string.Equals(p.Board, envelope.Board, StringComparison.Ordinal)))
         {
             candidates.TryAdd(post.Digest, post);

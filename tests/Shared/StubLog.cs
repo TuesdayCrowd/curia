@@ -771,9 +771,9 @@ internal sealed class StubLog : IDisposable
     /// as the reference client does, would have raised its disagreement warning under every write
     /// the stub accepted.</para>
     /// </summary>
-    internal static string ReceiptJson(string digest) => $$"""
+    internal static string ReceiptJson(string digest, bool? boardNew = null) => $$"""
     {"post_id":"{{SubmittedPostId}}","digest":"{{digest}}",
-    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"vector_index":"indexed","budget":{{DefaultBudget("posting")}}}
+    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"vector_index":"indexed","budget":{{DefaultBudget("posting")}}{{(boardNew is { } fresh ? ",\"board_new\":" + (fresh ? "true" : "false") : string.Empty)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
