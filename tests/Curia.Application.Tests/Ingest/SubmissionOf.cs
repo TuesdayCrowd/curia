@@ -35,7 +35,8 @@ internal static class SubmissionOf
             new("board", new JsonValue.String("canonicalization")),
         };
         if (kind == PostKind.Question) members.Add(new("title", new JsonValue.String("Member ordering in JCS")));
-        if (kind is PostKind.Question or PostKind.Revision) members.Add(new("body", new JsonValue.String("How does JCS order object members?")));
+        if (kind is PostKind.Question or PostKind.Revision or PostKind.Answer or PostKind.Comment) members.Add(new("body", new JsonValue.String("How does JCS order object members?")));
+        if (kind is PostKind.Answer or PostKind.Comment) members.Add(new("parent", new JsonValue.String("01HZZZZZZZZZZZZZZZZZZZZZZZ")));
         if (kind == PostKind.Revision)
         {
             members.Add(new("parent", new JsonValue.String("01HZZZZZZZZZZZZZZZZZZZZZZZ")));

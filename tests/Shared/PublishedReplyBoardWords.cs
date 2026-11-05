@@ -15,6 +15,8 @@ internal static partial class PublishedReplyBoardWords
     private const string RouteAnchor = "**R8.87 words.**";
     private const string RefusalAnchor = "**R11.85 words (the refusal of a differing board).**";
     private const string UnreadAnchor = "**R11.85 words (the board could not be read).**";
+    private const string RevisionUnreadAnchor = "**R11.85 words (a revision whose post could not be read).**";
+    private const string EmptyBoardAnchor = "**R11.85 words (an empty `--board`).**";
     private const string RequirementAnchor = "**R11.85** ";
     private const string HelpAnchor = "**R11.85 words (help and descriptions).**";
 
@@ -69,6 +71,40 @@ internal static partial class PublishedReplyBoardWords
 
     /// <summary>The sentence after the read's own refusal when the board could not be read: the one span that begins "The board is taken from that post".</summary>
     internal static string UnreadSentence() => OneSpan(UnreadAnchor, "The board is taken from that post");
+
+    /// <summary>The sentence after the read's own refusal when a revision's post could not be read, whether or not <c>--board</c> was given: the one span that begins "A revision is chained".</summary>
+    internal static string RevisionUnreadSentence() => OneSpan(RevisionUnreadAnchor, "A revision is chained");
+
+    /// <summary>The refusal of an empty <c>--board</c> (R11.85 words): the one span that begins <c>error: --board is empty</c>.</summary>
+    internal static string EmptyBoardSentence() => OneSpan(EmptyBoardAnchor, "error: --board is empty");
+
+    /// <summary>The exit code of the refusal of an empty <c>--board</c>: the <c>N</c> in "Exit <c>N</c>" of its paragraph.</summary>
+    internal static int EmptyBoardExit()
+    {
+        var match = ExitCode().Match(Paragraph(EmptyBoardAnchor));
+        if (!match.Success)
+            throw new InvalidOperationException($"{Errata}'s R11.85 words (an empty --board) has no \"Exit `N`\"");
+
+        return int.Parse(match.Groups["n"].Value, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The help sentence of <c>curia revision</c>: the one span that begins <c>A revision cannot move</c>.</summary>
+    internal static string RevisionHelpSentence() => OneSpan(HelpAnchor, "A revision cannot move");
+
+    /// <summary>The clause <c>curia help</c> carries after the help sentence: the one span that begins <c>(answer, comment and revision</c>.</summary>
+    internal static string HelpClause() => OneSpan(HelpAnchor, "(answer, comment and revision");
+
+    /// <summary>
+    /// The span a reply tool's description carries (R11.85 words, help and descriptions): the one span that is <paramref name="startsWith"/>, asserted to be one of the three the paragraph
+    /// publishes (<c>which this tool reads from the question</c>, <c>which this tool reads from the parent</c>, <c>takes the board and the digest the revision is chained to from that post</c>).
+    /// </summary>
+    internal static string ToolSpan(string tool) => tool switch
+    {
+        "curia_answer" => OneSpan(HelpAnchor, "which this tool reads from the question"),
+        "curia_comment" => OneSpan(HelpAnchor, "which this tool reads from the parent"),
+        "curia_revise" => OneSpan(HelpAnchor, "takes the board and the digest the revision is chained to"),
+        _ => throw new ArgumentOutOfRangeException(nameof(tool), tool, "not one of the three reply tools"),
+    };
 
     /// <summary>The sentence of the verbs' help: the one span that begins <c>--board, if given</c>.</summary>
     internal static string HelpSentence() => OneSpan(HelpAnchor, "--board, if given");

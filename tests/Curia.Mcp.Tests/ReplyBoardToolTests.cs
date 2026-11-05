@@ -88,7 +88,8 @@ public sealed partial class ReplyBoardToolTests : IDisposable
     /// <summary>
     /// RPB31. The three tools' descriptions say the board is read from the post and declare no <c>board</c> argument; the sentence the reply tools gave a refused board (R11.78's, withdrawn
     /// by R11.85) is printed in no result and no description; and the catalogue's version is the one R11.85 names. Predicted red: the withdrawn sentence is printed in the result for
-    /// <c>Meta</c>, and the version is 0.10.2.
+    /// <c>Meta</c>, and the version is 0.10.2. Amendment 3 (ruling 37): each description must carry its own span, parsed from R11.85 words (help and descriptions), and not merely the word
+    /// <c>board</c>; the descriptions are unchanged by this PR, so the span is green on the tree it was added to.
     /// </summary>
     [Fact]
     public async Task R11_85_RPB31_TheDescriptionsSayTheBoardIsThePostsAndTheWithdrawnSentenceIsPrintedNowhere()
@@ -101,7 +102,8 @@ public sealed partial class ReplyBoardToolTests : IDisposable
         foreach (var tool in new[] { "curia_answer", "curia_comment", "curia_revise" })
         {
             var description = Fold(tools[tool].Description ?? string.Empty);
-            if (!description.Contains("board", StringComparison.OrdinalIgnoreCase)) problems.Add($"{tool}: the description does not mention the board");
+            var span = Fold(PublishedReplyBoardWords.ToolSpan(tool));
+            if (!description.Contains(span, StringComparison.Ordinal)) problems.Add($"{tool}: the description lacks the published span \"{span}\"");
             if (tools[tool].InputSchema.GetProperty("properties").TryGetProperty("board", out _)) problems.Add($"{tool}: declares a board argument");
             if (description.Contains(withdrawn, StringComparison.Ordinal)) problems.Add($"{tool}: the description carries the withdrawn sentence");
 

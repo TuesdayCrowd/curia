@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Json;
-using System.Reflection;
 using System.Text.Json;
 using Curia.Domain.Content;
 using Curia.Tests.Shared;
@@ -522,41 +521,7 @@ public sealed class ReplyBoardEndToEndTests(ForumFixture forum) : IClassFixture<
     }
 
     // ---- RPB17 ----------------------------------------------------------------------------------
-
-    /// <summary>The members of <c>SubmissionGuard</c> as the compiled assembly declares them at <c>d134685c</c> (the guard has no leg for a board, R8.87 decision 5).</summary>
-    private const string GuardSurface =
-        "static Curia.Application.Ingest.SubmissionGuard.For(Curia.Application.Ingest.LogFacts, Curia.Application.Ingest.VerifiedSubmission): Curia.Application.Ports.AppendGuard\n"
-        + "static Curia.Application.Ingest.SubmissionGuard.ForRevision(Curia.Application.Ingest.LogFacts, System.String, System.String): Curia.Application.Ports.AppendGuard\n"
-        + "static Curia.Application.Ingest.SubmissionGuard.ForVote(Curia.Application.Ingest.LogFacts, System.String, System.String, System.String): Curia.Application.Ports.AppendGuard\n"
-        + "static Curia.Application.Ingest.SubmissionGuard.RecordedIn(System.Collections.Generic.IReadOnlyList<Curia.Domain.AppendedEvent>, System.String): Curia.Domain.Primitives.Error\n"
-        + "static Curia.Application.Ingest.SubmissionGuard.Verdict(Curia.Domain.Primitives.Error): Curia.Application.Ports.GuardVerdict";
-
-    /// <summary>
-    /// RPB17, a <b>control</b>: the append's guard is unchanged. The members <c>SubmissionGuard</c> declares, read from the compiled assembly, equal the list written here; a board leg
-    /// would add one (and would be wrong: a stored post's board never changes, so nothing a late commit does invalidates the comparison). Green on the seam.
-    /// </summary>
-    [Fact]
-    public void R8_87_RPB17_TheGuardIsUnchanged_Control()
-    {
-        var type = typeof(Curia.Application.Ingest.SubmissionGuard);
-        var members = type.GetMembers(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-            .Where(m => !m.Name.Contains('<', StringComparison.Ordinal) && (m is not ConstructorInfo || ((ConstructorInfo)m).IsPublic))
-            .Select(Describe)
-            .Order(StringComparer.Ordinal);
-
-        var said = string.Join('\n', members);
-        if (!string.Equals(GuardSurface, said, StringComparison.Ordinal))
-            throw new Xunit.Sdk.XunitException($"Expected: {GuardSurface}{Environment.NewLine}Actual:   {said}");
-
-        static string Describe(MemberInfo member) => member switch
-        {
-            MethodInfo m => $"{(m.IsStatic ? "static " : string.Empty)}{m.DeclaringType!.FullName}.{m.Name}({string.Join(", ", m.GetParameters().Select(p => Named(p.ParameterType)))}): {Named(m.ReturnType)}",
-            _ => $"{member.MemberType} {member.DeclaringType!.FullName}.{member.Name}",
-        };
-
-        static string? Named(Type t) =>
-            t.IsGenericType ? $"{t.GetGenericTypeDefinition().FullName!.Split('`')[0]}<{string.Join(",", t.GetGenericArguments().Select(a => Named(a)))}>" : t.FullName;
-    }
+    // Moved by amendment 3 (ruling 36) to Curia.Application.Tests (SubmissionGuardBoardTests), rewritten from behaviour: the guard's verdict over a delta holding nothing else is Proceed.
 
     // ---- RPB18 ----------------------------------------------------------------------------------
 
@@ -630,5 +595,89 @@ public sealed class ReplyBoardEndToEndTests(ForumFixture forum) : IClassFixture<
         if (usedAfter != used) problems.Add($"the posting budget moved from {used} to {usedAfter}");
 
         None(problems, "every request refused (400 board-not-parents) or told 409 agent-in-flight, nothing stored, nothing spent");
+    }
+
+    // ---- RPB33 ----------------------------------------------------------------------------------
+
+    private static (string Type, int Status, string Detail) LateCommit(string suffix) =>
+        PublishedLateCommitWords.Refusals().Single(r => r.Type.EndsWith(suffix, StringComparison.Ordinal));
+
+    /// <summary>
+    /// One act sent that the Forum must answer with a <c>409</c> of R8.86's words and nothing else: the answer is that type and status, the log did not move and the posting budget did not move.
+    /// </summary>
+    private async Task<List<string>> ConflictedAsync(string label, SceneActor who, byte[] wire, string suffix, string? namesPostId = null)
+    {
+        var expected = LateCommit(suffix);
+        var problems = new List<string>();
+        var events = await PostEventsAsync();
+        var used = await UsedAsync(who);
+
+        var sent = await SendAsync(who, wire);
+
+        if (sent.Status != expected.Status || sent.Type != expected.Type)
+            problems.Add($"{label}: Expected: {expected.Status} {expected.Type} Actual: {Said(sent)}");
+        else if (namesPostId is not null && sent.Detail?.Contains(namesPostId, StringComparison.Ordinal) != true)
+            problems.Add($"{label}: the detail \"{sent.Detail}\" does not name {namesPostId}");
+
+        var eventsAfter = await PostEventsAsync();
+        if (eventsAfter != events) problems.Add($"{label}: the log moved by {eventsAfter - events} post(s)");
+        var usedAfter = await UsedAsync(who);
+        if (usedAfter != used) problems.Add($"{label}: the posting budget moved from {used} to {usedAfter}");
+        return problems;
+    }
+
+    /// <summary>
+    /// RPB33 (ruling 29), a <b>control</b> on the tree it was added to: the order against R8.78. A cross-board answer, comment and revision the log already holds (stored by the fixture's own append, never
+    /// through the route: the shape recorded non-property (a) says stays) and then sent again as the same bytes are <c>409 already-recorded</c>, a repeat, and not <c>400 board-not-parents</c>: the board
+    /// comparison comes after the digest check, whatever the board. The log and the posting budget do not move. Its value is FRPB32.
+    /// </summary>
+    [Fact]
+    public async Task R8_87_RPB33_ARepeatOfAStoredCrossBoardActIsARepeatWhateverItsBoard_Control()
+    {
+        var scene = await AcceptedAnswerScene.BuildAsync(forum, Ct);
+        var other = "z-" + Suffix();
+        var problems = new List<string>();
+
+        var answer = scene.Answerer.Agent.SignAnswer(other, "An answer " + Unrelated(), scene.Question.PostId, forum.Now);
+        var (answerId, _) = await forum.AppendStoredPostAsync(answer, Ct);
+        problems.AddRange(await ConflictedAsync("answer on " + other, scene.Answerer, answer, "already-recorded", answerId));
+
+        var comment = scene.Answerer.Agent.Sign(PostKind.Comment, other, "A comment " + Unrelated(), null, scene.Question.PostId, forum.Now);
+        var (commentId, _) = await forum.AppendStoredPostAsync(comment, Ct);
+        problems.AddRange(await ConflictedAsync("comment on " + other, scene.Answerer, comment, "already-recorded", commentId));
+
+        var fresh = await AskAsync(forum, scene.Answerer, scene.Board, Ct);
+        var revision = scene.Answerer.Agent.SignRevision(other, "Corrected " + Unrelated(), fresh.PostId, fresh.Digest, forum.Now);
+        var (revisionId, _) = await forum.AppendStoredPostAsync(revision, Ct);
+        problems.AddRange(await ConflictedAsync("revision on " + other, scene.Answerer, revision, "already-recorded", revisionId));
+
+        None(problems, $"409 {LateCommit("already-recorded").Type} for an answer, a comment and a revision the log holds on another board, the log and the budget unmoved");
+    }
+
+    // ---- RPB34 ----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// RPB34 (ruling 29). The order against R8.77: a second revision of a post that already has a served one, on another board, is <c>409 already-revised</c> naming the first (<c>RevisionRefusal</c> answers
+    /// before the board is compared); in the same test a first revision of a fresh question on another board is <c>400 board-not-parents</c>, so the board check is shown alive where it does not answer.
+    /// A <b>control</b> on the tree it was added to (the order is already right); its value is FRPB31.
+    /// </summary>
+    [Fact]
+    public async Task R8_87_RPB34_ASecondRevisionOnAnotherBoardIsAlreadyRevisedAndAFirstIsNotOnThePostsBoard_Control()
+    {
+        var scene = await AcceptedAnswerScene.BuildAsync(forum, Ct);
+        var other = "z-" + Suffix();
+
+        // The scene's question was revised by its asker on its own board (scene.Revision): a second revision, on another board, is told it was revised.
+        var problems = await ConflictedAsync(
+            "second revision on " + other, scene.Asker, scene.Asker.Agent.SignRevision(other, "Corrected again " + Unrelated(), scene.Question.PostId, scene.Question.Digest, forum.Now),
+            "already-revised", scene.Revision.PostId);
+
+        // The same board check, where nothing answers first: a first revision of a fresh question.
+        var fresh = await AskAsync(forum, scene.Answerer, scene.Board, Ct);
+        problems.AddRange(await RefusedAsync(
+            "first revision of a fresh question on " + other, scene.Answerer, scene.Answerer.Agent.SignRevision(other, "Corrected " + Unrelated(), fresh.PostId, fresh.Digest, forum.Now),
+            Keys().Original, fresh.PostId, scene.Board, other));
+
+        None(problems, $"409 {LateCommit("already-revised").Type} naming the first revision for a second one on another board, and 400 {PublishedReplyBoardWords.Type()} for a first one");
     }
 }
