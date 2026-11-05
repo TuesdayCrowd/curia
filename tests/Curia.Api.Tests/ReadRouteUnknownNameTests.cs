@@ -226,7 +226,14 @@ public sealed class ReadRouteUnknownNameTests(PassThroughGateForumFixture forum)
         foreach (var (path, _) in rows)
             actual.Add($"{path}: {(int)(await GetAsync(forum.Client, path, ct: Ct)).Status}");
 
-        Said(rows.Select(r => $"{r.Path}: {r.Expected}"), actual);
+        // The authenticated row: a caller the flag listing admits is answered 200 with a name it does not read (a recorded non-property, G37's shape): an unknown-name check added
+        // to that route after authentication is a change the anonymous 401 above cannot see (FNMN33).
+        var caller = await AcceptedAnswerScene.EnrolAsync(forum, "nmn28", Ct);
+        var token = await caller.Dpop.GetTokenAsync(forum.Client, TokenEndpoint, forum.Now, Ct);
+        var listed = await GetAsync(forum.Client, "/v1/flags?x=1", token, caller, forum, Ct);
+        actual.Add($"/v1/flags?x=1 as an admitted caller: {(int)listed.Status}");
+
+        Said(rows.Select(r => $"{r.Path}: {r.Expected}").Append("/v1/flags?x=1 as an admitted caller: 200"), actual);
         Assert.Equal(HttpStatusCode.OK, (await GetAsync(forum.Client, "/health", ct: Ct)).Status);
     }
 }

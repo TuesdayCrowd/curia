@@ -63,9 +63,16 @@ public sealed class NameMatchesNothingEndToEndTests(PassThroughGateForumFixture 
         var matched = await SearchAsync(forum.Client, "author=" + Uri.EscapeDataString(authorId), Ct);
         var slug = await SearchAsync(forum.Client, "author=" + Uri.EscapeDataString(Slug(authorId)), Ct);
 
+        // Each filter is judged alone and an empty page is never the word: an author who holds a served post that no term finds, and one the page does not carry, is matched.
+        var board = Board();
+        var (holderId, _) = await StoreQuestionAsync(forum, board, Ct);
+        var absentFromPage = await SearchAsync(forum.Client, "q=zzqqxxvvnomatch&author=" + Uri.EscapeDataString(holderId), Ct);
+        var absentWithBoard = await SearchAsync(forum.Client, $"q=zzqqxxvvnomatch&board={board}&author=" + Uri.EscapeDataString(holderId), Ct);
+
         Said(
-            ["the full identifier: 200, [], 1 result", "the slug: 200, [author], 0 results"],
-            [$"the full identifier: {(int)matched.Status}, {matched.Unmatched}, {matched.Results} result{(matched.Results == 1 ? string.Empty : "s")}", $"the slug: {(int)slug.Status}, {slug.Unmatched}, {slug.Results} result{(slug.Results == 1 ? string.Empty : "s")}"]);
+            ["the full identifier: 200, [], 1 result", "the slug: 200, [author], 0 results", "an author with posts that no term finds: 200, [], 0 results", "the same author and its board: 200, [], 0 results"],
+            [$"the full identifier: {(int)matched.Status}, {matched.Unmatched}, {matched.Results} result{(matched.Results == 1 ? string.Empty : "s")}", $"the slug: {(int)slug.Status}, {slug.Unmatched}, {slug.Results} result{(slug.Results == 1 ? string.Empty : "s")}",
+                $"an author with posts that no term finds: {(int)absentFromPage.Status}, {absentFromPage.Unmatched}, {absentFromPage.Results} results", $"the same author and its board: {(int)absentWithBoard.Status}, {absentWithBoard.Unmatched}, {absentWithBoard.Results} results"]);
     }
 
     /// <summary>NMN6. Both together, both unmatched: <c>[board,author]</c> in that order whatever the order the request named them; one matched and one not names only the other.</summary>
@@ -201,11 +208,23 @@ public sealed class NameMatchesNothingEndToEndTests(PassThroughGateForumFixture 
     [Fact]
     public async Task R9_55_NMN11_TheInboxNamesAnUnmatchedBoardAndNotAnAnsweredOne()
     {
-        var scene = await AcceptedAnswerScene.BuildAsync(forum, Ct);
-        var asker = scene.Asker;
+        // A board whose every question is answered and accepted, with nothing open on it: the tier-seeding answerer's warm-up questions go to a board of their own, so that a
+        // check that judges the board on the open questions alone (FNMN8) has none to find here and says [board] for a board that is served.
+        var board = Board();
+        var warmupBoard = Board();
+        var asker = await AcceptedAnswerScene.EnrolAsync(forum, "asker", Ct);
+        var question = await AcceptedAnswerScene.PostAsync(forum, asker, asker.Agent.SignQuestion(board, "How is znmn11 settled?", "About znmn11", forum.Now), Ct);
+        var answerer = await AcceptedAnswerScene.T1Async(forum, warmupBoard, Ct);
+        var answer = await AcceptedAnswerScene.PostAsync(forum, answerer, answerer.Agent.SignAnswer(board, "The way to settle znmn11.", question.PostId, forum.Now), Ct);
+        using (var accept = await asker.Dpop.PostAsync(
+            forum.Client, $"http://localhost/v1/posts/{answer.PostId}/accept", await asker.Dpop.GetTokenAsync(forum.Client, TokenEndpoint, forum.Now, Ct),
+            System.Text.Encoding.UTF8.GetBytes("{}"), forum.Now, Ct, contentType: "application/json"))
+        {
+            Assert.True(accept.StatusCode is HttpStatusCode.Created or HttpStatusCode.OK, await accept.Content.ReadAsStringAsync(Ct));
+        }
 
-        var answered = await InboxAsync(forum, forum.Client, asker, $"board={scene.Board}", Ct);
-        var wrongCase = await InboxAsync(forum, forum.Client, asker, $"board={Upper(scene.Board)}", Ct);
+        var answered = await InboxAsync(forum, forum.Client, asker, $"board={board}", Ct);
+        var wrongCase = await InboxAsync(forum, forum.Client, asker, $"board={Upper(board)}", Ct);
         var author = await InboxAsync(forum, forum.Client, asker, "author=someone", Ct);
 
         Said(
