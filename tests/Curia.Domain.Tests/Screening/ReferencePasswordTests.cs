@@ -430,7 +430,7 @@ public sealed class ReferencePasswordTests
 
     private static readonly string[] NewCostRows = ["reference-heavy", "at-sign-in-a-long-run"];
 
-    /// <summary>RNC14: <c>ScreeningCostTests</c>' two theories each hold the rows <c>reference-heavy</c> and <c>at-sign-in-a-long-run</c>.</summary>
+    /// <summary>RNC14: <c>ScreeningCostTests</c>' two theories each hold the rows <c>reference-heavy</c> and <c>at-sign-in-a-long-run</c>, and CI's two line-count pins equal 2 x each theory's rows.</summary>
     [Fact]
     public void R10_96_RNC14_TheCostTheoriesHoldTheTwoNewRows()
     {
@@ -448,6 +448,15 @@ public sealed class ReferencePasswordTests
         }
 
         Assert.True(missing.Count == 0, Describe([.. missing]));
+
+        // The isolated CI step pins the lines these theories write, two per row in each file (amendment 3): the count comes from the theories and never from the pin.
+        var workflow = File.ReadAllText(Path.Combine(PublishedReferenceWords.RepositoryRoot(), ".github", "workflows", "ci.yml"));
+        foreach (var (variable, theory) in new[] { ("CURIA_SCREEN_TIMINGS", "R10_69_ScreeningAtTheStringCapStaysWithinItsBudget"), ("CURIA_SCREEN_SCALING", "R10_69_ScreeningCostScalesLinearlyToTheStringCap") })
+        {
+            var expected = 2 * theories.Single(m => m.Name == theory).GetCustomAttributes<Xunit.InlineDataAttribute>().Count();
+            var pin = $"test \"$(wc -l < \"${variable}\")\" -eq {expected}";
+            Assert.True(workflow.Contains(pin, StringComparison.Ordinal), $"ci.yml does not pin {variable} at {expected} lines, 2 x the rows of {theory}");
+        }
     }
 
     // ---- RNC24: the errata and the corpus agree -------------------------------------------------------------------------

@@ -19,6 +19,16 @@ internal static partial class PublishedReferenceWords
 {
     private const string Errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
 
+    /// <summary>The directory above the test binaries that holds the errata.</summary>
+    internal static string RepositoryRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, Errata)))
+            dir = dir.Parent;
+
+        return dir?.FullName ?? throw new InvalidOperationException($"{Errata} not found above {AppContext.BaseDirectory}");
+    }
+
     private const string BenignMarker = "The benign corpus SHALL hold, each with a value of at least four characters,";
     private const string PayloadMarker = "the red-team corpus SHALL hold the forms that stay refused,";
     private const string FalsePositiveMarker = "the known-false-positives list SHALL hold";
@@ -169,14 +179,7 @@ internal static partial class PublishedReferenceWords
     /// <summary>The paragraph that begins with <paramref name="anchor"/>, to the blank line that ends it, whitespace folded.</summary>
     internal static string Paragraph(string anchor)
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, Errata)))
-            dir = dir.Parent;
-
-        if (dir is null)
-            throw new InvalidOperationException($"{Errata} not found above {AppContext.BaseDirectory}");
-
-        var text = File.ReadAllText(Path.Combine(dir.FullName, Errata));
+        var text = File.ReadAllText(Path.Combine(RepositoryRoot(), Errata));
         var start = text.IndexOf(anchor, StringComparison.Ordinal);
         if (start < 0)
             throw new InvalidOperationException($"{Errata} has no paragraph that begins \"{anchor}\"");

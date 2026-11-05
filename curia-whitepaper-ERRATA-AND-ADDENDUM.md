@@ -12706,7 +12706,9 @@ The predicate reads each matched password once, after the regular expression has
 
 ### What this deliberately does not change
 
-R15.1's set, every wire member, every event type, the Forum's routes and statuses, `db/`, `rust/`, `ci.yml`, the guard and the gates, the disposition of every category, the other seven secret rules, the injection detector, the keyword `pwd`'s position rule and leading-character exclusions, the four-character floor, the pattern count, and the high-entropy rule's keyword list.
+R15.1's set, every wire member, every event type, the Forum's routes and statuses, `db/`, `rust/`, the guard and the gates, the disposition of every category, the other seven secret rules, the injection detector, the keyword `pwd`'s position rule and leading-character exclusions, the four-character floor, the pattern count, and the high-entropy rule's keyword list.
+
+**`ci.yml` changes in two numbers and nothing else.** The isolated screening-cost step pins the lines each of its two files holds (`wc -l`), and the two rows R10.96's cost probe adds (`reference-heavy`, `at-sign-in-a-long-run`) to both theories of `ScreeningCostTests` write two lines each per file: the pins `-eq 24` become `-eq 28` (14 rows, two calls each). A row added to those theories moves the pin in the same commit, as it did at 20 to 24; this entry's earlier statement that `ci.yml` stays untouched was made without reading the step's consumers of the row count, and the first CI run on the PR was red on it. The change is the plain count of what the step now runs, does not touch a threshold, an environment variable, an upload or a filter, and (the file being the owner's to merge) the PR waits for the owner.
 
 ### Falsified before it was trusted (owed by the stage that builds it)
 
