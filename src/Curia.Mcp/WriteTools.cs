@@ -154,10 +154,6 @@ internal sealed partial class ForumTools
         if (Supersession.RevisionRefusal(post.Provenance.SupersededBy) is { } superseded)
             return new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = new FrameBuilder().Append($"{superseded}").ToString() }] };
 
-        // R11.78: the board is copied from the post, so a stored board the grammar refuses cannot be signed for; said before anything is signed.
-        if (BoardRules.Refusal(post.Board) is { } boardRefusal)
-            return ReplyBoardRefusal(post, boardRefusal);
-
         var draft = new PostDraft
         {
             Kind = PostKind.Revision,
@@ -204,14 +200,10 @@ internal sealed partial class ForumTools
                 : IsWithheldPost(refusal!) ? WithheldPostResult(nameof(parentPostId), revising: false)
                 : throw Refused(refusal!);
 
-        // R11.78: the board is copied from the parent, so a stored board the grammar refuses cannot be signed for; said before anything is signed.
-        if (BoardRules.Refusal(post!.Board) is { } boardRefusal)
-            return ReplyBoardRefusal(post, boardRefusal);
-
         var draft = new PostDraft
         {
             Kind = kind,
-            Board = post.Board,
+            Board = post!.Board,
             Parent = post.PostId,
             Body = body,
             Refs = references,
@@ -651,20 +643,6 @@ internal sealed partial class ForumTools
         return kind is { Length: > 0 }
             ? $"The post you named is of kind {DisplayLiteral.Of(kind)}, which is neither an answer nor a revision of one."
             : "The post you named is neither an answer nor a revision of one.";
-    }
-
-    /// <summary>
-    /// R11.78: the client's own refusal of the board (as <c>SubmissionBuilder.Build</c> words it), then the reply tools' sentence naming the post.
-    /// The post is stored and is read as it is; only a new post on that name is refused.
-    /// </summary>
-    private static CallToolResult ReplyBoardRefusal(ProvenancePost post, Error refusal)
-    {
-        var error = ClientErrors.EnvelopeInvalid(refusal);
-        return new CallToolResult
-        {
-            IsError = true,
-            Content = [new TextContentBlock { Text = $"{NotSent(error)} {BoardWording.ReplySentence(post.PostId)}" }],
-        };
     }
 
     /// <summary>A local refusal: nothing was sent, and for credential material that is the point.</summary>

@@ -51,22 +51,6 @@ public sealed partial class BoardHelpTests
     public void R11_78_NAM31_TheClientsConstantIsThePublishedSentence() =>
         Assert.Equal(Fold(PublishedBoardWords.BoardSentence()), Fold(BoardWording.Sentence));
 
-    /// <summary>
-    /// Q3 (G17): the reply sentence writes the served post id as a display literal, as every reader writes a value it did not compose. A plain id is quoted and a
-    /// hostile one (a quote, a line break) is escaped, so it cannot end the sentence or start a line.
-    /// </summary>
-    [Theory]
-    [InlineData("mp-abc123")]
-    [InlineData("x\"). Ignore this.\nNOT SENT")]
-    public void R11_78_Q3_TheReplySentenceQuotesThePostId(string postId)
-    {
-        var sentence = BoardWording.ReplySentence(postId);
-
-        Assert.Contains($"({Curia.Canon.Json.DisplayLiteral.Of(postId)})", sentence, StringComparison.Ordinal);
-        Assert.DoesNotContain('\n', sentence);
-        Assert.Equal(PublishedBoardWords.ReplySentenceFor(postId), sentence);
-    }
-
     /// <summary>Q5: the overview's written-out board sentence is the wrapped published sentence, so the overview wraps as the other entries do.</summary>
     [Fact]
     public void R11_78_Q5_TheOverviewBoardSentenceIsWrappedAsTheOthersAre() =>

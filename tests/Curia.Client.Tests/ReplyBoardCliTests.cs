@@ -2,10 +2,8 @@
 
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Curia.Canon.Json;
 using Curia.Client.Cli;
 using Curia.Domain.Content;
@@ -28,7 +26,7 @@ namespace Curia.Client.Tests;
 [SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The stub is owned by the class and disposed with it.")]
 [Collection("console")]
-public sealed partial class ReplyBoardCliTests : IDisposable
+public sealed class ReplyBoardCliTests : IDisposable
 {
     private const string Served = "rust";
     private const string Forum = "http://forum.test";
@@ -239,24 +237,24 @@ public sealed partial class ReplyBoardCliTests : IDisposable
     }
 
     /// <summary>
-    /// RPB26, the receipt half, a <b>control</b> (ruling 13): the receipt's <c>board</c> line writes a stored board as a display literal, because <c>PrintPostReceipt</c> writes
-    /// through <c>FrameText</c>, which quotes every string hole. The function is private, so it is called by reflection, with a receipt chosen here. Green on the seam by design.
+    /// RPB26, the receipt half, a <b>control</b> (ruling 13) driven through the real path (ruling 25): <c>--board</c> omitted and a parent whose served board holds a line feed and an
+    /// ESC, so the board is taken from the post and the receipt <c>PostAsync</c> prints writes it as a display literal, with no raw control character on either stream.
     /// </summary>
-    [Fact]
-    public async Task R11_85_RPB26_TheReceiptWritesAStoredBoardAsALiteral_Control()
+    [Theory]
+    [InlineData("answer")]
+    [InlineData("comment")]
+    public async Task R11_85_RPB26_TheReceiptWritesAStoredBoardAsALiteral_Control(string verb)
     {
-        var method = typeof(Program).GetMethod("PrintPostReceipt", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-        var receipt = new PostReceipt("01TESTRECEIPTPOST000000000A", "sha256:" + new string('a', 64), "1970-01-01T00:00:00.0000000+00:00", []);
+        ArgumentNullException.ThrowIfNull(verb);
+        _log.ServedBoard = Stored;
 
-        var run = await ConsoleCapture.CaptureAsync(() =>
-        {
-            method.Invoke(null, [receipt, "comment", Stored, new OwnText("sha256:" + new string('a', 64)), null, null, "alice"]);
-            return Task.FromResult(0);
-        });
+        var run = await RunAsync(Reply(verb, board: null));
 
-        Assert.Contains("board " + Literal(Stored), run.Stdout, StringComparison.Ordinal);
-        Assert.False(HasRawControl(run.Stdout) || HasRawControl(run.Stderr), "a raw control character reached the terminal");
+        var problems = new List<string>();
+        if (run.Exit != 0) problems.Add($"exit {run.Exit} ({Fold(run.Stdout + " " + run.Stderr)})");
+        if (!run.Stdout.Contains("board " + Literal(Stored), StringComparison.Ordinal)) problems.Add("the receipt does not name the stored board as a display literal");
+        if (HasRawControl(run.Stdout) || HasRawControl(run.Stderr)) problems.Add("a raw control character reached the terminal");
+        Red.None(problems, $"{verb}: the receipt names the stored board as a display literal and no raw control character reaches the terminal");
     }
 
     // ---- RPB27 ----------------------------------------------------------------------------------
@@ -318,13 +316,9 @@ public sealed partial class ReplyBoardCliTests : IDisposable
 
     // ---- RPB29 ----------------------------------------------------------------------------------
 
-    [GeneratedRegex(@"reply\b[^.]*\bnever\b[^.]*\b(?:makes|creates|make|create)\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
-    private static partial Regex ReplyNeverMakes();
-
     /// <summary>
     /// RPB29. The helps: the usage of <c>answer</c>, <c>comment</c> and <c>revision</c> shows <c>[--board &lt;b&gt;]</c> and carries R11.85's help sentence; the help of <c>ask</c> and
-    /// <c>finding</c> and <c>curia help</c>'s board paragraph say that a reply never makes a board. The sentence is parsed from R11.85 words; "a reply never makes one" is
-    /// matched as a phrase of those words, not as a literal. Predicted red: <c>--board &lt;b&gt;</c> is unbracketed and the sentence is absent.
+    /// <c>finding</c> and <c>curia help</c>'s board paragraph carry the sentence "a reply never makes a board", character for character, parsed from R11.85 words (ruling 26). Predicted red: <c>--board &lt;b&gt;</c> is unbracketed and the sentence is absent.
     /// </summary>
     [Fact]
     public void R11_85_RPB29_TheHelpsSayTheBoardOfAReplyIsItsPosts()
@@ -338,9 +332,10 @@ public sealed partial class ReplyBoardCliTests : IDisposable
             if (!Fold(help).Contains(sentence, StringComparison.Ordinal)) problems.Add($"{verb}: lacks \"{sentence}\"");
         }
 
+        var never = Fold(PublishedReplyBoardWords.ReplyNeverMakesSentence());
         foreach (var verb in new[] { "ask", "finding" })
-            if (!ReplyNeverMakes().IsMatch(Fold(Help.For(verb)!))) problems.Add($"{verb}: does not say a reply never makes a board");
-        if (!ReplyNeverMakes().IsMatch(Fold(Help.Usage))) problems.Add("curia help: the board paragraph does not say a reply never makes a board");
+            if (!Fold(Help.For(verb)!).Contains(never, StringComparison.Ordinal)) problems.Add($"{verb}: lacks \"{never}\"");
+        if (!Fold(Help.Usage).Contains(never, StringComparison.Ordinal)) problems.Add($"curia help: the board paragraph lacks \"{never}\"");
 
         Red.None(problems, "[--board <b>] and the published help sentence on the three verbs; \"a reply never makes\" a board on ask, finding and curia help");
     }

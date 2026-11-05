@@ -73,6 +73,9 @@ internal static partial class PublishedReplyBoardWords
     /// <summary>The sentence of the verbs' help: the one span that begins <c>--board, if given</c>.</summary>
     internal static string HelpSentence() => OneSpan(HelpAnchor, "--board, if given");
 
+    /// <summary>The sentence of the helps of the verbs that make a board, and of <c>curia help</c>: the one span that begins <c>A reply never makes a board</c> (ruling 26).</summary>
+    internal static string ReplyNeverMakesSentence() => OneSpan(HelpAnchor, "A reply never makes a board");
+
     /// <summary>
     /// Whether R11.85's own paragraph says <c>curia-mcp</c> is <paramref name="version"/>. A containment test and not a second reader of a version out of an errata paragraph:
     /// <c>PublishedReadersLastWords.Version()</c> is the one reader (the Mcp suite's RLW40 holds that), and it is re-pointed at R11.85 by the build.

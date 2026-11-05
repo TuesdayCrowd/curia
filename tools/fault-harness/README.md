@@ -122,7 +122,7 @@ admin (pgvector is needed by `db/0003`).
   sequence, aggregate id and `server_ts`, or `absent`, and a total. **Attributed by digest only**, never by a time window and never by
   `server_ts`. Exit 0 when it ran; 2 for a bad argument, digest or database.
 - `latecommit.sh revision|digest|flag|vote` (needs `FH_DB`, `FH_ROLE`, `FH_AGENT`, and `FH_POST` or `FH_TARGET` by kind (the digest drill needs neither: A is a `curia ask` and B is `curia resend` of the digest `curia acts` lists); see
-  its header): the late-commit drill described below. Exit 0 the oracle found nothing, 1 the oracle found a row, 2 refused **or the drill
+  its header; `FH_BOARD` is the board of its `ask` and `endorse` acts only, because `curia revision` takes the board of `FH_POST`, R11.85): the late-commit drill described below. Exit 0 the oracle found nothing, 1 the oracle found a row, 2 refused **or the drill
   could not run** (a digest drill whose `curia ask` kept no act, so that `curia acts` lists nothing to resend, is 2 and prints no oracle section, never a quiet 0; `LCB24` rehearses it, and rehearses the drill's resend path with a stand-in client).
 - `common.sh`: the shared configuration and guard (sourced, not run).
 
