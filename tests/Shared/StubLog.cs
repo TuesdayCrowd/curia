@@ -1265,7 +1265,7 @@ internal sealed class StubLog : IDisposable
     /// a row that asserts nothing.
     /// </summary>
     internal string SearchJson() => $$"""
-    {"results":[{"post":{{PostJson()}},"score_micro":1000000}],
+    {"results":[{{(SearchEmpty ? string.Empty : "{\"post\":" + PostJson() + ",\"score_micro\":1000000}")}}],
     "next_cursor":{{(SearchNextCursor is null ? "null" : JsonString(SearchNextCursor))}},
     "floor":{"surface":"mcp-search","min_verification":"{{(FloorClamped ? "V1" : "V0")}}","source":"{{(FloorClamped ? "configured" : "published")}}",
     {{FloorListsMembersJson()}}"excluded_disputed":0{{ClampMembersJson()}}},
@@ -1277,6 +1277,9 @@ internal sealed class StubLog : IDisposable
     /// <c>"3"</c> ...); null serves the page without the member, as an older Forum does.
     /// </summary>
     internal string? SearchVectorPendingJson { get; set; }
+
+    /// <summary>Errata G62 (R10.97, Amendment 4): serve the search page with no result, as a page that missed every post does; the default is the one-hit page.</summary>
+    internal bool SearchEmpty { get; set; }
 
     /// <summary>Errata G62 (R9.55): the raw JSON value of the <c>unmatched_filters</c> member the stub's search page carries (<c>[]</c>, <c>["board"]</c>, <c>"board"</c>, <c>null</c> ...); null serves the page without the member, as an older Forum does.</summary>
     internal string? SearchUnmatchedFiltersJson { get; set; }

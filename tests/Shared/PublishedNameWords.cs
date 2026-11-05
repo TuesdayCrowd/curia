@@ -55,8 +55,15 @@ internal static partial class PublishedNameWords
     /// <summary>R11.87's sentence the instructions of <c>curia-mcp</c> end with: the one span of R11.86 and R11.87 words that begins "A string argument is text:".</summary>
     internal static string InstructionsSentence() => OneSpan(ClientAnchor, "A string argument is text:");
 
-    /// <summary>The clause for a filter whose name is not in <c>unmatched_filters</c>, with <c>&lt;name&gt;</c> and <c>&lt;typed&gt;</c> as published.</summary>
-    internal static string MatchedClause() => OneSpan(FiltersAnchor, "<name> <typed>: a post the Forum serves bears it");
+    /// <summary>
+    /// The clause for a filter whose name is not in <c>unmatched_filters</c> (Amendment 4, ruling 38): a state in capitals, <c>board &lt;typed&gt;: THE FORUM SERVES POSTS ON IT</c> or
+    /// <c>author &lt;typed&gt;: THE FORUM SERVES POSTS BY IT</c>, with <c>&lt;typed&gt;</c> as published. <paramref name="name"/> is <c>board</c> or <c>author</c>.
+    /// </summary>
+    internal static string MatchedClause(string name) =>
+        OneSpan(FiltersAnchor, name == "board" ? "board <typed>: THE FORUM SERVES POSTS ON IT" : "author <typed>: THE FORUM SERVES POSTS BY IT");
+
+    /// <summary>The tail of an empty first page whose every named filter is matched (Amendment 4, ruling 38): the one span that begins <c>; every name here has posts</c>.</summary>
+    internal static string EmptyPageTail() => OneSpan(FiltersAnchor, "; every name here has posts");
 
     /// <summary>The unmatched board clause with <c>&lt;hint&gt;</c> as published.</summary>
     internal static string BoardClause() => OneSpan(FiltersAnchor, "board <typed>: NO POST THE FORUM SERVES IS ON IT;");
@@ -80,8 +87,18 @@ internal static partial class PublishedNameWords
         return line[..line.IndexOf('<', StringComparison.Ordinal)];
     }
 
-    /// <summary>The inbox's sentence that nothing needs an answer, the one span of R10.97 words (the inbox).</summary>
-    internal static string NothingNeedsAnAnswer() => OneSpan(InboxAnchor, "no open questions match these filters.");
+    /// <summary>The inbox's whole sentence, <c>no open questions match these filters. Nothing here needs an answer -- look elsewhere.</c>, the one span of R10.97 words (the inbox) that continues past the first half.</summary>
+    internal static string NothingNeedsAnAnswer() => OneSpan(InboxAnchor, "no open questions match these filters. Nothing here");
+
+    /// <summary>The inbox's first half alone, <c>no open questions match these filters.</c>, the span of R10.97 words (the inbox) that is exactly that and no more (Amendment 4, ruling 41).</summary>
+    internal static string NoOpenQuestionsAlone()
+    {
+        var found = Spans(InboxAnchor).Where(s => s == "no open questions match these filters.").ToArray();
+        if (found.Length != 1)
+            throw new InvalidOperationException($"{Errata}'s {InboxAnchor} has {found.Length} spans that are exactly the first half; the parse read something else");
+
+        return found[0];
+    }
 
     /// <summary>The floor line's template, <c>floor     min_verification &lt;level&gt; ...</c>, one span.</summary>
     internal static string FloorTemplate() => OneSpan(FloorAnchor, "floor     min_verification");

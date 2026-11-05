@@ -61,7 +61,7 @@ public sealed partial class NameWordsToolTests : IDisposable
             .Replace("<hint>", PublishedNameWords.BoardHintWithClasses().Replace("<classes>", classes, StringComparison.Ordinal), StringComparison.Ordinal);
 
     private static string Matched(string name, string typed) =>
-        PublishedNameWords.MatchedClause().Replace("<name>", name, StringComparison.Ordinal).Replace("<typed>", Lit(typed), StringComparison.Ordinal);
+        PublishedNameWords.MatchedClause(name).Replace("<typed>", Lit(typed), StringComparison.Ordinal);
 
     private async Task<string> FirstBlockAsync(StubLog log, SearchCriteria criteria)
     {
@@ -103,6 +103,109 @@ public sealed partial class NameWordsToolTests : IDisposable
 
         var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));
         if (!string.Equals(e, a, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {e}{Environment.NewLine}Actual:   {a}");
+    }
+
+    private async Task<string[]> BlockLinesAsync(StubLog log, SearchCriteria criteria) =>
+        [.. (await FirstBlockAsync(log, criteria)).Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').Select(Fold)];
+
+    /// <summary>
+    /// NMN55 (Amendment 4, ruling 38), at the adapter. The first block of an empty first page with no cursor whose every named filter is matched carries the filters line with the published
+    /// tail after its last clause, the very line <c>curia search</c> prints: for a board, for an author and for the two together. Predicted red on the tree: the lower-case clause and no tail.
+    /// Falsification FNMN61, FNMN70.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN55_TheFirstBlockOfAnEmptyFirstPageWhereEveryNamedFilterIsMatchedCarriesTheTail()
+    {
+        const string alice = "urn:curia:agent:alice";
+        var tail = PublishedNameWords.EmptyPageTail();
+        var author = PublishedNameWords.MatchedClause("author").Replace("<typed>", Lit(alice), StringComparison.Ordinal);
+        var rows = new (string Label, SearchCriteria Criteria, string Clauses)[]
+        {
+            ("one board", new SearchCriteria { Board = "rust" }, Matched("board", "rust")),
+            ("one author", new SearchCriteria { Author = alice }, author),
+            ("two filters", new SearchCriteria { Board = "rust", Author = alice }, Matched("board", "rust") + "; " + author),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (label, criteria, clauses) in rows)
+        {
+            using var log = new StubLog { SearchUnmatchedFiltersJson = "[]", SearchEmpty = true };
+            var line = FiltersLine(clauses + tail);
+            var lines = await BlockLinesAsync(log, criteria);
+            expected.Add($"{label}: the line {Fold(line)}");
+            actual.Add($"{label}: {(lines.Contains(Fold(line)) ? "the line " + Fold(line) : "not the line; " + string.Join(" / ", lines.Where(l => l.StartsWith("filters ", StringComparison.Ordinal)).DefaultIfEmpty("no filters line")))}");
+        }
+
+        var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));
+        if (!string.Equals(e, a, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {e}{Environment.NewLine}Actual:   {a}");
+    }
+
+    /// <summary>
+    /// NMN56 (Amendment 4, ruling 38), at the adapter: the tail is in no other first block: a page that holds a result, an empty page with a cursor, an unmatched clause, a
+    /// <c>NOT STATED</c> clause, and no filter named. Falsification FNMN62 to FNMN64.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN56_TheFirstBlockCarriesTheTailInNoOtherState()
+    {
+        var marker = PublishedNameWords.EmptyPageTail()[2..].Split(',')[0];
+        var rows = new (string Label, bool Empty, string? Json, SearchCriteria Criteria)[]
+        {
+            ("a page that holds a result", false, "[]", new SearchCriteria { Board = "rust" }),
+            ("a cursor", true, "[]", new SearchCriteria { Board = "rust", Cursor = "c0:0:0000000000000000" }),
+            ("an unmatched board", true, """["board"]""", new SearchCriteria { Board = "RUST" }),
+            ("one matched, one unmatched", true, """["author"]""", new SearchCriteria { Board = "rust", Author = "urn:curia:agent:alice" }),
+            ("a NOT STATED clause", true, null, new SearchCriteria { Board = "rust" }),
+            ("no filter named", true, "[]", new SearchCriteria { Query = "x" }),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (label, empty, json, criteria) in rows)
+        {
+            using var log = new StubLog { SearchUnmatchedFiltersJson = json, SearchEmpty = empty };
+            var block = await FirstBlockAsync(log, criteria);
+            expected.Add($"{label}: the tail occurs nowhere");
+            actual.Add($"{label}: the tail {(Fold(block).Contains(marker, StringComparison.Ordinal) ? "occurs" : "occurs nowhere")}");
+        }
+
+        var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));
+        if (!string.Equals(e, a, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {e}{Environment.NewLine}Actual:   {a}");
+    }
+
+    /// <summary>
+    /// NMN59 (Amendment 4, ruling 39). <c>curia_search</c>'s description does not say a board no post names answers "like an empty one" (beside the <c>unmatched_filters</c> paragraph it reads as
+    /// two statements about whether the agent can tell), and its blank-criterion sentence names every criterion <see cref="SearchRequestRules.BlankCriterion(string?, string?, string?, string?, string?, string?, string?)"/>
+    /// can name (read from the rule, each slot made blank in turn, not from the text; <c>kind</c> is the tool's <c>kinds</c>). Falsification FNMN68, FNMN69.
+    /// </summary>
+    [Fact]
+    public void R11_78_NMN59_TheSearchDescriptionDoesNotSayLikeAnEmptyOneAndNamesEveryBlankCriterion()
+    {
+        string?[] named =
+        [
+            SearchRequestRules.BlankCriterion(" ", null, null, null),
+            SearchRequestRules.BlankCriterion(null, " ", null, null),
+            SearchRequestRules.BlankCriterion(null, null, " ", null),
+            SearchRequestRules.BlankCriterion(null, null, null, " "),
+            SearchRequestRules.BlankCriterion(null, null, null, null, kind: ","),
+            SearchRequestRules.BlankCriterion(null, null, null, null, tags: ","),
+            SearchRequestRules.BlankCriterion(null, null, null, null, cursor: " "),
+        ];
+        var names = named.Select(n => n ?? throw new Xunit.Sdk.XunitException("a blank slot named no criterion")).Distinct(StringComparer.Ordinal).ToArray();
+        Assert.Equal(7, names.Length);
+
+        using var log = new StubLog();
+        var description = Descriptions(log)["curia_search"];
+        var marker = description.IndexOf("present and empty or blank", StringComparison.Ordinal);
+        Assert.True(marker >= 0, "the description has no blank-criterion sentence");
+        var start = description.LastIndexOf(". ", marker, StringComparison.Ordinal) + 2;
+        var end = description.IndexOf("omit it.", marker, StringComparison.Ordinal) + "omit it.".Length;
+        var sentence = description[start..end];
+
+        var missing = names.Where(n => !sentence.Contains(n == "kind" ? "kinds" : n, StringComparison.Ordinal)).ToArray();
+        var expected = "no 'like an empty one'; every criterion the rule can name is in the blank-criterion sentence";
+        var actual = $"{(description.Contains("like an empty one", StringComparison.Ordinal) ? "'like an empty one' is said" : "no 'like an empty one'")}; {(missing.Length == 0 ? "every criterion the rule can name is in the blank-criterion sentence" : "the sentence names none of: " + string.Join(", ", missing))}";
+        if (!string.Equals(expected, actual, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }
 
     /// <summary>NMN37, the description: <c>curia_search</c>'s description states the member (R9.55). Predicted red on the seam.</summary>

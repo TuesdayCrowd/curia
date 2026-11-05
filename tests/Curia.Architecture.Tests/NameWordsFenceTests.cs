@@ -49,7 +49,10 @@ public sealed class NameWordsFenceTests
     {
         var boardUnmatched = After(PublishedNameWords.BoardClause(), ": ").Split(';')[0];
         var authorUnmatched = After(PublishedNameWords.AuthorClause(), ": ").Split(';')[0];
-        var matched = After(PublishedNameWords.MatchedClause(), ": ");
+        var matchedBoard = After(PublishedNameWords.MatchedClause("board"), ": ");
+        var matchedAuthor = After(PublishedNameWords.MatchedClause("author"), ": ");
+        var tail = PublishedNameWords.EmptyPageTail()[2..].Split(',')[0];
+        var inbox = PublishedNameWords.NothingNeedsAnAnswer()[(PublishedNameWords.NoOpenQuestionsAlone().Length + 1)..].TrimEnd('.');
         var notStated = After(PublishedNameWords.NotStatedClause(), "NOT STATED (").TrimEnd(')');
         var (lineTrue, lineFalse, lineNotStated) = PublishedNameWords.ReceiptLines();
         string Sentence(string line, string head) => line[head.Length..].TrimStart().Split(';')[0].Replace("<board>", "{board}", StringComparison.Ordinal);
@@ -60,7 +63,10 @@ public sealed class NameWordsFenceTests
         [
             boardUnmatched,
             authorUnmatched,
-            matched,
+            matchedBoard,
+            matchedAuthor,
+            tail,
+            inbox,
             notStated,
             Sentence(lineTrue, "board_new true"),
             Sentence(lineFalse, "board_new false"),

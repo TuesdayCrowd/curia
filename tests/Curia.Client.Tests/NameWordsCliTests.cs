@@ -34,7 +34,7 @@ public sealed class NameWordsCliTests
 
     /// <summary>The filters line for a matched filter, from the published clause.</summary>
     private static string Matched(string name, string typed) =>
-        PublishedNameWords.FiltersLabel() + PublishedNameWords.MatchedClause().Replace("<name>", name, StringComparison.Ordinal).Replace("<typed>", Lit(typed), StringComparison.Ordinal);
+        PublishedNameWords.FiltersLabel() + PublishedNameWords.MatchedClause(name).Replace("<typed>", Lit(typed), StringComparison.Ordinal);
 
     private static string BoardUnmatched(string typed, string classes)
     {
@@ -245,23 +245,22 @@ public sealed class NameWordsCliTests
     }
 
     /// <summary>
-    /// NMN50 (ruling 36, M9). An inbox board named against a page with no member (an older Forum) prints the <c>NOT STATED</c> clause and the nothing-needs-an-answer sentence: the page is
-    /// empty and the word about the name was not given, so the sentence stands and the line beside it says why nothing is claimed. Falsification FNMN53.
+    /// NMN50 (Amendment 4, ruling 41, reversing ruling 36, M9). An inbox board named against a page with no member (an older Forum) prints the <c>NOT STATED</c> clause and then
+    /// <c>no open questions match these filters.</c> alone: a client that was not told whether the board has posts cannot claim that nothing needs an answer, and a reader skims to the
+    /// instruction. Falsification FNMN67.
     /// </summary>
     [Fact]
-    public async Task R10_97_NMN50_AnInboxBoardWithNoMemberPrintsNotStatedAndTheNothingNeedsAnAnswerSentence()
+    public async Task R10_97_NMN50_AnInboxBoardWithNoMemberPrintsNotStatedAndTheFirstHalfAlone()
     {
         var (exit, stdout, stderr) = await InboxAsync(InboxPageOrOlder(null, open: 0), "--board", "rust");
 
-        var lines = Lines(stdout);
         Assert.True(exit == 0, $"exit {exit}; stderr: {stderr}");
         Said(
-            ["the NOT STATED clause first", "the nothing-needs-an-answer sentence after it"],
-            [
-                lines.FirstOrDefault() == PublishedNameWords.FiltersLabel() + NotStated("board", "rust") ? "the NOT STATED clause first" : "no NOT STATED clause first: " + lines.FirstOrDefault(),
-                lines.Skip(1).Any(l => l.StartsWith(PublishedNameWords.NothingNeedsAnAnswer().TrimEnd('.'), StringComparison.Ordinal)) ? "the nothing-needs-an-answer sentence after it" : "no sentence after it: " + stdout,
-            ]);
+            [PublishedNameWords.FiltersLabel() + NotStated("board", "rust"), PublishedNameWords.NoOpenQuestionsAlone()],
+            NonEmpty(stdout));
     }
+
+    private static string[] NonEmpty(string stdout) => [.. Lines(stdout).Where(l => l.Length > 0)];
 
     /// <summary>
     /// NMN51 (ruling 36, M9). A search whose board and author are both unmatched prints one <c>filters</c> line with the two clauses joined by <c>; </c>, the board first, and not two lines.
@@ -275,6 +274,131 @@ public sealed class NameWordsCliTests
         var expected = PublishedNameWords.FiltersLabel() + BoardUnmatched("RUST", "not-lower-case") + "; " + AuthorUnmatched("someone");
         Assert.Equal(0, exit);
         AssertPlaced(stdout, expected);
+    }
+
+    private static async Task<(int Exit, string Stdout, string Stderr)> EmptySearchAsync(string? unmatchedJson, params string[] flags) =>
+        await ServedSearchAsync(unmatchedJson, empty: true, flags);
+
+    private static async Task<(int Exit, string Stdout, string Stderr)> ServedSearchAsync(string? unmatchedJson, bool empty, params string[] flags)
+    {
+        using var log = new StubLog { SearchUnmatchedFiltersJson = unmatchedJson, SearchEmpty = empty };
+        var args = Args.Parse(["search", "x", .. flags], 1);
+        return await CaptureAsync(
+            () => Program.SearchPageAsync(args, "x", null, log.Client(), MarkingMode.None, null, TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// NMN55 (Amendment 4, ruling 38). The matched clauses are the published states in capitals (<c>THE FORUM SERVES POSTS ON IT</c>, <c>THE FORUM SERVES POSTS BY IT</c>), and on an empty
+    /// first page with no cursor where every named filter is matched the line ends with the published tail, after the last clause: for a board, for an author (Read F's state: an author
+    /// with posts none of which a term finds) and for the two together. The line is followed by <c>no results.</c>. Predicted red on the tree: the clauses are the lower-case sentence and
+    /// there is no tail. Falsification FNMN61, FNMN70.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN55_AnEmptyFirstPageWhereEveryNamedFilterIsMatchedSaysWhereTheEmptinessIs()
+    {
+        const string alice = "urn:curia:agent:alice";
+        var tail = PublishedNameWords.EmptyPageTail();
+        var rows = new (string Label, string[] Flags, string Clauses)[]
+        {
+            ("one board", ["--board", "rust"], Matched("board", "rust")),
+            ("one author", ["--author", alice], Matched("author", alice)),
+            ("two filters", ["--board", "rust", "--author", alice], Matched("board", "rust") + "; " + PublishedNameWords.MatchedClause("author").Replace("<typed>", Lit(alice), StringComparison.Ordinal)),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (label, flags, clauses) in rows)
+        {
+            var (exit, stdout, stderr) = await EmptySearchAsync("[]", flags);
+            var lines = Lines(stdout);
+            var at = Array.FindIndex(lines, l => l.StartsWith("filters   ", StringComparison.Ordinal));
+            expected.Add($"{label}: exit 0; {clauses + tail}; then no results.");
+            actual.Add($"{label}: exit {exit}; {(at >= 0 ? lines[at] : "no filters line")}; then {(at >= 0 && at + 2 < lines.Length ? lines[at + 2] : "(nothing) " + stderr)}");
+        }
+
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// NMN56 (Amendment 4, ruling 38). The tail is printed for no other state, so a tail printed always, or never, cannot pass this and NMN55: a page that holds a result; an empty page of a
+    /// request that carries a cursor; an unmatched clause (one filter, and one of two); a <c>NOT STATED</c> clause; no filter named. Each row asserts the line it does print (or that none
+    /// is) and that the tail's words occur nowhere in the output. Falsification FNMN62 to FNMN64.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN56_TheTailIsPrintedForNoOtherState()
+    {
+        const string alice = "urn:curia:agent:alice";
+        var marker = PublishedNameWords.EmptyPageTail()[2..].Split(',')[0];
+        var matchedBoard = Matched("board", "rust");
+        var matchedAuthor = PublishedNameWords.MatchedClause("author").Replace("<typed>", Lit(alice), StringComparison.Ordinal);
+        var rows = new (string Label, bool Empty, string? Json, string[] Flags, string? Line)[]
+        {
+            ("a page that holds a result", false, "[]", ["--board", "rust"], matchedBoard),
+            ("an empty page past the first (a cursor)", true, "[]", ["--board", "rust", "--cursor", "c0:0:0000000000000000"], matchedBoard),
+            ("an unmatched board", true, """["board"]""", ["--board", "rustx"], PublishedNameWords.FiltersLabel() + BoardUnmatched("rustx", string.Empty)),
+            ("one matched, one unmatched", true, """["author"]""", ["--board", "rust", "--author", alice], matchedBoard + "; " + AuthorUnmatched(alice).Replace(PublishedNameWords.FiltersLabel(), string.Empty, StringComparison.Ordinal)),
+            ("a NOT STATED clause", true, null, ["--board", "rust"], PublishedNameWords.FiltersLabel() + NotStated("board", "rust")),
+            ("no filter named", true, "[]", [], null),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (label, empty, json, flags, line) in rows)
+        {
+            var (exit, stdout, _) = await ServedSearchAsync(json, empty, flags);
+            var printed = Lines(stdout).FirstOrDefault(l => l.StartsWith("filters   ", StringComparison.Ordinal));
+            var expectedLine = line is null ? "no filters line" : line.StartsWith("filters   ", StringComparison.Ordinal) ? line : PublishedNameWords.FiltersLabel() + line;
+            expected.Add($"{label}: exit 0; {expectedLine}; the tail occurs nowhere");
+            actual.Add($"{label}: exit {exit}; {printed ?? "no filters line"}; the tail {(stdout.Contains(marker, StringComparison.Ordinal) ? "occurs" : "occurs nowhere")}");
+        }
+
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// NMN57 (Amendment 4, ruling 40). A board whose only posts are withheld reads like a board that does not exist, so the two words that tell the reader what to do say so: the hint for a
+    /// spelling that is a name says a board whose posts are all withheld reads the same way, and the <c>true</c> receipt line names the second cause with the opposite remedy (this post is on
+    /// that board). Both are the published words (parsed) and are asserted to say <c>withheld</c>, so a hint that went back to "check the spelling" alone fails. Falsification FNMN65, FNMN66.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN57_TheHintAndTheTrueReceiptLineSayThatAWithheldBoardReadsTheSame()
+    {
+        var hint = PublishedNameWords.BoardHintPlain();
+        var receiptTrue = PublishedNameWords.ReceiptLines().True.Replace("<board>", Lit("rust"), StringComparison.Ordinal);
+        Assert.Contains("withheld", hint, StringComparison.Ordinal);
+        Assert.Contains("withheld", receiptTrue, StringComparison.Ordinal);
+
+        var (_, search, _) = await SearchAsync("""["board"]""", "--board", "rustx");
+        var (_, post, _) = await PostAsync("ask", "true", "rust");
+
+        Said(
+            [$"the search prints the hint: {hint}", $"the receipt prints: {receiptTrue}"],
+            [$"the search {(Lines(search).Any(l => l.EndsWith(hint, StringComparison.Ordinal)) ? "prints the hint: " + hint : "does not print the hint")}", $"the receipt {(Lines(post).Contains(receiptTrue) ? "prints: " + receiptTrue : "does not print the line")}"]);
+        Assert.DoesNotContain("posts on it are not served", search + post, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// NMN58 (Amendment 4, ruling 41). The inbox's three states over an empty page, by the published words: a matched board prints its clause and the whole sentence; an unmatched board prints the
+    /// filters line and nothing after it; a <c>NOT STATED</c> board prints its clause and the first half alone. Falsification FNMN67.
+    /// </summary>
+    [Fact]
+    public async Task R10_97_NMN58_TheInboxSaysNothingNeedsAnAnswerOnlyWhereTheBoardIsMatched()
+    {
+        var (_, matched, _) = await InboxAsync(InboxPage("[]", open: 0), "--board", "rust");
+        var (_, unmatched, _) = await InboxAsync(InboxPage("""["board"]""", open: 0), "--board", "dotnte");
+        var (_, notStated, _) = await InboxAsync(InboxPageOrOlder(null, open: 0), "--board", "rust");
+
+        Said(
+            [
+                "matched: " + Matched("board", "rust") + " | " + PublishedNameWords.NothingNeedsAnAnswer(),
+                "unmatched: " + PublishedNameWords.FiltersLabel() + BoardUnmatched("dotnte", string.Empty),
+                "not stated: " + PublishedNameWords.FiltersLabel() + NotStated("board", "rust") + " | " + PublishedNameWords.NoOpenQuestionsAlone(),
+            ],
+            [
+                "matched: " + string.Join(" | ", NonEmpty(matched)),
+                "unmatched: " + string.Join(" | ", NonEmpty(unmatched)),
+                "not stated: " + string.Join(" | ", NonEmpty(notStated)),
+            ]);
     }
 
     /// <summary>
