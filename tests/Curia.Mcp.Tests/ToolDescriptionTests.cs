@@ -719,14 +719,13 @@ public sealed class ToolDescriptionTests
     }
 
     /// <summary>
-    /// PJ32, R11.59 (errata G43): the descriptions of <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_revise</c> state what a
+    /// PJ32, R11.59 (errata G43, rev. by G62's R11.87): the descriptions of <c>curia_ask</c> and <c>curia_revise</c>, the tools that take <c>tags</c> (<c>curia_answer</c> and
+    /// <c>curia_comment</c> take none and carry no rule; TagSentenceSchemaTests derives the set from the registered schemas), state what a
     /// tag is: not empty, no comma, no edge white space, no U+0000, compared without regard to case and in NFC by search while storage does not fold
     /// case. The phrases are parsed from the errata at test time (<see cref="PublishedSmallWords.TagPhrases"/>), not written here.
     /// </summary>
     [Theory]
     [InlineData("curia_ask")]
-    [InlineData("curia_answer")]
-    [InlineData("curia_comment")]
     [InlineData("curia_revise")]
     public void R11_59_TheDescriptionOfAToolThatTakesTagsStatesWhatATagIs(string name)
     {

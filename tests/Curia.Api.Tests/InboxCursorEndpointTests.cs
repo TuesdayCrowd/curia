@@ -8,8 +8,8 @@ namespace Curia.Api.Tests;
 
 /// <summary>
 /// R9.38 (errata G37): <c>GET /v1/inbox</c> answers a <c>cursor</c> it did not mint <c>400</c> as
-/// <c>curia/inbox/cursor-malformed</c>, echoing no part of the value, and never reads it as a first page; an absent or blank
-/// one is a first page; a cursor the route minted continues. The live run at Task 0 sent <c>garbage</c>, <c>@@@</c> and a
+/// <c>curia/inbox/cursor-malformed</c>, echoing no part of the value, and never reads it as a first page; an absent
+/// one is a first page and a blank one is refused (R9.56); a cursor the route minted continues. The live run at Task 0 sent <c>garbage</c>, <c>@@@</c> and a
 /// search cursor, each of which answered page one with exit 0, and found that a walk that follows a corrupted cursor repeats
 /// page one for as long as it is followed.
 ///
@@ -165,19 +165,39 @@ public sealed class InboxCursorEndpointTests(ForumFixture forum) : IClassFixture
         Assert.Null(pages[^1].NextCursor);
     }
 
-    /// <summary>PD10: an absent, empty or blank cursor is a first page.</summary>
+    /// <summary>PD10 (R9.38 (rev.), errata G62): an absent cursor is a first page.</summary>
+    [Fact]
+    public async Task R9_38_AnAbsentCursorIsAFirstPage()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (probe, reader, board, ids) = await SceneAsync(ct);
+
+        var page = await probe.InboxPageAsync(reader, $"?board={board}&limit=2", ct);
+
+        Assert.Equal(ids[..2], page.Ids);
+    }
+
+    /// <summary>
+    /// PD10, flipped on purpose by errata G62 (R9.38 (rev.), R9.56): a blank cursor, empty or white space, is no longer a first page. A loop that passes <c>cursor=$NEXT</c> and
+    /// takes the last page's empty variable for a first page repeats the listing for as long as it runs; the route refuses it, naming the parameter, and the control is the same
+    /// request with no cursor.
+    /// </summary>
     [Theory]
-    [InlineData("")]
     [InlineData("&cursor=")]
     [InlineData("&cursor=%20")]
-    public async Task R9_38_ABlankOrAbsentCursorIsAFirstPage(string suffix)
+    public async Task R9_56_ABlankCursorIsRefusedAndNoLongerAFirstPage(string suffix)
     {
         var ct = TestContext.Current.CancellationToken;
         ArgumentNullException.ThrowIfNull(suffix);
         var (probe, reader, board, ids) = await SceneAsync(ct);
 
-        var page = await probe.InboxPageAsync(reader, $"?board={board}&limit=2{suffix}", ct);
+        var (status, body) = await probe.InboxRawAsync(reader, $"?board={board}&limit=2{suffix}", ct);
+        var control = await probe.InboxPageAsync(reader, $"?board={board}&limit=2", ct);
 
-        Assert.Equal(ids[..2], page.Ids);
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("curia/inbox/blank-parameter", json.RootElement.GetProperty("type").GetString());
+        Assert.Contains("parameter=cursor", body, StringComparison.Ordinal);
+        Assert.Equal(ids[..2], control.Ids);
     }
 }

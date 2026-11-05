@@ -51,30 +51,29 @@ public sealed class InboxCursorPositionTests(ForumFixture forum) : IClassFixture
 
     // ---- PJ5 ------------------------------------------------------------------------------------
 
-    /// <summary>PJ5: the Forum still reads a blank cursor as absent on both routes. Green first; FPJ5 makes the Forum refuse a blank one.</summary>
+    /// <summary>
+    /// PJ5, flipped on purpose by errata G62 (R9.56, R9.38 (rev.)): the Forum no longer reads a blank cursor as absent on either route; it refuses it
+    /// (<c>400 curia/inbox/blank-parameter</c>, <c>400 curia/search/blank-parameter</c>), and the same requests with no cursor are the control, served and equal to each other's first page.
+    /// </summary>
     [Theory]
     [InlineData("")]
     [InlineData("%20")]
-    public async Task R9_38_TheForumStillReadsABlankCursorAsAbsent(string blank)
+    public async Task R9_56_TheForumRefusesABlankCursorOnBothRoutes(string blank)
     {
         ArgumentNullException.ThrowIfNull(blank);
         var (probe, reader, board, ids) = await SceneAsync(4);
 
         var inboxPlain = await probe.InboxPageAsync(reader, $"?board={board}&limit=2", Ct);
-        var inboxBlank = await probe.InboxPageAsync(reader, $"?board={board}&limit=2&cursor={blank}", Ct);
-        Assert.Equal(inboxPlain.Ids, inboxBlank.Ids);
-        Assert.Equal(ids[..2], inboxBlank.Ids);
-
-        string[] SearchIds(string text)
-        {
-            using var json = JsonDocument.Parse(text);
-            return [.. json.RootElement.GetProperty("results").EnumerateArray().Select(r => r.GetProperty("post").GetProperty("post_id").GetString()!)];
-        }
+        Assert.Equal(ids[..2], inboxPlain.Ids);
+        var (inboxStatus, inboxBody) = await probe.InboxRawAsync(reader, $"?board={board}&limit=2&cursor={blank}", Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, inboxStatus);
+        Assert.Contains("curia/inbox/blank-parameter", inboxBody, StringComparison.Ordinal);
 
         using var plain = await forum.Client.GetAsync(new Uri($"/v1/search?board={board}&limit=2", UriKind.Relative), Ct);
         using var withBlank = await forum.Client.GetAsync(new Uri($"/v1/search?board={board}&limit=2&cursor={blank}", UriKind.Relative), Ct);
-        Assert.Equal(HttpStatusCode.OK, withBlank.StatusCode);
-        Assert.Equal(SearchIds(await plain.Content.ReadAsStringAsync(Ct)), SearchIds(await withBlank.Content.ReadAsStringAsync(Ct)));
+        Assert.Equal(HttpStatusCode.OK, plain.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, withBlank.StatusCode);
+        Assert.Contains("curia/search/blank-parameter", await withBlank.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
     }
 
     // ---- PJ6 ------------------------------------------------------------------------------------
