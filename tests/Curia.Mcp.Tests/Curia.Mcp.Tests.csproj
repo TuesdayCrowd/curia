@@ -36,6 +36,8 @@
     <Compile Include="../Shared/PublishedReadersWords.cs" Link="Shared/PublishedReadersWords.cs" />
     <Compile Include="../Shared/PublishedChainWords.cs" Link="Shared/PublishedChainWords.cs" />
     <Compile Include="../Shared/PublishedParentRule.cs" Link="Shared/PublishedParentRule.cs" />
+    <!-- Errata G61 (R8.87, R11.85): the words of the reply-board entry, read from the errata at test time. -->
+    <Compile Include="../Shared/PublishedReplyBoardWords.cs" Link="Shared/PublishedReplyBoardWords.cs" />
     <Compile Include="../Shared/PublishedWithheldWords.cs" Link="Shared/PublishedWithheldWords.cs" />
     <Compile Include="../Shared/PublishedForkWords.cs" Link="Shared/PublishedForkWords.cs" />
     <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable11.cs" Link="Shared/PublishedTable11.cs" />
