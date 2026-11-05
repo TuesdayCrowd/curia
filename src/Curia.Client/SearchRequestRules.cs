@@ -29,14 +29,15 @@ public static class SearchRequestRules
     }
 
     /// <summary>
-    /// The library's form of <see cref="BlankCriterion(string?, string?, string?, string?, string?, string?, string?)"/>: the kinds as the items a caller gave, of which any that is
-    /// blank is refused (an item the request would join into a list the Forum reads as naming something). An empty or default list names nothing at all and is not a criterion.
+    /// The library's form of <see cref="BlankCriterion(string?, string?, string?, string?, string?, string?, string?)"/>: the kinds as the items a caller gave, of which any that names
+    /// nothing is refused, by the test the Forum refuses a list by (<see cref="QueryValue.NamesNothing"/>): an item that is empty, white space or only commas (<c>","</c>) would be joined into
+    /// a list the Forum reads as naming something and so would be sent and silently dropped. An empty or default list names nothing at all and is not a criterion (errata G62, R11.86).
     /// </summary>
     public static string? BlankCriterion(
         string? terms, string? board, string? author, string? minVerification, ImmutableArray<string> kinds, string? cursor)
     {
         if (BlankCriterion(terms, board, author, minVerification) is { } blank) return blank;
-        if (!kinds.IsDefaultOrEmpty && kinds.Any(string.IsNullOrWhiteSpace)) return "kind";
+        if (!kinds.IsDefaultOrEmpty && kinds.Any(item => QueryValue.NamesNothing(item, isList: true))) return "kind";
         return BlankCriterion(null, null, null, null, cursor: cursor);
     }
 

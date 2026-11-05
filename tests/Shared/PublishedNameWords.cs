@@ -4,7 +4,7 @@ namespace Curia.Tests.Shared;
 
 /// <summary>
 /// R8.88, R9.55, R9.57 and R10.97's words (errata G62) as the errata publishes them, read at test time and not from the code that emits them: the paragraph that
-/// begins each anchor, up to the blank line that ends it, whitespace folded. A fact takes the member names, the problem types, the sentences of the filters
+/// begins each anchor, up to the blank line that ends it or the next line that begins `**` (another words paragraph), whitespace folded. A fact takes the member names, the problem types, the sentences of the filters
 /// line, the inbox, the floor line and the receipt from here. Every count is asserted before a value is returned (two members, two types, four clauses, three
 /// receipt lines), so a parse that read something else fails by name and not by a wrong comparison.
 /// </summary>
@@ -140,7 +140,11 @@ internal static partial class PublishedNameWords
         if (start < 0)
             throw new InvalidOperationException($"{Errata} has no paragraph that begins \"{anchor}\"");
 
+        // The paragraph ends at the blank line that follows it or at the next line that begins `**` (another words paragraph), whichever comes first, so a missing blank line
+        // in the errata cannot make one paragraph hold another's spans (Amendment 3, ruling 36, M6).
         var end = text.IndexOf("\n\n", start, StringComparison.Ordinal);
+        var next = text.IndexOf("\n**", start + anchor.Length, StringComparison.Ordinal);
+        if (next >= 0 && (end < 0 || next < end)) end = next;
         return text[start..(end < 0 ? text.Length : end)];
     }
 

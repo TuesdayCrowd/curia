@@ -462,8 +462,8 @@ internal sealed partial class ForumTools(
         if (SearchRequestRules.BlankCriterion(criteria.Query, criteria.Board, criteria.Author, criteria.MinVerification) is { } blankCriterion)
             return ArgumentGuards.Blank($"criteria.{blankCriterion}");
 
-        // R11.52: the Forum reads a blank cursor as no cursor and answers page one, so a pager that carries its cursor in a variable would
-        // loop; the adapter refuses it by name. Absent (null) is no cursor.
+        // R11.52: a pager that carries its cursor in a variable and sends it blank would restart at page one and loop; the adapter refuses a blank
+        // cursor by name, as the Forum does too (R9.56, errata G62). Absent (null) is no cursor.
         if (ArgumentGuards.PresentValue(criteria.Cursor, "criteria.cursor") is { } refusedCursor) return refusedCursor;
 
         // R11.57: U+0000 and an unpaired surrogate are refused in every string criterion that reaches the query, by name. Without it the
