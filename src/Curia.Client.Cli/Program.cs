@@ -272,8 +272,19 @@ internal static class Program
         if (slug is null)
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
-        if (args.Value("board") is not { Length: > 0 } board)
+        // R11.85 (errata G61): an answer, a comment and a revision take their board from the post they follow, so --board is optional for them; for
+        // every other kind it is required.
+        var followsAPost = kind is PostKind.Answer or PostKind.Comment or PostKind.Revision;
+        var typedBoard = args.Value("board");
+        if (followsAPost)
+        {
+            if (args.Has("board") && typedBoard is not { Length: > 0 })
+                return Output.Fail("error: --board is empty; omit it to use the board of the post --parent names. Nothing was sent.", ExitCode.Usage);
+        }
+        else if (typedBoard is not { Length: > 0 })
+        {
             return Output.Fail("error: --board <name> is required.", ExitCode.Usage);
+        }
 
         if (args.Text("body") is not { Length: > 0 } body)
             return Output.Fail("error: --body <text> or --body-file <path> is required.", ExitCode.Usage);
@@ -300,18 +311,31 @@ internal static class Program
         {
             string? prev = null;
             OwnText? supersession = null;
+            OwnText? question = null;
+            var board = typedBoard;
             if (kind is PostKind.Revision)
             {
-                var (resolved, failure, receipt) = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), agent.Profile.AgentId, ct).ConfigureAwait(false);
+                var revised = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), agent.Profile.AgentId, typedBoard, ct).ConfigureAwait(false);
+                if (revised.Failure is { } code) return code;
+                prev = revised.Prev;
+                supersession = revised.Receipt;
+                board = revised.Board;
+            }
+            else if (followsAPost)
+            {
+                // R11.85, R11.67 (errata G50): one advisory read of --parent serves the board and, for an answer, the question's standing. It is made before
+                // anything is signed, never verifies and never blocks a post whose board was typed; the Forum refuses a parent it does not hold or does not
+                // serve in its own words (R8.70), and compares the board with what it stored (R8.87).
+                var (parentBoard, standing, failure) = await ReadParentAsync(args, ForumUri(args, agent.Profile), kind, typedBoard, ct).ConfigureAwait(false);
                 if (failure is { } code) return code;
-                prev = resolved;
-                supersession = receipt;
+                board = parentBoard;
+                question = standing;
             }
 
             var draft = new PostDraft
             {
                 Kind = kind,
-                Board = board,
+                Board = board!,
                 Body = body,
                 Title = args.Value("title"),
                 Parent = args.Value("parent"),
@@ -321,30 +345,6 @@ internal static class Program
                 NotDuplicate = args.Value("not-duplicate") is not null ? true : null,
                 DuplicateRationale = args.Value("not-duplicate"),
             };
-
-            // R11.67 (errata G50): an answer's receipt states the question's standing from one advisory read of --parent and, where it is served
-            // as superseded, a bounded walk down its chain; it is made before anything is signed, never verifies and never blocks the post, and the Forum
-            // refuses a parent it does not hold or does not serve in its own words (R8.70).
-            OwnText? question = null;
-            if (kind is PostKind.Answer)
-            {
-                var parentForum = ForumUri(args, agent.Profile);
-                using var parentHttp = HttpFor(parentForum);
-                var parentClient = new ForumClient(parentHttp, parentForum);
-                var parentRead = await parentClient.GetPostAsync(args.Value("parent")!, MarkingMode.None, ct).ConfigureAwait(false);
-                if (!parentRead.TryGetValue(out var parentPost, out _))
-                {
-                    question = Supersession.QuestionNotChecked();
-                }
-                else
-                {
-                    var walked = PostKinds.TryParse(parentPost!.Kind, out var parentKind) && parentKind is PostKind.Question
-                        ? await QuestionChain.WalkAsync(parentClient, parentPost, ct).ConfigureAwait(false)
-                        : null;
-                    var chain = walked is null ? default(OwnText?) : Supersession.QuestionChainStanding(walked);
-                    question = chain is { Text.Length: > 0 } stated ? stated : Supersession.QuestionStanding(parentPost.Provenance.SupersededBy);
-                }
-            }
 
             return await SendDraftAsync(args, store, agent, draft, ct, supersession, question).ConfigureAwait(false);
         }
@@ -369,7 +369,8 @@ internal static class Program
     /// and then a post the Forum serves as superseded are refused with exit 1 and nothing sent (<see cref="ReviseRefusal"/>); the receipt
     /// line for a post that may be revised is returned beside the digest.</para>
     /// </summary>
-    private static async Task<(string? Prev, int? Failure, OwnText? Receipt)> RevisedDigestAsync(Args args, Uri forum, string signingAgentId, CancellationToken ct)
+    private static async Task<(string? Prev, int? Failure, OwnText? Receipt, string? Board)> RevisedDigestAsync(
+        Args args, Uri forum, string signingAgentId, string? typedBoard, CancellationToken ct)
     {
         var parent = args.Value("parent")!;
 
@@ -377,25 +378,74 @@ internal static class Program
         var client = new ForumClient(http, forum);
 
         var read = await client.GetPostAsync(parent, MarkingMode.None, ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var post, out var refusal)) return (null, Output.Fail(refusal), null);
+        if (!read.TryGetValue(out var post, out var refusal)) return (null, UnreadRevision(refusal), null, null);
 
         var (passages, outcomes) = await VerifyAllAsync(client, [post], ct).ConfigureAwait(false);
         var verdict = passages[0].Verdict;
         if (outcomes[0] is not CheckOutcome.Verified || verdict.PrefixedDigest is not { } digest)
             return (null, Output.Fail(
                 $"error: the post --parent names does not verify, so a revision is not chained to it: {new OwnText(verdict.DescribeRead)}\n       Nothing was sent.",
-                outcomes[0] is CheckOutcome.Verified ? ExitCode.Unverified : ExitCode.ForOutcomes(outcomes[0])), null);
+                outcomes[0] is CheckOutcome.Verified ? ExitCode.Unverified : ExitCode.ForOutcomes(outcomes[0])), null, null);
 
         var (guard, receipt) = ReviseRefusal(post, signingAgentId);
-        if (guard is not null) return (null, Output.Fail($"error: {guard}", ExitCode.Usage), null);
+        if (guard is not null) return (null, Output.Fail($"error: {guard}", ExitCode.Usage), null, null);
 
         if (args.Value("prev") is { } given && !string.Equals(given, digest, StringComparison.Ordinal))
             return (null, Output.Fail(
                 $"error: --prev {new OwnText(DisplayLiteral.Of(given))} is not the digest of the post --parent names ({new OwnText(DisplayLiteral.Of(digest))}, computed here). Nothing was sent.",
-                ExitCode.Usage), null);
+                ExitCode.Usage), null, null);
 
-        return (digest, null, receipt);
+        if (DifferingBoard(typedBoard, post.Board, post.PostId) is { } differing) return (null, differing, null, null);
+
+        return (digest, null, receipt, post.Board);
     }
+
+    /// <summary>
+    /// R11.85 (errata G61): the one advisory read of an answer's or a comment's <c>--parent</c>, which gives the board (the served board of the post, or the typed
+    /// one where the read failed) and, for an answer, the question's standing (R11.67). A typed board that is not the post's is refused before anything is signed; a
+    /// read that failed with no board typed is refused with the read's own refusal and exit code.
+    /// </summary>
+    private static async Task<(string? Board, OwnText? Question, int? Failure)> ReadParentAsync(
+        Args args, Uri forum, PostKind kind, string? typedBoard, CancellationToken ct)
+    {
+        var parent = args.Value("parent")!;
+        using var http = HttpFor(forum);
+        var client = new ForumClient(http, forum);
+
+        var read = await client.GetPostAsync(parent, MarkingMode.None, ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var post, out var refusal))
+            return typedBoard is null
+                ? (null, null, UnreadBoard(refusal))
+                : (typedBoard, kind is PostKind.Answer ? Supersession.QuestionNotChecked() : null, null);
+
+        if (DifferingBoard(typedBoard, post!.Board, post.PostId) is { } differing) return (null, null, differing);
+
+        if (kind is not PostKind.Answer) return (post.Board, null, null);
+
+        var walked = PostKinds.TryParse(post.Kind, out var parentKind) && parentKind is PostKind.Question
+            ? await QuestionChain.WalkAsync(client, post, ct).ConfigureAwait(false)
+            : null;
+        var chain = walked is null ? default(OwnText?) : Supersession.QuestionChainStanding(walked);
+        return (post.Board, chain is { Text.Length: > 0 } stated ? stated : Supersession.QuestionStanding(post.Provenance.SupersededBy), null);
+    }
+
+    /// <summary>
+    /// R11.85: a typed <c>--board</c> that is not the board of the post <c>--parent</c> names, refused with exit 1 and the three values as display literals; <see langword="null"/> where it may go on.
+    /// The two boards are compared in NFC, the form the route compares (R8.87), so a board typed in another normal form is the same board; what is printed is the typed string. The post id is the
+    /// one the Forum served (D63 makes it the <c>--parent</c> string).
+    /// </summary>
+    private static int? DifferingBoard(string? typedBoard, string postBoard, string postId) =>
+        typedBoard is not null && !string.Equals(typedBoard.Normalize(NormalizationForm.FormC), postBoard.Normalize(NormalizationForm.FormC), StringComparison.Ordinal)
+            ? Output.Fail(
+                $"error: --board {typedBoard} is not the board of the post --parent names ({postId}), which is {postBoard}; an answer, a comment or a revision is filed on that board. Omit --board to use it. Nothing was sent.",
+                ExitCode.Usage)
+            : null;
+
+    /// <summary>R11.85: the read of the post an answer or a comment follows was refused and no board was typed: the read's own refusal and exit code, then the sentence that says where the board comes from.</summary>
+    private static int UnreadBoard(Refusal refusal) => Output.Fail(ReplyBoardWording.UnreadSentence, Output.Fail(refusal));
+
+    /// <summary>R11.85 (ruling 28): the read of the post a revision follows was refused, with or without a typed <c>--board</c>: the read's own refusal and exit code, then the sentence that says the revision cannot be sent without it.</summary>
+    private static int UnreadRevision(Refusal refusal) => Output.Fail(ReplyBoardWording.RevisionUnreadSentence, Output.Fail(refusal));
 
     /// <summary>
     /// Table 13's signals (errata G8): <c>curia endorse &lt;digest&gt;</c>, <c>curia reproduce

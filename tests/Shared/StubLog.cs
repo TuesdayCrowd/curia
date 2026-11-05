@@ -186,6 +186,18 @@ internal sealed class StubLog : IDisposable
 
     internal SignedSubmission Submission { get; }
 
+    /// <summary>
+    /// Errata G61 (R11.85): the <c>board</c> member of the post served at <see cref="PostId"/>, the Forum's word for it. The signed canonical form keeps its board
+    /// <c>b</c>; a client takes the board of a reply from this member, so a fact serves a board the grammar refuses, or one holding a control character.
+    /// </summary>
+    internal string ServedBoard { get; set; } = "b";
+
+    /// <summary>The profile store's directory (errata G61): where a command run against this stub finds the agent <c>alice</c>.</summary>
+    internal string Home => _root;
+
+    /// <summary>The stub as an HTTP handler (errata G61): what a command run in process is given in place of a network.</summary>
+    internal HttpMessageHandler Handler => _handler ??= new StubHandler(this);
+
     internal string Canonical { get; }
 
     /// <summary>The canonical question's one answer, served in R8.19's duplicate refusal.</summary>
@@ -1239,7 +1251,7 @@ internal sealed class StubLog : IDisposable
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
         "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{SupersededByJson()}}{{AcceptedAnswerJson()}} },
-        "post_id":"{{PostId}}","board":"b","kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
+        "post_id":"{{PostId}}","board":{{JsonString(ServedBoard)}},"kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{ServedDigest ?? Submission.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{ServedSignature ?? Submission.Signature}}",
         "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? Canonical, MarkingMode.None))}},"accepted":{{AcceptedJson(this, PostId)}},

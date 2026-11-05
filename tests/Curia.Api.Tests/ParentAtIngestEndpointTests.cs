@@ -234,25 +234,33 @@ public sealed class ParentAtIngestEndpointTests(ForumFixture forum) : IClassFixt
     }
 
     /// <summary>
-    /// Out of scope, pinned so that deciding it later flips a fact on purpose (ruling 8): (a) a revision of the author's own post whose <c>parent</c> names
-    /// no post, and (b) an answer filed on another board than its question's, are each <c>201</c> today. Each is a recorded non-property, not a defect
-    /// this rule closes.
+    /// A revision's <c>parent</c> is not this rule's business (a recorded non-property that R9.48 relies on): a revision of the author's own post whose <c>parent</c> names
+    /// no post is <c>201</c>. The other row of this fact, an answer filed on another board than its question's, was <c>201</c> until errata G61 decided it (R8.87): it is
+    /// <c>400</c> <c>curia/ingest/board-not-parents</c> naming the question, and the fact now pins that answer on purpose (RPB4 is the probe of the rule itself).
     /// </summary>
     [Theory]
     [InlineData("revision-with-an-invented-parent")]
     [InlineData("answer-on-another-board")]
-    public async Task R8_70_ARevisionsParentAndABoardAreNotThisRulesBusiness(string which)
+    public async Task R8_70_ARevisionsParentIsNotThisRulesBusinessAndABoardIsR887s(string which)
     {
         var ct = TestContext.Current.CancellationToken;
         var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
-        var wire = which == "revision-with-an-invented-parent"
+        var invented = which == "revision-with-an-invented-parent";
+        var wire = invented
             ? scene.Answerer.Agent.SignRevision(
                 scene.Board, $"A corrected first answer about {scene.Term}.", "01" + Guid.NewGuid().ToString("N")[..24].ToUpperInvariant(), scene.Answer1.Digest, forum.Now)
             : scene.Answerer.Agent.SignAnswer("another-" + Suffix(), $"An answer filed elsewhere about {scene.Term}.", scene.Question.PostId, forum.Now);
 
         var (status, body) = await SubmitAsync(scene.Answerer, wire, ct);
 
-        Assert.True(status == HttpStatusCode.Created, $"{which} answered {(int)status}: {body}");
+        if (invented)
+        {
+            Assert.True(status == HttpStatusCode.Created, $"{which} answered {(int)status}: {body}");
+            return;
+        }
+
+        Assert.True(status == (HttpStatusCode)PublishedReplyBoardWords.Status(), $"{which} answered {(int)status}: {body}");
+        Assert.Equal(PublishedReplyBoardWords.Type(), TypeOf(body));
     }
 
     /// <summary>

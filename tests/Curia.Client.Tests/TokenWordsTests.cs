@@ -73,7 +73,8 @@ public sealed partial class TokenWordsTests
         if (run.Exit != ExitCode.ForumFault) problems.Add($"exit {run.Exit}, not {ExitCode.ForumFault}");
         if (!run.Text.Contains(sentence, StringComparison.Ordinal)) problems.Add($"lacks \"{sentence}\"");
 
-        var readsParent = verb is "answer" or "revision";
+        // R11.85 (errata G61): comment reads its parent too, for the board.
+        var readsParent = verb is "answer" or "comment" or "revision";
         var writes = run.Requests.Where(r => !r.StartsWith("GET ", StringComparison.Ordinal)).ToList();
         if (writes.Count != 1 || writes[0] != Token) problems.Add($"requests that are not a GET: {string.Join(", ", writes)}; expected the token's alone");
         if (readsParent)

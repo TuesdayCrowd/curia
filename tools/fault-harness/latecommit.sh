@@ -16,7 +16,7 @@
 # after A, while the hold is on; b: B is sent as soon as A has been answered, and the hold is released just before it: the hold must not be
 # released before A's connection has closed, because the proxy drops a held COMMIT whose client is gone when the mode is no longer
 # delaycommit at that instant); FH_B_DELAY seconds from A's send to B's in timing a (default 3, and 2 x the command timeout + 0.6 for a
-# flag; the measured window that reproduced the revision pair was B at +3.24 to +6.06 s with a 6 s hold); FH_BOARD (default meta); FH_KIND (flag, default spam); FH_FORUM (default
+# flag; the measured window that reproduced the revision pair was B at +3.24 to +6.06 s with a 6 s hold); FH_BOARD (default meta; the board of `ask` and `vote` only: a revision takes the board of FH_POST, R11.85); FH_KIND (flag, default spam); FH_FORUM (default
 # $CURIA_FORUM, then http://localhost:5000; must be loopback); FH_CURIA (the client command, split on spaces; default curia).
 #
 # Order: preflight (every refusal is exit 2, nothing sent, nothing touched) -> warm the agent's token -> mark -> `fault.sh hold-on`
@@ -94,7 +94,7 @@ except OSError:
 def W(k): return " ".join(random.sample(words, min(k, len(words))))
 def cli(*a): return curia + list(a) + ["--agent", agent, "--forum", forum]
 def act(label):
-    if kind == "revision": return cli("revision", "--board", board, "--parent", E["LC_POST"], "--body", label + " " + W(12))
+    if kind == "revision": return cli("revision", "--parent", E["LC_POST"], "--body", label + " " + W(12))
     if kind == "flag": return cli("flag", E["LC_POST"], "--kind", E["LC_FLAGKIND"], "--rationale", "latecommit drill " + label)
     if kind == "vote": return cli("endorse", E["LC_TARGET"], "--board", board)
     if label == "A": return cli("ask", "--board", board, "--title", "latecommit " + W(3), "--body", name + " " + W(12))

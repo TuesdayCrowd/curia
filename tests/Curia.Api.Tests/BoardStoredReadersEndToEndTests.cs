@@ -138,12 +138,12 @@ public sealed partial class BoardStoredReadersEndToEndTests(PassThroughGateForum
     // ---- NAM14 ----------------------------------------------------------------------------------
 
     /// <summary>
-    /// NAM14: a reply onto a stored refused board. Through the door an answer with board <c>Meta-x</c> is 400 even though its parent is stored on it; with a qualifying
-    /// board the same parent takes the answer (201), the thread lists it and the refused board's listing does not (the Forum compares no board with its parent's). The
-    /// first leg is the decision, the second its stated cost.
+    /// NAM14, flipped on purpose by errata G61 (R8.87, R8.85 (rev.)): a reply onto a stored refused board. An answer with board <c>Meta-x</c> under its parent stored on it is
+    /// taken (201: the board is the parent's, the grammar is not asked of a reply, and the thread and the refused board's listing both hold it); the same parent given an answer on a
+    /// qualifying board is refused <c>board-not-parents</c> (the Forum now compares a reply's board with its parent's), is in no thread and in no listing.
     /// </summary>
     [Fact]
-    public async Task R8_85_NAM14_AReplyOnARefusedBoardIsRefusedAndOnAQualifyingBoardIsTaken()
+    public async Task R8_85_NAM14_AReplyOnARefusedBoardIsTakenWhenItIsTheParentsAndRefusedOnAnyOther()
     {
         var stem = Suffix();
         var refused = $"Meta-{stem}";
@@ -156,25 +156,27 @@ public sealed partial class BoardStoredReadersEndToEndTests(PassThroughGateForum
         var onQualifying = await RevisionProbe.SendAsync(forum, answerer, answerer.Agent.SignAnswer(qualifying, "An answer " + Unrelated(), questionId, forum.Now), cancellationToken: Ct);
 
         Said(
-            [$"{PublishedBoardWords.BoardStatus()} {PublishedBoardWords.BoardType()}", "201"],
-            [onRefused.Says, onQualifying.Status.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+            ["201", $"{PublishedReplyBoardWords.Status()} {PublishedReplyBoardWords.Type()}"],
+            [onRefused.Status.ToString(System.Globalization.CultureInfo.InvariantCulture), onQualifying.Says]);
 
         var thread = await forum.Client.GetFromJsonAsync<JsonElement>(new Uri($"/v1/threads/{questionId}", UriKind.Relative), Ct);
-        Assert.Contains(thread.EnumerateArray(), p => p.GetProperty("post_id").GetString() == onQualifying.PostId);
+        Assert.Contains(thread.EnumerateArray(), p => p.GetProperty("post_id").GetString() == onRefused.PostId);
         var listed = await forum.Client.GetFromJsonAsync<JsonElement>(new Uri($"/v1/boards/{Uri.EscapeDataString(refused)}/posts", UriKind.Relative), Ct);
-        Assert.DoesNotContain(listed.EnumerateArray(), p => p.GetProperty("post_id").GetString() == onQualifying.PostId);
+        Assert.Contains(listed.EnumerateArray(), p => p.GetProperty("post_id").GetString() == onRefused.PostId);
         Assert.Contains(listed.EnumerateArray(), p => p.GetProperty("post_id").GetString() == questionId);
     }
 
     // ---- NAM30 ----------------------------------------------------------------------------------
 
     /// <summary>
-    /// NAM30: the reply tools on a stored refused board. <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_revise</c> of a stored <c>Meta-x</c> post (the profile's
-    /// own agent is its author, so the revise leg reaches the board check; stored by the direct-append seam) are <c>NOT SENT</c>: the client's refusal text, then the
-    /// sentence naming the post id; the events table does not move. The controls: a comment and a revision under a qualifying post are posted.
+    /// NAM30, flipped on purpose by errata G61 (R11.85, R11.78 (rev.)): the reply tools on a stored refused board. <c>curia_comment</c> and <c>curia_revise</c> of a stored
+    /// <c>Meta-x</c> post (the profile's own agent is its author, so the revise leg reaches the Forum; stored by the direct-append seam) are no longer <c>NOT SENT</c>: the tools
+    /// copy the post's board, the Forum compares it with the parent's and takes it, and the events table moves by three with the answer. The controls: a comment and a revision under a qualifying
+    /// post are posted. Amendment 3 (ruling 37c): <c>curia_answer</c> returns, signed by a T1 profile agent (an attested owner, three questions and the tenure clock, as
+    /// <see cref="AcceptedAnswerScene.T1Async"/> makes one), and the stored board's listing holds exactly the question and the three replies the tools signed.
     /// </summary>
     [Fact]
-    public async Task R11_78_NAM30_TheReplyToolsSayTheBoardIsTheRepliedToPostsBeforeTheySign()
+    public async Task R11_85_NAM30_TheReplyToolsSignForAPostOnAStoredRefusedBoard()
     {
         var stem = Suffix();
 
@@ -192,13 +194,22 @@ public sealed partial class BoardStoredReadersEndToEndTests(PassThroughGateForum
 
         var agent = await EnrolProfileAgentAsync();
         var tools = ToolsFor(agent);
+        var storedBoard = $"Meta-{stem}";
         var (refusedPost, _) = await forum.AppendStoredPostAsync(
-            ProfileAgentSigner.Sign(agent, PostKind.Question, $"Meta-{stem}", "A stored body " + Unrelated(), "A stored title " + Unrelated(), null, null, forum.Now), Ct);
+            ProfileAgentSigner.Sign(agent, PostKind.Question, storedBoard, "A stored body " + Unrelated(), "A stored title " + Unrelated(), null, null, forum.Now), Ct);
+
+        // A T1 profile agent for the answer: an attested owner, three questions (stored, on a qualifying board) and the tenure clock.
+        var answerer = await EnrolProfileAgentAsync();
+        await forum.AttestOwnerAsync(answerer.Profile.AgentId, Ct, owner: $"owner:answerer-{stem}");
+        for (var i = 0; i < 3; i++)
+            await forum.AppendStoredPostAsync(ProfileAgentSigner.Sign(answerer, PostKind.Question, $"warm-{stem}", $"Warmup {i} {Unrelated()}", $"Warmup {i} {Unrelated()}", null, null, forum.Now), Ct);
+        forum.Clock.Advance(TimeSpan.FromHours(Curia.Domain.Authorization.TierPolicy.T1MinimumHours + 1));
+        var answerTools = ToolsFor(answerer);
         var before = await PostEventsAsync();
 
         var results = new Dictionary<string, (ModelContextProtocol.Protocol.CallToolResult? Result, string? Threw)>
         {
-            ["curia_answer"] = await TryAsync(() => tools.AnswerAsync(refusedPost, "An answer " + Unrelated(), null, Ct)),
+            ["curia_answer"] = await TryAsync(() => answerTools.AnswerAsync(refusedPost, "An answer " + Unrelated(), null, Ct)),
             ["curia_comment"] = await TryAsync(() => tools.CommentAsync(refusedPost, "A comment " + Unrelated(), null, Ct)),
             ["curia_revise"] = await TryAsync(() => tools.ReviseAsync(refusedPost, "A correction " + Unrelated(), null, null, null, Ct)),
         };
@@ -208,19 +219,18 @@ public sealed partial class BoardStoredReadersEndToEndTests(PassThroughGateForum
         {
             if (result is null)
             {
-                problems.Add($"{tool}: the call threw (the Forum's refusal reached the agent, so the tool went on to send): {Fold(threw ?? string.Empty)[..Math.Min(160, Fold(threw ?? string.Empty).Length)]}");
+                problems.Add($"{tool}: the call threw: {Fold(threw ?? string.Empty)[..Math.Min(160, Fold(threw ?? string.Empty).Length)]}");
                 continue;
             }
 
             var text = Fold(string.Join(' ', result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text)));
-            if (result.IsError != true) problems.Add($"{tool}: not an error:\n{text}");
-            else if (!text.StartsWith("NOT SENT", StringComparison.Ordinal)) problems.Add($"{tool}: not NOT SENT:\n{text}");
-            else if (!text.Contains(Fold($"\"{PublishedBoardWords.BoardType()}: {PublishedBoardWords.BoardTitle()} (board: not-lower-case)\""), StringComparison.Ordinal)) problems.Add($"{tool}: lacks the client's refusal text:\n{text}");
-            else if (!text.Contains(Fold(PublishedBoardWords.ReplySentenceFor(refusedPost)), StringComparison.Ordinal)) problems.Add($"{tool}: lacks the reply sentence naming the post:\n{text}");
+            if (result.IsError == true) problems.Add($"{tool}: an error:\n{text}");
         }
 
         Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
-        Assert.Equal(before, await PostEventsAsync());
+        Assert.Equal(before + 3, await PostEventsAsync());
+        var listed = await forum.Client.GetFromJsonAsync<JsonElement>(new Uri($"/v1/boards/{Uri.EscapeDataString(storedBoard)}/posts", UriKind.Relative), Ct);
+        Assert.Equal(4, listed.GetArrayLength());
     }
 
     // ---- NAM36 (the tools' half) ----------------------------------------------------------------

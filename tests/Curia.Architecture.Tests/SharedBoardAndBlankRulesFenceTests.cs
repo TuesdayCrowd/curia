@@ -37,18 +37,14 @@ public sealed partial class SharedBoardAndBlankRulesFenceTests
     [GeneratedRegex(@"BoardRules\.Classes\(", RegexOptions.CultureInvariant)]
     private static partial Regex BoardClassesCall();
 
-    [GeneratedRegex(@"BoardRules\.Refusal\(", RegexOptions.CultureInvariant)]
-    private static partial Regex BoardRefusalCall();
-
     [GeneratedRegex(@"\b(?:static|internal|private|public)\b[^;{=]*\b(?:BlankCriterion|HasFilter|BoardClasses|BoardIssues)\s*\(", RegexOptions.CultureInvariant)]
     private static partial Regex SecondDefinition();
 
-    /// <summary>The entry points that must ask the shared function, and how many times at least: <c>curia search</c>, <c>curia inbox</c>, <c>curia_search</c>.</summary>
+    /// <summary>The entry points that must ask the shared function, and how many times at least: <c>curia search</c>, <c>curia inbox</c>, <c>curia_search</c>. (The reply tools' row was deleted with their pre-check, errata G61, R11.85: a reply's board is its post's and R8.85 is not asked of it.)</summary>
     private static readonly (string File, string Function, Func<Regex> Call, int AtLeast)[] CallRows =
     [
         ("src/Curia.Client.Cli/Program.cs", "curia search and curia inbox (SearchAsync, InboxAsync)", BlankCriterionCall, 2),
         ("src/Curia.Mcp/ForumTools.cs", "curia_search (SearchAsync)", BlankCriterionCall, 1),
-        ("src/Curia.Mcp/WriteTools.cs", "the reply tools (ReplyAsync and ReviseAsync: the board copied from a post)", BoardRefusalCall, 2),
     ];
 
     /// <summary>NAM34: each entry point calls the shared function; red until the clients are built on it.</summary>

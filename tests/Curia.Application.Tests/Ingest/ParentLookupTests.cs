@@ -223,6 +223,52 @@ public sealed class ParentLookupTests
         Assert.Equal("test/unreadable", found.Match(_ => string.Empty, e => e.Type));
     }
 
+    /// <summary>
+    /// R8.87 (errata G61), RPB21. The lookup returns the board the stored <c>post.accepted</c> event holds, a member beside <c>post_id</c> and <c>kind</c>, and never the one the
+    /// stored canonical form claims for itself; a stream that holds an agent's events and no post returns none (the board is no fact of a stream that is no post). Each board is a
+    /// string chosen here. Predicted red: the seam returns the empty string for every board.
+    /// </summary>
+    [Fact]
+    public async Task R8_87_RPB21_TheLookupReturnsTheBoardTheStoredEventHolds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = NewStore();
+        var upper = "Meta";
+        await AppendAsync(
+            store,
+            post,
+            PostProjector.PostAcceptedType,
+            new JsonValue.Object(
+            [
+                new("post_id", new JsonValue.String(post)),
+                new("kind", new JsonValue.String("question")),
+                new("board", new JsonValue.String("rust")),
+                new("canonical", new JsonValue.String("{\"board\":\"dotnet\",\"kind\":\"question\"}")),
+            ]),
+            ct);
+        await AppendAsync(
+            store,
+            other,
+            PostProjector.PostAcceptedType,
+            new JsonValue.Object(
+            [
+                new("post_id", new JsonValue.String(other)),
+                new("kind", new JsonValue.String("comment")),
+                new("board", new JsonValue.String(upper)),
+            ]),
+            ct);
+        var agentOnly = FreshPostId();
+        await AppendAsync(store, agentOnly, "agent.enrolled", new JsonValue.Object([new("agent_id", new JsonValue.String(agentOnly)), new("board", new JsonValue.String("rust"))]), ct);
+
+        var first = Require(await ParentLookup.FindAsync(store, Typed.Parent(post), ct));
+        var second = Require(await ParentLookup.FindAsync(store, Typed.Parent(other), ct));
+        var none = Require(await ParentLookup.FindAsync(store, Typed.Parent(agentOnly), ct));
+
+        var said = $"{first?.Board} | {second?.Board} | {(none is null ? "none" : "a post")}";
+        if (!string.Equals("rust | Meta | none", said, StringComparison.Ordinal))
+            throw new Xunit.Sdk.XunitException($"Expected: rust | Meta | none{Environment.NewLine}Actual:   {said}");
+    }
+
     /// <summary>The Table 9 spelling the lookup returns for a stored kind comes from the code's own parse; the errata names the kind an answer needs.</summary>
     [Fact]
     public void R8_70_TheKindAnAnswerNeedsIsTheOneTheErratumNames() =>

@@ -15,7 +15,8 @@ namespace Curia.Mcp.Tests;
 ///
 /// <para><b>Oracles.</b> The request list is the stub's (<see cref="StubLog.Requests"/>), so "nothing was sent" is the Forum's account and not the
 /// tool's. Every sentence, the version and the site list are parsed from R11.78 words (<see cref="PublishedBoardWords"/>). The reply tools over a
-/// stored refused board (NAM30) need a Forum that stores one and are the Api suite's (<c>BoardStoredReadersEndToEndTests</c>).</para>
+/// stored refused board (NAM30) need a Forum that stores one and are the Api suite's (<c>BoardStoredReadersEndToEndTests</c>), where NAM30 is now the positive leg: the tools sign for a post on a
+/// stored board the grammar refuses and the Forum accepts it (R8.87); the sentence R11.78 gave the reply tools is withdrawn (R11.85).</para>
 /// </summary>
 [SuppressMessage(
     "Naming",

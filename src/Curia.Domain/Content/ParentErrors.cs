@@ -31,6 +31,11 @@ public static class ParentErrors
     /// <summary>R9.42: <c>GET /v1/posts/{id}</c> for an id no post bears (and for a signal kind, which is no post a reader is served).</summary>
     public const string PostNotFoundType = "curia/posts/not-found";
 
+    /// <summary>R8.87 (errata G61): an answer, a comment or a revision whose board is not the board of the post it follows.</summary>
+    public const string BoardNotParentsType = "curia/ingest/board-not-parents";
+
+    public const string BoardNotParentsTitle = "A reply or a revision is filed on the board of the post it follows";
+
     /// <summary>The detail's stand-in for a parent that is not shaped as a post id, so no text a caller wrote reaches a response.</summary>
     public const string NotAPostId = "(not a post id)";
 
@@ -43,6 +48,12 @@ public static class ParentErrors
 
     /// <summary>R8.72: names the parent, echoed under the same rule as the other two.</summary>
     public static Error Withheld(string? parent) => new(WithheldType, WithheldTitle, "parent=" + Echo(parent));
+
+    /// <summary>R8.87: names the parent, echoed under the same rule as the others, and no board.</summary>
+    public static Error BoardNotParents(string? parent) => new(BoardNotParentsType, BoardNotParentsTitle, "parent=" + Echo(parent));
+
+    /// <summary>R8.87: names the post a revision's <c>prev</c> names, and no board.</summary>
+    public static Error BoardNotOriginal(string postId) => new(BoardNotParentsType, BoardNotParentsTitle, "original=" + Echo(postId));
 
     private static string Echo(string? parent) =>
         PostId.Parse(parent).TryGetValue(out var id, out _) ? id!.Value : NotAPostId;

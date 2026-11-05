@@ -196,14 +196,14 @@ public sealed partial class ReadersLastWordsFenceTests
     }
 
     /// <summary>
-    /// RLW29. <c>WriteTools</c> (<c>curia_answer</c>'s <c>ReplyAsync</c>) and <c>Program</c> (<c>curia answer</c>'s <c>PostAsync</c>) each call
+    /// RLW29. <c>WriteTools</c> (<c>curia_answer</c>'s <c>ReplyAsync</c>) and <c>Program</c> (<c>curia answer</c>'s <c>ReadParentAsync</c>, which <c>PostAsync</c> calls for the board and the standing) each call
     /// <c>QuestionChain.WalkAsync</c> and <c>Supersession.QuestionChainStanding</c>; neither writes the words (no reader outside <c>Supersession.cs</c> writes
     /// the walk's stops).
     /// </summary>
     [Fact]
     public void R11_67_RLW29_OneAuthorOfTheWalkLine()
     {
-        string[] expected = ["Curia.Client.Cli.Program::PostAsync", "Curia.Mcp.ForumTools::ReplyAsync"];
+        string[] expected = ["Curia.Client.Cli.Program::ReadParentAsync", "Curia.Mcp.ForumTools::ReplyAsync"];
         var walkers = Calls("QuestionChain::WalkAsync(", Readers).Select(c => c.Site).Distinct().Order(StringComparer.Ordinal).ToArray();
         var wordsFrom = Calls("Supersession::QuestionChainStanding(", Readers).Select(c => c.Site).Distinct().Order(StringComparer.Ordinal).ToArray();
 

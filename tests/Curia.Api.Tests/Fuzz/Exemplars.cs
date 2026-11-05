@@ -245,8 +245,8 @@ internal static class Exemplars
             PostKind.Comment, FuzzContext.SeedBoard, FuzzContext.Entropy("A comment body"), title: null, c.SeedQuestionId, now)),
         Post("revision",
             (c, now) => c.Agent.Agent.SignRevision(
-                c.Prepared?.Board ?? FuzzContext.PostBoard, FuzzContext.Entropy("A revision body"),
-                c.Prepared?.PostId ?? c.OwnQuestionId, c.Prepared?.Digest ?? c.SeedDigest, now),
+                c.Prepared?.Board ?? FuzzContext.OwnBoard, FuzzContext.Entropy("A revision body"),
+                c.Prepared?.PostId ?? c.OwnQuestionId, c.Prepared?.Digest ?? c.OwnDigest, now),
             prepare: async (c, ct) =>
             {
                 var (postId, digest) = await c.AskAsync(c.Agent, FuzzContext.PostBoard, ct);

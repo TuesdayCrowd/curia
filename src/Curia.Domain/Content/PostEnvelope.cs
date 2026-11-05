@@ -273,7 +273,8 @@ public sealed record PostEnvelope(
     ///
     /// <para><b>Not part of <see cref="Read"/>.</b> <see cref="Read"/> is applied to every stored post by the search and
     /// signal projections and by the client's passage, and a post that fails it is dropped on replay (R11.31). Posts
-    /// that carry <c>prev</c> on a non-revision may be stored, and the same holds for R8.73's tag rule and R8.85's board rule. The order is prev, tags, board. The digest's form is not checked: a <c>prev</c> that
+    /// that carry <c>prev</c> on a non-revision may be stored, and the same holds for R8.73's tag rule and R8.85's board rule. The order is prev, tags, board, and the board step is not taken for an answer, a comment
+    /// or a revision: they are filed on the board of the post they follow and the route judges them against it (R8.87), so R8.85's grammar is asked of the other four kinds only. The digest's form is not checked: a <c>prev</c> that
     /// names nothing the author wrote is the ownership refusal's (ruling 7), so that "not yours" and "not there" read alike.</para>
     /// </summary>
     public static Error? AdmissionRefusal(PostEnvelope envelope)
@@ -296,6 +297,10 @@ public sealed record PostEnvelope(
             if (TagRules.IsUnfilterable(envelope.Tags[i])) unfilterable.Add(i);
 
         if (unfilterable.Count > 0) return ContentErrors.TagUnfilterable(unfilterable);
+
+        // R8.87: an answer, a comment and a revision are filed on the board of the post they follow, so the route compares them with it
+        // and the grammar has nothing to decide for them (a reply cannot make a board). The kind is the envelope's own; no parameter.
+        if (envelope.Kind is PostKind.Answer or PostKind.Comment or PostKind.Revision) return null;
 
         // R8.85: a board that is not a name, asked only of a board BoardName accepts (a board it refuses keeps R11.33's answer at
         // the ingest pipeline, and an empty one was Read's). Applied to a submission and never to a stored post.

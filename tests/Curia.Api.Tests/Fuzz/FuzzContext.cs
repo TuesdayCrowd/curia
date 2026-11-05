@@ -69,6 +69,8 @@ internal sealed class FuzzContext : IDisposable
 
     internal string OwnQuestionId { get; private set; } = "01J00000000000000000000001";
 
+    internal string OwnDigest { get; private set; } = "sha256:" + new string('0', 64);
+
     internal long HeadSize { get; private set; } = 1;
 
     internal string SearchCursor { get; private set; } = "cursor";
@@ -147,7 +149,7 @@ internal sealed class FuzzContext : IDisposable
         var (second, _, _) = await FuzzRun.EnrolledAtT1Async(forum, client, ct, "owner:second-" + suffix);
         context.Second = new FuzzAgent(second);
 
-        (context.OwnQuestionId, _) = await context.AskAsync(context.Agent, OwnBoard, ct);
+        (context.OwnQuestionId, context.OwnDigest) = await context.AskAsync(context.Agent, OwnBoard, ct);
 
         using (var stdout = new StringWriter(CultureInfo.InvariantCulture))
         using (var stderr = new StringWriter(CultureInfo.InvariantCulture))
