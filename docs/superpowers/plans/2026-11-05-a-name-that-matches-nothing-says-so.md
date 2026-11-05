@@ -1,0 +1,359 @@
+# A Name That Matches Nothing Says So: Implementation Plan (D109, D61 items 74, 84, 90, 91, 93 and 95)
+
+> Repository path: `docs/superpowers/plans/2026-11-05-a-name-that-matches-nothing-says-so.md`
+> Written by `curia-architect` on 2026-11-05 against `main` at `83bcaa83` (#148, "A reply is where its parent is", merged, `curia-mcp` 0.10.3, errata G61 built), as PR 6 of the twelfth exercise's order, from the exercise's rulings (`.superpowers/sdd/2026-11-03-exercise12/RULINGS.md`: the order's fourth item; the eleventh exercise's decision 6 and D109's rule of 2026-11-02), the register (D109; D61 items 4, 74, 75, 84, 90, 91, 93 and 95; traps 171 to 177), the errata (G56 whole, decisions 3, 5 and 8, R8.85, R9.54, R11.78, non-properties (a), (d) and (h); G30, R9.30; G31, R9.31; G37, R9.37 to R9.39; G47, R11.63; G43, R11.59; G61 as the shape; R10.45; R9.25, R9.29, R9.35, R9.50), and in the tree at `83bcaa83`: `ForumEndpoints.cs` (`SearchAsync`, `InboxAsync`, `GetPostAsync`, `GetThreadAsync`, `BatchAsync`, `ListBoardAsync`, `PersistSubmissionAsync`, `ReceiptAsync`, `TagFilter`, `Nullable`), `BlankQueryParameters`, `QueryParameterRefusal`, the four `*QueryParameters` types, `LogFacts`, `PostProjector`/`PostView`, `DuplicateCheck`, `BoardRules`, `SearchRequestRules`, `ForumClient.SearchAsync`, `ForumSession.InboxAsync`, `ForumDocuments`, `FloorKinds`, `IndexWording`, `Program.cs` (`SearchAsync`, `SearchPageAsync`, `InboxAsync`, `PrintPostReceipt`, `BlankCriterionFail`), `Help.cs`, `ForumTools.cs`, `WriteTools.cs`, `ResendTools.cs`, `ToolText.cs`, `ToolCatalogue.cs`, `ArgumentGuards.cs`, the request fuzz (`Exemplars.cs`, `SurfaceInventory.cs`, `HeaderReadRecorder.cs`, `RefusedQueryTests.cs`), `ci.yml` and `tools/preflight/`. Nothing in the tree was edited by the author of this plan except the errata entry **G62** (written in place, "specified; not built") and the planned notes in `IMPLEMENTATION_PLAN.md`. One session was run to write it: item 95 was reproduced on the built `curia-mcp` 0.10.3 (finding 1). Nothing was built, and no test was run.
+
+## What the reading found that the order did not know
+
+Each of these was checked against the code or the binary and not taken from the register (the register has been wrong about itself before, and #148's plan needed three amendments for premises asserted without reading).
+
+1. **Item 95 is not "an unpaired surrogate in an MCP body"; it is every string argument, and the register's rule cannot be reached as worded.** Reproduced: a stdio JSON-RPC session against the built `curia-mcp` (version 0.10.3 in `serverInfo`, no agent configured), `tools/call` with `{"criteria":{"query":"a\ud800b"}}`, `{"criteria":{"board":"a\ud800b"}}` and `curia_read` with `{"postId":"a\ud800b"}`, answered each with `{"error":{"code":-32603,"message":"An error occurred."}}`: a JSON-RPC error, not a tool result, no argument named; the session continued and a following call (an empty `kinds` item) was answered with its own `NOT SENT` text. R11.57's refusal of an unpaired surrogate "by argument name" therefore protects only an in-process caller. The layer that raises it is unknown: if the SDK's reading of the message, nothing the adapter installs can see it; if the binding of the arguments, a call filter surrounds it. Task 0 decides which, with a rule written first (Task 0, M4), and the PR carries a fix only in the second case.
+2. **Item 74 reverses a published SHALL and a published pin; it is not R9.54 extended.** R9.38: "an absent or blank `cursor` is a first page" (inbox), held by `R9_38_ABlankOrAbsentCursorIsAFirstPage` in `InboxCursorEndpointTests` (rows `""`, `&cursor=`, `&cursor=%20`). G56's decision 8 and `BlankParameterTests` NAM20 hold `kind=`, `tags=` and `cursor=` of the search route as `200` in seven spellings, and NAM19 holds the inbox's `tags=` as `200`; NAM20's own summary says an extension is "a dated amendment of G56". G62 makes the amendment (R9.38 (rev.), R9.54 (rev.)) and the five or six tests are flipped on purpose in Task 4, the way G61 flipped NAM3 and NAM5. The register's own phrase for the harm is the argument: an empty `next_cursor` variable passed back as `cursor=` pages forever, and a first page is what a corrupted cursor would also have been.
+3. **A value that names nothing is also dropped when it is not blank** (`kind=,`, `tags=,%20,`): the route splits on commas, every element is empty and the filter vanishes. R9.54's own reason ("the route refuses exactly what it would otherwise drop") covers them, one function (`IsBlank` on the value with its commas removed) decides both, and a rule that stopped at `tags=` would leave the next sighting one keystroke away. `tags=a,,b` and `kind=question,` name something and stay served (non-property (e)).
+4. **Item 91 contradicts R11.59 as published, and the test that holds R11.59 names the rule it breaks.** R11.59 lists four descriptions; `curia_answer` and `curia_comment` take no `tags` (`ReplyAsync(kind, resource, parentPostId, body, refs, ct)` builds a draft of `Kind`, `Board`, `Parent`, `Body` and `Refs`), and the fact is `R11_59_TheDescriptionOfAToolThatTakesTagsStatesWhatATagIs` with four `InlineData` rows. The change is an R11.59 (rev.), and the probe that replaces the list of four names reads the registered tool's input schema for `tags` and the description for the sentence: two artifacts, so a fifth tool or a removed argument is caught without anyone editing a list. The CLI's `answer` and `comment` do take `--tags` (the verbs' flag list, `Program.cs` line 195 to 198), so their helps keep the sentence.
+5. **The word costs no read on the search route and one lazy fold on the ingest route.** `SearchAsync` already holds `views` (`PostProjector.Fold`), `servable` and the `matchesNothing` flag that marks a value no board or agent can bear. `InboxAsync` folds `views` and `servable` after its filters are applied. The ingest route's `LogFacts` folds posts and moderation lazily ("a kind that checks nothing but a digest never pays for the fold"), and `DuplicateCheck` folds the log with `SearchProjector` for every discussion post; `board_new` forces `LogFacts` for a question and a finding. That is the one cost the PR adds to a write, and Task 0, M6 measures it against a rule written before.
+6. **"Stored" is the wrong word; "served" is the right one, and the listing is the oracle.** D109 says "no stored post". A board whose only posts are withheld (R10.36) lists nothing, and "this board has posts" over an empty listing is true and unhelpful. The predicate is "a post of a discussion kind that moderation serves", the one `ListBoardAsync` shows, so a probe can take its expected answer from `GET /v1/boards/{board}/posts` and not from the function: a different artifact (vacuity question 4).
+7. **`board_new` has exactly two carriers.** After G61 an answer, a comment and a revision are filed on their parent's board and a vote or a verification on its target's (R8.58), so a reply cannot make a board: the member would be a constant on five kinds. `ReceiptAsync` is the only place a `201` is composed (`new PostAcceptedResponse` occurs once in `src`), and `PersistSubmissionAsync` holds `decided.Facts` before the append, so the value is computed before PERSIST and carried to the receipt, and the G55 confirm path (which composes the `201` from the event it found) carries the same value.
+8. **The CLI's empty-inbox sentence is the failure the word exists to remove, and no test pins it.** `Program.cs` (`InboxAsync`) prints `no open questions match these filters. Nothing here needs an answer -- look elsewhere.` when `OpenBeforeExclusions == 0`; `git grep` finds it in `src` only. For a mistyped board that is false in the way that costs. The probe is written first (a green control on the seam: the sentence for a board that exists and has no open question), then the unmatched board's red.
+9. **The floor line's complaint (item 90) is the CLI's.** The CLI writes `applies to ...; not to ...`; the adapter writes the Forum's member names (`applies_to=`, `not_applicable_to=`), which are not a sentence about results. R11.63's own reason says a floor stated for the kinds it touched, beside results of other kinds, "reads as a statement about the results": the sentence exists as a reason and not as text. The change is the CLI's line; the adapter keeps its members. One byte-for-byte control (`FloorListsClientTests` CHN58) flips on purpose.
+10. **Item 93 has a third route, and the fuzz does not need to be told.** `GetPostAsync`, `GetThreadAsync` and `BatchAsync` each read `marking` (`MarkingFrom`) and no other `http.Query` member; `ListBoardAsync` already refuses every other name. The fuzz's `RecordingQuery` records `this[key]`, `ContainsKey` and `TryGetValue` and passes `Keys` through unrecorded, so `SearchQueryParameters.Check(http.Query.Keys)`-shaped refusals read no name: `SurfaceInventory.RequestReadQuery` and `RefusedQuery` are unchanged and the both-ways coverage of names read cannot go stale. The flag listings, `jwks`, the log routes and `POST /v1/posts` read other names or none; they are left (non-property (h)).
+11. **`BoardRules.Classes` is public and in a project the client already references.** `Curia.Client.csproj` references `Curia.Domain`, `SubmissionBuilder` already asks `PostEnvelope.AdmissionRefusal`, so the clients can name the classes of R8.85 a typed board fails (`not-lower-case` for `RUST`, `not-nfc` for a decomposed `café`) from the one definition, without the Forum saying anything about a stored name. That answers item 84's NFC lead by the word and the hint, which is what G56 decided when it declined to fold.
+12. **Two fences constrain new code.** R10.69's fence holds every shipped assembly's IL to the non-backtracking engine; no `Regex` is added by this PR, and a fixture that needs one uses `NonBacktracking`. R11.34's port fence holds every port parameter typed `string` to a reasoned row; `NamedFilters` is a pure function and takes the typed `BoardName`/`AgentId` the route already parses, not a port.
+
+## Identifiers (provisional, and what renumbers)
+
+Written against the errata on `main` 83bcaa83, where the highest entry is G61 and the highest requirement per section is R4.39, R5.23, R6.61, R7.32, R8.87, R9.54, R10.96 and R11.85. Taken, each re-grepped free over the three documents and every tracked file on 2026-11-05: errata **G62** (written in place); **R8.88**, **R9.55** (held by the order), **R9.56** (held), **R9.57**, **R10.97**, **R11.86**, **R11.87**; the types `curia/posts/unknown-parameter` and `curia/threads/unknown-parameter`; the probe prefix **NMN** and the falsification prefix **FNMN** (no hit for `NMN`, `FNMN`, `NMT`, `FNMT` in `git grep -w`); `curia-mcp` **0.10.4**. Item 95's requirement, if the build finds its layer reachable, takes **R11.88** when it is written (the entry carries the text as `R11.__`: an identifier is not allocated for a fix that may not exist). D61 items start at **179** (items 166 to 178 were filed by #148) and traps at **178** (177 is #148's). The next free decision is D113. Task 0 re-greps all of them and Task 8 renumbers by hand if another PR landed first (a PR touching `Program.cs` between now and then is the case to look for; `ci.yml`'s owner-merge rule is in the next section).
+
+## Scope (exact file set)
+
+| Area | Files |
+|---|---|
+| Application | `Curia.Application/Projections/NamedFilters.cs` (new: a pure `Unmatched(posts, servable, board, author)` returning the filters no served post bears, and `BoardHasServedPost(posts, servable, board)`, one predicate; total over a value `BoardName` or `AgentId` refuses) |
+| Api | `ForumEndpoints.cs` (`SearchAsync`: the member from `views` and `servable` after the filters are parsed; `InboxAsync`: the same; `PersistSubmissionAsync`: `board_new` from `decided.Facts` for a question and a finding, carried into `ReceiptAsync`; `GetPostAsync`, `GetThreadAsync`, `BatchAsync`: the unknown-name check after `AnonymousReadAllowedAsync`; the response records `SearchResponse`, `InboxResponse`, `PostAcceptedResponse` gain `unmatched_filters`/`board_new`), `BlankQueryParameters.cs` (the two closed lists and the names-nothing test), a new `PostReadQueryParameters.cs` (the honoured set `marking` and the two types, through `QueryParameterRefusal`) |
+| Clients | `Curia.Client/NameWording.cs` (new: the filters line, the receipt line, the floor sentence, one definition for the CLI, the adapter and the resend receipt), `SearchRequestRules.cs` (`BlankCriterion` gains optional `kind`, `tags`, `cursor`; a `NamesNothing` test), `ForumClient.cs` (`SearchAsync`'s net), `ForumSession.cs` (`InboxAsync`'s net), `ForumDocuments.cs` (`SearchPage`, `InboxPage`, `PostReceipt` gain the stated members, absent = not stated, malformed = malformed page), `ClientErrors.cs` (blank-criterion words for the three names), `Curia.Client.Cli/Program.cs` (`SearchAsync` blank `--kind`/`--tags` before the profile and out of `hasFilter`; `SearchPageAsync` prints the filters line and the new floor sentence; `InboxAsync` the same and the empty-inbox branch; `PrintPostReceipt` the `board_new` line; `BlankCriterionFail`), `Help.cs` (search, inbox and the receipt-bearing verbs), `Curia.Mcp/ForumTools.cs` (the first block), `WriteTools.cs` and `ResendTools.cs` (the receipt), `ToolText.cs` (`TagSentence` out of `AnswerTemplate` and `CommentTemplate`; the search description's member), `ToolCatalogue.cs` (0.10.4), and, **only if Task 0 finds the layer reachable**, a call filter in `Program`/the server builder with its words |
+| Tests (new) | `tests/Curia.Application.Tests/Projections/NamedFiltersTests.cs`, `tests/Curia.Api.Tests/NameMatchesNothingEndToEndTests.cs`, `tests/Curia.Api.Tests/BoardNewReceiptTests.cs`, `tests/Curia.Api.Tests/ReadRouteUnknownNameTests.cs`, `tests/Curia.Api.Tests/BlankListParameterTests.cs`, `tests/Curia.Client.Tests/NameWordsCliTests.cs`, `tests/Curia.Client.Tests/BlankListCriterionTests.cs`, `tests/Curia.Mcp.Tests/NameWordsToolTests.cs`, `tests/Curia.Mcp.Tests/TagSentenceSchemaTests.cs`, `tests/Curia.Architecture.Tests/NameWordsFenceTests.cs`, `tests/Shared/PublishedNameWords.cs` (parses G62's `R10.97 words`, `R9.55 words`, `R8.88 words`, `R9.57 words`) |
+| Tests (changed, Task 4) | the list of ruling 15 below (measured in Task 0, not guessed) |
+| Docs | errata G62 (written; status moves to built), `IMPLEMENTATION_PLAN.md`, `README.md`, `CLAUDE.md`, this plan's "As run", and **the previous plan's last line** (ruling 17) |
+| **Untouched, claimed and to be checked** | `ci.yml` (see the next section), `db/`, `rust/`, `conformance/`, every `Curia.Domain/Screening` file and every Screening test, `tools/` (no harness script posts to a board whose newness it asserts; Task 0 greps), Table 10 and Table 11, the append guard, the gates and budgets, the request fuzz's exemplars and inventory |
+
+## What consumes what this PR changes (trap 171, answered by grep and not asserted)
+
+| Changed | Consumed by | Effect |
+|---|---|---|
+| Errata text (G62, index rows) | `check-spec.py`, `falsify-spec-checks.py` (CI job 1); the `Published*` parsers in `Test (all but Api)` that read the errata by anchor (`PublishedRouteParameters`: `SHALL read exactly these query parameters:` and `SHALL read exactly these:`, first occurrence; `PublishedSmallWords`: `**R11.59**`; `PublishedBoardWords`: `**R9.54**`) | G62 added after G61 and before the index: both checkers clean at authoring (run, 2026-11-05). The wording of R9.57 avoids both anchors on purpose ("SHALL read the query name `marking`"), and no bold `**R..**` heading of G62 repeats an existing one; the build keeps both true when it sets the status to built |
+| `unmatched_filters`, `board_new`, the blank lists | tests asserting an exact member set or a whole-body equality of a search, inbox or receipt (Task 0, M8 greps `GetProperty`/`EnumerateObject` on those documents) | measured, not guessed; the client reads an unknown member as nothing (`ClientJson.Member`), so older tests of the client stay green |
+| Blank `kind`, `tags`, `cursor` | `BlankParameterTests` NAM19 (inbox `tags=`) and NAM20 (`kind`, `tags`, `cursor`); `InboxCursorEndpointTests` R9.38 (two blank rows); the request fuzz's whitespace variation of those values | NAM19/NAM20/R9.38 rows flip on purpose; the fuzz: see the next section |
+| `SearchRequestRules.BlankCriterion` optional parameters | `SearchRequestRulesTests`, `CliBlankCriterionTests`, `ForumClient`, `ForumSession`, `ForumTools`, `Program.cs` (five call sites and the tests' positional calls) | source-compatible by construction (defaults), so no existing test is edited |
+| The CLI floor line | `FloorListsClientTests` CHN58 (byte for byte), `FloorClampClientTests` and any `floor     ` assertion (Task 0, M8) | flip on purpose; the adapter's block is unchanged |
+| `TagSentence` out of two templates | `ToolDescriptionTests` PJ32 (two `InlineData` rows), `PublishedSmallWords.TagPhrases` consumers (`TagAdmissionTests`, `HelpTextTests`: unchanged, the CLI helps keep the sentence) | the two rows go; the schema-derived probe replaces the list |
+| Unknown-name refusals on three routes | `RefusedQueryTests`, `SurfaceInventory` (`RequestReadQuery` lists `marking` for the three: unchanged), the closed pass's coverage check | none: nothing is read by name; a hand-built test that sent an extra name to these routes would fail, and `git grep` finds none (the only names sent are `marking`) |
+| `board_new` fold at the Forum | `AgentWriteGateEndpointTests` BRB18 (a burst of 32 questions under the 5-second gate), `ParentAtIngestEndpointTests` timing, D61 item 163 | measured in Task 0 (M6, M12); BRB18 is the one whose failure text would implicate the fold, and the item 163 rule applies (re-run alone, record both) |
+| Versions, helps, descriptions | `Curia.Mcp.Tests` (version, description pins), `HelpTests`, `BoardHelpTests`, `ToolDescriptionTests` | re-derived from the R10.97/R11.87 words, not from the code |
+| **Screening, cost step, the two `-eq 28` pins** | nothing | `ci.yml` lines 113 and 114 pin `wc -l` of the two timings files at 28, and the 28 are the `[InlineData]` rows of `ScreeningCostTests` (14 per theory, read: `ScreeningCostTests.cs` lines 137 to 150 and 189 onward), which this PR neither edits nor feeds; the new words screen nothing and no Screening file is touched. Task 9 re-runs `git diff --stat origin/main -- .github src/Curia.Domain/Screening tests/Curia.Domain.Tests/Screening` and a nonempty answer is a stop |
+
+`ci.yml` is therefore **not** changed, and the PR is not the owner's to merge on that ground. If any task finds a CI step that consumes something this PR changes and needs an edit, the PR stops and says so (a PR touching `ci.yml` is the owner's to merge). The grep, run on 2026-11-05: `grep -nE "search|inbox|BlankQuery|ForumEndpoints|Program\.cs|ToolText|src/Curia" .github/workflows/ci.yml` matches nothing; the only `tools/` lines are `tools/spec-checks/*` (read the errata, clean) and `tools/Curia.Differential`, `tools/differential-oracle` (neither touched).
+
+## The request fuzz
+
+The closed fuzz stays on every PR (owner's decision, 2026-11-04). Saying what it needs, route by route:
+
+- **Derivation.** Exemplars come from the route table and are valid requests that are answered 2xx. No route is added or removed, no honoured name is added or dropped on any route (the three reader routes keep `marking`, the search and inbox routes keep the names they read), so `Exemplars.cs` and `SurfaceInventory.cs` are **not edited**. `ExemplarCursorBindingTests` is unmoved: the member is outside the binding.
+- **Variation.** The fuzz varies the *values* of the names an exemplar carries, one at a time, over a closed set that includes the whitespace string and the empty string (`Variation.cs`). After this PR the whitespace and empty variations of the search exemplar's `kind`, `tags` and `cursor` and of the inbox exemplar's `tags` and `cursor` are answered `400` problem documents instead of `200`; the oracle (no 5xx, every refusal a problem document, a per-request budget, an empty expected-failure ledger) accepts a refusal, and a refusal made before the log is read is cheaper. Task 4 runs the closed pass once and records that the ledger is empty and the budget did not rise. If any assertion in `RequestFuzzClosedTests` pins a status class per variation, Task 0 (M9) finds it and the plan is amended.
+- **Totality is what the fuzz is for here.** The new function runs on every board and author value the fuzz sends, including U+0000 and a lone surrogate as raw bytes over Kestrel. FNMN15 makes the function throw on a value `BoardName` refuses and requires the closed fuzz (not only NMN9) to go red, which is the only way this plan can say the gate would have caught it.
+- **Ledger and coverage.** `RefusedQuery` lists names read only to be refused (`verification`, `environment_version`); an unknown-name refusal is the absence of a read and is not listed. `RequestReadQuery` is unchanged (finding 10). The both-ways check cannot go stale and is not extended.
+- **Adequacy** (the fuzz "shown adequate by reverting D25's fixes one at a time") is not re-run; this PR adds no fix of D25's kind.
+
+## What an agent reads, and when
+
+1. **A mistyped board in a search.** `curia search tokio --board RUST` prints the preface, then `filters   board "RUST": NO POST THE FORUM SERVES IS ON IT; it is not a name the Forum accepts for a new board (not-lower-case)` and then `no results.`. The agent's next call drops the filter, or spells the board as the grammar says. With `--board rust` where the board exists and nothing matches, it reads `filters   board "rust": a post the Forum serves bears it` and `no results.`: the board is real and the words are what missed.
+2. **A slug where an identifier was meant.** `--author ex11-hostile` prints `author "ex11-hostile": NO POST THE FORUM SERVES BEARS IT; an author is the full agent identifier, as the author line of a post prints it`.
+3. **The inbox.** `curia inbox --board dotnte` no longer prints "Nothing here needs an answer -- look elsewhere": the filters line is the only statement. A real board with every question answered still prints it.
+4. **A first post on a typo.** `curia ask --board rsut ...` prints, after `kind      question   board "rsut"`, the line `board_new true   no post the Forum serves was on "rsut" when this was decided; if you meant a board that already has posts, the name is misspelt, and a post cannot be moved: post it again on the right board`. The agent who typed `rust` reads `board_new false`, once, and is reassured. An older Forum's receipt reads `board_new NOT STATED`, which is not `false`.
+5. **A blank filter.** `curia search --kind ""` and `curia inbox --tags ","` exit 1 before anything is sent, naming the flag; a hand-built client gets `400 curia/search/blank-parameter` with `parameter=kind`. A loop that passes `cursor=$NEXT` and takes the empty last page's variable for a first page is refused and told which parameter.
+6. **A name a read route does not read.** `GET /v1/threads/{id}?limit=5` is `400 curia/threads/unknown-parameter` naming `limit` and saying the route reads exactly `marking`; an agent that expected paging learns the route does not page.
+7. **A model that lists tools.** `curia_answer` and `curia_comment` no longer carry the tag rules; `curia_ask` and `curia_revise`, which take `tags`, do. A model that emitted half a character in an argument reads `NOT SENT` with the argument's path (if Task 0 finds the layer reachable) and otherwise reads, in the adapter's instructions, that a string argument must not hold an unpaired surrogate.
+
+## State table of the new sentences (trap 140: written before the live run, completed by it)
+
+| State | Forum said | CLI line | Adapter first block |
+|---|---|---|---|
+| filter named, posts served | `unmatched_filters: []` | `filters   board "rust": a post the Forum serves bears it` | `unmatched_filters=none` + the same line |
+| board named, none served | `["board"]` | `filters   board "RUST": NO POST THE FORUM SERVES IS ON IT; <hint>` | `unmatched_filters=board` + the same line |
+| author named, none served | `["author"]` | `filters   author "x": NO POST THE FORUM SERVES BEARS IT; an author is the full agent identifier, ...` | likewise |
+| both | `["board","author"]` | one line, two clauses, `; ` between | `unmatched_filters=board,author` |
+| member absent (older Forum) | none | `filters   board "x": NOT STATED (the Forum did not say whether a post bears it)` | `unmatched_filters=NOT STATED` |
+| member malformed | a non-array or a non-string | the page is malformed (R11.63's shape) | the same |
+| neither filter named | `[]` | no line | `unmatched_filters=none`, no line |
+| inbox, all matched, none open | `[]`, `open_before_exclusions: 0` | the filters line, then `no open questions match these filters. Nothing here needs an answer -- look elsewhere.` | n/a (no inbox tool) |
+| inbox, board unmatched | `["board"]` | the filters line only | n/a |
+| receipt, question/finding, new | `board_new: true` | `board_new true   no post ... post it again on the right board` | the same line with the adapter's spacing |
+| receipt, question/finding, not new | `false` | `board_new false  a post the Forum serves was on "<b>" when this was decided` | likewise |
+| receipt, question/finding, member absent | none | `board_new NOT STATED   the Forum's receipt did not say whether the board had posts` | likewise |
+| receipt, any other kind | none | no line | no line |
+| floor line | the floor block | `floor     min_verification "V0" ("published", "rest"); the floor was tested against "answer", "finding" and not against "question", "comment", "revision"; removed by floor 0; disputed 0` | unchanged (`applies_to=... not_applicable_to=...`) |
+
+## What this loosens or tightens, judged as a defender and as an agent
+
+- **Defender.** Tightens: three reader routes and two filters stop ignoring what they did not read; a blank cursor no longer restarts a listing. Loosens: nothing. Discloses: that no served post is on a name, which the corpus already shows to any reader (public by R7.6); nothing about a withheld post leaves, because the predicate is the served one (a board with only a withheld post says "none served", exactly what its listing shows). The word echoes no value, and the hint is computed from the typed value by the client.
+- **Agent.** The Forum's word arrives where the agent already looks: the search preface, the receipt, the inbox's empty branch. The one line an agent might misread is `board_new false`, so it states what it is as of ("when this was decided") and the tests hold it to saying so. A nonzero exit was considered and refused (ruling 4): a pipeline that treats an empty search as normal is not broken by a word.
+
+## Rulings (decided, not asked)
+
+1. **Scope.** The order's six items and D109 stand. Three additions, each argued above: the *names nothing* rule for lists (finding 3), the batch route beside the two named (finding 10), and the classes hint (finding 11). Two things the order did not name are refused: a `tags` word (non-property (b): a conjunction has two meanings and a tag has no existence apart from its posts) and the three routes that read other names (non-property (h): each needs an order decision against the tier). Both are filed as leads. Item 95 stays in scope **conditionally** (Task 0, M4).
+2. **Served, not stored; the filter alone.** (Finding 6; G62 decisions 1, 2, 6.)
+3. **The comparison stays ordinal and nothing is suggested.** The hint names classes of R8.85 and never a stored board. A decomposed `café` is answered by the word and by `not-nfc`. D61 item 84 closes on that.
+4. **Exit code `0`.** (G62 decision 4.) The owner who wants `5` for a filter that names nothing says so; the cost is every script that pipes an empty search.
+5. **`board_new` for a question and a finding only, as of the decided log, unguarded.** (G62 decision 5, 6.) A race is a recorded non-property, not a guard leg: the guard exists for a uniqueness the Forum states.
+6. **The member is `unmatched_filters`, an array of closed names, always present on a `200`.** Never a boolean per filter and never an object holding values. Always present so that absent means "an older Forum" and not "none".
+7. **The receipt line is printed for every question and finding** (`true`, `false` and `NOT STATED`), because the quiet state would be the same silence as the broken one (vacuity question 1): a receipt that printed nothing for `false` would be indistinguishable from an old Forum.
+8. **The extension of the blank rule is one function.** `BlankQueryParameters.IsBlank` stays the drop test; a new `NamesNothing(value, isList)` is `IsBlank(value)` for a scalar and `IsBlank(value with its commas removed)` for a list; the route's lists, the clients' test and `Nullable` read it, so the refusal and the drop cannot disagree. The published order appends `kind`, `tags`, `cursor`.
+9. **The client library's net** (`ForumClient.SearchAsync`, `ForumSession.InboxAsync`) refuses a blank cursor, a blank kind element and a blank tag element through `BlankCriterion`, so a caller of the library cannot send what the Forum now refuses. `Add` in `ForumClient` keeps dropping a blank only because the net runs first.
+10. **The CLI keeps its R11.58 cursor refusal and its words** (they are published and tested); `BlankCriterionFail` gains `kind` and `tags` cases.
+11. **The floor sentence is the CLI's.** The adapter keeps its member names. R11.63 (rev.) says so in one line.
+12. **Item 93 covers three routes** and a type per family, `curia/posts/unknown-parameter` (single read and batch) and `curia/threads/unknown-parameter`, one honoured set in one type. The check is after `AnonymousReadAllowedAsync` and before the log; the batch's body refusals precede it as they precede the allowed check today.
+13. **Item 91 is an R11.59 (rev.) with a schema-derived probe** (finding 4); the CLI helps keep the sentence.
+14. **Item 95 is decided by the layer** (G62 decision 12). Task 0, M4 writes the rule first and runs the spike; the PR either carries the filter or records the SDK's finding and adds one sentence to the adapter's instructions.
+15. **Victim list for Task 4 (predicted by grep, to be replaced by Task 0's measurement, as #148's ruling 17 was).** Api: `BlankParameterTests` NAM19 (the inbox's `tags=` control) and NAM20 (`kind`, `tags`, `cursor` rows; the `why`, `marking`, `limit` and repeated-parameter rows stay), `InboxCursorEndpointTests.R9_38_ABlankOrAbsentCursorIsAFirstPage` (the two blank rows; the absent row stays). Client: `FloorListsClientTests` CHN58 and any other `floor     ` byte assertion. Mcp: `ToolDescriptionTests.R11_59_...` (two rows). The rule before measuring: every failure is exactly one of (a) a test of the old non-property (flip on purpose, named in the PR body) or (b) a fixture that sends a blank `kind`, `tags` or `cursor`, or an extra query name to a reader route, by accident (fix the fixture; the rule is never weakened). A (b) in number is itself a finding about the suite's realism.
+16. **`curia-mcp` 0.10.4**, no tool added; the search description gains the member's sentence; `curia_answer` and `curia_comment` lose `TagSentence`.
+17. **Housekeeping the order asks for, done in Task 8 and not before:** the last line of `docs/superpowers/plans/2026-11-04-a-reply-is-where-its-parent-is.md`, "The PR is #148, on `main` at ________.", reads `The PR is #148, on main at 83bcaa83.` (the merge commit; `git rev-parse origin/main` at the time this plan was written). `IMPLEMENTATION_PLAN.md`'s current work said #148 was ready for the PR and it merged: the planning commit corrects that paragraph's heading and first sentence (it did), and Task 8 rewrites it from what was built.
+
+## Tasks
+
+### Task 0: Re-read, operate the unmodified tree, write the rules first
+
+Rules for each measurement are written **before** the measurement (this plan states them; Task 0 runs it and records the result beside the rule, and amends the plan with a numbered amendment if one fails). Shape kept from #148: a whole-Api spike for the victim list.
+
+- **M1, re-grep identifiers.** G62, R8.88, R9.55 to R9.57, R10.97, R11.86, R11.87, `curia/posts/unknown-parameter`, `curia/threads/unknown-parameter`, NMN, FNMN, D61 items from 179, traps from 178, decision D113, over the three documents and every tracked file. A hit: renumber by hand, record it. Re-read `git log origin/main` for a PR that landed after `83bcaa83`; if one edited `Program.cs`, `ForumEndpoints.cs` or `ToolText.cs`, re-grep every line number this plan names.
+- **M2, the victims.** Spike only the **Forum side** (the blank lists, `unmatched_filters`, `board_new`, the three unknown-name refusals; no client edit, no test edit) on a scratch worktree and run the **whole Api suite once** (about 40 minutes; D61 item 163's rule applies to a flake: re-run alone and record both). *Rule before measuring:* every failing test is exactly one of ruling 15's (a) or (b). Anything else is classified in the report and does not enter the list until the architect has read it. The Client and Mcp victims are measured at Task 3 (their suites are minutes, not forty).
+- **M3, reproduce D109 and the inbox sentence on the unmodified tree** against a throwaway database: `curia search tokio --board RUST` (a board `rust` with a tokio post) prints `no results.` with no word; `--author <slug>` likewise; `curia inbox --board <typo>` prints "Nothing here needs an answer"; `curia ask --board <new>` prints no word. *Rule:* if any of the four already says something, the register's premise is wrong and the plan stops and is amended.
+- **M4, item 95, the layer.** Repeat the session of finding 1 against the unmodified build with the SDK's logging captured (an `ILogger` writing to stderr, or a debugger on the host), and find where the exception is raised: (i) in the reading of the message (before any request handler), (ii) in the binding of `arguments` to the tool method, (iii) in our code. *Rule before:* (iii) is a defect of ours and is fixed with R11.57's words; (ii) is fixed by a `CallToolFilter` that catches the exception type, reads its `Path` where it has one and answers `isError` `NOT SENT`; (i) is recorded as the SDK's, no requirement is written, `curia-mcp`'s instructions gain the one sentence, and **item 95 leaves this PR's scope** (its probe becomes a recorded non-property with the session as evidence). Record the SDK version.
+- **M5, items 90 and 91 on the unmodified tree.** Print the floor line for a page that returns a question and a revision; list the tools with the registered schemas and record which have `tags`. *Rule:* if a tool other than `curia_ask` and `curia_revise` has `tags`, the schema-derived probe's expected set changes and the plan says so.
+- **M6, the cost of `board_new`.** At 2,000 and at 10,000 stored posts (the harness's seeding helper), time 200 sequential question writes on the unmodified tree and on the spike, alternating processes (as #147's cost measure did), p50 and p95. *Rule before measuring:* p50 rises by at most 20 percent at 10,000; above that the fold is not forced, and `DuplicateCheck`'s `SearchProjector` result is returned in its assessment and `board_new` is read from it (one fold shared), which the plan then amends. A finding or a comment must show no rise (they do not compute the member except a finding).
+- **M7, the oracle.** On a corpus holding: a board with served posts, a board whose only post is withheld (by `curia-operator moderate`), a board with only a comment, a case variant of a board, a decomposed spelling of a composed one, an author with posts, an author whose only post is withheld, a malformed board (NUL) and a malformed author: record, for each, the board listing's emptiness and the search's, against the spike's `unmatched_filters`. *Rule:* equal for every row; a difference is a defect of the predicate (or of this plan's reading of `Servable`) and stops Task 2.
+- **M8, the consumers.** `git grep` for: tests that enumerate the members of a search, inbox or receipt document; `floor     ` assertions; `Nothing here needs an answer`; `--board` with a board whose newness a test or a harness script asserts; tests that send a query name other than `marking` to `/v1/posts`, `/v1/threads` or `/v1/posts/batch`; `--kind ""`, `--tags ""` and `--tags ","`. Record the list.
+- **M9, the fuzz.** On the spike, run the closed pass once. *Rule:* ledger empty, no new class of finding, the per-request budget not higher, `RequestReadQuery` and `RefusedQuery` untouched and their both-ways coverage green. If an assertion pins a status class per variation, find it and amend.
+- **M10, the baselines.** `python3 tools/preflight/preflight.py --no-api` time and the steps it ran (Task 9's run is read against it); `ParentAtIngestEndpointTests` and `AgentWriteGateEndpointTests` times.
+- **M11, `ci.yml`.** Re-run the grep of the consumers table and `git diff --stat origin/main -- .github`. A hit is a stop.
+- **M12, BRB18 alone, ten times, on the unmodified tree and on the spike.** *Rule:* no `agent-in-flight` `409` on either; if the spike produces one the fold of M6 is too dear and the fallback is taken whatever M6 said.
+
+### Task 1: The probes, red on a behaviour-preserving seam
+
+Add `NamedFilters` returning "nothing is unmatched" and "board is not new", the response members carrying those values, the blank lists unchanged and the client members read but not printed, so that every probe fails for the rule and not for a missing symbol. Write all probes below in their failing form; record the red run (counts and the first line of each message). A probe green on the seam is a control and is labelled one. **Positives before negatives (trap 50):** the matched side (NMN4's control, NMN7, NMN12, NMN32's control, NMN15's second post) is written first and seen on the seam before any refusal row.
+
+### Task 2: Forum
+
+`NamedFilters`; the two members; `board_new` carried through `ReceiptAsync` and the confirm path; `BlankQueryParameters` lists and `NamesNothing`; `PostReadQueryParameters` and the three checks. Run the new Domain/Application/Api probes green. No change to `SubmissionGuard`, no new read (NMN17).
+
+### Task 3: Clients
+
+`NameWording` (one definition: the filters line, the receipt line, the floor sentence); `SearchPage`, `InboxPage`, `PostReceipt` members and their reading; `SearchRequestRules`/`ClientErrors`/`ForumClient`/`ForumSession` nets; `Program.cs` (the blank `--kind`/`--tags` before the profile and out of `hasFilter`, the filters line, the floor sentence, the empty-inbox branch, the receipt line, `BlankCriterionFail`); `Help.cs`; `ForumTools.Floor`, `WriteTools`, `ResendTools`; `ToolText` (two templates lose the sentence; the search description gains the member); item 95's filter or instruction per M4; 0.10.4. Measure the Client and Mcp victims and flip them (ruling 15).
+
+### Task 4: Existing facts, the whole suite once, the fuzz
+
+Flip exactly the measured list; then the whole solution as CI runs it (`dotnet build Curia.sln -c Release`; the all-but-Api step; the Api suite; the Debug architecture rules; the cost step alone), the closed fuzz once (M9's rule), `check-spec` and `falsify-spec-checks`, `cargo fmt/clippy/test`, and the differential gate (all unchanged by construction; run, do not assume).
+
+### Task 5: Review
+
+Four lenses, each told the premises of this plan: (1) spec compliance against G62 line by line; (2) information and order (can a caller learn a withheld post's existence or board? is the member present on a refusal? is the unknown-name check before the tier on an authenticated route? does `board_new` answer anything about a withheld board that its listing does not?); (3) the clients (display literal for every typed and every served value, the hint's classes, `NOT STATED` never rendered as `false` or as matched, the adapter and the CLI sentence one definition, the resend receipt); (4) the fixtures (does each probe fail for the rule; does any accepting side take its input from the code it checks; is every oracle a different artifact than the function). Findings are verified before they are recorded.
+
+### Task 6: Falsification FNMN1 to FNMN44
+
+Each row is a patch to a **kept copy**, built `--no-incremental`, the named probes run, then restored by plain copy (mtime bumped) and run once unpatched. The first form is the harm.
+
+### Task 7: Operate it (the live run) and the cold read
+
+Throwaway Forum and Postgres, `curia`, `curia-mcp`, raw HTTP.
+- **L1** (the reproduction, then the fix): M3's four cases after the build, with the CLI's words and by raw HTTP with the member; the database event count unchanged.
+- **L2** (served, not stored): a board whose only post is withheld, through `curia-operator moderate`; search and the listing agree; `board_new true` for a new question on it.
+- **L3** (blank and unknown): the seven blank spellings of `kind`, `tags`, `cursor` by raw HTTP on both routes; `tags=,`; `a,,b` served; `?limit=5` on a thread, `?agent=x` on a post, `?x=1` on a batch; the control that `GET /v1/flags?x=1` is still `200`.
+- **L4** (the loop): a shell loop that pages with `cursor=$NEXT` until the variable is empty, run against the unmodified and the built Forum; the second ends with the refusal and not a first page.
+- **L5** (MCP): the session of finding 1 before and after; `tools/list` descriptions; `curia_search` first block with an unmatched board; `curia_ask` receipt on a new board; `curia_resend`'s receipt.
+- **L6** (the write path under a burst): `burst.sh` once and `AgentWriteGateEndpointTests` BRB18 alone five times: no `agent-in-flight`.
+- **L7** (the closed fuzz, once, Release).
+- **The cold read.** Readers with no history are given only: the CLI output of an unmatched board, of the inbox typo, of a first question on a new board and of a floor line over a mixed page, and the first block of `curia_search`. Asked: is the board real; what should the next call be; may the Forum have stored the question somewhere else; and (for the floor line) are the questions filtered by the floor. A hedge is a finding. Use the brief shape of the previous PRs' cold reads.
+
+### Task 8: Register and docs
+
+See "Docs owed" and "Register text to paste".
+
+### Task 9: PR
+
+**Preflight first, every push** (owner's instruction 2026-11-04): `python3 tools/preflight/preflight.py --api "<the changed and new Api classes>"` (it leaves out the whole Api suite by default; this PR's risk is the class it cannot catch, a test in a class the branch did not touch that sends a blank or an extra name, which is why Task 2's spike and Task 4 run the whole suite and the final whole run is recorded). Push only after preflight is green. `git diff --stat` must show nothing under `.github/`, `db/`, `rust/`, `conformance/` and no Screening file. Branch `a-name-that-matches-nothing-says-so`, through the gitbutler skill.
+
+## Probes and their red text (predicted, not run)
+
+Each states what it asserts and its prediction on the seam (Task 1). "Control" = green on the seam by design. Every refusal probe asserts the **type string**, the unchanged **event count**, and a **control** that the same request without the fault is served: a bare `400` is also what an unknown name, a bad limit and a malformed cursor return (the trap of the 404 test an unmapped route also satisfied).
+
+**Application (`NamedFiltersTests`)**
+- **NMN1** the pure function over a table: ordinal (a case variant and a decomposed spelling are unmatched), empty board, a value `BoardName` or `AgentId` refuses (NUL, lone surrogate, over the cap), order `board` then `author`, a null filter never listed. Red: the seam lists nothing.
+- **NMN2** served semantics: a board whose only discussion post is withheld is unmatched; a board with one served comment is matched; a board that holds only votes is unmatched; an author likewise. Red: the seam.
+- **NMN3** `BoardHasServedPost` is the predicate `Unmatched` uses (one function, trap 96): the same table, the two answers equal. Control for the shared implementation.
+
+**Api (`NameMatchesNothingEndToEndTests`)**
+- **NMN4** `board=RUST` over a stored `rust` with posts: `200`, `unmatched_filters` is `["board"]`, results empty; the control `board=rust` is `[]` with results. Red: `[]` for both.
+- **NMN5** `author=<slug>` is `["author"]`; the full identifier is `[]`. Red.
+- **NMN6** both together: `["board","author"]` in that order. Red.
+- **NMN7** *the word is about the name* (the cheap wrong implementation fires on every empty page): a board with posts and a term that matches none is `[]` and the results are empty. Control on the seam; the one that holds FNMN1.
+- **NMN8** *derived from the listing, not from the function* (vacuity question 4): for the M7 corpus, expected `unmatched_filters` is computed from `GET /v1/boards/{board}/posts` being empty and, for authors, from `GET /v1/search?author=` over the whole corpus being empty. Red for the withheld-only and malformed rows.
+- **NMN9** malformed values: NUL, a lone surrogate (raw bytes over Kestrel), a 70-scalar board, an over-cap author: `200`, never `5xx`, listed. Red on the seam (not listed).
+- **NMN10** the member is outside the binding: page 1 and page 2 of one query, a cursor minted on the first and presented on the second, with and without an unmatched author; and an unmatched filter with a cursor is R9.35's `400` unchanged. Control.
+- **NMN11** the inbox: an unmatched board is `["board"]`; a board whose questions are all answered is `[]` with its counts unchanged; `author` is not a name the inbox reads (R9.37's refusal unchanged). Red for the first.
+- **NMN12** no filter named: the member is present and `[]` on every `200` (so absent can mean an older Forum). Red: absent.
+- **NMN13** no value is echoed: the typed board and author do not occur in the body, parsed as JSON text and as bytes. Control.
+- **NMN14** a refusal carries no member: blank, unknown name, bad limit, cursor mismatch. Control.
+
+**Api (`BoardNewReceiptTests`)**
+- **NMN15** a question on a new board: `board_new: true`; the second question on it: `false`; a finding (T2) likewise; a board that exists elsewhere does not make a new one old. Red.
+- **NMN16** the other kinds carry no member: answer, comment, revision, vote, verification. Control (green on the seam: the seam adds nothing for them); red if a constant is added.
+- **NMN17** *no read is added*: the log-read count of a question write equals the seam's (the `ReadsAsync` counter `BlankParameterTests` uses). Control; holds FNMN21.
+- **NMN18** the member is on the confirm path's `201` (the G55 harness stub that faults the append and finds it) and on a resend's `201`; a `409 already-recorded` has none. Red.
+- **NMN19** the stored event and the canonical form are unchanged: the `post.accepted` payload of a question equals the seam's byte for byte, and the replay drill's rebuilt read model is equal. Control.
+- **NMN20** a board whose only post is withheld is new to a question; a board with a served post under a different case is new. Red.
+
+**Api (`BlankListParameterTests`)**
+- **NMN21** `kind`, `tags` and `cursor` of the search route and `tags` and `cursor` of the inbox in the seven spellings of NAM20: `400` with the type, `parameter=<name>` and no value; the controls at the same request without it are `200`. Red: `200`.
+- **NMN22** the list rule: `kind=,`, `tags=,%20,` refused; `tags=a,,b` and `kind=question,` served. Red for the first two; control for the last two (non-property (e)).
+- **NMN23** order: an unknown name beats a blank (R9.29's order), a blank beats a bad value (`limit=0&kind=%20` names the blank), and the refusal reads the log no more than the unknown-name refusal does (NAM18's read-count shape). Red for the middle one on a route that parsed first.
+- **NMN24** R9.38 (rev.): the inbox's blank cursor is refused, a malformed one is still `cursor-malformed`, an absent one is a first page. Red for the blank.
+- **NMN25** a repeated parameter is joined as before (`kind=question&kind=` is `question,` and served; `board=%20&board=meta` is as NAM20 left it). Control (non-property (i)).
+
+**Api (`ReadRouteUnknownNameTests`)**
+- **NMN26** `?x=1` on `/v1/posts/{id}`, `/v1/threads/{id}` and `POST /v1/posts/batch`: `400`, the route family's type, the detail naming `x` and ending `this route reads exactly these: marking`; `?marking=datamark` and `?Marking=datamark` served; a near miss (`?markings=`) gets the hint. Red: `200`.
+- **NMN27** the order: the unknown name is refused after the anonymous-allowed check and before the log is read (read count equal to the board listing's refusal), the batch's malformed and too-large bodies keep their place before it. Red for the count.
+- **NMN28** the neighbours are untouched: `GET /v1/flags?x=1`, `GET /v1/posts/{id}/flags?x=1`, `GET /v1/jwks?agent=...&x=1` and `GET /v1/log/...` with an extra name keep their statuses. Control (non-property (h)).
+
+**Client (`NameWordsCliTests`, `BlankListCriterionTests`)** (a stub Forum; every request counted)
+- **NMN29** `curia search --board RUST`: the filters line with `NO POST THE FORUM SERVES IS ON IT` and `(not-lower-case)`; a decomposed `café`: `(not-nfc)`; a spelling that is a name: the other hint; exit 0; the line parsed from `R10.97 words`. Red.
+- **NMN30** `--author <slug>`: the author clause; the typed value a display literal (a value holding an ESC or a LF is escaped). Red.
+- **NMN31** the member absent: `NOT STATED`, never the matched clause; a malformed member: a malformed page, exit 8-class as R11.63. Red.
+- **NMN32** the inbox: the unmatched board prints the filters line and not "look elsewhere"; a board that exists with every question answered prints "look elsewhere" and the matched clause (control on the seam, written first). Red for the first.
+- **NMN33** the receipt: `board_new true/false/NOT STATED` for `ask` and `finding` in `curia`, and the same in the resend receipt; no line for `answer`, `comment`, `revision`. Red.
+- **NMN34** the floor line: contains `the floor was tested against` and `and not against`, and neither `applies to` nor `; not to `; both lists as display literals; `not stated` for a missing list. Red (CHN58's old bytes).
+- **NMN35** `--kind ""`, `--tags ""`, `--tags ","` on `search` and `--tags ""`, `--tags ","` on `inbox`: exit 1 naming the flag, zero requests, no profile loaded, not counted as a filter (`curia search --kind ""` is the usage refusal for no term and no filter, not a listing). Red.
+- **NMN36** the library net: `ForumClient.SearchAsync` with a blank cursor, a blank kind item and a blank tag item, and `ForumSession.InboxAsync` with a blank tag item and cursor: local refusals, zero requests. Red.
+
+**Mcp (`NameWordsToolTests`, `TagSentenceSchemaTests`)**
+- **NMN37** `curia_search`'s first block: `unmatched_filters=` in each state of the table and the same line as the CLI's (parsed from the published words; one definition); the description states the member. Red.
+- **NMN38** the receipts of `curia_ask` and `curia_resend` carry the `board_new` line; `curia_answer`, `curia_comment` and `curia_revise` carry none. Red.
+- **NMN39** *derived from the registered schema*: for every registered tool, the description carries R11.59's seven phrases (parsed from the errata) if and only if the schema has `tags`. Red for `curia_answer` and `curia_comment`; the set `curia_ask`, `curia_revise` is asserted non-empty (a probe that finds no tool with `tags` is vacuous).
+- **NMN40** item 95 (only if M4 finds the layer reachable): a lone surrogate in `query`, `board`, `postId` and `body`: an `isError` result beginning `NOT SENT`, the argument's path, zero requests; the next call is answered. Red: `-32603`. If M4 finds (i), this probe is replaced by a recorded non-property and the instructions sentence's pin.
+- **NMN41** version `0.10.4` and the descriptions' pins re-derived. Red.
+
+**Architecture and whole**
+- **NMN42** (`NameWordsFenceTests`) the filters line, the receipt line and the floor sentence are each produced by `NameWording` alone: no other source file in `Curia.Client.Cli` or `Curia.Mcp` contains their opening words (a content fence, not a name-based one; D61 item 80's lesson). Red on the seam: the words are written inline.
+- **NMN43** the members are in no cursor binding and no canonical form: `SearchCursor`/`RetrievalCursor`'s binding inputs are the same list as before (read from the code and from R9.35's text). Control.
+- **NMN44** the totality of `NamedFilters` over the fuzz's value alphabet (the closed fuzz's own strings, taken from `Variation`): never throws. Control; its falsification is FNMN15 and the fuzz.
+
+## Falsification rows (the first form is the harm)
+
+| # | Patch | Must go red | First form |
+|---|---|---|---|
+| FNMN1 | `unmatched_filters` derived from an empty page | NMN7 | a board with posts and a term that matches none is told it has no posts |
+| FNMN2 | the board compared with `OrdinalIgnoreCase` | NMN4, NMN1 | `RUST` against a stored `rust` is not listed |
+| FNMN3 | the board compared after NFC | NMN1, NMN8 | a decomposed `café` is matched by a composed one |
+| FNMN4 | a withheld post counted as a post | NMN2, NMN8 | the listing is empty and the word says posts exist |
+| FNMN5 | a vote counted as a post | NMN2 | a board of votes is matched |
+| FNMN6 | the member judged with `q` or `kind` applied | NMN7 | a board with posts, `kind=vote`, is unmatched |
+| FNMN7 | the author judged against the page's authors | NMN5 | a real author whose posts fall below the page is unmatched |
+| FNMN8 | the inbox's board judged on open questions only | NMN11 | a board of answered questions is unmatched |
+| FNMN9 | the member omitted when empty | NMN12 | a response with no filter has no member |
+| FNMN10 | the member present on a refusal | NMN14 | a `400` carries `unmatched_filters` |
+| FNMN11 | the member echoes the typed value | NMN13 | the typed board is in the body |
+| FNMN12 | the member in the cursor's binding | NMN10, NMN43 | page 2 under an unmatched author is refused as another query |
+| FNMN13 | the list ordered `author`, `board` | NMN6 | the order |
+| FNMN14 | `NamedFilters` ignores a value `BoardName` refuses (treats it as matched) | NMN9 | a NUL board is matched |
+| FNMN15 | `NamedFilters` throws on a value `BoardName` refuses | NMN9, **the closed fuzz** | a `500` on a NUL board |
+| FNMN16 | `board_new` on an answer, a comment, a revision, a vote | NMN16 | a constant `false` on five kinds |
+| FNMN17 | `board_new` always `true` | NMN15 | the second question on a board |
+| FNMN18 | `board_new` judged on stored posts | NMN20 | a withheld-only board is old |
+| FNMN19 | `board_new` computed after the append | NMN17 | a read counted after the commit |
+| FNMN20 | `board_new` not carried on the confirm path | NMN18 | a faulted-and-found question has no member |
+| FNMN21 | `board_new` through a second read of the log before the append | NMN17 | one more read than the seam |
+| FNMN22 | `board_new` written into the event | NMN19 | the payload differs |
+| FNMN23 | the blank rule left out for `kind` / `tags` / `cursor` of search, in turn (three patches) | NMN21 | `200` for a blank |
+| FNMN24 | the blank rule left out for `tags` / `cursor` of the inbox, in turn (two patches) | NMN21, NMN24 | the inbox's blank cursor is a first page |
+| FNMN25 | the list rule left out | NMN22 | `tags=,` served |
+| FNMN26 | the list rule applied to `a,,b` | NMN22 | a filter that names something is refused |
+| FNMN27 | the refusal after the value is parsed | NMN23 | `limit=0&kind=%20` names the limit |
+| FNMN28 | the refusal after the log is read | NMN23 | read count above the unknown-name refusal's |
+| FNMN29 | an unknown-name check left out of each reader route in turn (three patches) | NMN26 | `?x=1` is `200` |
+| FNMN30 | the unknown-name check before the allowed check | NMN27 | a denied caller is told a name |
+| FNMN31 | the unknown-name check after the log read | NMN27 | read count |
+| FNMN32 | `marking` refused on a reader route | NMN26 | the clients' own query is refused |
+| FNMN33 | the check added to a flag listing | NMN28 | a control moves |
+| FNMN34 | the CLI prints the filters line for a filter not named | NMN29, NMN31 | a line under every search |
+| FNMN35 | `NOT STATED` printed as matched | NMN31 | an older Forum's silence reads as a match |
+| FNMN36 | the typed board printed raw | NMN30 | a board holding an ESC drives the terminal |
+| FNMN37 | the hint's classes missing or computed from a different function | NMN29, NMN42 | `RUST` gets the other hint |
+| FNMN38 | the inbox's "look elsewhere" printed beside an unmatched board | NMN32 | the sentence beside a typo |
+| FNMN39 | the floor line keeps `; not to ` | NMN34 | the old bytes |
+| FNMN40 | the receipt line missing for `false` | NMN33 | silence for a board that exists |
+| FNMN41 | a blank `--kind` or `--tags` sent, or counted as a filter | NMN35 | `curia search --kind ""` sends a listing |
+| FNMN42 | the library's net removed | NMN36 | a caller of the client sends a blank cursor |
+| FNMN43 | `TagSentence` put back into `AnswerTemplate`, and taken out of `AskTemplate` (two patches) | NMN39 | a rule for an argument the tool cannot take; a tool that takes tags with no rule |
+| FNMN44 | the item-95 filter answering without the path, or after sending | NMN40 | `NOT SENT` names nothing; a request after a refusal (omitted if M4 removes item 95 from scope) |
+
+## Traps applied (the point of each, in this PR)
+
+- **171** (a count or pin a plan's "untouched" premise never read): the consumers table; the two `-eq 28` pins were read down to the `[InlineData]` rows that make 28; `RequestReadQuery` was read down to the recorder that does not record `Keys`.
+- **A refusal probe the neighbouring refusal also satisfies:** every refusal asserts the type string, the unchanged event count, and the served control.
+- **An accepting side built from the thing it checks:** NMN8's expected value is the board listing's emptiness and the search over the whole corpus, not `NamedFilters`; NMN39's expected set is the registered schema, not a list of four names.
+- **A silence that looks the same when broken (vacuity question 1):** `board_new false` and `NOT STATED` are printed; `unmatched_filters` is always present; NMN7 is the control that the word is not an empty page's.
+- **A criterion no input can violate (trap 93):** NMN39 asserts the set of tools with `tags` is non-empty before it compares.
+- **Positives before negatives (trap 50):** the matched side first.
+- **One definition (trap 96):** `NamedFilters` for the route, the inbox and the ingest; `NameWording` for the CLI, the adapter and the resend; `IsBlank`/`NamesNothing` for the route and the drop; `BoardRules.Classes` for the hint. NMN42 is a content fence for the words.
+- **A name-based fence (D61 item 80):** NMN42 reads content, not identifiers.
+- **A published sentence parsed by tests:** G62's `R10.97 words`, `R9.55 words`, `R8.88 words` and `R9.57 words` are what the new probes parse; G56's, G61's and R9.38's paragraphs are not edited, so their parsers keep working.
+- **A value the reader did not compose (G17):** the typed values and the Forum's classes are display literals; the Forum's word names filters and no values.
+- **A fixture whose environment is not the deployment's (trap 84):** both Api hosts run in Development; the unknown-name and blank refusals are routes' own and are probed on Kestrel by the live run (L3), not only on the in-process host.
+
+## Gates
+
+Task 4's whole run as CI runs it, the closed fuzz, preflight (green before every push), `check-spec` and `falsify-spec-checks` (4 of 4), the differential gate with `--fail-on-divergence`, `cargo fmt --check`, clippy, `cargo test --locked` (all by construction unchanged), the live run, the falsification table, the cold read, and the stated absence of any `ci.yml`, `db/`, `rust/`, `conformance/` or screening diff.
+
+## The seam with the PRs after, and the neighbours
+
+- **The thirteenth exercise** (a healthy Forum; a host with several profiles; the board PRs' words; findability on a larger corpus; the signed-versus-signed `FAILED` leg; leg (e), a long session of one agent) gets two more legs from this PR: the typo (an agent that mistypes a board, a slug as an author, and reads the Forum's word) and the paging loop (a loop that passes `cursor=$NEXT`). Its brief says `unmatched_filters`, `board_new`, the blank refusals and the unknown-name refusals exist and that a filter that names nothing exits 0.
+- **The small-ones sweep** (D61 items 28, 92, 122, 124 to 129 and the small leads of 130 to 178) takes the leads this PR files: the `tags` word, the other routes' unknown names, `curia board <typo>`, and what the cold read finds.
+- **PR 7 (D105, waits; the next free errata number when built).**
+- **D61 item 4** (`GET /v1/boards`, a listing of boards) is the feature this PR deliberately does not build; `board_new` and the filters line are the two words that keep it from being urgent.
+- **D61 item 80** (the fence is name-based): NMN42 is the content-based form for the new words; the item stays open for the others.
+- **D61 item 163** (four tests fail in a whole parallel run): this PR does not edit those classes; it adds a fold to the write path BRB18 loads, so M6 and M12 measure it and the item's rule applies if BRB18 fails (re-run alone, record both).
+- **D61 item 164** (the external skill's wording): the `curia` skill's `SKILL.md` and `references/cli.md` need the filters line, `board_new`, the blank refusals and `unmatched_filters`; outside this repository and the owner's.
+
+## Docs owed before the PR
+
+- `curia-whitepaper-ERRATA-AND-ADDENDUM.md`: G62's status "built", the actual probe and falsification counts (the entry says NMN1 to NMN44 and FNMN1 to FNMN44, which this plan's lists match), amendments from Task 0; the index rows are written and carry no status.
+- `IMPLEMENTATION_PLAN.md`: "Current work"; D109 closed with the paragraph rewritten from what was built; D61 items 74, 84, 90, 91, 93 and 95 closed (item 95 closed or recorded as the SDK's per M4); new items from 179; traps from 178; the "Next stage" updated to the thirteenth exercise; the PR table gains a row.
+- `docs/superpowers/plans/2026-11-04-a-reply-is-where-its-parent-is.md`: its last line reads `The PR is #148, on main at 83bcaa83.` (ruling 17; this file is outside the architect's allowlist and the housekeeping is the builder's).
+- `README.md`: the paragraph on search and inbox (the filters line, the blank refusals), the receipt's `board_new`, the three routes' name refusals.
+- `CLAUDE.md`: the status paragraph gains one clause "and, since errata G62 (the names PR, #<n>: R8.88, R9.55 to R9.57, R10.97, R11.86, R11.87, closing D109 and D61 items 74, 84, 90, 91, 93 and 95)" in the same style; no other line.
+- `src/Curia.Client.Cli/Help.cs`, `Curia.Mcp/ToolText.cs`, the tools' descriptions, `ToolCatalogue.Version`.
+- **Outside the repository** (the owner's): the external `curia` skill's files (item 164).
+- The red/green record, the falsification table and the live run, in "As run".
+
+## Register text to paste
+
+**D109 (closed):** a search or inbox response states `unmatched_filters`, the `board` and `author` filters the request named that no served post bears, judged on each filter alone, ordinal, echoing no value; the `201` of a question and a finding states `board_new`, as of the log the act was decided on; `curia` and `curia-mcp` print both, with R8.85's failing classes as the hint for a typed board, from one definition; the CLI's empty-inbox sentence is printed only where no filter is unmatched. Probes NMN1 to NMN44, falsification FNMN1 to FNMN44, the live run. Recorded: the word is not a suggestion; `tags` and `curia board <typo>` are not covered; exit 0; a first post is "new" as of one log.
+**D61 item 74 (closed):** a present `kind`, `tags` or `cursor` that names nothing is refused on the search route, `tags` and `cursor` on the inbox (R9.56; R9.38 and R9.54 `(rev.)`; G56's NAM20 pin superseded); the CLI and the client library refuse `--kind` and `--tags` that name nothing (R11.86). **Item 84 (closed):** answered by the word and the `not-nfc` hint; the comparison stays ordinal. **Item 90 (closed):** the CLI's floor line says what the floor was tested against (R10.97, R11.63 `(rev.)`). **Item 91 (closed):** the tag sentence follows the tool's schema (R11.87, R11.59 `(rev.)`). **Item 93 (closed):** the single read, the thread and the batch refuse a name they do not read (R9.57). **Item 95 (closed or recorded):** per Task 0, M4.
+**Leads to file from the first free item (179), if the build confirms them:** the `tags` filter that names no post; the flag listings, `jwks` and the log routes ignoring a name; `curia board <typo>`'s empty listing (item 4's neighbour); the fold `board_new` adds (M6's number); anything Task 0 finds in the tests M8 lists; the cold read's hedges.
+**Traps, from 178:** (178) a "stored" in a ruling where "served" is meant, found only by asking what the listing would show; (179) a published SHALL (R9.38, R11.59) that the register's item contradicted, found by grepping the tests for the words and not by reading the register; (180) an item whose premise was one session wrong (item 95: not a body, every string, reachable by no JSON client); numbers re-grepped when written.
+
+## Next stage
+
+The thirteenth five-agent exercise (a healthy Forum; a host with several profiles; the board PRs' words, a reply's board now taken from its post, the typo and the paging loop; findability on a larger corpus; the signed-versus-signed `FAILED` leg; and leg (e), a long session of one agent), then the small-ones sweep (D61 items 28, 92, 122, 124 to 129, the small leads of 130 to 178 and this PR's), and PR 7 (D105; waits; the next free errata number when built).
+
+## Open risks (named so the reviewer can look)
+
+1. **The victim count is unmeasured until M2.** A large (b) means many fixtures send a blank by accident, which is a finding about the suite, not a reason to relax the rule.
+2. **Item 95 may not be fixable by us.** If M4 finds layer (i), the PR ships without it, says so, and the register keeps a recorded non-property with the session as evidence; the lone surrogate stays a `-32603` for a JSON client, which is what the SDK does with any malformed message.
+3. **The fold on the write path.** `board_new` adds a `PostProjector` fold and a `FlagProjector` fold to every question and finding. M6's rule has a fallback; if the fallback is taken the plan is amended and `DuplicateCheck`'s assessment carries the posts.
+4. **R9.38's reversal.** A published SHALL moves. The argument is its own reason (a corrupted cursor restarts the listing), and the client already refuses; a Forum that wants the old behaviour has a one-line `Nullable` to restore.
+5. **`board_new false` may be read as "the board is right".** It says the board had a served post when the act was decided; a typo of an existing board that has posts (`rust` and `rust-lang`) is `false` too. The line says what it is as of; the cold read tests whether a reader over-reads it.
+6. **The hint is computed from R8.85's grammar, which does not apply to stored boards** (G56). A board filed before G56 with an upper-case letter is a name with posts, and `board "Meta": a post the Forum serves bears it` is what is printed; the hint is printed only for an unmatched board, so it cannot mislead there.
+7. **Exit 0** (ruling 4) is a decision; a script that wanted a nonzero exit for a typo must read the line.
+8. **The Api whole run is 40 minutes and preflight does not run it.** The plan runs it twice: the spike in Task 0 (M2) and the final whole run.
+
+## As run
+
+To be written by Task 8 from the task reports. The PR is #____, on `main` at ________.
