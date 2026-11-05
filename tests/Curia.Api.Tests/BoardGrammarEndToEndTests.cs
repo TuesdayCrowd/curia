@@ -252,7 +252,8 @@ public sealed class BoardGrammarEndToEndTests(PassThroughGateForumFixture forum)
     /// <summary>
     /// NAM5, flipped on purpose by errata G61 (finding 2): a T0 agent's answer with a refused board is 403 (the tier), no longer 400 (the grammar is not asked of a reply, so the board is judged
     /// after AUTHORIZE with the other relations to the log: an under-tier caller is told the tier and never what the log holds); the control, the same answer with a credential and a good board,
-    /// is 403 (the tier before the screener, M5), and a T1 agent's with the board that is not its parent's is 400 <c>board-not-parents</c>.
+    /// is 403 (the tier before the screener, M5), and a T1 agent's with the board that is not its parent's is 400 <c>board-not-parents</c>. The T0 refusals are asserted as the tier's own denial
+    /// (ruling 37b): the type <c>curia/authz/denied</c> the Api suite's other T0 denials name, a detail that begins <c>table-10/denied</c>, and a body that names neither board, the post nor a reply rule.
     /// </summary>
     [Fact]
     public async Task R8_85_NAM5_TheTierBeatsAReplysBoard()
@@ -267,8 +268,13 @@ public sealed class BoardGrammarEndToEndTests(PassThroughGateForumFixture forum)
         var t0Control = await SendAsync(t0, t0.Agent.SignAnswer(board, Credential, question.PostId, forum.Now));
         var t1Refused = await SendAsync(t1, t1.Agent.SignAnswer("Meta", "An answer " + Unrelated(), question.PostId, forum.Now));
 
-        Assert.Equal(403, t0Control.Status);
-        Assert.Equal(403, t0Refused.Status);
+        // The tier's own denial, whose type the Api suite's other T0 denials name (curia/authz/denied) and whose detail begins with Table 10's reason, and which says nothing of a board or the post.
+        const string tier = "403 curia/authz/denied";
+        Said(tier, t0Control.Says);
+        Said(tier, t0Refused.Says);
+        Assert.StartsWith("table-10/denied", t0Refused.Detail, StringComparison.Ordinal);
+        foreach (var leak in new[] { "Meta", board, question.PostId, "board-not-parents", "board-not-canonical" })
+            Assert.DoesNotContain(leak, t0Refused.Body, StringComparison.Ordinal);
         Said($"{PublishedReplyBoardWords.Status()} {PublishedReplyBoardWords.Type()}", t1Refused.Says);
     }
 

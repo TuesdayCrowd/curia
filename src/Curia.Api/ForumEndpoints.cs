@@ -981,7 +981,7 @@ public static class ForumEndpoints
             if (RevisionRefusal(freshLog.Facts, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
                 return refusal;
 
-            // R8.87 (errata G61): after R8.78 and R8.77, under the gate, on the facts already folded. Not built: the function refuses nothing.
+            // R8.87 (errata G61): after R8.78 and R8.77, under the gate, on the facts already folded.
             if (SubmissionChecks.RevisionBoardRefusal(freshLog.Facts, prevDigest, v.Envelope.Board) is { } boardRefusal)
                 return Problem(StatusCodes.Status400BadRequest, boardRefusal);
 
@@ -1065,7 +1065,7 @@ public static class ForumEndpoints
             if (parentFacts is not null && !facts.Servable(parentFacts.PostId))
                 return Problem(StatusCodes.Status400BadRequest, ParentErrors.Withheld(submittedParent));
 
-            // R8.87 (errata G61): last of the parent checks, so the terminal refusals come first. Not built: the function refuses nothing.
+            // R8.87 (errata G61): last of the parent checks, so the terminal refusals come first.
             if (parentFacts is not null
                 && ParentPolicy.ReplyBoard(v.Envelope.Kind, v.Envelope.Board, parentFacts.PostId, parentFacts.Board) is { } boardRefusal)
                 return Problem(StatusCodes.Status400BadRequest, boardRefusal);

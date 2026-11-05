@@ -5,7 +5,7 @@ namespace Curia.Domain.Content;
 /// <summary>
 /// What the caller read of a parent: its post id, the kind its <c>post.accepted</c> event stored and the board that event stored (R8.87).
 /// </summary>
-public sealed record ParentFacts(string PostId, PostKind Kind, string Board = "");
+public sealed record ParentFacts(string PostId, PostKind Kind, string Board);
 
 /// <summary>
 /// R8.70 (errata G38) as a function: why a submission's <c>parent</c> may not be what it names, or <see langword="null"/> when it

@@ -44,7 +44,9 @@ public static class SubmissionChecks
     /// <summary>
     /// R8.87 (errata G61): why a revision's <paramref name="board"/> may not be the board of the post whose digest is <paramref name="prevDigest"/>, or <see langword="null"/>
     /// to go on. Made once by the route on the facts it folded, under the revision gate; a stored post's board never changes, so the append's guard does not ask it. A log in
-    /// which the original cannot be found is <c>curia/ingest/revision-check-unavailable</c>, as <see cref="RevisionRefusal"/> has it: never a pass.
+    /// which the original cannot be found is <c>curia/ingest/revision-check-unavailable</c>, as <see cref="RevisionRefusal"/> has it: never a pass. The route cannot reach that branch:
+    /// <see cref="RevisionRefusal"/> has already answered <c>503</c> for an original that is not in the facts it folded, before this is called; it is kept so a caller of this function with other
+    /// facts fails closed (ruling 40).
     /// </summary>
     public static Error? RevisionBoardRefusal(LogFacts facts, string prevDigest, string board)
     {

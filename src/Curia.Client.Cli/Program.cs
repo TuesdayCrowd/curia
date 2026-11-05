@@ -378,7 +378,7 @@ internal static class Program
         var client = new ForumClient(http, forum);
 
         var read = await client.GetPostAsync(parent, MarkingMode.None, ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var post, out var refusal)) return (null, UnreadBoard(refusal, typedBoard), null, null);
+        if (!read.TryGetValue(out var post, out var refusal)) return (null, UnreadRevision(refusal), null, null);
 
         var (passages, outcomes) = await VerifyAllAsync(client, [post], ct).ConfigureAwait(false);
         var verdict = passages[0].Verdict;
@@ -395,7 +395,7 @@ internal static class Program
                 $"error: --prev {new OwnText(DisplayLiteral.Of(given))} is not the digest of the post --parent names ({new OwnText(DisplayLiteral.Of(digest))}, computed here). Nothing was sent.",
                 ExitCode.Usage), null, null);
 
-        if (DifferingBoard(typedBoard, post.Board, parent) is { } differing) return (null, differing, null, null);
+        if (DifferingBoard(typedBoard, post.Board, post.PostId) is { } differing) return (null, differing, null, null);
 
         return (digest, null, receipt, post.Board);
     }
@@ -415,10 +415,10 @@ internal static class Program
         var read = await client.GetPostAsync(parent, MarkingMode.None, ct).ConfigureAwait(false);
         if (!read.TryGetValue(out var post, out var refusal))
             return typedBoard is null
-                ? (null, null, UnreadBoard(refusal, typedBoard))
+                ? (null, null, UnreadBoard(refusal))
                 : (typedBoard, kind is PostKind.Answer ? Supersession.QuestionNotChecked() : null, null);
 
-        if (DifferingBoard(typedBoard, post!.Board, parent) is { } differing) return (null, null, differing);
+        if (DifferingBoard(typedBoard, post!.Board, post.PostId) is { } differing) return (null, null, differing);
 
         if (kind is not PostKind.Answer) return (post.Board, null, null);
 
@@ -429,20 +429,23 @@ internal static class Program
         return (post.Board, chain is { Text.Length: > 0 } stated ? stated : Supersession.QuestionStanding(post.Provenance.SupersededBy), null);
     }
 
-    /// <summary>R11.85: a typed <c>--board</c> that is not the board of the post <c>--parent</c> names, refused with exit 1 and the three values as display literals; <see langword="null"/> where it may go on.</summary>
-    private static int? DifferingBoard(string? typedBoard, string postBoard, string parent) =>
-        typedBoard is not null && !string.Equals(typedBoard, postBoard, StringComparison.Ordinal)
+    /// <summary>
+    /// R11.85: a typed <c>--board</c> that is not the board of the post <c>--parent</c> names, refused with exit 1 and the three values as display literals; <see langword="null"/> where it may go on.
+    /// The two boards are compared in NFC, the form the route compares (R8.87), so a board typed in another normal form is the same board; what is printed is the typed string. The post id is the
+    /// one the Forum served (D63 makes it the <c>--parent</c> string).
+    /// </summary>
+    private static int? DifferingBoard(string? typedBoard, string postBoard, string postId) =>
+        typedBoard is not null && !string.Equals(typedBoard.Normalize(NormalizationForm.FormC), postBoard.Normalize(NormalizationForm.FormC), StringComparison.Ordinal)
             ? Output.Fail(
-                $"error: --board {typedBoard} is not the board of the post --parent names ({parent}), which is {postBoard}; an answer, a comment or a revision is filed on that board. Omit --board to use it. Nothing was sent.",
+                $"error: --board {typedBoard} is not the board of the post --parent names ({postId}), which is {postBoard}; an answer, a comment or a revision is filed on that board. Omit --board to use it. Nothing was sent.",
                 ExitCode.Usage)
             : null;
 
-    /// <summary>R11.85: the read of the post a reply follows was refused: the read's own refusal and exit code, then, where no board was typed, the sentence that says where the board comes from.</summary>
-    private static int UnreadBoard(Refusal refusal, string? typedBoard)
-    {
-        var code = Output.Fail(refusal);
-        return typedBoard is null ? Output.Fail(ReplyBoardWording.UnreadSentence, code) : code;
-    }
+    /// <summary>R11.85: the read of the post an answer or a comment follows was refused and no board was typed: the read's own refusal and exit code, then the sentence that says where the board comes from.</summary>
+    private static int UnreadBoard(Refusal refusal) => Output.Fail(ReplyBoardWording.UnreadSentence, Output.Fail(refusal));
+
+    /// <summary>R11.85 (ruling 28): the read of the post a revision follows was refused, with or without a typed <c>--board</c>: the read's own refusal and exit code, then the sentence that says the revision cannot be sent without it.</summary>
+    private static int UnreadRevision(Refusal refusal) => Output.Fail(ReplyBoardWording.RevisionUnreadSentence, Output.Fail(refusal));
 
     /// <summary>
     /// Table 13's signals (errata G8): <c>curia endorse &lt;digest&gt;</c>, <c>curia reproduce

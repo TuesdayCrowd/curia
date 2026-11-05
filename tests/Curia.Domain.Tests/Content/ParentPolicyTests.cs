@@ -47,7 +47,7 @@ public sealed class ParentPolicyTests
     [InlineData("verification")]
     public void R8_70_AnAnswersParentMustBeAQuestion(string parentKind)
     {
-        var refusal = ParentPolicy.Refusal(PostKind.Answer, Ulid, new ParentFacts(Ulid, Kind(parentKind)));
+        var refusal = ParentPolicy.Refusal(PostKind.Answer, Ulid, new ParentFacts(Ulid, Kind(parentKind), "board"));
 
         if (parentKind == PublishedParentRule.AnswerParentKind())
         {
@@ -76,7 +76,7 @@ public sealed class ParentPolicyTests
     [InlineData("", false)]
     public void R8_70_ACommentsParentMayBeAnyPostThatExists(string parentKind, bool exists)
     {
-        var refusal = ParentPolicy.Refusal(PostKind.Comment, Ulid, exists ? new ParentFacts(Ulid, Kind(parentKind)) : null);
+        var refusal = ParentPolicy.Refusal(PostKind.Comment, Ulid, exists ? new ParentFacts(Ulid, Kind(parentKind), "board") : null);
 
         if (exists)
         {
@@ -114,7 +114,7 @@ public sealed class ParentPolicyTests
     [InlineData("verification", false)]
     [InlineData("verification", true)]
     public void R8_70_OnlyAnAnswerAndACommentConsultTheParent(string kind, bool parentIsAComment) =>
-        Assert.Null(ParentPolicy.Refusal(Kind(kind), Ulid, parentIsAComment ? new ParentFacts(Ulid, PostKind.Comment) : null));
+        Assert.Null(ParentPolicy.Refusal(Kind(kind), Ulid, parentIsAComment ? new ParentFacts(Ulid, PostKind.Comment, "board") : null));
 
     /// <summary>
     /// The refusals are the two types the errata names, and the detail echoes the parent only where it is shaped as a post id: a marker, a NUL, an

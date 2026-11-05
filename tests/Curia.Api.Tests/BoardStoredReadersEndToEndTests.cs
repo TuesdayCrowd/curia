@@ -171,8 +171,9 @@ public sealed partial class BoardStoredReadersEndToEndTests(PassThroughGateForum
     /// <summary>
     /// NAM30, flipped on purpose by errata G61 (R11.85, R11.78 (rev.)): the reply tools on a stored refused board. <c>curia_comment</c> and <c>curia_revise</c> of a stored
     /// <c>Meta-x</c> post (the profile's own agent is its author, so the revise leg reaches the Forum; stored by the direct-append seam) are no longer <c>NOT SENT</c>: the tools
-    /// copy the post's board, the Forum compares it with the parent's and takes it, and the events table moves by two. The controls: a comment and a revision under a qualifying
-    /// post are posted. (<c>curia_answer</c> needs T1, which this agent is not; the answer on a stored board is RPB9's.)
+    /// copy the post's board, the Forum compares it with the parent's and takes it, and the events table moves by three with the answer. The controls: a comment and a revision under a qualifying
+    /// post are posted. Amendment 3 (ruling 37c): <c>curia_answer</c> returns, signed by a T1 profile agent (an attested owner, three questions and the tenure clock, as
+    /// <see cref="AcceptedAnswerScene.T1Async"/> makes one), and the stored board's listing holds exactly the question and the three replies the tools signed.
     /// </summary>
     [Fact]
     public async Task R11_85_NAM30_TheReplyToolsSignForAPostOnAStoredRefusedBoard()
@@ -196,10 +197,19 @@ public sealed partial class BoardStoredReadersEndToEndTests(PassThroughGateForum
         var storedBoard = $"Meta-{stem}";
         var (refusedPost, _) = await forum.AppendStoredPostAsync(
             ProfileAgentSigner.Sign(agent, PostKind.Question, storedBoard, "A stored body " + Unrelated(), "A stored title " + Unrelated(), null, null, forum.Now), Ct);
+
+        // A T1 profile agent for the answer: an attested owner, three questions (stored, on a qualifying board) and the tenure clock.
+        var answerer = await EnrolProfileAgentAsync();
+        await forum.AttestOwnerAsync(answerer.Profile.AgentId, Ct, owner: $"owner:answerer-{stem}");
+        for (var i = 0; i < 3; i++)
+            await forum.AppendStoredPostAsync(ProfileAgentSigner.Sign(answerer, PostKind.Question, $"warm-{stem}", $"Warmup {i} {Unrelated()}", $"Warmup {i} {Unrelated()}", null, null, forum.Now), Ct);
+        forum.Clock.Advance(TimeSpan.FromHours(Curia.Domain.Authorization.TierPolicy.T1MinimumHours + 1));
+        var answerTools = ToolsFor(answerer);
         var before = await PostEventsAsync();
 
         var results = new Dictionary<string, (ModelContextProtocol.Protocol.CallToolResult? Result, string? Threw)>
         {
+            ["curia_answer"] = await TryAsync(() => answerTools.AnswerAsync(refusedPost, "An answer " + Unrelated(), null, Ct)),
             ["curia_comment"] = await TryAsync(() => tools.CommentAsync(refusedPost, "A comment " + Unrelated(), null, Ct)),
             ["curia_revise"] = await TryAsync(() => tools.ReviseAsync(refusedPost, "A correction " + Unrelated(), null, null, null, Ct)),
         };
@@ -218,9 +228,9 @@ public sealed partial class BoardStoredReadersEndToEndTests(PassThroughGateForum
         }
 
         Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
-        Assert.Equal(before + 2, await PostEventsAsync());
+        Assert.Equal(before + 3, await PostEventsAsync());
         var listed = await forum.Client.GetFromJsonAsync<JsonElement>(new Uri($"/v1/boards/{Uri.EscapeDataString(storedBoard)}/posts", UriKind.Relative), Ct);
-        Assert.True(listed.GetArrayLength() >= 3, "the stored board lists its question and the two replies");
+        Assert.Equal(4, listed.GetArrayLength());
     }
 
     // ---- NAM36 (the tools' half) ----------------------------------------------------------------

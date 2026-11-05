@@ -129,10 +129,13 @@ internal static partial class PublishedBoardWords
     /// <summary>The board sentence the helps and the descriptions carry.</summary>
     internal static string BoardSentence() => OneSpan(ClientAnchor, "A board is a name:");
 
-    /// <summary>The reply tools' sentence, with <c>&lt;post id&gt;</c> left as published.</summary>
+    /// <summary>
+    /// The reply tools' sentence, with <c>&lt;post id&gt;</c> left as published. <b>Withdrawn by R11.85</b> (errata G61): the tools print it nowhere and no description carries it. The helper is kept as the
+    /// thing RPB31 shows is printed nowhere (plan ruling 16's deviation, ruling 41), not as a sentence any surface says.
+    /// </summary>
     internal static string ReplySentence() => OneSpan(ClientAnchor, "This tool takes the board from the post it replies to");
 
-    /// <summary>The reply tools' sentence for a given post id, which a reader writes as a display literal (errata G17).</summary>
+    /// <summary>The withdrawn reply sentence for a given post id, which a reader writes as a display literal (errata G17); see <see cref="ReplySentence"/>.</summary>
     internal static string ReplySentenceFor(string postId) => ReplySentence().Replace("<post id>", Curia.Canon.Json.DisplayLiteral.Of(postId), StringComparison.Ordinal);
 
     /// <summary>The <c>curia-mcp</c> version R11.78 names: the one <c>0.N.N</c> that follows "<c>curia-mcp</c>" in the sentence "The version in R11.78 is".</summary>
