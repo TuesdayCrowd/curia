@@ -458,6 +458,10 @@ internal sealed partial class ForumTools
         text.Line("POSTED");
         text.Line($"post        {receipt.PostId}");
         text.Line($"kind        {PostKinds.Wire(draft.Kind)}   board {draft.Board}");
+
+        // R10.97: a question's and a finding's receipt says whether the board was new, in every state; no other kind carries the line.
+        if (draft.Kind is PostKind.Question or PostKind.Finding) text.Line($"{new OwnText(NameWording.BoardNewLine(receipt.BoardNew, draft.Board))}");
+
         if (draft.Parent is { Length: > 0 } parent) text.Line($"parent      {parent}");
         if (draft.Prev is { Length: > 0 } prev) text.Line($"prev        {new OwnText(prev)}   (the digest of the post revised, computed here from the form read and verified)");
 

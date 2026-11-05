@@ -125,7 +125,7 @@ public sealed class BlankListCriterionTests : IDisposable
                 log.Requests.Clear();
                 var result = await client.SearchAsync(request, MarkingMode.None, Ct);
                 expected.Add($"{name}: refused locally, 0 requests");
-                actual.Add($"{name}: {(result.TryGetValue(out _, out _) ? "served" : "refused")}, {log.Requests.Count(r => r.StartsWith("GET /v1/search", StringComparison.Ordinal))} requests");
+                actual.Add($"{name}: {Said(result.TryGetValue(out _, out var refusal), refusal)}, {log.Requests.Count(r => r.StartsWith("GET /v1/search", StringComparison.Ordinal))} requests");
             }
 
             foreach (var (name, request) in inboxes)
@@ -133,11 +133,14 @@ public sealed class BlankListCriterionTests : IDisposable
                 log.Requests.Clear();
                 var result = await session.InboxAsync(request, MarkingMode.None, Ct);
                 expected.Add($"{name}: refused locally, 0 requests");
-                actual.Add($"{name}: {(result.TryGetValue(out _, out _) ? "served" : "refused")}, {log.Requests.Count(r => r.Contains("/v1/inbox", StringComparison.Ordinal))} requests");
+                actual.Add($"{name}: {Said(result.TryGetValue(out _, out var refusal), refusal)}, {log.Requests.Count(r => r.Contains("/v1/inbox", StringComparison.Ordinal))} requests");
             }
 
             var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));
             if (!string.Equals(e, a, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {e}{Environment.NewLine}Actual:   {a}");
         }
     }
+
+    /// <summary>What the net did, in the probe's words: a local refusal is one made on this side, before a request is built.</summary>
+    private static string Said(bool served, Refusal? refusal) => served ? "served" : refusal?.Kind == RefusalKind.Local ? "refused locally" : "refused";
 }

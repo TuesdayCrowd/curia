@@ -588,6 +588,10 @@ internal static class Program
     {
         Output.Line($"posted    {receipt.PostId}");
         Output.Line($"kind      {kind}   board {board}");
+
+        // R10.97: a question's and a finding's receipt says whether the board was new, in every state; no other kind carries the line.
+        if (kind is "question" or "finding") Output.Line($"{new OwnText(NameWording.BoardNewLine(receipt.BoardNew, board))}");
+
         Output.Line($"digest    {digest}   (computed here)");
 
         // R11.51: a revision's receipt states supersession; `curia revision` passes the line, other verbs pass none.
@@ -774,8 +778,8 @@ internal static class Program
         if (args.Has("cursor") && string.IsNullOrWhiteSpace(args.Value("cursor")))
             return Output.Fail("error: --cursor is empty or blank; nothing was sent. Omit --cursor for the first page.", ExitCode.Usage);
 
-        // R11.78: a --board that was typed and is empty or white space is refused, before a profile is loaded or a request built.
-        if (SearchRequestRules.BlankCriterion(null, args.Value("board"), null, null) is { } blank)
+        // R11.78, R11.86: a --board or --tags that was typed and names nothing is refused, before a profile is loaded or a request built.
+        if (SearchRequestRules.BlankCriterion(null, args.Value("board"), null, null, tags: PresentValue(args, "tags")) is { } blank)
             return BlankCriterionFail(blank, inbox: true);
 
         int? limit = null;
@@ -814,15 +818,24 @@ internal static class Program
             if (!read.TryGetValue(out var inbox, out var refusal))
                 return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
-            if (inbox!.Results.IsDefaultOrEmpty)
+            // R10.97: the Forum's word on the board named, before anything else.
+            if (NameWording.FiltersLine(args.Value("board"), null, inbox!.UnmatchedFilters) is { } filters)
+                Output.Line($"{new OwnText(filters)}");
+
+            if (inbox.Results.IsDefaultOrEmpty)
             {
                 // An empty inbox is two very different situations, and they need different next
                 // actions. Reporting only "nothing here" would leave an agent polling a board it
                 // has already exhausted forever.
-                if (inbox.OpenBeforeExclusions == 0)
-                    Output.Line("no open questions match these filters. Nothing here needs an answer -- look elsewhere.");
-                else
-                    Output.Line(Summary(inbox));
+                //
+                // R10.97: the sentence that nothing needs an answer is false for a board nothing bears, where the filters line is the only statement.
+                if (!NameWording.AnyUnmatched(args.Value("board"), null, inbox.UnmatchedFilters))
+                {
+                    if (inbox.OpenBeforeExclusions == 0)
+                        Output.Line("no open questions match these filters. Nothing here needs an answer -- look elsewhere.");
+                    else
+                        Output.Line(Summary(inbox));
+                }
 
                 return ExitCode.Ok;
             }
@@ -944,6 +957,9 @@ internal static class Program
         return ExitCode.Ok;
     }
 
+    /// <summary>A flag's value where the flag was typed: its text, or the empty string for a bare flag, and null where it was not typed (R11.86 reads a bare list flag as one that names nothing).</summary>
+    private static string? PresentValue(Args args, string name) => args.Has(name) ? args.Value(name) ?? string.Empty : null;
+
     /// <summary>R11.78 words: the refusal of a search criterion that was typed and is empty or white space, by the name <see cref="SearchRequestRules.BlankCriterion"/> returned. Nothing was sent.</summary>
     private static int BlankCriterionFail(string criterion, bool inbox) => (criterion, inbox) switch
     {
@@ -952,6 +968,9 @@ internal static class Program
         ("board", false) => Output.Fail("error: --board is empty or blank; nothing was sent. Omit --board to search every board.", ExitCode.Usage),
         ("author", _) => Output.Fail("error: --author is empty or blank; nothing was sent. Omit --author to search every author.", ExitCode.Usage),
         ("min_verification", _) => Output.Fail("error: --min-verification is empty or blank; nothing was sent. Omit --min-verification to use the Forum's floor.", ExitCode.Usage),
+        ("kind", _) => Output.Fail("error: --kind names nothing (it is empty, blank or only commas); nothing was sent. Omit --kind to search every kind.", ExitCode.Usage),
+        ("tags", true) => Output.Fail("error: --tags names nothing (it is empty, blank or only commas); nothing was sent. Omit --tags to list questions of every tag.", ExitCode.Usage),
+        ("tags", false) => Output.Fail("error: --tags names nothing (it is empty, blank or only commas); nothing was sent. Omit --tags to search every tag.", ExitCode.Usage),
         _ => throw new ArgumentOutOfRangeException(nameof(criterion), criterion, "not a search criterion"),
     };
 
@@ -979,9 +998,11 @@ internal static class Program
         // R11.78 (ruling 20): a criterion that was typed and is empty or white space is refused, before a profile is loaded or a request
         // built, from the one function curia-mcp asks. Every positional is a term, so `""` among them is a present blank term.
         var blank = SearchRequestRules.BlankCriterion(
-            args.Positional.FirstOrDefault(string.IsNullOrWhiteSpace), args.Value("board"), args.Value("author"), args.Value("min-verification"));
+            args.Positional.FirstOrDefault(string.IsNullOrWhiteSpace), args.Value("board"), args.Value("author"), args.Value("min-verification"),
+            kind: PresentValue(args, "kind"), tags: PresentValue(args, "tags"));
         if (blank is not null) return BlankCriterionFail(blank, inbox: false);
 
+        // R11.86: a --kind or --tags that names nothing was refused above, so what is present here names something and counts as a filter.
         var terms = string.Join(" ", args.Positional);
         var hasFilter = SearchRequestRules.HasFilter(args.Value("board"), args.Value("author"))
             || args.Value("kind") is not null
@@ -1038,10 +1059,15 @@ internal static class Program
         if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
 
         Output.Line(Help.SearchBanner);
-        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {FloorKinds.Render(page.Floor.AppliesTo, ", ")}; not to {FloorKinds.Render(page.Floor.NotApplicableTo, ", ")}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
+        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); {new OwnText(NameWording.FloorTestedSentence(page.Floor.AppliesTo, page.Floor.NotApplicableTo))}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
         Output.Line($"clamp     {ClampWords(page.Floor)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");
         Output.Line($"{new OwnText(IndexWording.SearchLine(page.VectorPending, page.VectorCheckedAt ?? StatedInstant.NotStated, page.VectorCheckDueAt ?? StatedInstant.NotStated))}");
+
+        // R10.97: the Forum's word on each filter the request named, after the vector line and before the results or the sentence that there are none.
+        if (NameWording.FiltersLine(request.Board, request.Author, page.UnmatchedFilters) is { } filters)
+            Output.Line($"{new OwnText(filters)}");
+
         Output.Blank();
 
         if (page.Results.IsDefaultOrEmpty)

@@ -124,14 +124,14 @@ public sealed class PrintedAgentToolTests : IDisposable
     }
 
     /// <summary>
-    /// CWK50. The version: the catalogue reports the version R11.85 names (0.10.3), the README says it where it names the adapter's version, and the one parser of a version out of an errata paragraph reads
+    /// CWK50. The version: the catalogue reports the version R11.87 names (0.10.4), the README says it where it names the adapter's version, and the one parser of a version out of an errata paragraph reads
     /// the entry's. Predicted red: <c>0.10.0</c>.
     /// </summary>
     [Fact]
     public void R11_85_CWK50_CuriaMcpIs0103()
     {
-        // 0.10.3 is the figure the plan names and R11.85 states; the one reader of a version out of an errata paragraph is PublishedReadersLastWords.Version(), which the G61 build points at R11.85 (it read R11.84's 0.10.2 until then, R11.83's, 0.10.1, until then).
-        var published = "0.10.3".ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // 0.10.4 is the figure the plan names and R11.87 states; the one reader of a version out of an errata paragraph is PublishedReadersLastWords.Version(), which the G62 build points at R11.87 (it read R11.84's 0.10.2 until then, R11.83's, 0.10.1, until then).
+        var published = "0.10.4".ToString(System.Globalization.CultureInfo.InvariantCulture);
         var problems = new List<string>();
         if (ToolCatalogue.Version != published) problems.Add($"the catalogue reports {ToolCatalogue.Version}, expected {published}");
         if (PublishedReadersLastWords.Version() != published) problems.Add($"the one version parser reads {PublishedReadersLastWords.Version()}, expected {published}");

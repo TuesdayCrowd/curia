@@ -484,7 +484,7 @@ internal sealed partial class ForumTools(
         if (!found.TryGetValue(out var page, out var refusal)) throw Refused(refusal!);
 
         var posts = page!.Results.Select(r => r.Post).ToArray();
-        return Rendered(await PassagesAsync(posts, cancellationToken).ConfigureAwait(false), Floor(page));
+        return Rendered(await PassagesAsync(posts, cancellationToken).ConfigureAwait(false), Floor(page, request!));
     }
 
     /// <summary>
@@ -551,7 +551,7 @@ internal sealed partial class ForumTools(
     /// it, whether that was the published default, and the kinds it applied to. A floor a caller
     /// cannot read back is one it cannot distinguish from an empty corpus.
     /// </summary>
-    private static string Floor(SearchPage page)
+    private static string Floor(SearchPage page, SearchRequest request)
     {
         var frame = new FrameBuilder()
             .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
@@ -559,7 +559,8 @@ internal sealed partial class ForumTools(
             .Append($"{ClampWords(page.Floor)} ")
             .Append($"model={page.Model} results={page.Results.Length} ")
             .Append($"excluded_by_floor={Count(page.Floor.ExcludedByFloor)} excluded_disputed={Count(page.Floor.ExcludedDisputed)} ")
-            .Append($"{new OwnText(IndexWording.ToolSearchLine(page.VectorPending, page.VectorCheckedAt ?? StatedInstant.NotStated, page.VectorCheckDueAt ?? StatedInstant.NotStated))}");
+            .Append($"{new OwnText(IndexWording.ToolSearchLine(page.VectorPending, page.VectorCheckedAt ?? StatedInstant.NotStated, page.VectorCheckDueAt ?? StatedInstant.NotStated))} ")
+            .Append($"{new OwnText(NameWording.ToolMember(page.UnmatchedFilters))}");
 
         // R11.39: what the next call needs. The cursor is the Forum's, so it is a display literal; with none the
         // model is told it is on the last page, which a missing word could not say.
@@ -567,6 +568,10 @@ internal sealed partial class ForumTools(
             frame.Line($" next_cursor={cursor}");
         else
             frame.Line(" no_further_pages (this is the last page)");
+
+        // R10.97: the Forum's word on each filter the request named, the line `curia search` prints, from the one definition.
+        if (NameWording.FiltersLine(request.Board, request.Author, page.UnmatchedFilters) is { } filters)
+            frame.Line($"{new OwnText(filters)}");
 
         // R9.8, asked for: each hit's terms under its post id, written as the CLI writes them.
         foreach (var hit in page.Results)

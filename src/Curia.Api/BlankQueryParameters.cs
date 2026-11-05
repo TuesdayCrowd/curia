@@ -47,8 +47,7 @@ public static class BlankQueryParameters
     /// R9.56: whether a present value names nothing. A scalar names nothing when it is blank; a list when, with its commas removed, it is
     /// (<c>kind=,</c> and <c>tags=,%20,</c> name nothing, <c>tags=a,,b</c> and <c>kind=question,</c> name something). One definition for the refusal and the drop.
     /// </summary>
-    public static bool NamesNothing(string? value, bool isList) =>
-        isList ? IsBlank(value?.Replace(",", string.Empty, StringComparison.Ordinal)) : IsBlank(value);
+    public static bool NamesNothing(string? value, bool isList) => QueryValue.NamesNothing(value, isList);
 
     /// <summary>
     /// Null when no parameter of <paramref name="route"/>'s closed list is present and blank; otherwise the refusal naming each one, in the

@@ -111,6 +111,10 @@ internal sealed partial class ForumTools
         text.Line("POSTED");
         text.Line($"post        {receipt.PostId}");
         text.Line($"kind        {kept.Header.Kind}   board {kept.Header.Board}");
+
+        // R10.97: the resend's receipt of a question or a finding carries the same line, from the same definition.
+        if (kept.Header.Kind is "question" or "finding") text.Line($"{new OwnText(NameWording.BoardNewLine(receipt.BoardNew, kept.Header.Board))}");
+
         text.Line($"digest      {new OwnText(kept.Header.Digest)}   (the kept act's, recomputed here from the bytes kept)");
         if (!string.Equals(receipt.Digest, kept.Header.Digest, StringComparison.Ordinal))
             text.Line($"            the Forum reported a different digest: {receipt.Digest}");
