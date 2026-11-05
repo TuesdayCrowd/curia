@@ -504,6 +504,6 @@ Release build of `Curia.sln` and the Debug build 0 warnings; `Curia.Architecture
 
 D61 items 151 to 164 (first free 165) and traps 160 to 170 (first free 171); D112 and D61 item 37 are closed in the register with the paragraph rewritten from what was built; the Sighup test's further local occurrence is appended to item 78 and not numbered. **Owner notes**, so a later reader finds them: D112's bounded loosening and non-property (l) stand unless the owner overrules them; `password:`, quoted and JSON forms are a separate open decision (item 158); lower-case `$password` stays refused.
 
-The PR is #147, on `main` at ________.
+The PR is #147, on `main` at d134685c.
 
 Final whole run: 6,403 passed, 0 failed, 3 skipped (Api 1,471 in 40 m 32 s, Application 654, Architecture 108 and 108 in Debug, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,490, Domain.Primitives 64, Domain 985, Infrastructure 228, Mcp 902 and 3 skipped); locked restore, `cargo fmt`, clippy and `cargo test`, the differential gate with 0 divergence classes, `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4
