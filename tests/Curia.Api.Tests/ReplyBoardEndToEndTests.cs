@@ -246,6 +246,14 @@ public sealed class ReplyBoardEndToEndTests(ForumFixture forum) : IClassFixture<
         var sentComment = await SendAsync(scene.Answerer, scene.Answerer.Agent.SignAnswer(other, "An answer " + Unrelated(), scene.Comment.PostId, forum.Now));
         if (Said(sentComment) != "400 " + PublishedParentRule.Slugs()[1]) problems.Add($"answer under a comment: Expected: 400 {PublishedParentRule.Slugs()[1]} Actual: {Said(sentComment)}");
 
+        // A credential reply on another board than its question's: the board comparison is made before SCREEN, so the answer is the board's 400 and not the screen's 422,
+        // with nothing stored or spent. The control is the same body on the question's board, which the screen refuses.
+        const string credentialBody = "postgres://u:EXAMPLE-NOT-A-REAL-SECRET@h";
+        problems.AddRange(await RefusedAsync(
+            "credential answer on " + other, scene.Answerer, scene.Answerer.Agent.SignAnswer(other, credentialBody, scene.Question.PostId, forum.Now), Keys().Parent, scene.Question.PostId, scene.Board, other));
+        var sentScreen = await SendAsync(scene.Answerer, scene.Answerer.Agent.SignAnswer(scene.Board, credentialBody, scene.Question.PostId, forum.Now));
+        if (sentScreen.Status != 422) problems.Add($"credential answer on the question's board (the control): Expected: 422 Actual: {Said(sentScreen)}");
+
         // A T0 agent's answer on a board the grammar refuses, and not the parent's.
         var stranger = await AcceptedAnswerScene.EnrolAsync(forum, "stranger", Ct);
         var refusedBoard = "Meta-" + Suffix();
