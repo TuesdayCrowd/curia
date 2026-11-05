@@ -1741,6 +1741,10 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
+        // R9.57: a name the route does not read is refused by name, after the caller is known to be allowed and before the log is read.
+        if (PostReadQueryParameters.CheckPosts(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var servable = Servable(log);
         var posts = PostProjector.Fold(log);
@@ -1851,6 +1855,10 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
+        // R9.57: a name the route does not read is refused by name, after the caller is known to be allowed and before the log is read.
+        if (PostReadQueryParameters.CheckPosts(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var posts = PostProjector.Fold(log);
         var servable = Servable(log);
@@ -1886,6 +1894,10 @@ public static class ForumEndpoints
         var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Thread, ActionKind.Read, cancellationToken)
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
+
+        // R9.57: a name the route does not read is refused by name, after the caller is known to be allowed and before the log is read.
+        if (PostReadQueryParameters.CheckThreads(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var servable = Servable(log);
@@ -2774,7 +2786,7 @@ public static class ForumEndpoints
         }
     }
 
-    private static string? Nullable(string value) => BlankQueryParameters.IsBlank(value) ? null : value;
+    private static string? Nullable(string value) => BlankQueryParameters.NamesNothing(value, isList: false) ? null : value;
 
     /// <summary>
     /// The post the single read of an id serves (<c>GET /v1/posts/{id}</c> answers <c>200</c> exactly when this is not null): it exists, moderation
