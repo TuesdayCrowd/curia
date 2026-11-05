@@ -828,11 +828,11 @@ internal static class Program
                 // actions. Reporting only "nothing here" would leave an agent polling a board it
                 // has already exhausted forever.
                 //
-                // R10.97: the sentence that nothing needs an answer is false for a board nothing bears, where the filters line is the only statement.
+                // R10.97 (Amendment 4, ruling 41): the words are NameWording's: beside a board nothing bears the filters line is the only statement, and beside a NOT STATED one the first half alone.
                 if (!NameWording.AnyUnmatched(args.Value("board"), null, inbox.UnmatchedFilters))
                 {
                     if (inbox.OpenBeforeExclusions == 0)
-                        Output.Line("no open questions match these filters. Nothing here needs an answer -- look elsewhere.");
+                        Output.Line($"{new OwnText(NameWording.InboxEmptySentence(args.Value("board"), inbox.UnmatchedFilters)!)}");
                     else
                         Output.Line(Summary(inbox));
                 }
@@ -1065,7 +1065,8 @@ internal static class Program
         Output.Line($"{new OwnText(IndexWording.SearchLine(page.VectorPending, page.VectorCheckedAt ?? StatedInstant.NotStated, page.VectorCheckDueAt ?? StatedInstant.NotStated))}");
 
         // R10.97: the Forum's word on each filter the request named, after the vector line and before the results or the sentence that there are none.
-        if (NameWording.FiltersLine(request.Board, request.Author, page.UnmatchedFilters) is { } filters)
+        // The tail (Amendment 4, ruling 38) says where the emptiness is on a first page that holds no result.
+        if (NameWording.FiltersLine(request.Board, request.Author, page.UnmatchedFilters, emptyFirstPage: page.Results.IsDefaultOrEmpty && string.IsNullOrEmpty(request.Cursor)) is { } filters)
             Output.Line($"{new OwnText(filters)}");
 
         Output.Blank();

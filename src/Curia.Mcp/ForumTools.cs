@@ -570,7 +570,7 @@ internal sealed partial class ForumTools(
             frame.Line(" no_further_pages (this is the last page)");
 
         // R10.97: the Forum's word on each filter the request named, the line `curia search` prints, from the one definition.
-        if (NameWording.FiltersLine(request.Board, request.Author, page.UnmatchedFilters) is { } filters)
+        if (NameWording.FiltersLine(request.Board, request.Author, page.UnmatchedFilters, emptyFirstPage: page.Results.IsDefaultOrEmpty && string.IsNullOrEmpty(request.Cursor)) is { } filters)
             frame.Line($"{new OwnText(filters)}");
 
         // R9.8, asked for: each hit's terms under its post id, written as the CLI writes them.

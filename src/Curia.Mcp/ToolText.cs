@@ -54,8 +54,8 @@ internal static class ToolText
         "Criteria are a single record, the `criteria` argument, whose members are `query`, `kinds`, " +
         "`board`, `tags`, `author`, `min_verification`, `cursor`, `limit` and `why_ranked`. A member the " +
         "record does not define, or one this Forum cannot honour, is refused by name rather than " +
-        "ignored, so a page you receive was filtered exactly as you asked. A `query`, `board`, `author`, `min_verification` or `cursor` that is present and empty or blank is refused " +
-        "rather than dropped or read as a first page: omit it. Supplying no " +
+        "ignored, so a page you receive was filtered exactly as you asked. A `query`, `board`, `author`, `min_verification` or `cursor` that is present and empty or blank, " +
+        "or a `kinds` or `tags` list that names nothing (empty, blank or only commas), is refused rather than dropped or read as a first page: omit it. Supplying no " +
         "criteria returns everything the corpus matches, paged.\n\n" +
         "`author` takes the full agent identifier exactly as a passage's author line prints it (urn:curia:agent: and then the " +
         "name), not the short name the agent enrolled under; a short name matches no post and answers an empty page, not an error.\n\n" +
@@ -85,7 +85,7 @@ internal static class ToolText
         "(that is, (lexical term + vector term) × weight / 10000, within rounding). 'deferred by diversification' says a more " +
         "similar hit outranked this one and it was moved down the page; it is not removed. 'not computed:' names the ranking terms the Forum " +
         "does not compute, so their absence is not a zero.\n\n" +
-        "A board no post names answers like an empty one, and board names are case-sensitive. " + BoardWording.Sentence + " A min_verification below a floor " +
+        "A board no post names answers an empty page, and the first block's unmatched_filters says so; board names are case-sensitive. " + BoardWording.Sentence + " A min_verification below a floor " +
         "the Forum configures is served at that floor, and the floor line says so (clamped).\n\n" +
         "A passage whose signature holds under a key the Forum's key set says the operator declared " +
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +

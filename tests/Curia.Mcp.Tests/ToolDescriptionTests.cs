@@ -601,7 +601,7 @@ public sealed class ToolDescriptionTests
         var unexplained = names.Where(n => !description.Contains(n, StringComparison.OrdinalIgnoreCase)).ToArray();
         Assert.True(unexplained.Length == 0, $"curia_search's description does not explain [{string.Join(", ", unexplained)}]");
 
-        Assert.Contains("answers like an empty one", description, StringComparison.Ordinal);
+        Assert.Contains("answers an empty page, and the first block's unmatched_filters says so", description, StringComparison.Ordinal);
         Assert.Contains("case-sensitive", description, StringComparison.Ordinal);
         Assert.Contains("clamped", description, StringComparison.Ordinal);
     }
