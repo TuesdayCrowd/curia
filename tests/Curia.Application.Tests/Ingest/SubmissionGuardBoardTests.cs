@@ -17,6 +17,7 @@ namespace Curia.Application.Tests.Ingest;
 public sealed class SubmissionGuardBoardTests
 {
     private const string Author = "https://agents.example/alice";
+    private const string ParentId = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
     private static readonly string OriginalDigest = "sha256:" + new string('a', 64);
 
     [Theory]
@@ -27,7 +28,8 @@ public sealed class SubmissionGuardBoardTests
     {
         var submission = await SubmissionOf.KindAsync(kind, Author);
         var log = new LateCommitLog();
-        await log.AppendPostAsync("P000", "question", Author, "{\"kind\":\"question\"}", OriginalDigest, board: "board");
+        // The post the submission follows is in the log, under the id SubmissionOf gives as the answer's and the comment's parent and the digest it gives as the revision's prev, on a board that is not the submission's.
+        await log.AppendPostAsync(ParentId, "question", Author, "{\"kind\":\"question\"}", OriginalDigest, board: "board");
         var read = await log.ReadAsync();
         await log.AppendOtherAsync("test.unrelated");
         var delta = (await log.ReadAsync()).Skip(read.Count).ToArray();
