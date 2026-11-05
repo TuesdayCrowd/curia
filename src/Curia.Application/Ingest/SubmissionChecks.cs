@@ -41,6 +41,16 @@ public static class SubmissionChecks
     }
 
     /// <summary>
+    /// R8.87 (errata G61): why a revision's <paramref name="board"/> may not be the board of the post whose digest is <paramref name="prevDigest"/>, or <see langword="null"/>
+    /// to go on. Not built: it refuses nothing.
+    /// </summary>
+    public static Error? RevisionBoardRefusal(LogFacts facts, string prevDigest, string board)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        return null;
+    }
+
+    /// <summary>
     /// The one definition of a standing successor (R8.77, trap 96): <c>already-revised</c>, naming the first post of <paramref name="posts"/> (in the order given) that
     /// <see cref="CorrectionIndex"/> says corrects <paramref name="original"/> and <paramref name="servable"/> says the Forum serves; <see langword="null"/> when none.
     /// The route asks it of the facts of its read; the append's guard asks it of the read's candidates (the posts whose <c>prev</c> is the original's digest, served or not)

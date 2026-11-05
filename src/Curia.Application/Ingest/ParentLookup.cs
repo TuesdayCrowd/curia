@@ -51,7 +51,8 @@ public static class ParentLookup
             }
 
             if (string.Equals(id, postId.Value, StringComparison.Ordinal) && kind is not null && PostKinds.TryParse(kind, out var parsed))
-                return Result<ParentFacts?>.Ok(new ParentFacts(postId.Value, parsed));
+                // The board the event stored is not read until errata G61 (R8.87) is built: the facts carry the empty string.
+                return Result<ParentFacts?>.Ok(new ParentFacts(postId.Value, parsed, string.Empty));
         }
 
         return Result<ParentFacts?>.Ok(null);
