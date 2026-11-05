@@ -14,7 +14,7 @@ namespace Curia.Application.Ingest;
 /// </summary>
 public static class ParentLookup
 {
-    /// <returns>The parent's id and stored kind, <see langword="null"/> where no post has the id, or a failure where the log could not be read.</returns>
+    /// <returns>The parent's id, stored kind and stored board, <see langword="null"/> where no post has the id, or a failure where the log could not be read.</returns>
     public static async Task<Result<ParentFacts?>> FindAsync(IEventReader events, ParentReference parent, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -40,6 +40,7 @@ public static class ParentLookup
 
             string? id = null;
             string? kind = null;
+            string? board = null;
             foreach (var member in payload.Members)
             {
                 if (member.Value is not JsonValue.String text)
@@ -48,11 +49,13 @@ public static class ParentLookup
                     id = text.Value;
                 else if (member.Key == "kind")
                     kind = text.Value;
+                else if (member.Key == "board")
+                    board = text.Value;
             }
 
             if (string.Equals(id, postId.Value, StringComparison.Ordinal) && kind is not null && PostKinds.TryParse(kind, out var parsed))
-                // The board the event stored is not read until errata G61 (R8.87) is built: the facts carry the empty string.
-                return Result<ParentFacts?>.Ok(new ParentFacts(postId.Value, parsed, string.Empty));
+                // R8.87: the board is the member the listings key by, written from the same verified envelope.
+                return Result<ParentFacts?>.Ok(new ParentFacts(postId.Value, parsed, board ?? string.Empty));
         }
 
         return Result<ParentFacts?>.Ok(null);

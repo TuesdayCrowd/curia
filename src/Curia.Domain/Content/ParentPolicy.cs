@@ -3,8 +3,7 @@ using Curia.Domain.Primitives;
 namespace Curia.Domain.Content;
 
 /// <summary>
-/// What the caller read of a parent: its post id, the kind its <c>post.accepted</c> event stored and the board that event stored. The board is the empty
-/// string until errata G61 (R8.87) is built: the lookup does not read it yet.
+/// What the caller read of a parent: its post id, the kind its <c>post.accepted</c> event stored and the board that event stored (R8.87).
 /// </summary>
 public sealed record ParentFacts(string PostId, PostKind Kind, string Board = "");
 
@@ -32,11 +31,23 @@ public static class ParentPolicy
 
     /// <summary>
     /// R8.87 (errata G61) as a function: why an answer's, a comment's or a revision's board may not be the board of the post it follows, or
-    /// <see langword="null"/> when it may. Not built: it refuses nothing, so the probes of errata G61 fail for the rule and not for a missing symbol.
+    /// <see langword="null"/> when it may. The comparison is ordinal on both strings and folds nothing; a kind that follows no post by board
+    /// (question, finding, vote, verification) is never refused here. A revision is refused naming the original (<c>original=</c>), the others the parent.
     /// </summary>
     /// <param name="kind">The submission's kind.</param>
     /// <param name="submittedBoard">The submission's <c>board</c> exactly as it wrote it.</param>
     /// <param name="followedPostId">The id of the post the submission follows (its parent, or for a revision the post its <c>prev</c> names).</param>
     /// <param name="followedBoard">The board that post's <c>post.accepted</c> event stored.</param>
-    public static Error? ReplyBoard(PostKind kind, string submittedBoard, string followedPostId, string followedBoard) => null;
+    public static Error? ReplyBoard(PostKind kind, string submittedBoard, string followedPostId, string followedBoard)
+    {
+        if (kind is not (PostKind.Answer or PostKind.Comment or PostKind.Revision))
+            return null;
+
+        if (string.Equals(submittedBoard, followedBoard, StringComparison.Ordinal))
+            return null;
+
+        return kind == PostKind.Revision
+            ? ParentErrors.BoardNotOriginal(followedPostId)
+            : ParentErrors.BoardNotParents(followedPostId);
+    }
 }
