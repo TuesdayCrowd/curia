@@ -436,4 +436,4 @@ Written by Task 8 (2026-11-05) from the task reports under `.superpowers/sdd/202
 
 The PR is #148, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run: 6,464 passed, 0 failed, 3 skipped (Api 1,494 in 40 m 31 s, Application 659, Architecture 109 and 109 in Debug, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,516, Domain.Primitives 64, Domain 987, Infrastructure 228, Mcp 906 and 3 skipped); the closed fuzz in the Api run; locked restore, `cargo fmt`, clippy and `cargo test`, the differential gate with 0 divergence classes, `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4
