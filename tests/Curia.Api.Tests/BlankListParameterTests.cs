@@ -105,26 +105,6 @@ public sealed class BlankListParameterTests(PassThroughGateForumFixture forum) :
         Said(rows.Select(r => $"{r.Query}: {r.Expected}"), actual);
     }
 
-    private sealed class CountingReader(IEventReader inner, Counter counter) : IEventReader
-    {
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadByAggregateAsync(aggregateId, cancellationToken);
-        }
-
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
-        }
-    }
-
-    private sealed class Counter
-    {
-        internal int Count { get; set; }
-    }
-
     /// <summary>
     /// NMN23. The order (R9.29's): an unknown name is told before a blank; a blank is told before a bad value (<c>limit=0&amp;kind=%20</c> names the blank and not the limit); and the
     /// blank refusal reads the log no more than the unknown-name refusal of the same route does. Predicted red on the seam: the middle row answers the limit's refusal, and the blank's
@@ -135,7 +115,7 @@ public sealed class BlankListParameterTests(PassThroughGateForumFixture forum) :
     {
         var counter = new Counter();
         await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<IEventReader>(sp => new CountingReader(sp.GetRequiredService<IEventStore>(), counter))));
+            services.CountRequestReads(counter)));
         using var client = host.CreateClient();
 
         async Task<(string Says, int Reads)> RunAsync(string query)

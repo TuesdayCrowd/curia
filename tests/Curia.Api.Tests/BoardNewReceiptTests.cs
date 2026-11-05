@@ -93,26 +93,6 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
             [$"question: {(BoardNewOf(question) is "(absent)" ? "(absent)" : "(a member)")}", $"answer: {BoardNewOf(answer)}", $"comment: {BoardNewOf(comment)}", $"revision: {BoardNewOf(revision)}", $"vote: {BoardNewOf(vote)}", $"verification: {BoardNewOf(verification)}"]);
     }
 
-    private sealed class CountingReader(IEventReader inner, Counter counter) : IEventReader
-    {
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadByAggregateAsync(aggregateId, cancellationToken);
-        }
-
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
-        }
-    }
-
-    private sealed class Counter
-    {
-        internal int Count { get; set; }
-    }
-
     /// <summary>
     /// NMN17. No read is added (R8.88: "so that no read is added before the append and none is made after it"): the log reads of a question write equal those of a comment write
     /// under it, to a bound the measure of the seam fixes (a question's own reads are the comment's less its parent's lookup), and the same question text sent twice reads the same number.
@@ -123,7 +103,7 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
     {
         var counter = new Counter();
         await using var host = forum.NewHost(services =>
-            services.AddSingleton<IEventReader>(sp => new CountingReader(sp.GetRequiredService<IEventStore>(), counter)));
+            services.CountRequestReads(counter));
         var asker = await AcceptedAnswerScene.EnrolAsync(forum, "nmn17", Ct);
         var token = await asker.Dpop.GetTokenAsync(host.Client, RevisionProbe.TokenEndpoint, forum.Now, Ct);
 

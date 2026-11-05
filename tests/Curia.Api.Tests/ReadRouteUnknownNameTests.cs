@@ -106,26 +106,6 @@ public sealed class ReadRouteUnknownNameTests(PassThroughGateForumFixture forum)
         Said(expected, actual);
     }
 
-    private sealed class CountingReader(IEventReader inner, Counter counter) : IEventReader
-    {
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadByAggregateAsync(aggregateId, cancellationToken);
-        }
-
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
-        }
-    }
-
-    private sealed class Counter
-    {
-        internal int Count { get; set; }
-    }
-
     /// <summary>
     /// A decorator that denies an anonymous read of a thread (the resource and action the three read routes ask the policy about) while <c>deny</c> says so, and forwards everything else.
     /// It is the seam that makes a denied anonymous read constructible; it fabricates nothing but the denial.
@@ -154,7 +134,7 @@ public sealed class ReadRouteUnknownNameTests(PassThroughGateForumFixture forum)
         var deny = false;
         await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
-            services.AddSingleton<IEventReader>(sp => new CountingReader(sp.GetRequiredService<IEventStore>(), counter));
+            services.CountRequestReads(counter);
             var decisions = services.Last(d => d.ServiceType == typeof(IPolicyDecisionPoint));
             if (decisions.ImplementationFactory is null) throw new InvalidOperationException("IPolicyDecisionPoint is registered by a factory; this decorator wraps what it builds");
             services.Remove(decisions);

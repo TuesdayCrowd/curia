@@ -212,26 +212,6 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
 
     // ---- NAM18 ----------------------------------------------------------------------------------
 
-    private sealed class CountingReader(IEventReader inner, Counter counter) : IEventReader
-    {
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadByAggregateAsync(aggregateId, cancellationToken);
-        }
-
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
-        }
-    }
-
-    private sealed class Counter
-    {
-        internal int Count { get; set; }
-    }
-
     /// <summary>
     /// NAM18: the blank refusal reads the log no more than the unknown-name refusal of the same route does (which is made before it, so what authentication and the policy
     /// read is common to both), and a valid request reads more: on search and on the inbox.
@@ -241,7 +221,7 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
     {
         var counter = new Counter();
         await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<IEventReader>(sp => new CountingReader(sp.GetRequiredService<IEventStore>(), counter))));
+            services.CountRequestReads(counter)));
         using var client = host.CreateClient();
         var (actor, token) = await ActorAsync(client);
 
