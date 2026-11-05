@@ -1,0 +1,183 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using Curia.Application.Ports;
+using Curia.Domain;
+using Curia.Domain.Primitives;
+using Curia.Tests.Shared;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+using static Curia.Api.Tests.NameProbe;
+
+namespace Curia.Api.Tests;
+
+/// <summary>
+/// R9.57 (errata G62), NMN26 to NMN28: <c>GET /v1/posts/{postId}</c>, <c>POST /v1/posts/batch</c> and <c>GET /v1/threads/{rootPostId}</c> read the query name <c>marking</c> and no
+/// other, and refuse any other <c>400</c> by R9.29's rules, as <c>curia/posts/unknown-parameter</c> (the first two) and <c>curia/threads/unknown-parameter</c>, after the caller is
+/// known to be allowed and before the log is read; the neighbours that read other names are untouched.
+///
+/// <para><b>Oracles.</b> The types, the title and the tail of the detail are R9.57 words (<see cref="PublishedNameWords"/>); the post is one the test stored. Each refusal has its
+/// control (<c>?marking=datamark</c> in two spellings of the name, <c>200</c>), the first assertion of the fact and green on the seam. The read count is a counting
+/// <see cref="IEventReader"/> compared with the board listing's own refusal of a name, which is made at the same place.</para>
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+[Collection("forum")]
+public sealed class ReadRouteUnknownNameTests(PassThroughGateForumFixture forum) : IClassFixture<PassThroughGateForumFixture>
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private static async Task<NameReply> BatchAsync(HttpClient client, string query, string body, CancellationToken ct)
+    {
+        using var content = new StringContent(body, Encoding.UTF8, "application/json");
+        using var response = await client.PostAsync(new Uri("/v1/posts/batch" + query, UriKind.Relative), content, ct);
+        var text = await response.Content.ReadAsStringAsync(ct);
+        JsonElement json = default;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            json = doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            // Not JSON.
+        }
+
+        return new NameReply(response.StatusCode, text, json);
+    }
+
+    private static string DetailOf(NameReply reply) =>
+        reply.Json.ValueKind == JsonValueKind.Object && reply.Json.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString()! : string.Empty;
+
+    private static string TitleOf(NameReply reply) =>
+        reply.Json.ValueKind == JsonValueKind.Object && reply.Json.TryGetProperty("title", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString()! : string.Empty;
+
+    /// <summary>The words check: two types (the first for the single read and the batch), a title and a detail tail ending <c>marking</c>.</summary>
+    [Fact]
+    public void R9_57_NMN26_ThePublishedWordsAreTheOnesTheFactsUse()
+    {
+        Assert.Equal(("curia/posts/unknown-parameter", "curia/threads/unknown-parameter"), PublishedNameWords.UnknownTypes());
+        Assert.Equal("this route reads exactly these: marking", PublishedNameWords.UnknownDetailTail());
+        Assert.StartsWith("That parameter is not read by this route", PublishedNameWords.UnknownTitle(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// NMN26. A name the route does not read, on each of the three routes: <c>400</c>, the family's type, R9.29's title, a detail that names <c>x</c> and ends <c>this route reads
+    /// exactly these: marking</c>; <c>?marking=datamark</c> and <c>?Marking=datamark</c> are served; a near miss (<c>?markings=</c>) is told the spelling. Predicted red on the seam:
+    /// <c>200</c> for the unknown name.
+    /// </summary>
+    [Fact]
+    public async Task R9_57_NMN26_ANameTheThreeReadRoutesDoNotReadIsRefusedByName()
+    {
+        var (postsType, threadsType) = PublishedNameWords.UnknownTypes();
+        var (_, stored) = await StoreQuestionAsync(forum, Board(), Ct);
+        var batchBody = JsonSerializer.Serialize(new { digests = new[] { stored.Digest } });
+        var tail = PublishedNameWords.UnknownDetailTail();
+        var expected = new List<string>();
+        var actual = new List<string>();
+
+        foreach (var control in new[] { "?marking=datamark", "?Marking=datamark" })
+        {
+            expected.Add($"{control}: 200 200 200");
+            actual.Add($"{control}: {(int)(await GetAsync(forum.Client, $"/v1/posts/{stored.PostId}{control}", ct: Ct)).Status} {(int)(await GetAsync(forum.Client, $"/v1/threads/{stored.PostId}{control}", ct: Ct)).Status} {(int)(await BatchAsync(forum.Client, control, batchBody, Ct)).Status}");
+        }
+
+        var routes = new (string Name, Func<string, Task<NameReply>> Send, string Type)[]
+        {
+            ("GET /v1/posts/{id}", q => GetAsync(forum.Client, $"/v1/posts/{stored.PostId}{q}", ct: Ct), postsType),
+            ("GET /v1/threads/{id}", q => GetAsync(forum.Client, $"/v1/threads/{stored.PostId}{q}", ct: Ct), threadsType),
+            ("POST /v1/posts/batch", q => BatchAsync(forum.Client, q, batchBody, Ct), postsType),
+        };
+        foreach (var (name, send, type) in routes)
+        {
+            var refused = await send("?x=1");
+            var nearMiss = await send("?markings=1");
+            expected.Add($"{name} ?x=1: 400 {type}, the title, names x, ends \"{tail}\"");
+            actual.Add($"{name} ?x=1: {refused.Says}, {(TitleOf(refused).StartsWith("That parameter is not read by this route", StringComparison.Ordinal) ? "the title" : "not the title")}, {(DetailOf(refused).Contains("parameter=x", StringComparison.Ordinal) ? "names x" : "does not name x")}, {(DetailOf(refused).EndsWith(tail, StringComparison.Ordinal) ? $"ends \"{tail}\"" : "does not end with the tail")}");
+            expected.Add($"{name} ?markings=1: the hint");
+            actual.Add($"{name} ?markings=1: {(DetailOf(nearMiss).Contains("did you mean marking", StringComparison.Ordinal) ? "the hint" : $"no hint ({nearMiss.Says})")}");
+        }
+
+        Said(expected, actual);
+    }
+
+    private sealed class CountingReader(IEventReader inner, Counter counter) : IEventReader
+    {
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
+        {
+            counter.Count++;
+            return inner.ReadByAggregateAsync(aggregateId, cancellationToken);
+        }
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
+        {
+            counter.Count++;
+            return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+        }
+    }
+
+    private sealed class Counter
+    {
+        internal int Count { get; set; }
+    }
+
+    /// <summary>
+    /// NMN27. The order: the unknown-name refusal of each route reads the log exactly as many times as the board listing's refusal of a name does (both are made after the allowed
+    /// check and before the log), and the batch's refusals of its body (<c>batch-malformed</c>) keep their place before the name. Predicted red on the seam: the three routes read the
+    /// log and serve.
+    /// </summary>
+    [Fact]
+    public async Task R9_57_NMN27_TheNameIsRefusedAfterTheAllowedCheckAndBeforeTheLogIsRead()
+    {
+        var counter = new Counter();
+        await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton<IEventReader>(sp => new CountingReader(sp.GetRequiredService<IEventStore>(), counter))));
+        using var client = host.CreateClient();
+        var (_, stored) = await StoreQuestionAsync(forum, Board(), Ct);
+        var batchBody = JsonSerializer.Serialize(new { digests = new[] { stored.Digest } });
+
+        async Task<int> ReadsAsync(Func<Task<NameReply>> request)
+        {
+            counter.Count = 0;
+            await request();
+            return counter.Count;
+        }
+
+        var listing = await ReadsAsync(() => GetAsync(client, "/v1/boards/b/posts?x=1", ct: Ct));
+        var single = await ReadsAsync(() => GetAsync(client, $"/v1/posts/{stored.PostId}?x=1", ct: Ct));
+        var thread = await ReadsAsync(() => GetAsync(client, $"/v1/threads/{stored.PostId}?x=1", ct: Ct));
+        var batch = await ReadsAsync(() => BatchAsync(client, "?x=1", batchBody, Ct));
+        var malformed = await BatchAsync(client, "?x=1", """{"post_ids":"01ABC"}""", Ct);
+
+        Said(
+            [$"reads: single {listing}, thread {listing}, batch {listing} (the listing's own refusal's)", "a malformed body with a name: 400 curia/posts/batch-malformed"],
+            [$"reads: single {single}, thread {thread}, batch {batch} (the listing's own refusal's)", $"a malformed body with a name: {malformed.Says}"]);
+    }
+
+    /// <summary>
+    /// NMN28. The neighbours are untouched (non-property (h)): the route families that read other names or none keep their statuses with an extra name: <c>GET /v1/jwks</c>,
+    /// <c>GET /v1/flags</c> (denied to an anonymous caller as it was), <c>GET /health</c>. A control, green on the seam; FNMN33 turns it red.
+    /// </summary>
+    [Fact]
+    public async Task R9_57_NMN28_TheRoutesThatReadOtherNamesAreNotTouched()
+    {
+        var (authorId, _) = await StoreQuestionAsync(forum, Board(), Ct);
+        var rows = new (string Path, string Expected)[]
+        {
+            ("/health?x=1", "200"),
+            ("/v1/jwks?agent=" + Uri.EscapeDataString(authorId) + "&x=1", "404"),
+            ("/v1/flags?x=1", "401"),
+        };
+
+        var actual = new List<string>();
+        foreach (var (path, _) in rows)
+            actual.Add($"{path}: {(int)(await GetAsync(forum.Client, path, ct: Ct)).Status}");
+
+        Said(rows.Select(r => $"{r.Path}: {r.Expected}"), actual);
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(forum.Client, "/health", ct: Ct)).Status);
+    }
+}
