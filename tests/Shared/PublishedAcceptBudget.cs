@@ -79,9 +79,6 @@ internal static partial class PublishedAcceptBudget
         return int.Parse(matches[0].Groups[1].Value, CultureInfo.InvariantCulture);
     }
 
-    /// <summary>R10.86's detector version: the code span that follows "the detector version SHALL be".</summary>
-    internal static string DetectorVersion() => One(Version(), Paragraph("**R10.86**"), "R10.86's detector version");
-
     /// <summary>The paragraph that begins with <paramref name="anchor"/>, to the blank line that ends it, whitespace folded.</summary>
     internal static string Paragraph(string anchor)
     {
@@ -133,7 +130,4 @@ internal static partial class PublishedAcceptBudget
 
     [GeneratedRegex(@"up to (\d+) attempts in all", RegexOptions.CultureInvariant)]
     private static partial Regex AttemptsPhrase();
-
-    [GeneratedRegex(@"detector version SHALL be `(secrets/\d{4}-\d{2}-\d{2})`", RegexOptions.CultureInvariant)]
-    private static partial Regex Version();
 }

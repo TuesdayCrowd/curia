@@ -41,8 +41,9 @@ public static partial class SecretScanner
     /// red-team corpus are unchanged; on other input they may not be.
     /// 2026-10-18: no pattern changed; the line-joined view deletes the characters HiddenCharacters now names, tag characters and U+2061 to U+206F among them (register D35, errata G23, R10.76), so a credential interleaved with one is found.
     /// 2026-10-29: the keyword connection-string rule reads `pwd=` only in position (after a semicolon, an opening quotation mark or the start of a line) and not when its value starts like a path or a reference (`/`, `~`, `$`, `%`), so a working directory or a shell variable is no longer a password; `password=` is unchanged (register D84, errata G46, R10.86).
+    /// 2026-11-04: the connection-string password rules (the URI form and the keywords) do not report a password that is, whole, a reference to a secret (`$DB_PASS`, `${DB_PASS}`, `%DB_PASS%`, `<password>`, `{{db_pass}}`, four or more `*`, then closing punctuation only), and a URI match not where a further `@` follows it, and `pwd` is not a password when its value starts a drive-letter path, and the markup view does not re-report a keyword the original cleared as a reference (ContentScreener.Detect); the patterns, spans and floor are unchanged and nothing stored is rescreened (register D112, errata G60, R10.96).
     /// </summary>
-    public const string Version = "secrets/2026-10-29";
+    public const string Version = "secrets/2026-11-04";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -84,7 +85,14 @@ public static partial class SecretScanner
     /// keyword forms, and the high-entropy assignment. The caller owns that copy and discards it
     /// (R6.13); nothing returned from here references it.
     /// </summary>
-    public static IEnumerable<RiskFlag> Scan(string derivedCopy)
+    public static IEnumerable<RiskFlag> Scan(string derivedCopy) => Scan(derivedCopy, referenceCleared: null);
+
+    /// <summary>
+    /// <see cref="Scan(string)"/>, telling <paramref name="referenceCleared"/> the start of each keyword match it skipped because the value was, whole, a reference
+    /// (R10.96; not the <c>pwd</c> drive-letter skip). The caller reading the original passes it so that <see cref="ContentScreener"/> can keep the markup view from
+    /// re-reporting that keyword (decision 3's exception); a callback and not a collection so that nothing is allocated for a text that clears no keyword.
+    /// </summary>
+    internal static IEnumerable<RiskFlag> Scan(string derivedCopy, Action<int>? referenceCleared)
     {
         ArgumentNullException.ThrowIfNull(derivedCopy);
 
@@ -94,8 +102,14 @@ public static partial class SecretScanner
         // "connection strings with embedded passwords", the URI form: credentials in the authority.
         // Here rather than in ScanShapes because its open classes read a joined `host:port` line end
         // and a decorator, annotation or @-mention on the next line as `user:pass@` -- see ScanShapes.
+        // R10.96: a password that is, whole, a reference to a secret is not reported, and not where a further `@` follows it (ReferencePassword).
         foreach (var match in ConnectionStringUriPassword().Matches(derivedCopy).Cast<Match>())
+        {
+            if (ReferencePassword.IsReference(ReferencePassword.UriPassword(derivedCopy.AsSpan(match.Index, match.Length)))
+                && ReferencePassword.ClearsUri(derivedCopy, match.Index + match.Length))
+                continue;
             yield return new RiskFlag(RiskCategory.ConnectionStringPassword, match.Index, match.Length, Version);
+        }
 
         // "connection strings with embedded passwords", the keyword form: `Password=...` is an
         // assignment whose value class is open, so it runs here with the other assignment rule and
@@ -105,6 +119,17 @@ public static partial class SecretScanner
         foreach (var match in ConnectionStringKeywordPassword().Matches(derivedCopy).Cast<Match>())
         {
             var span = match.Groups["pwd"].Success ? match.Groups["pwd"] : match.Groups["password"];
+            // R10.96: a value that is, whole, a reference to a secret is not reported.
+            // R10.96, `pwd` alone: a value that begins a drive letter, a colon and a separator is a path (the keyword is the working directory's name).
+            var value = ReferencePassword.KeywordValue(derivedCopy.AsSpan(span.Index, span.Length));
+            if (ReferencePassword.IsReference(value))
+            {
+                referenceCleared?.Invoke(span.Index);
+                continue;
+            }
+
+            if (match.Groups["pwd"].Success && ReferencePassword.StartsDrivePath(value))
+                continue;
             yield return new RiskFlag(RiskCategory.ConnectionStringPassword, span.Index, span.Length, Version);
         }
 
@@ -192,6 +217,7 @@ public static partial class SecretScanner
     private static partial Regex JwtShape();
 
     // A URI with credentials in the authority. Scan runs it and ScanShapes does not.
+    // R10.96: the pattern is unchanged; Scan skips a match whose password is, whole, a reference (ReferencePassword), the exclusion living in code over the match.
     [GeneratedRegex(
         @"(?:[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
@@ -202,6 +228,7 @@ public static partial class SecretScanner
     // semicolon, an opening quotation mark, a carriage return or the start of a line, with optional blanks) and only when its value
     // does not start like a path or a reference (`/`, `~`, `$`, `%`): `PWD=/build` and `Pwd=$DB_PASS` are not credentials. The prefix is
     // consumed, not looked behind (R10.69), so the span is taken from the named group.
+    // R10.96: both alternatives are unchanged too; Scan skips a match whose value is, whole, a reference, and a `pwd` value that starts a drive-letter path (ReferencePassword).
     [GeneratedRegex(
         @"(?<password>\bpassword\s*=\s*[^\s;""']{4,})|(?:^|[;""'\r])[ \t]*(?<pwd>pwd\s*=\s*[^\s;""'/~$%][^\s;""']{3,})",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Multiline | RegexOptions.NonBacktracking)]

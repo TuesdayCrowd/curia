@@ -45,3 +45,21 @@
 {"id": "connection-string-pwd-percent-reference", "class": "benign", "outcome": "not-flagged", "content": "Server=db.internal;Uid=curia;Pwd=%DB_PASS%;Database=forum", "expect": []}
 {"id": "connection-string-pwd-tilde-path", "class": "benign", "outcome": "not-flagged", "content": "Server=db.internal;Uid=curia;Pwd=~/.db-secret;Database=forum", "expect": []}
 {"id": "connection-string-pwd-absolute-path", "class": "benign", "outcome": "not-flagged", "content": "Server=db.internal;Uid=curia;Pwd=/run/secrets/db;Database=forum", "expect": []}
+{"id": "ref-uri-shell-variables", "class": "benign", "outcome": "not-flagged", "content": "DATABASE_URL=\"postgres://$DB_USER:$DB_PASS@$DB_HOST/$DB_NAME\" sqlx migrate run", "expect": []}
+{"id": "ref-uri-braced-variable", "class": "benign", "outcome": "not-flagged", "content": "Use postgres://user:${DB_PASS}@host/app in the compose file.", "expect": []}
+{"id": "ref-uri-percent-variable", "class": "benign", "outcome": "not-flagged", "content": "On Windows write postgres://u:%DB_PASS%@h in the batch file.", "expect": []}
+{"id": "ref-flag-dollar-variable", "class": "benign", "outcome": "not-flagged", "content": "Start the client with --password=$DB_PASS to read it from the environment.", "expect": []}
+{"id": "ref-flag-dollar-variable-in-backticks", "class": "benign", "outcome": "not-flagged", "content": "Start the client with `--password=$DB_PASS` and nothing else.", "expect": []}
+{"id": "ref-keyword-in-parentheses", "class": "benign", "outcome": "not-flagged", "content": "Supply the secret (password=$DB_PASS) from the vault.", "expect": []}
+{"id": "ref-keyword-in-emphasis", "class": "benign", "outcome": "not-flagged", "content": "Set **password=$DB_PASS** in the unit file.", "expect": []}
+{"id": "ref-keyword-before-a-full-stop", "class": "benign", "outcome": "not-flagged", "content": "Set password=$DB_PASS. Then restart the service.", "expect": []}
+{"id": "ref-keyword-braced-variable", "class": "benign", "outcome": "not-flagged", "content": "Set password=${DB_PASS} in the unit file.", "expect": []}
+{"id": "ref-keyword-percent-variable", "class": "benign", "outcome": "not-flagged", "content": "Set password=%DB_PASS% in the batch file.", "expect": []}
+{"id": "ref-keyword-angle-placeholder", "class": "benign", "outcome": "not-flagged", "content": "Replace it with password=<password> in the template.", "expect": []}
+{"id": "ref-keyword-mustache-placeholder", "class": "benign", "outcome": "not-flagged", "content": "The template reads password={{db_pass}} at render time.", "expect": []}
+{"id": "ref-keyword-masked", "class": "benign", "outcome": "not-flagged", "content": "The log shows password=**** after masking.", "expect": []}
+{"id": "ref-keyword-masked-bare", "class": "benign", "outcome": "not-flagged", "content": "The log shows password=****", "expect": []}
+{"id": "ref-keyword-masked-line-break", "class": "benign", "outcome": "not-flagged", "content": "The config line reads password=****\nThen the service restarts on the next deploy.", "expect": []}
+{"id": "ref-pwd-angle-placeholder", "class": "benign", "outcome": "not-flagged", "content": "Server=db;Pwd=<password>;Database=forum", "expect": []}
+{"id": "ref-pwd-masked", "class": "benign", "outcome": "not-flagged", "content": "Server=db;Pwd=****;Database=forum", "expect": []}
+{"id": "ref-pwd-drive-letter-path", "class": "benign", "outcome": "not-flagged", "content": "Pwd=C:\\work", "expect": []}

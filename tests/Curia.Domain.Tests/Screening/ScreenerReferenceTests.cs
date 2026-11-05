@@ -22,7 +22,8 @@ namespace Curia.Domain.Tests.Screening;
 /// allocating a flag for it. A third step added to <see cref="InjectionDetector.Scan"/> would reach
 /// every caller of <c>Scan</c> and silently never reach SCREEN. Each fact compares the outcome, the
 /// flag sequence and the detector versions, for <see cref="ContentScreener.ScreenText"/> and
-/// <see cref="ContentScreener.ScreenEnvelope"/> alike.</para>
+/// <see cref="ContentScreener.ScreenEnvelope"/> alike. The one rule the reference holds that the old screener did not is R10.96's exception (the markup view
+/// does not re-report a keyword the original cleared as a reference), written eagerly.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -303,7 +304,15 @@ public sealed class ScreenerReferenceTests
         {
             var found = new List<RiskFlag>();
 
-            foreach (var view in DerivedViews.Of(text))
+            // R10.96, decision 3's exception, written the slow way: the keyword starts the original cleared as a reference, collected whole before any other view is read.
+            var cleared = new HashSet<int>();
+            var views = DerivedViews.Of(text).ToArray();
+            foreach (var original in views.Where(v => v.Name is "original"))
+                foreach (var _ in SecretScanner.Scan(original.Text, start => cleared.Add(start)))
+                {
+                }
+
+            foreach (var view in views)
             {
                 var scoped = view.Name is "line-joined"
                     ? SecretScanner.ScanShapes(view.Text)
@@ -312,6 +321,9 @@ public sealed class ScreenerReferenceTests
                 foreach (var flag in scoped)
                 {
                     var (offset, length) = view.ToOriginal(flag.Offset, flag.Length);
+                    if (flag.Category is RiskCategory.ConnectionStringPassword && view.Name is "unmarked-up" && cleared.Contains(offset))
+                        continue;
+
                     found.Add(flag with { Offset = offset, Length = length });
                 }
             }

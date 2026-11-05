@@ -85,3 +85,15 @@
 {"id": "secret-connstring-pwd-indented", "class": "credential", "outcome": "flagged", "content": "[db]\n    PWD=EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
 {"id": "secret-connstring-password-keyword", "class": "credential", "outcome": "flagged", "content": "Server=db;Password=EXAMPLE-NOT-A-REAL-SECRET;Database=forum", "expect": ["ConnectionStringPassword"]}
 {"id": "secret-password-bare-assignment", "class": "credential", "outcome": "flagged", "content": "password=EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-uri-dollar-prefixed-value", "class": "credential", "outcome": "flagged", "content": "postgres://u:$ecretEXAMPLE-NOT-A-REAL-SECRET@h", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-uri-plain-value", "class": "credential", "outcome": "flagged", "content": "postgres://u:EXAMPLE-NOT-A-REAL-SECRET@h", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-uri-reference-username-value-password", "class": "credential", "outcome": "flagged", "content": "postgres://$DB_USER:EXAMPLE-NOT-A-REAL-SECRET@h", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-uri-reference-before-a-second-at", "class": "credential", "outcome": "flagged", "content": "postgres://u:$DB_PASS@u2:EXAMPLE-NOT-A-REAL-SECRET@h/db", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-dollar-prefixed-value", "class": "credential", "outcome": "flagged", "content": "password=$ecretEXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-suffixed-name", "class": "credential", "outcome": "flagged", "content": "password=$DB_PASSreal", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-reference-then-value", "class": "credential", "outcome": "flagged", "content": "password=$DB_PASS.EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-default-value", "class": "credential", "outcome": "flagged", "content": "password=${DB_PASS:-EXAMPLE-NOT-A-REAL-SECRET}", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-masks-then-value", "class": "credential", "outcome": "flagged", "content": "password=****EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-three-masks-then-value", "class": "credential", "outcome": "flagged", "content": "password=*** EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-keyword-split-then-value", "class": "credential", "outcome": "flagged", "content": "pass**word= EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}
+{"id": "secret-pwd-drive-letter-without-separator", "class": "credential", "outcome": "flagged", "content": "Pwd=C:EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ConnectionStringPassword"]}

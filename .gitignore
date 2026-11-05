@@ -69,3 +69,7 @@ nunit-*.xml
 # and ends up contradicting the gate that produced it. Archived runs live in
 # docs/differential/, dated and labelled as history. See docs/differential/README.md.
 tools/differential-oracle/DIVERGENCES*.md
+
+# Compiled Python embeds the absolute path of the machine that compiled it.
+__pycache__/
+*.pyc

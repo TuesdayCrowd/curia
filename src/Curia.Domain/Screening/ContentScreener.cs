@@ -147,6 +147,9 @@ public static class ContentScreener
         // because both offset maps send an empty span to (0, 0), wherever it was found.
         var seen = new HashSet<(RiskCategory, int)>();
 
+        // R10.96: the starts, in the original, of the keyword matches the original cleared as a reference; allocated when the first is cleared.
+        var clearedKeywords = new ClearedKeywordStarts();
+
         foreach (var view in DerivedViews.Of(text))
         {
             // The line-joined view deletes line breaks, so a phrase pattern over it would match across
@@ -160,11 +163,16 @@ public static class ContentScreener
             // a decorator or a doc-comment `@param` as `user:pass@`.
             var scoped = view.Name is "line-joined"
                 ? SecretScanner.ScanShapes(view.Text)
-                : SecretScanner.Scan(view.Text).Concat(InjectionDetector.ScanPatterns(view.Text));
+                : SecretScanner.Scan(view.Text, view.Name is "original" ? clearedKeywords.Add : null).Concat(InjectionDetector.ScanPatterns(view.Text));
 
             foreach (var flag in scoped)
             {
                 var (offset, length) = view.ToOriginal(flag.Offset, flag.Length);
+                // R10.96, decision 3's exception: the markup view deletes a run of `*`, so `password=**** after` reads there as `password= after` and the rule takes
+                // `after` for the value. A keyword the original read and cleared as a reference is not reported from that one view, keyed by its own start in the original.
+                if (flag.Category is RiskCategory.ConnectionStringPassword && view.Name is "unmarked-up" && clearedKeywords.Contains(offset))
+                    continue;
+
                 if (length == 0 || seen.Add((flag.Category, offset)))
                     found.Add(flag with { Offset = offset, Length = length });
             }
@@ -181,6 +189,16 @@ public static class ContentScreener
         }
 
         return found;
+    }
+
+    /// <summary>The starts of the keyword matches the original cleared as a reference (R10.96): the set exists only once one has been cleared, so a text that clears none costs nothing.</summary>
+    private sealed class ClearedKeywordStarts
+    {
+        private HashSet<int>? _starts;
+
+        internal void Add(int start) => (_starts ??= []).Add(start);
+
+        internal bool Contains(int start) => _starts is not null && _starts.Contains(start);
     }
 
     /// <summary>R10.77's ceiling: flags of one annotating category stored per post, the last widened to cover the rest.</summary>
