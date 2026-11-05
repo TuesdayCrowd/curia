@@ -159,11 +159,12 @@ public sealed partial class BoardGrammarCliEndToEndTests(KestrelForumFixture for
     // ---- NAM28 (the revision leg) ---------------------------------------------------------------
 
     /// <summary>
-    /// NAM28: <c>curia revision --board Meta-x</c> reads the post it revises (a hard read, so the Api suite's leg and not the recorder's), then refuses the board before it signs:
-    /// exit 3 and the refusal's text, and the events table does not move.
+    /// NAM28, flipped on purpose by errata G61 (R11.85): <c>curia revision --board Meta</c> reads the post it revises (a hard read, so the Api suite's leg and not the recorder's), then
+    /// refuses the board before it signs, not as a board that is not a name (the grammar is not asked of a revision) but as a board that is not the post's: exit 1 and the published
+    /// refusal naming the typed board, the post and its board, and the events table does not move.
     /// </summary>
     [Fact]
-    public async Task R8_85_NAM28_RevisionRefusesAnUpperCaseBoardAfterItsReadAndBeforeASignature()
+    public async Task R11_85_NAM28_RevisionRefusesABoardThatIsNotThePostsAfterItsReadAndBeforeASignature()
     {
         forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Now);
         var agent = "reviser";
@@ -177,11 +178,10 @@ public sealed partial class BoardGrammarCliEndToEndTests(KestrelForumFixture for
         var (exit, stdout, stderr) = await CuriaAsync(
             "revision", "--agent", agent, "--board", "Meta", "--parent", postId, "--body", $"A correction {Guid.NewGuid():N}", "--forum", Address);
 
-        Assert.True(exit == PublishedBoardWords.CliEnvelopeExit(), $"exit {exit}; stdout: {stdout}; stderr: {stderr}");
-        Assert.Contains(
-            Fold($"error: \"{PublishedBoardWords.ClientTitle()}\": \"{PublishedBoardWords.BoardType()}: {PublishedBoardWords.BoardTitle()} (board: not-lower-case)\""),
-            Fold(stderr),
-            StringComparison.Ordinal);
+        Assert.True(exit == PublishedReplyBoardWords.RefusalExit(), $"exit {exit}; stdout: {stdout}; stderr: {stderr}");
+        var expected = PublishedReplyBoardWords.RefusalLine(
+            Curia.Canon.Json.DisplayLiteral.Of("Meta"), Curia.Canon.Json.DisplayLiteral.Of(postId), Curia.Canon.Json.DisplayLiteral.Of(board));
+        Assert.Contains(Fold(expected), Fold(stderr), StringComparison.Ordinal);
         Assert.Equal(before, await PostEventsAsync());
     }
 

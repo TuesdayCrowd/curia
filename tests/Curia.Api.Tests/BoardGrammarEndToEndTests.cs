@@ -126,7 +126,11 @@ public sealed class BoardGrammarEndToEndTests(PassThroughGateForumFixture forum)
 
     // ---- NAM3 -----------------------------------------------------------------------------------
 
-    /// <summary>NAM3: every kind the enum names is refused: the list is derived from <see cref="PostKind"/> (seven asserted), the refusal asked of each, 400.</summary>
+    /// <summary>
+    /// NAM3: every kind the enum names is refused on a board that is not a name: the list is derived from <see cref="PostKind"/> (seven asserted), the refusal asked of each, 400.
+    /// Since errata G61 (R8.87, R8.85 (rev.)) the grammar is asked of question, finding, vote and verification, and a comment, an answer and a revision on a board that is not
+    /// their parent's are refused as <c>board-not-parents</c> (the board is a name no more than it is the parent's); the type of each is the published one of its rule.
+    /// </summary>
     [Fact]
     public async Task R8_85_NAM3_EveryKindIsRefusedAndTheSameKindsWithAQualifyingBoardAreAccepted()
     {
@@ -136,6 +140,8 @@ public sealed class BoardGrammarEndToEndTests(PassThroughGateForumFixture forum)
         var board = "board-" + Suffix();
         var asker = await NewAsync("asker");
         var question = await AskAsync(forum, asker, board, Ct);
+        // A second question for the refused revision: the first is revised in the positive phase, and R8.77 (already-revised) is judged before R8.87 (ruling 3 of errata G61's plan).
+        var spare = await AskAsync(forum, asker, board, Ct);
         var answerer = await AcceptedAnswerScene.T1Async(forum, board, Ct);
         var answer = await RevisionProbe.PostAsync(forum, answerer, answerer.Agent.SignAnswer(board, "An answer " + Unrelated(), question.PostId, forum.Now), Ct);
         var voter = await AcceptedAnswerScene.T1Async(forum, board, Ct);
@@ -149,7 +155,9 @@ public sealed class BoardGrammarEndToEndTests(PassThroughGateForumFixture forum)
             ("question", questioner, b => Question(questioner, b)),
             ("comment", commenter, b => commenter.Agent.Sign(PostKind.Comment, b, "A comment " + Unrelated(), null, question.PostId, forum.Now)),
             ("answer", answerer, b => answerer.Agent.SignAnswer(b, "Another answer " + Unrelated(), question.PostId, forum.Now)),
-            ("revision", asker, b => asker.Agent.SignRevision(b, "A correction " + Unrelated(), question.PostId, question.Digest, forum.Now)),
+            ("revision", asker, b => b == bad
+                ? asker.Agent.SignRevision(b, "A correction " + Unrelated(), spare.PostId, spare.Digest, forum.Now)
+                : asker.Agent.SignRevision(b, "A correction " + Unrelated(), question.PostId, question.Digest, forum.Now)),
             ("vote", voter, b => voter.Agent.SignVote(b, answer.Digest, forum.Now)),
             ("verification", voter, b => voter.Agent.SignVerification(b, answer.Digest, "reproduced", forum.Now)),
             ("finding", answerer, b => answerer.Agent.Sign(PostKind.Finding, b, "A finding " + Unrelated(), "A finding title " + Unrelated(), null, forum.Now)),
@@ -175,7 +183,9 @@ public sealed class BoardGrammarEndToEndTests(PassThroughGateForumFixture forum)
             refused.Add($"{name}: {sent.Says}");
         }
 
-        var expected = cases.Select(c => $"{c.Name}: {PublishedBoardWords.BoardStatus()} {PublishedBoardWords.BoardType()}");
+        var expected = cases.Select(c => c.Name is "comment" or "answer" or "revision"
+            ? $"{c.Name}: {PublishedReplyBoardWords.Status()} {PublishedReplyBoardWords.Type()}"
+            : $"{c.Name}: {PublishedBoardWords.BoardStatus()} {PublishedBoardWords.BoardType()}");
         Said(expected, refused);
         Assert.Equal(0, await OnBoardAsync(bad));
     }
@@ -239,9 +249,13 @@ public sealed class BoardGrammarEndToEndTests(PassThroughGateForumFixture forum)
 
     // ---- NAM5 -----------------------------------------------------------------------------------
 
-    /// <summary>NAM5: a T0 agent's answer with a refused board is 400, not 403 (the grammar is asked where the tag clause is, before the tier); the control, the same answer with a credential and a good board, is 403 (the tier before the screener, M5), and a T1 agent's with the refused board is 400.</summary>
+    /// <summary>
+    /// NAM5, flipped on purpose by errata G61 (finding 2): a T0 agent's answer with a refused board is 403 (the tier), no longer 400 (the grammar is not asked of a reply, so the board is judged
+    /// after AUTHORIZE with the other relations to the log: an under-tier caller is told the tier and never what the log holds); the control, the same answer with a credential and a good board,
+    /// is 403 (the tier before the screener, M5), and a T1 agent's with the board that is not its parent's is 400 <c>board-not-parents</c>.
+    /// </summary>
     [Fact]
-    public async Task R8_85_NAM5_ARefusedBoardBeatsTheTier()
+    public async Task R8_85_NAM5_TheTierBeatsAReplysBoard()
     {
         var board = "board-" + Suffix();
         var asker = await NewAsync("asker");
@@ -254,9 +268,8 @@ public sealed class BoardGrammarEndToEndTests(PassThroughGateForumFixture forum)
         var t1Refused = await SendAsync(t1, t1.Agent.SignAnswer("Meta", "An answer " + Unrelated(), question.PostId, forum.Now));
 
         Assert.Equal(403, t0Control.Status);
-        Said(
-            [$"{PublishedBoardWords.BoardStatus()} {PublishedBoardWords.BoardType()}", $"{PublishedBoardWords.BoardStatus()} {PublishedBoardWords.BoardType()}"],
-            [t0Refused.Says, t1Refused.Says]);
+        Assert.Equal(403, t0Refused.Status);
+        Said($"{PublishedReplyBoardWords.Status()} {PublishedReplyBoardWords.Type()}", t1Refused.Says);
     }
 
     // ---- NAM6 -----------------------------------------------------------------------------------

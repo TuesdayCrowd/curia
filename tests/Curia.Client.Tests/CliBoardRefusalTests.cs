@@ -107,7 +107,9 @@ public sealed partial class CliBoardRefusalTests : IDisposable
     public static TheoryData<string> Verbs()
     {
         var data = new TheoryData<string>();
-        foreach (var verb in WritingVerbs().Where(v => v != "revision")) data.Add(verb);
+        // Errata G61 (R8.85 (rev.), R11.85): the grammar is asked of the five kinds that can make a board or name one; an answer, a comment and a revision take their post's board, and
+        // their refusal of a board that is not the post's is RPB23's (Curia.Client.Tests/ReplyBoardCliTests) and the Api suite's.
+        foreach (var verb in WritingVerbs().Where(v => v is not ("answer" or "comment" or "revision"))) data.Add(verb);
         return data;
     }
 
@@ -118,7 +120,7 @@ public sealed partial class CliBoardRefusalTests : IDisposable
             TheEight.Order(),
             WritingVerbs().Order());
 
-    /// <summary>NAM28: each verb but <c>revision</c> (the Api suite's) refuses <c>Meta</c> with exit 3 and the same text and posts nothing.</summary>
+    /// <summary>NAM28, narrowed by errata G61: each verb the grammar is still asked of (not <c>answer</c>, <c>comment</c> or <c>revision</c>, which follow their post's board) refuses <c>Meta</c> with exit 3 and the same text and sends nothing.</summary>
     [Theory]
     [MemberData(nameof(Verbs))]
     public async Task R8_85_NAM28_EveryWritingVerbRefusesAnUpperCaseBoardBeforeASignature(string verb)
@@ -130,7 +132,7 @@ public sealed partial class CliBoardRefusalTests : IDisposable
         Assert.True(exit == PublishedBoardWords.CliEnvelopeExit(), $"{verb}: exit {exit}; stdout: {stdout}; stderr: {stderr}");
         Assert.Contains(Fold(Expected("not-lower-case")), Fold(stderr), StringComparison.Ordinal);
         Assert.DoesNotContain(_forum.Lines, l => l.StartsWith("POST ", StringComparison.Ordinal));
-        if (verb is not "answer" and not "comment") Assert.Empty(_forum.Lines);
+        Assert.Empty(_forum.Lines);
     }
 
     /// <summary>NAM12's client leg: a filter is never refused for its grammar: <c>search x --board "Meta Board"</c> is sent as typed.</summary>
