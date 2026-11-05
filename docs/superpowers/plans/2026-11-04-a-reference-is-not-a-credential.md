@@ -486,4 +486,4 @@ D61 items 151 to 164 (first free 165) and traps 160 to 170 (first free 171); D11
 
 The PR is #147, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run: 6,403 passed, 0 failed, 3 skipped (Api 1,471 in 40 m 32 s, Application 654, Architecture 108 and 108 in Debug, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,490, Domain.Primitives 64, Domain 985, Infrastructure 228, Mcp 902 and 3 skipped); locked restore, `cargo fmt`, clippy and `cargo test`, the differential gate with 0 divergence classes, `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4
