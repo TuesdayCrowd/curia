@@ -101,20 +101,6 @@ jobs:
       - name: Build
         run: dotnet build Curia.sln --no-restore --configuration Release
 
-      - name: Test
-        env:
-          CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
-          CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
-          # R14.10's closed pass writes the elapsed time of every send, by row and send index, and
-          # the slowest per route, so growth from folding shows as a slope (spec §4.10).
-          CURIA_FUZZ_TIMINGS: ${{ runner.temp }}/fuzz-timings.tsv
-        # R10.69's cost class is judged only in the isolated step below, never here: elapsed time
-        # inside eleven test hosts on four cores measures the runner's load, not the screener's work.
-        # Run 37575114798 read zero-width-space ScreenEnvelope at the cap 309 ms isolated and at least
-        # 1,010 ms here, a ratio of 24.8 to 32 KiB. This step's "!~" and the isolated step's "~" over
-        # the same name are what make the split exact.
-        run: dotnet test Curia.sln --no-build --configuration Release --filter "FullyQualifiedName!~ScreeningCostTests"
-
       # R10.69 (A3 Step 5): the screening cost tests alone, so the stop reads the screener and not
       # eleven test hosts on four cores; the timings file comes from this step only.
       - name: Screening cost, alone (R10.69)
@@ -126,6 +112,41 @@ jobs:
           dotnet test tests/Curia.Domain.Tests --no-build --configuration Release --filter "FullyQualifiedName~ScreeningCostTests"
           test "$(wc -l < "$CURIA_SCREEN_TIMINGS")" -eq 28
           test "$(wc -l < "$CURIA_SCREEN_SCALING")" -eq 28
+
+      # D16, decided as option 1: the architecture rules run in Debug as well. NetArchTest reads IL,
+      # and IL differs by configuration: a seven-case string switch in Curia.Domain fails CS-7 in
+      # Debug and passes it in Release, so this job, running Release alone, was green while every
+      # developer's Debug run was red. The whole solution is built in Debug first: CS-15 reads
+      # Curia.Domain.Tests and Curia.Application.Tests from their Debug output, and neither is a
+      # reference of the architecture project, so `dotnet test` on that project alone never builds them.
+      - name: Architecture rules (Debug)
+        run: |
+          dotnet build Curia.sln --no-restore --configuration Debug
+          dotnet test tests/Curia.Architecture.Tests --no-build --configuration Debug
+
+      - name: Test (all but Api)
+        env:
+          CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
+          CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
+        # R10.69's cost class is judged only in the isolated step above, never here: elapsed time
+        # inside eleven test hosts on four cores measures the runner's load, not the screener's work.
+        # Run 37575114798 read zero-width-space ScreenEnvelope at the cap 309 ms isolated and at least
+        # 1,010 ms here, a ratio of 24.8 to 32 KiB. This step's "!~" and the isolated step's "~" over
+        # the same name are what make the split exact.
+        run: dotnet test Curia.sln --no-build --configuration Release --filter "FullyQualifiedName!~ScreeningCostTests&FullyQualifiedName!~Curia.Api.Tests"
+
+      # The Api suite runs last and alone because it is over an hour of this job (the closed request
+      # fuzz alone is about half of it). Every cheap step above fails in minutes rather than behind
+      # it: on #147 a pin in the ten-second cost step answered after 75 minutes. Its class names all
+      # begin Curia.Api.Tests, which is what makes the "!~" above and this project exact.
+      - name: Test (Api)
+        env:
+          CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
+          CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
+          # R14.10's closed pass writes the elapsed time of every send, by row and send index, and
+          # the slowest per route, so growth from folding shows as a slope (spec §4.10).
+          CURIA_FUZZ_TIMINGS: ${{ runner.temp }}/fuzz-timings.tsv
+        run: dotnet test tests/Curia.Api.Tests --no-build --configuration Release
 
       - name: Upload the fuzzer's timings
         if: always()
@@ -150,17 +171,6 @@ jobs:
           name: screen-scaling
           path: ${{ runner.temp }}/screen-scaling.tsv
           if-no-files-found: error
-
-      # D16, decided as option 1: the architecture rules run in Debug as well. NetArchTest reads IL,
-      # and IL differs by configuration: a seven-case string switch in Curia.Domain fails CS-7 in
-      # Debug and passes it in Release, so this job, running Release alone, was green while every
-      # developer's Debug run was red. The whole solution is built in Debug first: CS-15 reads
-      # Curia.Domain.Tests and Curia.Application.Tests from their Debug output, and neither is a
-      # reference of the architecture project, so `dotnet test` on that project alone never builds them.
-      - name: Architecture rules (Debug)
-        run: |
-          dotnet build Curia.sln --no-restore --configuration Debug
-          dotnet test tests/Curia.Architecture.Tests --no-build --configuration Debug
 
   rust:
     name: Rust — curia-testis

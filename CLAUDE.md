@@ -220,6 +220,8 @@ Key encoding idioms — the point of each is to make an invariant a compile erro
 
 ## Build and test
 
+**Before every push, run `python3 tools/preflight/preflight.py`** (about 4 minutes). It runs CI's own steps, read from `ci.yml`, leaving out only the whole Api suite, so a small failure costs minutes and not a CI run of over an hour. `tools/preflight/README.md` says what it cannot catch.
+
 ```bash
 dotnet build Curia.sln                      # 0 warnings is the standard, not an aspiration
 dotnet test Curia.sln --filter "FullyQualifiedName!~ScreeningCostTests"   # needs a reachable Postgres with pgvector (see below)

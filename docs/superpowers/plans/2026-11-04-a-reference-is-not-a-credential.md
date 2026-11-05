@@ -220,6 +220,8 @@ Why it is not a bypass, shown and not asserted: a view differs from the original
 
 **Errata.** G60's "does not change" list drops `ci.yml` and gains a paragraph stating the two numbers (edited in place 2026-11-04).
 
+**Added after Amendment 3, at the owner's request.** `tools/preflight/` runs CI's own steps locally, and the `.NET` job runs its cheap steps before the Api suite. With the pins set back to 24, preflight failed the cost step in 5 seconds and named the command.
+
 ## Tasks
 
 ### Task 0: Re-read, operate the unmodified tree, write the rules first
