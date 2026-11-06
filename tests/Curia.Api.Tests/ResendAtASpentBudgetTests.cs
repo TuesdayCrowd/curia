@@ -231,11 +231,20 @@ public sealed class ResendAtASpentBudgetTests : IClassFixture<LateCommitForumFix
         var (actor, wire, _, board) = await SpentAsync();
         var token = await actor.Dpop.GetTokenAsync(_forum.Client, TokenEndpoint, _forum.Now, Ct);
 
+        // The store's counters are the process's: EmbeddingCatchUp's check reads the same store on its own tick, so one send can count a read the request did not make (seen once, in a
+        // whole run). A background read only adds, and a refused send changes nothing, so the fewest reads over three sends is what the request itself reads; a route that reads again
+        // does so on every send and is still counted (FASA16).
         async Task<(int Forward, int ByAggregate)> ReadsOfAsync(byte[] bytes)
         {
-            var (forward, byAggregate) = (_forum.Store.ReadsForward, _forum.Store.ReadsByAggregate);
-            await Probe.SendAsync(_forum, actor, bytes, token, Ct);
-            return (_forum.Store.ReadsForward - forward, _forum.Store.ReadsByAggregate - byAggregate);
+            var fewest = (Forward: int.MaxValue, ByAggregate: int.MaxValue);
+            for (var send = 0; send < 3; send++)
+            {
+                var (forward, byAggregate) = (_forum.Store.ReadsForward, _forum.Store.ReadsByAggregate);
+                await Probe.SendAsync(_forum, actor, bytes, token, Ct);
+                fewest = (Math.Min(fewest.Forward, _forum.Store.ReadsForward - forward), Math.Min(fewest.ByAggregate, _forum.Store.ReadsByAggregate - byAggregate));
+            }
+
+            return fewest;
         }
 
         var fresh = await ReadsOfAsync(actor.Agent.SignQuestion(board, Probe.Unrelated(), "About " + Probe.Unrelated(), _forum.Now));

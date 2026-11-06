@@ -771,9 +771,9 @@ internal sealed class StubLog : IDisposable
     /// as the reference client does, would have raised its disagreement warning under every write
     /// the stub accepted.</para>
     /// </summary>
-    internal static string ReceiptJson(string digest) => $$"""
+    internal static string ReceiptJson(string digest, bool? boardNew = null) => $$"""
     {"post_id":"{{SubmittedPostId}}","digest":"{{digest}}",
-    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"vector_index":"indexed","budget":{{DefaultBudget("posting")}}}
+    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"vector_index":"indexed","budget":{{DefaultBudget("posting")}}{{(boardNew is { } fresh ? ",\"board_new\":" + (fresh ? "true" : "false") : string.Empty)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -1265,11 +1265,11 @@ internal sealed class StubLog : IDisposable
     /// a row that asserts nothing.
     /// </summary>
     internal string SearchJson() => $$"""
-    {"results":[{"post":{{PostJson()}},"score_micro":1000000}],
+    {"results":[{{(SearchEmpty ? string.Empty : "{\"post\":" + PostJson() + ",\"score_micro\":1000000}")}}],
     "next_cursor":{{(SearchNextCursor is null ? "null" : JsonString(SearchNextCursor))}},
     "floor":{"surface":"mcp-search","min_verification":"{{(FloorClamped ? "V1" : "V0")}}","source":"{{(FloorClamped ? "configured" : "published")}}",
     {{FloorListsMembersJson()}}"excluded_disputed":0{{ClampMembersJson()}}},
-    "model":"hashed-ngram@1","corpus_bound":1{{(SearchVectorPendingJson is null ? string.Empty : ",\"vector_pending\":" + SearchVectorPendingJson)}}{{(SearchVectorCheckedAtJson is null ? string.Empty : ",\"vector_checked_at\":" + SearchVectorCheckedAtJson)}}{{(SearchVectorCheckDueAtJson is null ? string.Empty : ",\"vector_check_due_at\":" + SearchVectorCheckDueAtJson)}}}
+    "model":"hashed-ngram@1","corpus_bound":1{{(SearchVectorPendingJson is null ? string.Empty : ",\"vector_pending\":" + SearchVectorPendingJson)}}{{(SearchVectorCheckedAtJson is null ? string.Empty : ",\"vector_checked_at\":" + SearchVectorCheckedAtJson)}}{{(SearchVectorCheckDueAtJson is null ? string.Empty : ",\"vector_check_due_at\":" + SearchVectorCheckDueAtJson)}}{{(SearchUnmatchedFiltersJson is null ? string.Empty : ",\"unmatched_filters\":" + SearchUnmatchedFiltersJson)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -1277,6 +1277,18 @@ internal sealed class StubLog : IDisposable
     /// <c>"3"</c> ...); null serves the page without the member, as an older Forum does.
     /// </summary>
     internal string? SearchVectorPendingJson { get; set; }
+
+    /// <summary>Errata G62 (R10.97, Amendment 4): serve the search page with no result, as a page that missed every post does; the default is the one-hit page.</summary>
+    internal bool SearchEmpty { get; set; }
+
+    /// <summary>Errata G62 (R9.55): the raw JSON value of the <c>unmatched_filters</c> member the stub's search page carries (<c>[]</c>, <c>["board"]</c>, <c>"board"</c>, <c>null</c> ...); null serves the page without the member, as an older Forum does.</summary>
+    internal string? SearchUnmatchedFiltersJson { get; set; }
+
+    /// <summary>Errata G62 (R8.88): the raw JSON value of the <c>board_new</c> member the stub adds to the body of a <c>201</c> post receipt (<c>true</c>, <c>false</c>, <c>"yes"</c> ...); null adds none, as an older Forum.</summary>
+    internal string? ReceiptBoardNewJson { get; set; }
+
+    /// <summary>Errata G62 (R9.55): the raw JSON the stub serves for <c>GET /v1/inbox</c>, or null for the unrouted answer it gave before.</summary>
+    internal string? InboxJson { get; set; }
 
     /// <summary>Errata G54 (R9.53): the raw JSON value of the <c>vector_checked_at</c> member the stub's search page carries (an instant string, <c>null</c>, <c>3</c> ...); null serves the page without the member, as an older Forum does.</summary>
     internal string? SearchVectorCheckedAtJson { get; set; }
@@ -1642,6 +1654,8 @@ internal sealed class StubLog : IDisposable
                     body = body[..^1] + ",\"budget\":" + receiptBudget + "}";
                 if (log.ReceiptVectorIndexJson is { } receiptVectorIndex)
                     body = body[..^1] + ",\"vector_index\":" + receiptVectorIndex + "}";
+                if (log.ReceiptBoardNewJson is { } receiptBoardNew && path == "/v1/posts")
+                    body = body[..^1] + ",\"board_new\":" + receiptBoardNew + "}";
             }
 
             if (path != "/oauth/token")
@@ -2154,6 +2168,8 @@ internal sealed class StubLog : IDisposable
             }
 
             if (path == "/v1/search") return (HttpStatusCode.OK, log.SearchJson());
+
+            if (path == "/v1/inbox" && log.InboxJson is { } inbox) return (HttpStatusCode.OK, inbox);
 
             return (HttpStatusCode.NotFound,
                 $$"""{"type":"curia/stub/unrouted","title":"The stub serves no {{path}}"}""");

@@ -22,7 +22,8 @@ public sealed record EnrollmentReceipt(string AgentId, string Kid, string Enroll
 /// </summary>
 public sealed record PostReceipt(
     string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags, BudgetReceipt? Budget = null,
-    VectorIndexState VectorIndex = VectorIndexState.NotStated);
+    VectorIndexState VectorIndex = VectorIndexState.NotStated,
+    bool? BoardNew = null);
 
 /// <summary>
 /// R7.29, R9.50: the standing of the budget an act spent, after the act, as the receipt states it. <see langword="null"/> on a receipt record means the Forum
@@ -44,7 +45,8 @@ public sealed record InboxPage(
     string? NextCursor,
     int OpenBeforeExclusions,
     int ExcludedAsOwn,
-    int ExcludedAsAlreadyAnswered);
+    int ExcludedAsAlreadyAnswered,
+    ImmutableArray<string>? UnmatchedFilters = null);
 
 /// <summary>What the Forum recorded when an answer was accepted (Table 10's <c>answer</c>/<c>accept</c>).</summary>
 public sealed record AcceptanceReceipt(
@@ -166,7 +168,8 @@ public sealed record SearchPage(
     long CorpusBound,
     int? VectorPending = null,
     StatedInstant? VectorCheckedAt = null,
-    StatedInstant? VectorCheckDueAt = null);
+    StatedInstant? VectorCheckDueAt = null,
+    ImmutableArray<string>? UnmatchedFilters = null);
 
 /// <summary>How a Forum stated one of R9.53's instants: not at all (an older Forum), as JSON <c>null</c> (no check is owed; the due member only), or as an instant.</summary>
 public enum StatedKind
@@ -419,7 +422,7 @@ internal static class ForumDocuments
         ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "digest") is { } digest
         && ClientJson.String(o, "server_ts") is { } ts
-            ? ReadReceiptBudget(o).Bind(budget => ReadVectorIndex(o).Map(vector => new PostReceipt(id, digest, ts, Strings(o, "risk_flags"), budget, vector)))
+            ? ReadReceiptBudget(o).Bind(budget => ReadVectorIndex(o).Bind(vector => ReadBoardNew(o).Map(boardNew => new PostReceipt(id, digest, ts, Strings(o, "risk_flags"), budget, vector, boardNew))))
             : Result<PostReceipt>.Fail(ClientErrors.ResponseMalformed("post receipt"));
 
     /// <summary>
@@ -436,6 +439,43 @@ internal static class ForumDocuments
             JsonValue.String { Value: "not_applicable" } => Result<VectorIndexState>.Ok(VectorIndexState.NotApplicable),
             _ => Result<VectorIndexState>.Fail(ClientErrors.ResponseMalformed("post receipt: vector_index is not indexed, pending or not_applicable (R8.81)")),
         };
+
+    /// <summary>
+    /// R8.88 (errata G62): <c>board_new</c> is absent (an older Forum, or a kind that carries none: null, not stated and never <c>false</c>) or a JSON boolean. Anything
+    /// else is a malformed receipt, not a value the client picks.
+    /// </summary>
+    private static Result<bool?> ReadBoardNew(JsonValue.Object o) =>
+        ClientJson.Member(o, "board_new") switch
+        {
+            null => Result<bool?>.Ok(null),
+            JsonValue.Bool b => Result<bool?>.Ok(b.Value),
+            _ => Result<bool?>.Fail(ClientErrors.ResponseMalformed("post receipt: board_new is not a boolean (R8.88)")),
+        };
+
+    /// <summary>
+    /// R9.55 (errata G62): <c>unmatched_filters</c> is absent (an older Forum: null, not stated and never none) or an array whose items are each the string
+    /// <c>board</c> or <c>author</c>. Anything else (a string, an object, null, an array holding another item) is a malformed page and not an empty list.
+    /// </summary>
+    private static Result<ImmutableArray<string>?> ReadUnmatchedFilters(JsonValue.Object o, string what)
+    {
+        switch (ClientJson.Member(o, "unmatched_filters"))
+        {
+            case null:
+                return Result<ImmutableArray<string>?>.Ok(null);
+            case JsonValue.Array array:
+                var names = ImmutableArray.CreateBuilder<string>();
+                foreach (var item in array.Items)
+                {
+                    if (item is not JsonValue.String { Value: "board" or "author" } name)
+                        return Result<ImmutableArray<string>?>.Fail(ClientErrors.ResponseMalformed($"{what}: unmatched_filters holds an item that is neither \"board\" nor \"author\" (R9.55)"));
+                    names.Add(name.Value);
+                }
+
+                return Result<ImmutableArray<string>?>.Ok(names.ToImmutable());
+            default:
+                return Result<ImmutableArray<string>?>.Fail(ClientErrors.ResponseMalformed($"{what}: unmatched_filters is not an array (R9.55)"));
+        }
+    }
 
     internal static Result<InboxPage> ReadInbox(JsonValue value)
     {
@@ -454,12 +494,16 @@ internal static class ForumDocuments
             posts.Add(post!);
         }
 
+        if (!ReadUnmatchedFilters(o, "inbox").TryGetValue(out var unmatched, out var unmatchedError))
+            return Result<InboxPage>.Fail(unmatchedError!);
+
         return Result<InboxPage>.Ok(new InboxPage(
             posts.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
             (int)(ClientJson.Number(o, "open_before_exclusions") ?? 0),
             (int)(ClientJson.Number(o, "excluded_as_own") ?? 0),
-            (int)(ClientJson.Number(o, "excluded_as_already_answered") ?? 0)));
+            (int)(ClientJson.Number(o, "excluded_as_already_answered") ?? 0),
+            unmatched));
     }
 
     internal static Result<AcceptanceReceipt> ReadAcceptance(JsonValue.Object o) =>
@@ -582,6 +626,9 @@ internal static class ForumDocuments
             || !ReadCheckInstant(o, "vector_check_due_at", nullAllowed: true).TryGetValue(out var checkDueAt, out checkError))
             return Result<SearchPage>.Fail(checkError!);
 
+        if (!ReadUnmatchedFilters(o, "search page").TryGetValue(out var unmatched, out var unmatchedError))
+            return Result<SearchPage>.Fail(unmatchedError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -601,7 +648,8 @@ internal static class ForumDocuments
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0),
             pending,
             checkedAt,
-            checkDueAt));
+            checkDueAt,
+            unmatched));
     }
 
     /// <summary>

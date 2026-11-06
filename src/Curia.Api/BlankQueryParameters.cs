@@ -32,13 +32,22 @@ public static class BlankQueryParameters
         "A parameter is present and blank; it is refused rather than dropped, because a filter dropped returns the unfiltered corpus to a caller that believes it filtered";
 
     /// <summary>The search route's closed list, in the order a refusal names them.</summary>
-    public static IReadOnlyList<string> SearchParameters { get; } = ["q", "board", "author", "min_verification"];
+    public static IReadOnlyList<string> SearchParameters { get; } = ["q", "board", "author", "min_verification", "kind", "tags", "cursor"];
 
     /// <summary>The inbox's closed list.</summary>
-    public static IReadOnlyList<string> InboxParameters { get; } = ["board"];
+    public static IReadOnlyList<string> InboxParameters { get; } = ["board", "tags", "cursor"];
+
+    /// <summary>The parameters that are comma-separated lists (R9.56): a value of nothing but commas and white space names nothing, as an empty one does.</summary>
+    private static readonly string[] ListParameters = ["kind", "tags"];
 
     /// <summary>White space is what <see cref="string.IsNullOrWhiteSpace(string?)"/> decides: the test the route drops a blank by.</summary>
     public static bool IsBlank(string? value) => string.IsNullOrWhiteSpace(value);
+
+    /// <summary>
+    /// R9.56: whether a present value names nothing. A scalar names nothing when it is blank; a list when, with its commas removed, it is
+    /// (<c>kind=,</c> and <c>tags=,%20,</c> name nothing, <c>tags=a,,b</c> and <c>kind=question,</c> name something). One definition for the refusal and the drop.
+    /// </summary>
+    public static bool NamesNothing(string? value, bool isList) => QueryValue.NamesNothing(value, isList);
 
     /// <summary>
     /// Null when no parameter of <paramref name="route"/>'s closed list is present and blank; otherwise the refusal naming each one, in the
@@ -50,7 +59,7 @@ public static class BlankQueryParameters
         ArgumentNullException.ThrowIfNull(query);
 
         var names = route is BlankQueryRoute.Inbox ? InboxParameters : SearchParameters;
-        var blank = names.Where(n => query.ContainsKey(n) && IsBlank(query[n].ToString())).ToArray();
+        var blank = names.Where(n => query.ContainsKey(n) && NamesNothing(query[n].ToString(), ListParameters.Contains(n))).ToArray();
         if (blank.Length == 0) return null;
 
         var type = route is BlankQueryRoute.Inbox ? InboxType : SearchType;

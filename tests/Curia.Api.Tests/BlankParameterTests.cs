@@ -212,26 +212,6 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
 
     // ---- NAM18 ----------------------------------------------------------------------------------
 
-    private sealed class CountingReader(IEventReader inner, Counter counter) : IEventReader
-    {
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadByAggregateAsync(aggregateId, cancellationToken);
-        }
-
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
-        {
-            counter.Count++;
-            return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
-        }
-    }
-
-    private sealed class Counter
-    {
-        internal int Count { get; set; }
-    }
-
     /// <summary>
     /// NAM18: the blank refusal reads the log no more than the unknown-name refusal of the same route does (which is made before it, so what authentication and the policy
     /// read is common to both), and a valid request reads more: on search and on the inbox.
@@ -241,7 +221,7 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
     {
         var counter = new Counter();
         await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<IEventReader>(sp => new CountingReader(sp.GetRequiredService<IEventStore>(), counter))));
+            services.CountRequestReads(counter)));
         using var client = host.CreateClient();
         var (actor, token) = await ActorAsync(client);
 
@@ -270,7 +250,7 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
 
     // ---- NAM19 ----------------------------------------------------------------------------------
 
-    /// <summary>NAM19: the inbox refuses a blank <c>board</c> in each spelling; an unauthenticated caller is told what it was before; a blank <c>tags</c> and an absent <c>board</c> are served (controls).</summary>
+    /// <summary>NAM19: the inbox refuses a blank <c>board</c> in each spelling; an unauthenticated caller is told what it was before; a blank <c>tags</c> is refused too (R9.56, errata G62) and a named tag and an absent <c>board</c> are served (controls).</summary>
     [Fact]
     public async Task R9_54_NAM19_TheInboxRefusesABlankBoardAfterTheCallerIsKnownAllowed()
     {
@@ -282,12 +262,15 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
         var anonymous = await InboxAsync(null, null, "board=");
         var tagsBlank = await InboxAsync(actor, token, "tags=");
         var absent = await InboxAsync(actor, token, string.Empty);
+        var tagsNamed = await InboxAsync(actor, token, "tags=a");
 
         Said(
             Spellings.Select(_ => $"400 {PublishedBoardWords.BlankTypes().Inbox}"),
             refused);
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.Status);
-        Assert.Equal(HttpStatusCode.OK, tagsBlank.Status);
+        // R9.56 (errata G62), flipped on purpose: a blank `tags` is refused as `board` is; a named tag and an absent board are the controls.
+        Said($"400 {PublishedBoardWords.BlankTypes().Inbox}", tagsBlank.Says);
+        Assert.Equal(HttpStatusCode.OK, tagsNamed.Status);
         Assert.Equal(HttpStatusCode.OK, absent.Status);
         var blank = await InboxAsync(actor, token, "board=");
         Said("parameter=board", blank.Detail);
@@ -296,13 +279,13 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
     // ---- NAM20 ----------------------------------------------------------------------------------
 
     /// <summary>
-    /// NAM20 (a pin, green on the seam, held by FNAM25): as Task 0's M1 measured them and this PR does not change them. On the search route <c>kind=</c>, <c>tags=</c> and
-    /// <c>cursor=</c> blank in all seven spellings answer 200 and are ignored; <c>why=</c>, <c>marking=</c> and <c>limit=</c> are ignored when empty and their white-space spellings
-    /// answer their own types; a repeated parameter is joined with a comma (<c>q=a&amp;q=</c> and <c>board=%20&amp;board=meta</c> answer 200 with no result). Any extension of R9.54 to
-    /// one of these is a dated amendment of G56 (D61 items 74 and 75).
+    /// NAM20, flipped on purpose by errata G62 (R9.56, R9.54 (rev.): G56's decision 8 amended): on the search route <c>kind=</c>, <c>tags=</c> and <c>cursor=</c> blank in all seven
+    /// spellings are refused <c>400 curia/search/blank-parameter</c> and no longer ignored; what the entry still does not extend stands as it was: <c>why=</c>, <c>marking=</c> and
+    /// <c>limit=</c> are ignored when empty and their white-space spellings answer their own types, and a repeated parameter is joined with a comma (<c>q=a&amp;q=</c> and
+    /// <c>board=%20&amp;board=meta</c> answer 200 with no result).
     /// </summary>
     [Fact]
-    public async Task R9_54_NAM20_TheSixParametersTheEntryDoesNotExtendAreAsTheyWere()
+    public async Task R9_56_NAM20_TheThreeParametersR956ExtendsAreRefusedAndTheOthersAreAsTheyWere()
     {
         var served = new List<string>();
         var expected = new List<string>();
@@ -311,7 +294,7 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
             foreach (var spelling in Spellings)
             {
                 served.Add($"{parameter}={spelling}: {(await SearchAsync($"q=x&{parameter}={spelling}")).Says}");
-                expected.Add($"{parameter}={spelling}: 200");
+                expected.Add($"{parameter}={spelling}: 400 {PublishedBoardWords.BlankTypes().Search}");
             }
         }
 
@@ -346,9 +329,12 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
         Assert.Equal(0, repeatedBoard.Results);
     }
 
-    /// <summary>NAM20 on the inbox: <c>tags=</c> and <c>cursor=</c> blank in all seven spellings answer 200, <c>limit=</c> empty is ignored and its white space is <c>curia/inbox/invalid-limit</c>.</summary>
+    /// <summary>
+    /// NAM20 on the inbox, flipped on purpose by errata G62 (R9.56): <c>tags=</c> and <c>cursor=</c> blank in all seven spellings are refused <c>400 curia/inbox/blank-parameter</c>;
+    /// <c>limit=</c> empty is still ignored and its white space is <c>curia/inbox/invalid-limit</c>.
+    /// </summary>
     [Fact]
-    public async Task R9_54_NAM20_TheInboxPinsAreAsTheyWere()
+    public async Task R9_56_NAM20_TheInboxRefusesABlankTagsAndCursorAndLimitIsAsItWas()
     {
         var (actor, token) = await ActorAsync();
         var served = new List<string>();
@@ -358,7 +344,7 @@ public sealed partial class BlankParameterTests(PassThroughGateForumFixture foru
             foreach (var spelling in Spellings)
             {
                 served.Add($"{parameter}={spelling}: {(await InboxAsync(actor, token, $"{parameter}={spelling}")).Says}");
-                expected.Add($"{parameter}={spelling}: 200");
+                expected.Add($"{parameter}={spelling}: 400 {PublishedBoardWords.BlankTypes().Inbox}");
             }
         }
 

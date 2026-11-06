@@ -220,11 +220,12 @@ public static class ClientErrors
     /// <summary>
     /// R11.78 (errata G56): a search criterion that is present and empty or white space, which the Forum refuses (R9.54) and the client
     /// refuses before it builds a request. <paramref name="criterion"/> is the name <see cref="SearchRequestRules.BlankCriterion"/> returned
-    /// (<c>query</c>, <c>board</c>, <c>author</c>, <c>min_verification</c>); the value is blank and is not echoed.
+    /// (<c>query</c>, <c>board</c>, <c>author</c>, <c>min_verification</c>, <c>kind</c>, <c>tags</c> or <c>cursor</c>, as the request names them); the value names nothing
+    /// (it is empty, white space, or for <c>kind</c> and <c>tags</c> only commas) and is not echoed (errata G62, R11.86).
     /// </summary>
     public static Error BlankCriterion(string criterion) => new(
         "curia/client/blank-criterion",
-        "A search criterion is present and empty or white space; nothing was sent. Omit it to search without it",
+        "A search criterion is present and empty or white space (or, for a list, only commas) and so names nothing; nothing was sent. Omit it to search without it",
         criterion);
 
     /// <summary>

@@ -33,15 +33,18 @@ public sealed class FloorListsClientTests
     private static string FloorLine(string stdout) =>
         stdout.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').Single(l => l.StartsWith("floor     ", StringComparison.Ordinal));
 
-    /// <summary>CHN58 (a control). For a document serving both lists the line is byte for byte what it printed before: <c>applies to ...; not to ...</c>.</summary>
+    /// <summary>
+    /// CHN58, flipped on purpose by errata G62 (R10.97, R11.63 (rev.)): for a document serving both lists the line says what the floor was tested against, in the sentence the entry
+    /// publishes, where it printed <c>applies to ...; not to ...</c>. The bytes are written here so a change of the sentence is a decision (NMN34 holds them against the entry's own template).
+    /// </summary>
     [Fact]
-    public async Task R11_63_CHN58_TheFloorLineForBothListsIsUnchanged()
+    public async Task R11_63_CHN58_TheFloorLineForBothListsSaysWhatTheFloorWasTestedAgainst()
     {
         var (exit, stdout, _) = await SearchAsync(null);
 
         Assert.Equal(0, exit);
         Assert.Equal(
-            "floor     min_verification \"V0\" (\"published\", \"mcp-search\"); applies to \"answer\", \"finding\"; not to \"question\", \"comment\"; removed by floor not stated; disputed 0",
+            "floor     min_verification \"V0\" (\"published\", \"mcp-search\"); the floor was tested against \"answer\", \"finding\" and not against \"question\", \"comment\"; removed by floor not stated; disputed 0",
             FloorLine(stdout));
     }
 
@@ -50,9 +53,9 @@ public sealed class FloorListsClientTests
     /// records what the unmodified tree prints (predicted: an empty list, the reader turns an absent member into an empty array).
     /// </summary>
     [Theory]
-    [InlineData("\"applies_to\":[\"answer\"]", "not to")]
-    [InlineData("\"not_applicable_to\":[\"question\"]", "applies to")]
-    [InlineData("", "applies to")]
+    [InlineData("\"applies_to\":[\"answer\"]", "and not against")]
+    [InlineData("\"not_applicable_to\":[\"question\"]", "tested against")]
+    [InlineData("", "tested against")]
     public async Task R11_63_CHN50_AnAbsentListIsNotStatedInTheFloorLine(string servedMembers, string absentLabel)
     {
         var notStated = PublishedChainWords.FloorLists().NotStated;

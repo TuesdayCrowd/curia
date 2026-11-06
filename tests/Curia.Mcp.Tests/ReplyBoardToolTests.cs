@@ -111,8 +111,9 @@ public sealed partial class ReplyBoardToolTests : IDisposable
             if (Fold(result.Text).Contains(withdrawn, StringComparison.Ordinal)) problems.Add($"{tool}: a result prints the withdrawn sentence");
         }
 
-        if (!PublishedReplyBoardWords.RequirementNamesMcpVersion(ToolCatalogue.Version))
-            problems.Add($"the catalogue's version is {ToolCatalogue.Version}, and R11.85 does not name it");
+        // A later entry names the newest version (the one parser, PublishedReadersLastWords.Version(), which RLW40 holds); R11.85 named 0.10.3 when it was written.
+        if (!PublishedReplyBoardWords.RequirementNamesMcpVersion("0.10.3") || ToolCatalogue.Version != PublishedReadersLastWords.Version())
+            problems.Add($"the catalogue's version is {ToolCatalogue.Version}, the one parser reads {PublishedReadersLastWords.Version()}, and R11.85 names 0.10.3");
         None(problems, "descriptions that say the board is the post's, the withdrawn sentence printed nowhere, and the version R11.85 names");
     }
 }

@@ -434,6 +434,6 @@ Written by Task 8 (2026-11-05) from the task reports under `.superpowers/sdd/202
 
 **Left open by this PR (filed):** D61 items 166 to 178 (items 166 to 171 from the plan's register text, 172 to 178 from the cold read and the live run) and traps 172 to 177; the plan's lead "a signal's board is compared with nothing" is struck, not filed. Still open: D109, D105, D91's start-up check of the pool's size, D93, D94, D96 to D98. The first free D61 item is 179 and the first free trap 178.
 
-The PR is #148, on `main` at ________.
+The PR is #148, on `main` at 83bcaa83.
 
 Final whole run: 6,464 passed, 0 failed, 3 skipped (Api 1,494 in 40 m 31 s, Application 659, Architecture 109 and 109 in Debug, AuthN 140, Canon.Sodium 32, Canon 329, Client 1,516, Domain.Primitives 64, Domain 987, Infrastructure 228, Mcp 906 and 3 skipped); the closed fuzz in the Api run; locked restore, `cargo fmt`, clippy and `cargo test`, the differential gate with 0 divergence classes, `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4

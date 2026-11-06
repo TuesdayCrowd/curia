@@ -66,7 +66,10 @@ public sealed record PostAcceptedResponse(
     [property: JsonPropertyName("server_ts")] string ServerTimestamp,
     [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags,
     [property: JsonPropertyName("vector_index")] string VectorIndex,
-    [property: JsonPropertyName("budget")] BudgetReceiptResponse Budget);
+    [property: JsonPropertyName("budget")] BudgetReceiptResponse Budget,
+    [property: JsonPropertyName("board_new")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    bool? BoardNew = null);
 
 /// <summary>
 /// R7.29, R9.50: a budget's standing after the act a receipt reports, computed inside the hold by <see cref="BudgetReadout.After"/>. It states no instant:
@@ -432,7 +435,10 @@ public sealed record InboxResponse(
 
     [property: JsonPropertyName("open_before_exclusions")] int OpenBeforeExclusions,
     [property: JsonPropertyName("excluded_as_own")] int ExcludedAsOwn,
-    [property: JsonPropertyName("excluded_as_already_answered")] int ExcludedAsAlreadyAnswered);
+    [property: JsonPropertyName("excluded_as_already_answered")] int ExcludedAsAlreadyAnswered,
+
+    /// <summary>R9.55 (errata G62): the filters the request named that no served post bears; always present on a 200.</summary>
+    [property: JsonPropertyName("unmatched_filters")] ImmutableArray<string> UnmatchedFilters);
 
 /// <summary>A page of results, and the opaque cursor for the next one (R9.7).</summary>
 public sealed record SearchResponse(
@@ -462,7 +468,10 @@ public sealed record SearchResponse(
     [property: JsonPropertyName("vector_checked_at")] string VectorCheckedAt,
 
     /// <summary>R9.53 (errata G54): JSON <c>null</c> where no check is owed, otherwise the instant of the next attempt; always present, written as <c>null</c> and never omitted.</summary>
-    [property: JsonPropertyName("vector_check_due_at")] string? VectorCheckDueAt);
+    [property: JsonPropertyName("vector_check_due_at")] string? VectorCheckDueAt,
+
+    /// <summary>R9.55 (errata G62): the filters the request named that no served post bears; always present on a 200, outside the cursor's binding.</summary>
+    [property: JsonPropertyName("unmatched_filters")] ImmutableArray<string> UnmatchedFilters);
 
 /// <summary>
 /// R8.18 / R8.19's 409, errata G10: an RFC 9457 problem carrying the canonical thread, its
@@ -1083,9 +1092,15 @@ public static class ForumEndpoints
         // board is refused with the thread and its answers (R8.19); anything else near enough is
         // accepted and annotated, never refused (R8.60).
         PossibleDuplicate? annotation = null;
+        bool? boardNew = null;
         if (PostKinds.IsDiscussion(v.Envelope.Kind))
         {
-            var assessed = await dedupe.AssessAsync(log, v.Envelope, cancellationToken).ConfigureAwait(false);
+            // Errata G62, ruling 18: one fold of the corpus, shared by the near-duplicate check and by R8.88's `board_new`.
+            var corpus = SearchProjector.Fold(log);
+            if (v.Envelope.Kind is PostKind.Question or PostKind.Finding)
+                boardNew = !NamedFilters.BoardHasServedPost(corpus, v.Envelope.Board);
+
+            var assessed = await dedupe.AssessAsync(corpus, v.Envelope, cancellationToken).ConfigureAwait(false);
             if (!assessed.TryGetValue(out var assessment, out var dedupeError))
                 return Problem(StatusCodes.Status503ServiceUnavailable, dedupeError!);
 
@@ -1174,7 +1189,7 @@ public static class ForumEndpoints
                 accepted = Result<PostAccepted>.Ok(new PostAccepted(confirmed.PostId, confirmed.ServerTimestamp, confirmed.Digest, confirmed.Sequence.Value));
             }
 
-            return await ReceiptAsync(v, s!, accepted, indexer, budgetAfter).ConfigureAwait(false);
+            return await ReceiptAsync(v, s!, accepted, indexer, budgetAfter, boardNew).ConfigureAwait(false);
         }
         finally
         {
@@ -1204,7 +1219,8 @@ public static class ForumEndpoints
         ScreenedSubmission s,
         Result<PostAccepted> accepted,
         IndexStep indexer,
-        Func<DateTimeOffset, BudgetEntry> budgetAfter)
+        Func<DateTimeOffset, BudgetEntry> budgetAfter,
+        bool? boardNew)
     {
         if (!accepted.TryGetValue(out var post, out var persistError))
         {
@@ -1269,7 +1285,8 @@ public static class ForumEndpoints
             post.ServerTimestamp.ToString(),
             [.. s.Annotations.Flags.Select(f => f.Category.ToString())],
             vectorIndex,
-            BudgetReceiptResponse.Of(budgetAfter(post.ServerTimestamp.Value))));
+            BudgetReceiptResponse.Of(budgetAfter(post.ServerTimestamp.Value)),
+            boardNew));
     }
 
     /// <summary>The step after PERSIST and what it needs from the request: the indexer, the check's state and the clock (R8.83), a logger and the host's stopping token (R8.81).</summary>
@@ -1724,6 +1741,10 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
+        // R9.57: a name the route does not read is refused by name, after the caller is known to be allowed and before the log is read.
+        if (PostReadQueryParameters.CheckPosts(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var servable = Servable(log);
         var posts = PostProjector.Fold(log);
@@ -1834,6 +1855,10 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
+        // R9.57: a name the route does not read is refused by name, after the caller is known to be allowed and before the log is read.
+        if (PostReadQueryParameters.CheckPosts(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var posts = PostProjector.Fold(log);
         var servable = Servable(log);
@@ -1869,6 +1894,10 @@ public static class ForumEndpoints
         var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Thread, ActionKind.Read, cancellationToken)
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
+
+        // R9.57: a name the route does not read is refused by name, after the caller is known to be allowed and before the log is read.
+        if (PostReadQueryParameters.CheckThreads(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var servable = Servable(log);
@@ -2534,7 +2563,9 @@ public static class ForumEndpoints
             pending,
             // R9.53: the check's own record, from the clock port and never from the request; not part of a cursor's binding.
             Instant(checkedAt),
-            dueAt is { } due ? Instant(due) : null));
+            dueAt is { } due ? Instant(due) : null,
+            // R9.55: judged on each filter alone, from the projection already folded for this request; no read is added.
+            NamedFilters.Unmatched(views, servable, boardWire, authorWire)));
     }
 
     /// <summary>R8.36's terms this build does not compute, named as absent with the reason (errata G10).</summary>
@@ -2694,7 +2725,8 @@ public static class ForumEndpoints
             LexicalSearch.NextCursor(hits, limit)?.Encode(),
             matching.Length,
             mine,
-            answered));
+            answered,
+            NamedFilters.Unmatched(views, servable, Nullable(http.Query["board"].ToString()), null)));
     }
 
     /// <summary>
@@ -2754,7 +2786,7 @@ public static class ForumEndpoints
         }
     }
 
-    private static string? Nullable(string value) => BlankQueryParameters.IsBlank(value) ? null : value;
+    private static string? Nullable(string value) => BlankQueryParameters.NamesNothing(value, isList: false) ? null : value;
 
     /// <summary>
     /// The post the single read of an id serves (<c>GET /v1/posts/{id}</c> answers <c>200</c> exactly when this is not null): it exists, moderation

@@ -59,6 +59,12 @@ internal sealed class RecordingForum : IDisposable
 
     internal string[] Lines => [.. Requests];
 
+    /// <summary>
+    /// Errata G62: an answer for a request that is not the token endpoint, given the method, the path and the request's body text; <see langword="null"/> from the
+    /// function (or no function) is the fixed "No such post" document the recorder always gave.
+    /// </summary>
+    internal Func<string, string, string, (int Status, string Body)?>? Responder { get; set; }
+
     private async Task LoopAsync()
     {
         while (_listener.IsListening)
@@ -76,7 +82,17 @@ internal sealed class RecordingForum : IDisposable
             var raw = context.Request.RawUrl ?? string.Empty;
             Requests.Enqueue($"{context.Request.HttpMethod} {raw}");
 
-            var (status, body, type) = (context.Request.Url?.AbsolutePath ?? string.Empty) == "/oauth/token"
+            string requestBody;
+            using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8))
+                requestBody = await reader.ReadToEndAsync().ConfigureAwait(false);
+
+            var answered = (context.Request.Url?.AbsolutePath ?? string.Empty) == "/oauth/token"
+                ? null
+                : Responder?.Invoke(context.Request.HttpMethod, context.Request.Url?.AbsolutePath ?? string.Empty, requestBody);
+
+            var (status, body, type) = answered is { } given
+                ? (given.Status, given.Body, "application/json")
+                : (context.Request.Url?.AbsolutePath ?? string.Empty) == "/oauth/token"
                 ? (200, """{"access_token":"recorder-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""", "application/json")
                 : (404, """{"type":"curia/posts/not-found","title":"No such post","detail":"post=recorded"}""", "application/problem+json");
 

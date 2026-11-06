@@ -285,7 +285,7 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         AssertSameMembers(
             "the submission receipt",
             Paths(JsonNode.Parse(receipt)!),
-            Paths(JsonNode.Parse(StubLog.ReceiptJson("sha256:" + new string('0', 64)))!));
+            Paths(JsonNode.Parse(StubLog.ReceiptJson("sha256:" + new string('0', 64), boardNew: false))!));
 
         var postId = JsonNode.Parse(receipt)!["post_id"]!.GetValue<string>();
         using var flagged = await dpop.PostAsync(

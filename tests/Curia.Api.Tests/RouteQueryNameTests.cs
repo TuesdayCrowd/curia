@@ -220,7 +220,8 @@ public sealed partial class RouteQueryNameTests(ForumFixture forum) : IClassFixt
 
     /// <summary>
     /// What every GET route that reads a query name does with a name it does not read: the test's own table. A route is either
-    /// one that refuses (search, the board listing, the inbox) or a stated non-property (errata G37, finding 4). Every other
+    /// one that refuses (search, the board listing, the inbox, and, since errata G62's R9.57 reversed G37's finding 4 for them, the single read and the thread) or a
+    /// stated non-property (errata G37, finding 4). Every other
     /// route that reads a name fails this fact by name, so a seventh cannot be added without a decision. <c>POST /v1/posts/batch</c>
     /// reads <c>marking</c> and is a POST: it is outside this fact by method, and has no equality row.
     /// </summary>
@@ -229,14 +230,14 @@ public sealed partial class RouteQueryNameTests(ForumFixture forum) : IClassFixt
         ["/v1/search"] = true,
         ["/v1/boards/{board}/posts"] = true,
         ["/v1/inbox"] = true,
-        ["/v1/posts/{postId}"] = false,
-        ["/v1/threads/{rootPostId}"] = false,
+        ["/v1/posts/{postId}"] = true,
+        ["/v1/threads/{rootPostId}"] = true,
         ["/v1/jwks"] = false,
         ["/v1/log/consistency"] = false,
         ["/v1/log/proof/{index}"] = false,
     };
 
-    /// <summary>PD7: every GET route that reads a query name is classified; the refusers refuse, the others answer a name they ignore as they answer none.</summary>
+    /// <summary>PD7: every GET route that reads a query name is classified; the refusers refuse (G62 added the single read and the thread; the batch, a POST, is held by NMN26), the others answer a name they ignore as they answer none.</summary>
     [Fact]
     public async Task R9_37_EveryGetRouteThatReadsAQueryNameIsClassified()
     {
