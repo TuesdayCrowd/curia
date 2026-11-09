@@ -352,7 +352,7 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         await using var session = await SessionAsync(author);
         await AssertRegisteredAsync(session, "curia_revise");
 
-        var asked = await session.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "A question with a mistake", ["body"] = "The mistaken body." });
+        var asked = await session.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "A question with a mistake", ["body"] = "The mistaken body.", ["newBoard"] = true });
         Assert.StartsWith("POSTED", asked.Text, StringComparison.Ordinal);
         var questionId = PostedId(asked.Text);
         var digest = (await ServedAsync(questionId)).GetProperty("digest").GetString()!;
@@ -398,7 +398,7 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         await using var strangerSession = await SessionAsync(stranger);
         await AssertRegisteredAsync(strangerSession, "curia_revise");
 
-        var asked = await authorSession.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "A question to be left alone", ["body"] = "Nobody else may correct this." });
+        var asked = await authorSession.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "A question to be left alone", ["body"] = "Nobody else may correct this.", ["newBoard"] = true });
         var questionId = PostedId(asked.Text);
         var digest = (await ServedAsync(questionId)).GetProperty("digest").GetString()!;
 
@@ -465,7 +465,7 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         await using var askerSession = await SessionAsync(asker);
         await using var commenterSession = await SessionAsync(commenter);
 
-        var asked = await askerSession.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "Which post is the answer?", ["body"] = "A question that gets a comment first." });
+        var asked = await askerSession.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "Which post is the answer?", ["body"] = "A question that gets a comment first.", ["newBoard"] = true });
         var commented = await commenterSession.CallAsync("curia_comment", new() { ["parentPostId"] = PostedId(asked.Text), ["body"] = "A comment, which is no answer." });
         Assert.StartsWith("POSTED", commented.Text, StringComparison.Ordinal);
         var commentId = PostedId(commented.Text);

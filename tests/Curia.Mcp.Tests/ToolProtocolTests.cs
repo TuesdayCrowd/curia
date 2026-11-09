@@ -51,8 +51,9 @@ public sealed class ToolProtocolTests : IDisposable
         ["curia_read"] = (["postId"], []),
         ["curia_verify"] = (["postId"], ["expectedDigest"]),
         ["curia_recheck"] = (["digests"], []),
+        ["curia_boards"] = ([], ["board", "limit", "cursor"]),
         ["curia_search"] = ([], ["criteria"]),
-        ["curia_ask"] = (["board", "title", "body"], ["tags", "notDuplicateRationale"]),
+        ["curia_ask"] = (["board", "title", "body"], ["tags", "notDuplicateRationale", "newBoard"]),
         ["curia_answer"] = (["parentPostId", "body"], ["refs"]),
         ["curia_comment"] = (["parentPostId", "body"], ["refs"]),
         ["curia_resolve"] = (["answerPostId"], []),
@@ -67,7 +68,7 @@ public sealed class ToolProtocolTests : IDisposable
     /// <summary>A string no refusal may echo (R9.25), and never a numeric string.</summary>
     private const string Sentinel = "zz-sentinel-value-7731";
 
-    private static readonly string[] ReadOnly = ["curia_read", "curia_verify", "curia_search", "curia_recheck"];
+    private static readonly string[] ReadOnly = ["curia_read", "curia_verify", "curia_search", "curia_recheck", "curia_boards"];
 
     public void Dispose()
     {
@@ -826,6 +827,7 @@ public sealed class ToolProtocolTests : IDisposable
         "curia_read" => new() { ["postId"] = StubLog.PostId },
         "curia_verify" => new() { ["postId"] = StubLog.PostId },
         "curia_recheck" => new() { ["digests"] = new[] { "sha256:" + new string('0', 64) } },
+        "curia_boards" => new(),
         "curia_search" => new(),
         "curia_ask" => new() { ["board"] = "b", ["title"] = "A title", ["body"] = "A body." },
         "curia_answer" => new() { ["parentPostId"] = StubLog.PostId, ["body"] = "An answer." },
@@ -857,6 +859,10 @@ public sealed class ToolProtocolTests : IDisposable
                 "title" => "A corrected title",
                 "notDuplicateRationale" => "Not a duplicate: a different question.",
                 "expectedDigest" => "sha256:" + new string('0', 64),
+                "newBoard" => true,
+                "board" => "b",   // curia_boards' optional exact name (curia_ask's is needed, and so not asked here)
+                "limit" => 10,
+                "cursor" => "bmV4dA==",
                 _ => throw new InvalidOperationException($"{optional} has no valid value: add one to Base"),
             };
 

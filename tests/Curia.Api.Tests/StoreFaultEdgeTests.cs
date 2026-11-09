@@ -42,6 +42,7 @@ public sealed partial class StoreFaultEdgeTests(FaultableForumFixture forum) : I
         (1664, "POST /v1/posts/batch", "plain"),
         (1700, "GET /v1/threads/{rootPostId}", "plain"),
         (1745, "GET /v1/boards/{board}/posts", "plain"),
+        (1971, "GET /v1/boards", "plain"),
         (1939, "POST /v1/posts/{postId}/accept", "plain"),
         (2280, "GET /v1/search", "plain"),
         (2427, "GET /v1/inbox", "plain"),

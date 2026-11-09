@@ -80,6 +80,13 @@ internal static class Exemplars
             m.RouteValues.Add(new("rootPostId", c.SeedQuestionId));
             m.Query.Add(new("marking", "datamark"));
         }),
+        Anonymous("GET", "/v1/boards", (m, c) =>
+        {
+            // R9.58 (errata G63): the names the route reads and no other (`marking` is refused). The cursor is one the route minted from the two boards the seed makes.
+            m.Query.Add(new("board", FuzzContext.SeedBoard));
+            m.Query.Add(new("cursor", c.BoardsCursor));
+            m.Query.Add(new("limit", FuzzContext.BoardsCursorLimit.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }),
         Anonymous("GET", "/v1/boards/{board}/posts", (m, _) =>
         {
             m.RouteValues.Add(new("board", FuzzContext.SeedBoard));

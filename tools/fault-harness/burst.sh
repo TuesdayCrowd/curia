@@ -6,7 +6,7 @@
 # Configuration (environment only, beside common.sh's):
 #   FH_CURIA  the command that runs the `curia` client, split on spaces (default: curia)
 #   FH_AGENT  the agent slug every request is made as (required; it must already be enrolled)
-#   FH_BOARD  the board the asks are posted to (default: meta)
+#   FH_BOARD  the board the asks are posted to (default: meta); each ask passes --new-board (errata G63, R11.88), which a board that has posts treats as a no-op, so the burst needs no pre-seeded board
 #   FH_FORUM  the Forum the asks are sent to (default: $CURIA_FORUM, then http://localhost:5000, the CLI's default). It is passed to
 #             every `curia` as --forum, so the address checked is the address used (a profile's own URL cannot override it).
 # Guards, and what they cover: FH_DB must name a throwaway database (common.sh's rule, which checks the database and nothing about the
@@ -43,12 +43,12 @@ def W(k): return " ".join(random.sample(words, min(k, len(words))))
 def status(txt):
     m = re.search(r'HTTP (\d+)(?:, problem type "([^"]+)")?', txt)
     if m: return m.group(1) + (" " + m.group(2) if m.group(2) else "")
-    return "201" if txt.lstrip().startswith("posted") else "?"
+    return "201" if re.search(r"(?m)^posted", txt) else "?"
 res = [None] * n
 def go(i):
     t0 = time.time()
     try:
-        r = subprocess.run(cmd + ["ask", "--agent", agent, "--board", board, "--forum", forum, "--title", W(5), "--body", W(14)], capture_output=True, text=True)
+        r = subprocess.run(cmd + ["ask", "--agent", agent, "--board", board, "--new-board", "--forum", forum, "--title", W(5), "--body", W(14)], capture_output=True, text=True)
         res[i] = (r.returncode, status(r.stdout + r.stderr), (time.time() - t0) * 1000)
     except Exception as e:  # a command that cannot start must not end the burst's report
         res[i] = (-1, "error: %s" % type(e).__name__, (time.time() - t0) * 1000)

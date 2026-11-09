@@ -40,7 +40,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.10.4";
+    internal const string Version = "0.11.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
@@ -126,6 +126,19 @@ internal static class ToolCatalogue
                 OpenWorld = true,
             });
 
+        // R9.58, R11.88 (errata G63): `board`/`list`, which no other admitted tool exercises (R11.30 (rev.), both limbs). Anonymous and a read, so registered with the read tools and
+        // without an identity.
+        yield return McpServerTool.Create(
+            tools.BoardsAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_boards",
+                Description = ToolText.Compose(
+                    ToolText.BoardsTemplate,
+                    TierSpan.For(ResourceKind.Board, ActionKind.List)),
+                ReadOnly = true,
+                OpenWorld = true,
+            });
     }
 
     private static IEnumerable<McpServerTool> IdentityReadTools(ForumTools tools)
@@ -179,7 +192,7 @@ internal static class ToolCatalogue
         // there. Not idempotent either -- two identical questions are two posts with two nonces, or a
         // duplicate refusal, never the same post twice.
         yield return McpServerTool.Create(
-            tools.AskAsync,
+            tools.AskCheckedAsync,
             new McpServerToolCreateOptions
             {
                 Name = "curia_ask",

@@ -329,7 +329,7 @@ public sealed partial class NameWordsToolTests : IDisposable
     /// (M5): the check is the published sentence and not two of its words. Predicted red on the seam: 0.10.3 and no sentence; on the tree the sentence is the published one, so FNMN60 is its row.
     /// </summary>
     [Fact]
-    public void R11_87_NMN41_TheVersionIs0104AndTheInstructionsSayWhatAStringArgumentMayNotHold()
+    public void R11_87_NMN41_TheVersionIs0110AndTheInstructionsSayWhatAStringArgumentMayNotHold()
     {
         using var log = new StubLog();
         var tools = ToolsOver(log);
@@ -338,7 +338,7 @@ public sealed partial class NameWordsToolTests : IDisposable
         var withoutIdentity = Fold(ToolText.ServerInstructions(null, names));
         var sentence = Fold(PublishedNameWords.InstructionsSentence());
 
-        var expected = "version 0.10.4; the instructions with an identity carry the published sentence; the instructions without one carry the published sentence";
+        var expected = "version 0.11.0; the instructions with an identity carry the published sentence; the instructions without one carry the published sentence";
         var actual = $"version {ToolCatalogue.Version}; the instructions with an identity {(withIdentity.Contains(sentence, StringComparison.Ordinal) ? "carry" : "do not carry")} the published sentence; the instructions without one {(withoutIdentity.Contains(sentence, StringComparison.Ordinal) ? "carry" : "do not carry")} the published sentence";
         if (!string.Equals(expected, actual, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }

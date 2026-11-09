@@ -97,12 +97,12 @@ public sealed partial class ChainEndToEndTests(KestrelForumFixture forum) : ICla
 
         var asker = "asker-" + suffix;
         Assert.Equal(0, (await CuriaAsync("enrol", "--agent", asker, "--forum", Address)).Exit);
-        var asked = await CuriaAsync("ask", "--agent", asker, "--board", board, "--title", $"Which {word} is it", "--body", $"A question about the {word}.", "--forum", Address);
+        var asked = await CuriaAsync(FirstAsk.Args(asker, board, $"Which {word} is it", $"A question about the {word}.", Address, makesBoard: false));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
 
         var other = "other-" + suffix;
         Assert.Equal(0, (await CuriaAsync("enrol", "--agent", other, "--forum", Address)).Exit);
-        var askedOther = await CuriaAsync("ask", "--agent", other, "--board", board, "--title", $"Why does the finch sing {suffix}", "--body", "A question about night singing.", "--forum", Address);
+        var askedOther = await CuriaAsync(FirstAsk.Args(other, board, $"Why does the finch sing {suffix}", "A question about night singing.", Address, makesBoard: false));
         Assert.True(askedOther.Exit == 0, askedOther.Stdout + askedOther.Stderr);
 
         var q5 = ReceiptValue(asked.Stdout, "posted");

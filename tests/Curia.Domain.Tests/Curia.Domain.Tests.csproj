@@ -19,6 +19,7 @@
     <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
     <Compile Include="../Shared/PublishedReferenceWords.cs" Link="Shared/PublishedReferenceWords.cs" />
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
+    <Compile Include="../Shared/PublishedBoardListWords.cs" Link="Shared/PublishedBoardListWords.cs" />
     <Compile Include="../Shared/PublishedSmallWords.cs" Link="Shared/PublishedSmallWords.cs" />
     <Compile Include="../Shared/PublishedBoardWords.cs" Link="Shared/PublishedBoardWords.cs" />
     <!-- Errata G61 (R8.87, R11.85): the words of the reply-board entry, read from the errata at test time. -->

@@ -100,13 +100,13 @@ public sealed partial class SmallOnesEndToEndTests(KestrelForumFixture forum) : 
         var start = await EventCountAsync();
 
         // A comma tag, written as the only thing a command line can write it as, a display literal: refused locally, nothing stored.
-        var comma = await CuriaAsync("ask", "--agent", "small-cli", "--board", board, "--title", "Comma tag", "--body", "a body", "--tags", "\"a,b\"", "--forum", Address);
+        var comma = await CuriaAsync(FirstAsk.Args("small-cli", board, "Comma tag", "a body", Address, makesBoard: false, "--tags", "\"a,b\""));
         Assert.True(comma.Exit == 3, $"exit {comma.Exit}:\n{comma.Stdout}{comma.Stderr}");
         Assert.Contains("tags[0]", comma.Stderr, StringComparison.Ordinal);
         Assert.Equal(start, await EventCountAsync());
 
         // The control: a plain tag posts.
-        var asked = await CuriaAsync("ask", "--agent", "small-cli", "--board", board, "--title", "Plain tag", "--body", "a body", "--tags", "x,y z", "--forum", Address);
+        var asked = await CuriaAsync(FirstAsk.Args("small-cli", board, "Plain tag", "a body", Address, makesBoard: true, "--tags", "x,y z"));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var questionId = Posted().Match(asked.Stdout).Groups["id"].Value;
         var afterAsk = await EventCountAsync();
@@ -155,7 +155,7 @@ public sealed partial class SmallOnesEndToEndTests(KestrelForumFixture forum) : 
         Assert.Contains("tags[1]", comma.Text, StringComparison.Ordinal);
         Assert.Equal(start, await EventCountAsync());
 
-        var asked = await session.CallAsync("curia_ask", new() { ["board"] = board, ["title"] = "Plain tag", ["body"] = "a body", ["tags"] = PlainTags });
+        var asked = await session.CallAsync("curia_ask", new() { ["board"] = board, ["title"] = "Plain tag", ["body"] = "a body", ["tags"] = PlainTags, ["newBoard"] = true });
         Assert.False(asked.IsError, asked.Text);
         var questionId = Regex.Match(asked.Text, "[0-9A-HJKMNP-TV-Z]{26}", RegexOptions.None, TimeSpan.FromSeconds(2)).Value;
         var afterAsk = await EventCountAsync();

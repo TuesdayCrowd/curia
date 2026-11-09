@@ -150,7 +150,7 @@ public sealed class IndexWordsTests
     /// <summary><c>curia ask</c> against a Forum that answers <c>201</c> with the receipt <see cref="ReceiptWith"/> builds, and the POSTs it saw.</summary>
     private static async Task<(int Exit, string Stdout, string Stderr, int Posts)> RunAskCountingAsync(CliHome home, string? vectorIndexJson)
     {
-        using var forum = new ListenerForum();
+        using var forum = new ListenerForum { Boards = ["b"] };
         forum.Answer = (_, _) => (201, ReceiptWith(vectorIndexJson));
         var run = await home.RunAsync([.. SendAsk, "--forum", forum.Address.ToString()]);
         return (run.Exit, run.Stdout, run.Stderr, forum.Calls("POST /v1/posts").Count);

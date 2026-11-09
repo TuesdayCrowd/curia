@@ -47,7 +47,7 @@ public sealed partial class InboxCursorCliEndToEndTests(BrowseForumFixture forum
             Assert.True(enrolled.Exit == 0, enrolled.Stdout + enrolled.Stderr);
         }
 
-        var asked = await CuriaAsync(ct, "ask", "--agent", asker, "--board", board, "--title", "Open for the inbox", "--body", "a body", "--forum", Address);
+        var asked = await CuriaAsync(ct, FirstAsk.Args(asker, board, "Open for the inbox", "a body", Address, makesBoard: true));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var questionId = Posted().Match(asked.Stdout).Groups["id"].Value;
         Assert.NotEmpty(questionId);

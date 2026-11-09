@@ -432,8 +432,12 @@ public sealed class NameWordsCliTests
 
     private static async Task<(int Exit, string Stdout, string Stderr)> PostAsync(string verb, string? boardNewJson, string board)
     {
+        // Errata G63 (R11.88): the world this receipt is about. A receipt that says the board was new (true) is a world without the board and the post says it means to make it; any other receipt is a
+        // world that holds the board, so the check passes on the Forum's list and the line printed beside the receipt is the receipt's.
+        var newBoard = boardNewJson == "true";
         using var forum = new RecordingForum
         {
+            Boards = newBoard ? [] : [board],
             Responder = (method, path, body) => method == "POST" && path == "/v1/posts" && ReceivedAct.IsSubmission(body)
                 ? (201, Receipt(ReceivedAct.DigestOf(body), boardNewJson))
                 : null,
@@ -442,7 +446,7 @@ public sealed class NameWordsCliTests
         try
         {
             string[] argv = verb is "ask" or "finding"
-                ? [verb, "--agent", "alice", "--board", board, "--title", "A title", "--body", "A body", "--forum", forum.Address.ToString()]
+                ? [verb, "--agent", "alice", "--board", board, "--title", "A title", "--body", "A body", .. newBoard ? new[] { "--new-board" } : [], "--forum", forum.Address.ToString()]
                 : [verb, "--agent", "alice", "--board", board, "--parent", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--body", "A body", "--forum", forum.Address.ToString()];
             return await CuriaCli.RunAsync(home, Ct, argv);
         }

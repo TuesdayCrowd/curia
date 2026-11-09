@@ -71,6 +71,7 @@ internal static class Program
                 "recheck" => await RecheckAsync(args, cts.Token).ConfigureAwait(false),
                 "thread" => await ThreadAsync(args, cts.Token).ConfigureAwait(false),
                 "board" => await BoardAsync(args, cts.Token).ConfigureAwait(false),
+                "boards" => await BoardsAsync(args, cts.Token).ConfigureAwait(false),
                 "browse" => await BrowseAsync(argv, args, cts.Token).ConfigureAwait(false),
                 "verify" => await VerifyAsync(args, cts.Token).ConfigureAwait(false),
                 "contract" => await ContractAsync(args, cts.Token).ConfigureAwait(false),
@@ -192,8 +193,8 @@ internal static class Program
     /// <summary>The flags a verb accepts when its method serves several verbs, by verb. PostAsync and SignalAsync refuse any other flag for that verb, so a flag one kind reads is never silently taken by another. D37_EveryVerbAnswersHelp holds each such verb's help to name every flag listed here, and to name no other.</summary>
     internal static string[] SharedVerbFlags(string verb) => verb switch
     {
-        "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate"],
-        "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum"],
+        "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate", "new-board"],
+        "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "new-board"],
         "comment" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "refs", "forum"],
         "revision" => ["agent", "board", "parent", "prev", "title", "body", "body-file", "tags", "refs", "forum"],
         "endorse" => ["agent", "board", "predict", "reject", "epoch", "forum"],
@@ -346,8 +347,42 @@ internal static class Program
                 DuplicateRationale = args.Value("not-duplicate"),
             };
 
+            if ((kind is PostKind.Question or PostKind.Finding) && await CheckBoardAsync(args, agent, draft, kind, args.Has("new-board"), ct).ConfigureAwait(false) is { } boardRefusal)
+                return boardRefusal;
+
             return await SendDraftAsync(args, store, agent, draft, ct, supersession, question).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// R11.88 (errata G63): the Forum's list of boards, read for the typed board after every refusal this client makes on its own (the draft's local refusal is asked of
+    /// <see cref="SubmissionBuilder.LocalRefusal"/>, so a draft with a second fault is told that fault by the send that follows, with no request made here) and before anything is
+    /// signed or kept. Prints the board line and returns null where the post goes; otherwise prints the refusal and returns its exit code: <c>1</c> for a board no served post is on that
+    /// <c>--new-board</c> does not acknowledge, <c>8</c> for a list that could not be read (which does not offer the flag).
+    /// </summary>
+    private static async Task<int?> CheckBoardAsync(Args args, EnrolledAgent agent, PostDraft draft, PostKind kind, bool flagGiven, CancellationToken ct)
+    {
+        if (SubmissionBuilder.LocalRefusal(agent.Profile.AgentId, draft, TimeProvider.System.GetUtcNow()) is not null) return null;
+
+        var forum = ForumUri(args, agent.Profile);
+        using var http = HttpFor(forum);
+        var client = new ForumClient(http, forum);
+        var board = draft.Board;
+
+        var check = await BoardCheck.CheckAsync(client, board, ct).ConfigureAwait(false);
+        if (check.Outcome is BoardCheckOutcome.Unreadable)
+            return Output.Fail($"{new OwnText(BoardListWording.Unreadable(board, check.Fault!).TrimEnd('\n'))}", ExitCode.ForumFault);
+
+        if (check.Outcome is BoardCheckOutcome.NotOnList && !flagGiven)
+        {
+            var names = await BoardCheck.FirstPageAsync(client, ct).ConfigureAwait(false);
+            return Output.Fail(
+                $"{new OwnText(BoardListWording.NotListed(board, kind, names.TryGetValue(out var page, out _) ? page : null, adapter: false).TrimEnd('\n'))}",
+                ExitCode.Usage);
+        }
+
+        if (BoardListWording.BoardLine(board, check, flagGiven, adapter: false) is { } line) Output.Line($"{new OwnText(line)}");
+        return null;
     }
 
     /// <summary>
@@ -1165,13 +1200,86 @@ internal static class Program
         return await RenderAsync(client, value, forum, watch, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// <c>curia boards</c> (R9.58, R10.98, R11.88): the boards with a post the Forum serves, most posts first, in the published words. Anonymous. A <c>--board</c>, <c>--cursor</c> or
+    /// <c>--limit</c> that cannot be sent is refused before any request, and none of them is dropped.
+    /// </summary>
+    private static async Task<int> BoardsAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "board", "limit", "cursor", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        // A word typed where a flag was meant is an argument supplied and not honoured: `curia boards rust` would list every board and ignore `rust` (Amendment 2, ruling 36).
+        if (args.Positional.Length > 0)
+            return Output.Fail("error: usage: curia boards [--board <name>] [--limit <1-100>] [--cursor <cursor>] [--forum <url>]. Nothing was sent.", ExitCode.Usage);
+
+        if (args.Has("board") && QueryValue.NamesNothing(args.Value("board"), isList: false))
+            return Output.Fail("error: --board is empty or blank; omit it to list every board. Nothing was sent.", ExitCode.Usage);
+
+        if (args.Has("cursor") && QueryValue.NamesNothing(args.Value("cursor"), isList: false))
+            return Output.Fail("error: --cursor is empty or blank; omit it to start the listing. Nothing was sent.", ExitCode.Usage);
+
+        if (args.Has("board") && args.Has("cursor"))
+            return Output.Fail($"{new OwnText("error: " + BoardListWording.BoardWithCursor(adapter: false) + ". Nothing was sent.")}", ExitCode.Usage);
+
+        int? limit = null;
+        if (args.Has("limit"))
+        {
+            if (!int.TryParse(args.Value("limit"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) || n is < 1 or > BoardCheck.MaximumLimit)
+                return Output.Fail($"error: --limit is a whole number from 1 to {BoardCheck.MaximumLimit}. Nothing was sent.", ExitCode.Usage);
+            limit = n;
+        }
+
+        // The route reads no `marking` (R9.58), so the context's marking is not asked of it: only the Forum the named agent's profile records.
+        // `--agent` is read for its Forum alone, and one that names no profile this host can load is refused: the listing of another Forum under the words "the boards the Forum serves" is a quiet wrong answer
+        // (Amendment 2, ruling 36; D61 items 130 to 149's family).
+        var store = ProfileStore.Default();
+        AgentProfile? profile = null;
+        if (args.Has("agent"))
+        {
+            if (string.IsNullOrWhiteSpace(args.Value("agent")))
+                return Output.Fail($"{new OwnText(AgentWording.Blank("boards"))}", ExitCode.Usage);
+
+            if (!store.Load(args.Value("agent")!).TryGetValue(out var agent, out var loadError))
+                return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}. Nothing was sent.", ExitCode.Local);
+
+            using (agent) profile = agent.Profile;
+        }
+
+        var forum = ForumUri(args, profile);
+        using var http = HttpFor(forum);
+        var client = new ForumClient(http, forum);
+
+        var read = await client.GetBoardsAsync(args.Value("board"), limit, args.Value("cursor"), ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var page, out var refusal))
+            return BoardCheck.IsOlderForum(refusal!)
+                ? Output.Fail($"{new OwnText(BoardListWording.NoList(adapter: false))}", ExitCode.NotFound)
+                : Output.Fail(refusal);
+
+        Output.Line(Help.BoardsBanner);
+        if (args.Value("board") is { } filter && page!.Boards.IsEmpty)
+        {
+            Output.Line($"{new OwnText(BoardListWording.FilteredEmpty(filter))}");
+            return ExitCode.Ok;
+        }
+
+        Output.Line($"{new OwnText(BoardListWording.Header(page!.Boards.Length, page.Total))}");
+        foreach (var row in page.Boards)
+            Output.Line($"{new OwnText(BoardListWording.Row(row))}");
+
+        if (page.NextCursor is { Length: > 0 } next)
+            Output.Line($"{new OwnText(BoardListWording.MoreLabel)}{Hints.More("curia boards", next)}");
+        else
+            Output.Line($"{new OwnText(BoardListWording.NoFurtherPages)}");
+
+        return ExitCode.Ok;
+    }
+
     /// <summary>What a board with no posts prints, for the line form and for the screen before it draws.</summary>
     internal static int EmptyBoard(string board)
     {
         Output.Line($"no posts on board {board}.");
-        Output.Line(
-            "An unknown board and an empty board are the same answer here: the Forum returns "
-            + "an empty list for both, and there is no endpoint that enumerates boards.");
+        Output.Line($"{new OwnText(BoardListWording.EmptyBoardSecondLine)}");
         return ExitCode.Ok;
     }
 

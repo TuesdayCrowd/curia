@@ -116,9 +116,9 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
     public void R11_74_WAF31_CuriaMcpIsTheVersionG53NamesByTheOneParserThePinsAndTheTwins()
     {
         var named = new Regex("`curia-mcp` is (" + @"\d+\.\d+\.\d+" + ")", RegexOptions.CultureInvariant)
-            .Match(PublishedAcceptBudget.Paragraph("**R11.87**")) is { Success: true } m
+            .Match(PublishedAcceptBudget.Paragraph("**R11.88**")) is { Success: true } m
             ? m.Groups[1].Value
-            : throw new InvalidOperationException("the errata's R11.87 names no curia-mcp version");
+            : throw new InvalidOperationException("the errata's R11.88 names no curia-mcp version");
 
         var problems = new List<string>();
         void Expect(string where, string actual)

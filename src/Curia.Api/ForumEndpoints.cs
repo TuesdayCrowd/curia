@@ -440,6 +440,29 @@ public sealed record InboxResponse(
     /// <summary>R9.55 (errata G62): the filters the request named that no served post bears; always present on a 200.</summary>
     [property: JsonPropertyName("unmatched_filters")] ImmutableArray<string> UnmatchedFilters);
 
+/// <summary>R9.58 (errata G63): a page of the board listing, and the opaque cursor for the next one.</summary>
+public sealed record BoardListResponse(
+    [property: JsonPropertyName("boards")] ImmutableArray<BoardRowResponse> Boards,
+    [property: JsonPropertyName("total")] int Total,
+    [property: JsonPropertyName("corpus_bound")] long CorpusBound,
+    [property: JsonPropertyName("next_cursor")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? NextCursor);
+
+/// <summary>R9.58: one board, with what is true of a name and nothing of a post's shape (no author, no level, no marking).</summary>
+public sealed record BoardRowResponse(
+    [property: JsonPropertyName("board")] string Board,
+    [property: JsonPropertyName("posts")] int Posts,
+    [property: JsonPropertyName("authors")] int Authors,
+    [property: JsonPropertyName("latest_post_at")] string LatestPostAt,
+    [property: JsonPropertyName("provenance")] BoardRowProvenanceResponse Provenance);
+
+/// <summary>R9.58: the members of the envelope a board row can truthfully carry (R10.17).</summary>
+public sealed record BoardRowProvenanceResponse(
+    [property: JsonPropertyName("content_type")] string ContentType,
+    [property: JsonPropertyName("warning")] string Warning,
+    [property: JsonPropertyName("reader_contract")] string ReaderContract);
+
 /// <summary>A page of results, and the opaque cursor for the next one (R9.7).</summary>
 public sealed record SearchResponse(
     [property: JsonPropertyName("results")] ImmutableArray<SearchHitResponse> Results,
@@ -534,6 +557,7 @@ public static class ForumEndpoints
         app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync).Serves(ServedContent.AgentAuthored);
         app.MapPost("/v1/posts/{postId}/flags", RaiseFlagAsync).Serves(ServedContent.None);
         app.MapPost("/v1/posts/{postId}/accept", AcceptAnswerAsync).Serves(ServedContent.None);
+        app.MapGet("/v1/boards", ListBoardsAsync).Serves(ServedContent.AgentAuthored);
         app.MapGet("/v1/boards/{board}/posts", ListBoardAsync).Serves(ServedContent.AgentAuthored);
         app.MapGet("/v1/search", SearchAsync).Serves(ServedContent.AgentAuthored);
         app.MapGet("/v1/inbox", InboxAsync).Serves(ServedContent.AgentAuthored);
@@ -1931,6 +1955,64 @@ public static class ForumEndpoints
             : Results.Ok(thread
                 .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, corrections, acta, threadRoot: root))
                 .ToArray());
+    }
+
+    /// <summary>
+    /// R9.58 (errata G63): <c>GET /v1/boards</c>, the boards a post of a discussion kind that moderation serves is on. Anonymous and authorized as <c>board</c> | <c>list</c>, as the per-board
+    /// listing is. Judged in the order R9.29 and R9.54 set: the caller is allowed, an unknown name is refused, a blank <c>board</c> or <c>cursor</c>, the limit, the cursor's shape, and only then
+    /// the log is read, once. The corpus is the log as of the cursor's bound (a first page fixes the newest event), moderation included, so the order is exact across pages. The fold, the order
+    /// and the filter are <see cref="NamedFilters.ServedBoards"/>'s: one predicate with R9.55's.
+    /// </summary>
+    private static async Task<IResult> ListBoardsAsync(
+        HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Board, ActionKind.List, cancellationToken)
+            .ConfigureAwait(false);
+        if (allowed is not null) return allowed;
+
+        if (BoardListQueryParameters.Check(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
+        if (BlankQueryParameters.Check(http.Query, BlankQueryRoute.BoardList) is { } blank)
+            return Problem(StatusCodes.Status400BadRequest, blank);
+
+        if (!BoardListQueryParameters.ReadLimit(http.Query).TryGetValue(out var limit, out var limitError))
+            return Problem(StatusCodes.Status400BadRequest, limitError!);
+
+        if (!BoardListCursor.Decode(http.Query["cursor"].ToString()).TryGetValue(out var cursor, out var cursorError))
+            return Problem(StatusCodes.Status400BadRequest, cursorError!);
+
+        var boardFilter = Nullable(http.Query["board"].ToString());
+
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var newest = log.Count == 0 ? 0L : log[^1].Seq.Value;
+
+        // A bound the log has not reached was not minted by this route over this log.
+        if (cursor is not null && cursor.CorpusBound > newest)
+            return Problem(StatusCodes.Status400BadRequest, BoardListCursor.MalformedError());
+
+        var bound = cursor?.CorpusBound ?? newest;
+        var corpus = bound == newest ? log : [.. log.Where(e => e.Seq.Value <= bound)];
+
+        var servable = Servable(corpus);
+        var served = NamedFilters.ServedBoards(PostProjector.Fold(corpus), servable);
+        var listed = boardFilter is null ? served : [.. served.Where(r => string.Equals(r.Board, boardFilter, StringComparison.Ordinal))];
+
+        var offset = cursor?.Offset ?? 0;
+        var page = listed.Skip(offset).Take(limit).ToArray();
+        var more = (long)offset + page.Length < listed.Length;
+
+        var contract = ReaderContractUrl(http);
+        return Results.Ok(new BoardListResponse(
+            [.. page.Select(r => new BoardRowResponse(
+                r.Board,
+                r.Posts,
+                r.Authors,
+                r.LatestPostAt.ToString(),
+                new BoardRowProvenanceResponse(PostEnvelope.RequiredContentType, Provenance.StandardWarning, contract)))],
+            listed.Length,
+            bound,
+            more ? new BoardListCursor(bound, offset + page.Length).Encode() : null));
     }
 
     private static async Task<IResult> ListBoardAsync(

@@ -108,24 +108,10 @@ public static class SubmissionBuilder
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentNullException.ThrowIfNull(draft);
 
-        var envelope = Compose(agent.Profile.AgentId, draft, createdAt);
+        if (!Prepare(agent.Profile.AgentId, draft, createdAt).TryGetValue(out var prepared, out var prepareError))
+            return Result<SignedSubmission>.Fail(prepareError!);
 
-        // Read it back through the Forum's own schema check, so a missing title or a parent on a
-        // question is a local error naming the Table 9 rule rather than a 400 from the Forum, and then
-        // through the Forum's admission rule (R8.64), which it shares by calling the same function.
-        if (!PostEnvelope.Read(envelope).TryGetValue(out var read, out var schemaError))
-            return Result<SignedSubmission>.Fail(
-                ClientErrors.EnvelopeInvalid($"{schemaError!.Type}: {schemaError.Title}"));
-
-        if (PostEnvelope.AdmissionRefusal(read!) is { } admission)
-            return Result<SignedSubmission>.Fail(ClientErrors.EnvelopeInvalid(admission));
-
-        if (!CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out var canonError))
-            return Result<SignedSubmission>.Fail(
-                ClientErrors.EnvelopeInvalid($"{canonError!.Type}: {canonError.Title}"));
-
-        if (Prescreen(canonical.Span) is { } screeningError)
-            return Result<SignedSubmission>.Fail(screeningError);
+        var (envelope, canonical) = prepared;
 
         var jws = new DetachedJws(
             new Dictionary<string, IContentSigner>(StringComparer.Ordinal) { ["ES256"] = new Es256Adapter() },
@@ -156,6 +142,43 @@ public static class SubmissionBuilder
             signature.Compact,
             digest.ToHex(),
             digest.ToPrefixed()));
+    }
+
+    /// <summary>
+    /// Every refusal the client makes on its own about a draft, and nothing else: the schema read, the admission rule (R8.64, R8.85's grammar, R8.73's tags), the canonical form and the
+    /// credential scan, with no key touched and nothing signed or kept. Null where the draft would be built. R11.88 (errata G63): a verb that reads the Forum's list of boards asks this first, so a
+    /// submission with a second fault is told that fault and not the list's, and a refused draft sends no request.
+    /// </summary>
+    public static Error? LocalRefusal(string authorId, PostDraft draft, DateTimeOffset createdAt)
+    {
+        ArgumentNullException.ThrowIfNull(authorId);
+        ArgumentNullException.ThrowIfNull(draft);
+
+        return Prepare(authorId, draft, createdAt).TryGetValue(out _, out var error) ? null : error;
+    }
+
+    private static Result<(JsonValue.Object Envelope, Curia.Canon.Canonical.CanonicalBytes Canonical)> Prepare(string authorId, PostDraft draft, DateTimeOffset createdAt)
+    {
+        var envelope = Compose(authorId, draft, createdAt);
+
+        // Read it back through the Forum's own schema check, so a missing title or a parent on a
+        // question is a local error naming the Table 9 rule rather than a 400 from the Forum, and then
+        // through the Forum's admission rule (R8.64), which it shares by calling the same function.
+        if (!PostEnvelope.Read(envelope).TryGetValue(out var read, out var schemaError))
+            return Result<(JsonValue.Object, Curia.Canon.Canonical.CanonicalBytes)>.Fail(
+                ClientErrors.EnvelopeInvalid($"{schemaError!.Type}: {schemaError.Title}"));
+
+        if (PostEnvelope.AdmissionRefusal(read!) is { } admission)
+            return Result<(JsonValue.Object, Curia.Canon.Canonical.CanonicalBytes)>.Fail(ClientErrors.EnvelopeInvalid(admission));
+
+        if (!CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out var canonError))
+            return Result<(JsonValue.Object, Curia.Canon.Canonical.CanonicalBytes)>.Fail(
+                ClientErrors.EnvelopeInvalid($"{canonError!.Type}: {canonError.Title}"));
+
+        if (Prescreen(canonical.Span) is { } screeningError)
+            return Result<(JsonValue.Object, Curia.Canon.Canonical.CanonicalBytes)>.Fail(screeningError);
+
+        return Result<(JsonValue.Object, Curia.Canon.Canonical.CanonicalBytes)>.Ok((envelope, canonical));
     }
 
     /// <summary>

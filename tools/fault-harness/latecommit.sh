@@ -97,7 +97,7 @@ def act(label):
     if kind == "revision": return cli("revision", "--parent", E["LC_POST"], "--body", label + " " + W(12))
     if kind == "flag": return cli("flag", E["LC_POST"], "--kind", E["LC_FLAGKIND"], "--rationale", "latecommit drill " + label)
     if kind == "vote": return cli("endorse", E["LC_TARGET"], "--board", board)
-    if label == "A": return cli("ask", "--board", board, "--title", "latecommit " + W(3), "--body", name + " " + W(12))
+    if label == "A": return cli("ask", "--board", board, "--new-board", "--title", "latecommit " + W(3), "--body", name + " " + W(12))
     return curia + ["resend", digests[0], "--agent", agent, "--forum", forum]
 digests = []
 def kept():

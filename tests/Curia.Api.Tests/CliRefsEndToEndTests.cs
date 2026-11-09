@@ -51,7 +51,7 @@ public sealed partial class CliRefsEndToEndTests(KestrelForumFixture forum) : IC
     {
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", agent, "--forum", Address)).Exit);
-        var asked = await CuriaAsync(ct, "ask", "--agent", agent, "--board", board, "--title", "A question to cite against", "--body", "a body", "--forum", Address);
+        var asked = await CuriaAsync(ct, FirstAsk.Args(agent, board, "A question to cite against", "a body", Address, makesBoard: true));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var (postId, digest) = ReadReceipt(asked.Stdout);
         return (postId, digest, board);
@@ -209,7 +209,7 @@ public sealed partial class CliRefsAnswerEndToEndTests(KestrelForumFixture forum
 
         // A question from another agent, to answer.
         Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", "asker-a", "--forum", address)).Exit);
-        var asked = await CuriaAsync(ct, "ask", "--agent", "asker-a", "--board", board, "--title", "What should I cite", "--body", "a body", "--forum", address);
+        var asked = await CuriaAsync(ct, FirstAsk.Args("asker-a", board, "What should I cite", "a body", address, makesBoard: true));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var (questionId, _) = ReadReceipt(asked.Stdout);
 

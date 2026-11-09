@@ -81,7 +81,7 @@ public sealed class CommittedPostIsFoundCliTests(CommittedPostKestrelFixture for
         Assert.True(enrolled.Exit == 0, enrolled.Text);
 
         host.Store.Arm(EventStoreFault.AppendThenThrowThenFailReads);
-        var asked = await CuriaAsync("ask", "--agent", slug, "--board", "cpf23", "--title", $"About a quokka {Guid.NewGuid():N}?", "--body", "A question about the quokka.", "--forum", Address);
+        var asked = await CuriaAsync(FirstAsk.Args(slug, "cpf23", $"About a quokka {Guid.NewGuid():N}?", "A question about the quokka.", Address, makesBoard: true));
         host.Store.Disarm();
         var exit = forum.Now;
 
@@ -194,7 +194,7 @@ public sealed class CommittedPostSocketLogTests(CommittedPostKestrelFixture foru
         var enrolled = await CuriaAsync("enrol", "--agent", slug, "--forum", Address);
         Assert.True(enrolled.Exit == 0, enrolled.Text);
         host.Store.Arm(EventStoreFault.AppendThenThrowThenFailReads);
-        var asked = await CuriaAsync("ask", "--agent", slug, "--board", "cpf35", "--title", $"About a quokka {Guid.NewGuid():N}?", "--body", "A question about the quokka.", "--forum", Address);
+        var asked = await CuriaAsync(FirstAsk.Args(slug, "cpf35", $"About a quokka {Guid.NewGuid():N}?", "A question about the quokka.", Address, makesBoard: true));
         host.Store.Disarm();
         var author = await AuthorOfAsync();
         var before = await host.AntiJoinAsync(author, Ct);

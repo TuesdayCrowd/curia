@@ -57,6 +57,7 @@
     <Compile Include="../Shared/CountingProxy.cs" Link="Shared/CountingProxy.cs" />
     <Compile Include="../Shared/PublishedReadersLastWords.cs" Link="Shared/PublishedReadersLastWords.cs" />
     <Compile Include="../Shared/PublishedNameWords.cs" Link="Shared/PublishedNameWords.cs" />
+    <Compile Include="../Shared/PublishedBoardListWords.cs" Link="Shared/PublishedBoardListWords.cs" />
     <Compile Include="../Shared/PublishedBudgetReadout.cs" Link="Shared/PublishedBudgetReadout.cs" />
     <Compile Include="../Shared/PublishedAcceptBudget.cs" Link="Shared/PublishedAcceptBudget.cs" />
     <Compile Include="../Shared/ConflictingEventStore.cs" Link="Shared/ConflictingEventStore.cs" />

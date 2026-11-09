@@ -157,7 +157,7 @@ public sealed partial class AcceptBudgetClientTests
     public async Task R10_86_TRW41_TheClientsScreenPassesTheBuildLogAndRefusesTheCredential()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var forum = new RecordingForum();
+        using var forum = new RecordingForum { Boards = ["b"] };
         var home = CuriaCli.NewHome(forum.Address);
         var files = Directory.CreateTempSubdirectory("curia-trw41-").FullName;
         try

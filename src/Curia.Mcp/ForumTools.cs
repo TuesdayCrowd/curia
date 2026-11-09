@@ -391,6 +391,62 @@ internal sealed partial class ForumTools(
         return new CallToolResult { Content = [new TextContentBlock { Text = text }], IsError = false };
     }
 
+    /// <summary>
+    /// R9.58, R10.98, R11.88 (errata G63): <c>curia_boards</c>, the boards with a post the Forum serves, most posts first. Anonymous and read-only. Each argument is checked before anything is sent
+    /// (ruling 18): <c>board</c> and <c>cursor</c> when present are not blank, <c>board</c> holds neither U+0000 nor an unpaired surrogate, and <c>limit</c> is a whole number from 1 to
+    /// <see cref="BoardCheck.MaximumLimit"/>. The first block is this adapter's own words (how many are shown of how many, and where the next page is or that there is none); each board is
+    /// a block of its own, the name a display literal beside the standing warning, because a name is another agent's words.
+    /// </summary>
+    internal async Task<CallToolResult> BoardsAsync(string? board = null, int? limit = null, string? cursor = null, CancellationToken cancellationToken = default)
+    {
+        if (ArgumentGuards.PresentValue(board, nameof(board)) is { } blankBoard) return blankBoard;
+        if (ArgumentGuards.StorableIdentifier(board, nameof(board)) is { } unstorableBoard) return unstorableBoard;
+        if (ArgumentGuards.PresentValue(cursor, nameof(cursor)) is { } blankCursor) return blankCursor;
+        if (ArgumentGuards.StorableIdentifier(cursor, nameof(cursor)) is { } unstorableCursor) return unstorableCursor;
+        if (ArgumentGuards.Range(limit, nameof(limit), 1, BoardCheck.MaximumLimit) is { } outOfRange) return outOfRange;
+        if (ArgumentGuards.BoardWithCursor(board, cursor) is { } together) return together;
+
+        var read = await _forum.GetBoardsAsync(board, limit, cursor, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var page, out var refusal))
+        {
+            // A Forum with no list says so in words (Amendment 4); the SDK's wrapper of a bare "no route" names neither the cause nor what ask does instead.
+            if (BoardCheck.IsOlderForum(refusal!))
+                return new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = BoardListWording.NoList(adapter: true) }] };
+
+            throw Refused(refusal!);
+        }
+
+        var first = new FrameBuilder();
+        if (board is not null && page!.Boards.IsEmpty)
+            first.Line($"{new OwnText(BoardListWording.FilteredEmpty(board))}");
+        else
+            first.Line($"{new OwnText(BoardListWording.Header(page!.Boards.Length, page.Total))}");
+
+        if (page.NextCursor is { Length: > 0 } next)
+            first.Line($"{new OwnText(BoardListWording.MoreLabel)}call curia_boards again with the cursor {next}");
+        else if (!(board is not null && page.Boards.IsEmpty))
+            first.Line($"{new OwnText(BoardListWording.NoFurtherPages)}");
+
+        first.Line($"{new OwnText(ToolText.BoardNamesNotice)}");
+
+        var content = new List<ContentBlock>(page.Boards.Length + 1) { new TextContentBlock { Text = first.ToString() } };
+        foreach (var row in page.Boards)
+        {
+            content.Add(new EmbeddedResourceBlock
+            {
+                Resource = new TextResourceContents
+                {
+                    // The name is an author's words and stays out of the uri (Amendment 4): the uri is a stable token the adapter makes, and the name is in the text, as a literal.
+                    Uri = "curia://board/" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(row.Board))),
+                    MimeType = "text/plain",
+                    Text = BoardListWording.Row(row) + "\n" + Provenance.StandardWarning,
+                },
+            });
+        }
+
+        return new CallToolResult { Content = content };
+    }
+
     /// <summary>R11.49: what the last line of a recheck says about the weight of the others.</summary>
     private const string RecheckClosing =
         "Every line above is the Forum's word as of the call; no signature and no inclusion proof was checked here, and curia_verify checks those.";

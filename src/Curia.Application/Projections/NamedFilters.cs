@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Curia.Domain.Content;
+using Curia.Domain.Primitives;
 using Curia.Domain.Search;
 
 namespace Curia.Application.Projections;
@@ -40,6 +41,37 @@ public static class NamedFilters
         ArgumentNullException.ThrowIfNull(board);
 
         return corpus.Any(p => string.Equals(p.Board, board, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// R9.58 (errata G63): the boards a served discussion post is on, one row each, by the predicate <see cref="BoardHasServedPost(ImmutableArray{PostView}, Func{string, bool}, string)"/> uses
+    /// (<c>IsServedDiscussion</c>), so the listing, <c>unmatched_filters</c> and <c>board_new</c> cannot disagree. Most posts first, then by name in ordinal order. Boards and authors compare
+    /// ordinally, as stored: nothing is folded, normalized or trimmed, and the fold is total over any text.
+    /// </summary>
+    public static ImmutableArray<BoardRow> ServedBoards(ImmutableArray<PostView> posts, Func<string, bool> servable)
+    {
+        ArgumentNullException.ThrowIfNull(servable);
+
+        var byBoard = new Dictionary<string, (int Posts, HashSet<string> Authors, ServerTimestamp Latest)>(StringComparer.Ordinal);
+        foreach (var post in posts)
+        {
+            if (!IsServedDiscussion(post, servable)) continue;
+
+            if (byBoard.TryGetValue(post.Board, out var seen))
+            {
+                seen.Authors.Add(post.Author);
+                byBoard[post.Board] = (seen.Posts + 1, seen.Authors, post.ServerTimestamp > seen.Latest ? post.ServerTimestamp : seen.Latest);
+            }
+            else
+            {
+                byBoard[post.Board] = (1, new HashSet<string>(StringComparer.Ordinal) { post.Author }, post.ServerTimestamp);
+            }
+        }
+
+        return [.. byBoard
+            .Select(b => new BoardRow(b.Key, b.Value.Posts, b.Value.Authors.Count, b.Value.Latest))
+            .OrderByDescending(r => r.Posts)
+            .ThenBy(r => r.Board, StringComparer.Ordinal)];
     }
 
     private static bool AuthorHasServedPost(ImmutableArray<PostView> posts, Func<string, bool> servable, string author) =>

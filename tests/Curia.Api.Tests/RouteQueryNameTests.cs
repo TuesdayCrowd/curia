@@ -229,6 +229,7 @@ public sealed partial class RouteQueryNameTests(ForumFixture forum) : IClassFixt
     {
         ["/v1/search"] = true,
         ["/v1/boards/{board}/posts"] = true,
+        ["/v1/boards"] = true,   // errata G63, R9.58: the board listing reads board, limit and cursor and refuses every other name
         ["/v1/inbox"] = true,
         ["/v1/posts/{postId}"] = true,
         ["/v1/threads/{rootPostId}"] = true,
@@ -261,6 +262,7 @@ public sealed partial class RouteQueryNameTests(ForumFixture forum) : IClassFixt
         {
             ["/v1/search"] = ["/v1/search?q=x"],
             ["/v1/boards/{board}/posts"] = [$"/v1/boards/{board}/posts"],
+            ["/v1/boards"] = ["/v1/boards"],
             ["/v1/inbox"] = ["/v1/inbox"],
             ["/v1/posts/{postId}"] = [$"/v1/posts/{question.Id}"],
             ["/v1/threads/{rootPostId}"] = [$"/v1/threads/{question.Id}"],

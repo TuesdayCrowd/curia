@@ -120,6 +120,7 @@ public sealed partial class UnheardActTests
     {
         using var stub = new RawStubForum(UnheardBehaviour.Stall);
         var run = await RunAsync(stub.Address, ShortTimeout, AskArgs);
+        stub.ExpectOlderForumLine(run.Text);
         var facts = Read(run.Text);
         var received = stub.Submissions.LastOrDefault();
         var digest = received is null ? null : ReceivedAct.DigestOf(received);
@@ -131,6 +132,7 @@ public sealed partial class UnheardActTests
         if (received is not null && run.Exit == ExitCode.ForumFault && facts.UnheardTitle && facts.Sentence && facts.ActLines == 1 && facts.ActDigest == digest && !facts.TimedOut && facts.OrderViolations == 0)
             actual = expected;
         Said(expected, actual);
+        stub.AssertOlderForumAsserted();
     }
 
     private sealed record Row(string Name, bool Unheard);
@@ -163,9 +165,29 @@ public sealed partial class UnheardActTests
                 });
             }
 
+            // Errata G63 (R11.88): the world these rows ask in holds board b, so the check passes on the Forum's list and the transport failure under test is the post's.
+            if (request.Method == HttpMethod.Get && request.RequestUri.AbsolutePath == "/v1/boards")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(BoardListHarness.WorldPage(["b"], request.RequestUri.Query), System.Text.Encoding.UTF8, "application/json") });
+
             throw thrown();
         }
     }
+
+    /// <summary>Serves the Forum's list of boards (board b) from memory and sends every other request on: the rows whose transport failure is real (a refused connection, a name that does not resolve) fail at the token step or the post, not at the check.</summary>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "A response the handler returns is disposed by the HttpClient that reads it.")]
+    private sealed class ListServingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            return request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/v1/boards"
+                ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(BoardListHarness.WorldPage(["b"], request.RequestUri.Query), System.Text.Encoding.UTF8, "application/json") })
+                : base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    private static Func<Uri, HttpClient> ShortTimeoutWithTheList =>
+        forum => new HttpClient(new ShortTimeoutHandler(new ListServingHandler(new HttpClientHandler()))) { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
 
     private static Func<Uri, HttpClient> Throwing(Func<HttpRequestException> thrown) =>
         forum => new HttpClient(new ThrowingHandler(thrown)) { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
@@ -177,19 +199,25 @@ public sealed partial class UnheardActTests
             case "a FIN after the request was read (ResponseEnded)":
             {
                 using var stub = new RawStubForum(UnheardBehaviour.Fin);
-                return await RunAsync(stub.Address, ShortTimeout, AskArgs);
+                var printed = await RunAsync(stub.Address, ShortTimeout, AskArgs);
+                stub.ExpectOlderForumLine(printed.Text);
+                stub.AssertOlderForumAsserted();
+                return printed;
             }
 
             case "an RST after the request was read (no name)":
             {
                 using var stub = new RawStubForum(UnheardBehaviour.Reset);
-                return await RunAsync(stub.Address, ShortTimeout, AskArgs);
+                var printed = await RunAsync(stub.Address, ShortTimeout, AskArgs);
+                stub.ExpectOlderForumLine(printed.Text);
+                stub.AssertOlderForumAsserted();
+                return printed;
             }
 
             case "a refused connection (ConnectionError)":
-                return await RunAsync(UnusedPort(), ShortTimeout, AskArgs);
+                return await RunAsync(UnusedPort(), ShortTimeoutWithTheList, AskArgs);
             case "an unresolvable name (NameResolutionError)":
-                return await RunAsync(new Uri("http://forum.invalid"), ShortTimeout, AskArgs);
+                return await RunAsync(new Uri("http://forum.invalid"), ShortTimeoutWithTheList, AskArgs);
             case "a constructed ConnectionError":
                 return await RunAsync(new Uri("http://forum.test"), Throwing(() => new HttpRequestException(HttpRequestError.ConnectionError, "refused")), AskArgs);
             case "a constructed SecureConnectionError":
@@ -255,6 +283,8 @@ public sealed partial class UnheardActTests
         async Task CheckAsync(string name, RawStubForum stub, params string[] args)
         {
             var run = await RunAsync(stub.Address, stub.StallToken ? ShortTimeoutEvenForTheToken : ShortTimeout, args);
+            if (args[0] == "ask") stub.ExpectOlderForumLine(run.Text);
+            stub.AssertOlderForumAsserted();
             var facts = Read(run.Text);
             var titleAllowed = args[0] is "resolve" or "flag";
             if (facts.Sentence || facts.ActLines > 0 || (facts.UnheardTitle && !titleAllowed)) problems.Add($"{name}: {facts.Says}");
@@ -287,7 +317,7 @@ public sealed partial class UnheardActTests
     public async Task R11_77_AFC24_OneDefinitionDecidesWhatIsUnheardAndNeitherPrinterDecidesIt()
     {
         using var stub = new RawStubForum(UnheardBehaviour.Stall);
-        await RunAsync(stub.Address, ShortTimeout, AskArgs);
+        stub.ExpectOlderForumLine((await RunAsync(stub.Address, ShortTimeout, AskArgs)).Text);
         var posts = stub.Requests.Count(r => r == "POST /v1/posts");
 
         var src = Path.Combine(RepoRoot(), "src");
@@ -305,6 +335,7 @@ public sealed partial class UnheardActTests
             "one submission reached the stub; HttpRequestError is named in UnheardTransport.cs alone; UnheardTransport is called from ForumSession.cs alone; no printer compares a problem type to the store type",
             $"{(posts == 1 ? "one submission reached the stub" : posts + " submissions reached the stub")}; HttpRequestError is named in {(errorNamers.Length == 0 ? "no file" : string.Join(", ", errorNamers) + (errorNamers.Length == 1 ? " alone" : string.Empty))}; " +
             $"UnheardTransport is called from {(callers.Length == 0 ? "no file" : string.Join(", ", callers) + (callers.Length == 1 ? " alone" : string.Empty))}; {(comparers.Length == 0 ? "no printer compares a problem type to the store type" : string.Join(" and ", comparers.Select(Path.GetFileName)) + " compare a problem type to the store type")}");
+        stub.AssertOlderForumAsserted();
     }
 
     private static readonly string[] PrinterFiles = ["src/Curia.Client.Cli/Program.cs", "src/Curia.Mcp/WriteTools.cs"];

@@ -71,7 +71,7 @@ public sealed partial class CliParentEndToEndTests(KestrelForumFixture forum) : 
         forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Now);
 
         Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", "asker-p", "--forum", address)).Exit);
-        var asked = await CuriaAsync(ct, "ask", "--agent", "asker-p", "--board", board, "--title", "Which entry does this pin", "--body", "a question body", "--forum", address);
+        var asked = await CuriaAsync(ct, FirstAsk.Args("asker-p", board, "Which entry does this pin", "a question body", address, makesBoard: false));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var questionId = PostIdOf(asked.Stdout);
         var commented = await CuriaAsync(ct, "comment", "--agent", "asker-p", "--board", board, "--parent", questionId, "--body", "a comment on the question", "--forum", address);

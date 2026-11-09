@@ -89,7 +89,7 @@ public sealed partial class RevisionRaceEndToEndTests(KestrelForumFixture forum)
             var board = Board();
             var agent = "race" + trial + Suffix();
             Assert.Equal(0, (await CuriaAsync("enrol", "--agent", agent, "--forum", address)).Exit);
-            var asked = await CuriaAsync("ask", "--agent", agent, "--board", board, "--title", "Original " + Unrelated(), "--body", "The original " + Unrelated(), "--forum", address);
+            var asked = await CuriaAsync(FirstAsk.Args(agent, board, "Original " + Unrelated(), "The original " + Unrelated(), address, makesBoard: true));
             Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
             var (postId, digest) = ReadReceipt(asked.Stdout);
 

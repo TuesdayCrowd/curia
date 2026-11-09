@@ -159,6 +159,9 @@ public sealed class ToolDescriptionTests
         // R11.49: the batch route is anonymous and a read; the pair curia_read exercises (R11.30 (rev.), annotated by G35).
         "curia_recheck" => (ResourceKind.Thread, ActionKind.Read),
 
+        // Errata G63 (R9.58): the board listing is authorized as `board` | `list`, a pair no other admitted tool exercises (R11.30 (rev.), both limbs).
+        "curia_boards" => (ResourceKind.Board, ActionKind.List),
+
         // R11.26: the Scope column's write values are Table 10 rows written with a colon.
         "curia_ask" => (ResourceKind.Question, ActionKind.Create),
         "curia_answer" => (ResourceKind.Answer, ActionKind.Create),
@@ -235,7 +238,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_acts", "curia_answer", "curia_ask", "curia_budget", "curia_comment", "curia_discard", "curia_flag", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
+            ["curia_acts", "curia_answer", "curia_ask", "curia_boards", "curia_budget", "curia_comment", "curia_discard", "curia_flag", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 
@@ -247,7 +250,7 @@ public sealed class ToolDescriptionTests
     public void WithoutAnIdentityOnlyTheReadToolsAreRegistered()
     {
         Assert.Equal(
-            ["curia_read", "curia_recheck", "curia_search", "curia_verify"],
+            ["curia_boards", "curia_read", "curia_recheck", "curia_search", "curia_verify"],
             Registered(withIdentity: false).Select(t => t.Name).Order());
     }
 

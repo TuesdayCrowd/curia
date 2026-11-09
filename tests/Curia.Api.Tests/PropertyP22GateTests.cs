@@ -128,16 +128,9 @@ public sealed class PropertyP22GateTests(ForumFixture forum) : IClassFixture<For
         var board = "p22-" + Guid.NewGuid().ToString("N")[..8];
         var postId = await AskAsync(client, board, "P22 gate", "does content carry its envelope", ct);
 
-        var drivable = new (string Route, string Url)[]
+        foreach (var form in RouteForms)
         {
-            ("/v1/posts/{postId}", $"/v1/posts/{postId}"),
-            ("/v1/threads/{rootPostId}", $"/v1/threads/{postId}"),
-            ("/v1/boards/{board}/posts", $"/v1/boards/{board}/posts"),
-            ("/v1/search", $"/v1/search?q=envelope&board={board}&kind=question"),
-        };
-
-        foreach (var (route, url) in drivable)
-        {
+            var url = form.Url(board, postId);
             using var response = await client.GetAsync(new Uri(url, UriKind.Relative), ct);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -150,9 +143,10 @@ public sealed class PropertyP22GateTests(ForumFixture forum) : IClassFixture<For
             // conflation P22's own subject matter is about, committed inside its gate. The first
             // draft of this test had exactly that, and it was intermittent: a search that happened
             // to match nothing failed claiming a missing provenance block.
+            var expected = form.Contains(board, postId);
             Assert.True(
-                body.Contains(postId, StringComparison.Ordinal),
-                $"{route} did not return the post this test created, so it cannot say anything " +
+                body.Contains(expected, StringComparison.Ordinal),
+                $"{form.Route} did not return {form.ContainsWhat} this test created, so it cannot say anything " +
                 "about whether content carries its envelope. That is a defect in this probe, not " +
                 "in the route.");
 
@@ -160,16 +154,57 @@ public sealed class PropertyP22GateTests(ForumFixture forum) : IClassFixture<For
 
             Assert.True(
                 carried.Length > 0,
-                $"{route} returned content with no provenance block. Property P22: content reaches " +
+                $"{form.Route} returned content with no provenance block. Property P22: content reaches " +
                 "a reader inside R10.17's envelope or it does not reach one at all.");
 
             foreach (var envelope in carried)
             {
                 Assert.Equal(Provenance.StandardWarning, envelope.GetProperty("warning").GetString());
-                Assert.False(string.IsNullOrWhiteSpace(envelope.GetProperty("author").GetString()));
-                Assert.False(string.IsNullOrWhiteSpace(envelope.GetProperty("verification_level").GetString()));
+                foreach (var member in form.Members)
+                    Assert.False(
+                        string.IsNullOrWhiteSpace(envelope.GetProperty(member).GetString()),
+                        $"{form.Route}: the envelope's {member} is blank.");
             }
         }
+    }
+
+    /// <summary>
+    /// One row per content route the gate drives anonymously, and the two walls of the gate for it. A post route's envelope holds an author and a verification level and its body holds a post id; a
+    /// board row is a name, and holds neither (R10.17, errata G63 finding 10): its envelope is <c>content_type</c>, <c>warning</c> and <c>reader_contract</c> and its body holds the board's name. Both forms
+    /// are read from this table, so the four post routes keep exactly the assertions they have (the warning is the standing one, the author and the level are not blank), a board row cannot be driven by
+    /// loosening them, and a route driven without a row does not compile into the loop (<see cref="R14_9_EveryDrivenRouteHasAFormAndEveryFormIsAContentRoute"/> holds the table to the registrations).
+    /// </summary>
+    internal static readonly IReadOnlyList<RouteForm> RouteForms =
+    [
+        new("/v1/posts/{postId}", (_, id) => $"/v1/posts/{id}", (_, id) => id, "the post", ["author", "verification_level"]),
+        new("/v1/threads/{rootPostId}", (_, id) => $"/v1/threads/{id}", (_, id) => id, "the post", ["author", "verification_level"]),
+        new("/v1/boards/{board}/posts", (b, _) => $"/v1/boards/{b}/posts", (_, id) => id, "the post", ["author", "verification_level"]),
+        new("/v1/search", (b, _) => $"/v1/search?q=envelope&board={b}&kind=question", (_, id) => id, "the post", ["author", "verification_level"]),
+        new("/v1/boards", (b, _) => $"/v1/boards?board={b}", (b, _) => b, "the board", ["content_type", "reader_contract"]),
+    ];
+
+    /// <summary>A content route's two per-route forms (the containment check and the members its envelope must hold besides the standing warning).</summary>
+    internal sealed record RouteForm(string Route, Func<string, string, string> Url, Func<string, string, string> Contains, string ContainsWhat, string[] Members);
+
+    /// <summary>
+    /// The table is the gate's own scope and so is held to the registrations both ways: every route in it is a registered content route, and every registered content route is either in it or among the
+    /// three it cannot drive without a credential. A route added to either list alone fails by name.
+    /// </summary>
+    [Fact]
+    public void R14_9_EveryDrivenRouteHasAFormAndEveryFormIsAContentRoute()
+    {
+        var content = Registered(forum)
+            .Where(s => s.Classification?.Content is ServedContent.AgentAuthored)
+            .Select(s => s.Route)
+            .ToHashSet(StringComparer.Ordinal);
+        var driven = RouteForms.Select(f => f.Route).ToArray();
+
+        Assert.Equal(driven.Length, driven.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(
+            "forms for routes that are not content routes: none; content routes with neither a form nor a place among the undriven: none",
+            "forms for routes that are not content routes: " + (driven.Where(r => !content.Contains(r)).ToArray() is { Length: > 0 } stray ? string.Join(", ", stray) : "none")
+            + "; content routes with neither a form nor a place among the undriven: "
+            + (content.Except(driven, StringComparer.Ordinal).Except(["/v1/inbox", "/v1/posts", "/v1/posts/batch"], StringComparer.Ordinal).ToArray() is { Length: > 0 } loose ? string.Join(", ", loose) : "none"));
     }
 
     /// <summary>
@@ -189,6 +224,7 @@ public sealed class PropertyP22GateTests(ForumFixture forum) : IClassFixture<For
 
         Assert.Equal(
             [
+                "/v1/boards",
                 "/v1/boards/{board}/posts",
                 "/v1/inbox",
                 "/v1/posts",

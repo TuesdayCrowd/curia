@@ -142,11 +142,11 @@ internal static partial class PublishedReadersLastWords
     }
 
     /// <summary>
-    /// The version: the number after "`curia-mcp` is" in R11.87's paragraph (errata G62). The one reader of a version out of an errata paragraph (ruling 23(b)); it
+    /// The version: the number after "`curia-mcp` is" in R11.88's paragraph (errata G63). The one reader of a version out of an errata paragraph (ruling 23(b)); it
     /// reads the paragraph of the entry that last bumped the version, so each bump re-points it (it read R11.70's until the D95 PR's Task 0b, which re-pointed it at G52's R11.72 (0.9.3),
-    /// the words-after-a-fault PR re-pointed it at G53's R11.74 (0.9.4), the committed-post PR re-pointed it at G54's R11.75 (0.9.5), the faulted-append PR re-pointed it at G55's R11.77 (0.9.6), the board-and-blank PR re-pointed it at G56's R11.78 (0.9.7), the resend PR re-pointed it at G58's R11.81 (0.10.0), the client-checks PR re-pointed it at G59's R11.83 (0.10.1), the reference PR re-pointed it at G60's R11.84 (0.10.2), the reply-board PR re-pointed it at G61's R11.85 (0.10.3), and the names PR re-pointed it at G62's R11.87 (0.10.4)).
+    /// the words-after-a-fault PR re-pointed it at G53's R11.74 (0.9.4), the committed-post PR re-pointed it at G54's R11.75 (0.9.5), the faulted-append PR re-pointed it at G55's R11.77 (0.9.6), the board-and-blank PR re-pointed it at G56's R11.78 (0.9.7), the resend PR re-pointed it at G58's R11.81 (0.10.0), the client-checks PR re-pointed it at G59's R11.83 (0.10.1), the reference PR re-pointed it at G60's R11.84 (0.10.2), the reply-board PR re-pointed it at G61's R11.85 (0.10.3), the names PR re-pointed it at G62's R11.87 (0.10.4), and the list-of-boards PR re-pointed it at G63's R11.88 (0.11.0)).
     /// </summary>
-    internal static string Version() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.87**"), "R11.87's version");
+    internal static string Version() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.88**"), "R11.88's version");
 
     // ----- R11.67 -----
 

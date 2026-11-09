@@ -52,8 +52,8 @@ public sealed partial class FaultedAppendIsConfirmedSocketTests(ConfirmKestrelFi
         return slug;
     }
 
-    private Task<(int Exit, string Text, string Stdout)> AskAsync(string slug, string board) =>
-        CuriaAsync("ask", "--agent", slug, "--board", board, "--title", $"About a quokka {Guid.NewGuid():N}?", "--body", "A question about the quokka.", "--forum", Address);
+    private Task<(int Exit, string Text, string Stdout)> AskAsync(string slug, string board, bool makesBoard) =>
+        CuriaAsync(FirstAsk.Args(slug, board, $"About a quokka {Guid.NewGuid():N}?", "A question about the quokka.", Address, makesBoard));
 
     /// <summary>
     /// AFC10, over a real socket. A post whose append commits and then throws, asked by the real <c>curia</c> over Kestrel, prints an ordinary receipt and exits 0; the
@@ -72,7 +72,7 @@ public sealed partial class FaultedAppendIsConfirmedSocketTests(ConfirmKestrelFi
         var owedBefore = (await host.StateAsync(Ct)).Owed;
         var mark = forum.Log.Mark();
         host.Store.Arm(EventStoreFault.AppendThenThrow);
-        var asked = await AskAsync(slug, board);
+        var asked = await AskAsync(slug, board, makesBoard: true);
         host.Store.Disarm();
         var after = await host.LogShapeAsync(Ct);
         var state = await host.StateAsync(Ct);
@@ -97,7 +97,7 @@ public sealed partial class FaultedAppendIsConfirmedSocketTests(ConfirmKestrelFi
 
         // The not-confirmed leg (the late commit): the sentence's instruction, followed.
         host.Store.Arm(EventStoreFault.ThrowThenCommitWhenReleased);
-        var late = await AskAsync(slug, "afc18-late-" + Guid.NewGuid().ToString("N")[..8]);
+        var late = await AskAsync(slug, "afc18-late-" + Guid.NewGuid().ToString("N")[..8], makesBoard: true);
         host.Store.Disarm();
         var digest = Digest().Matches(late.Text).Select(m => m.Value).LastOrDefault();
         var unknown = digest is null ? string.Empty : (await CuriaAsync("recheck", digest, "--forum", Address)).Text;
@@ -108,7 +108,7 @@ public sealed partial class FaultedAppendIsConfirmedSocketTests(ConfirmKestrelFi
 
         // The confirmed leg: nothing the sentence is about.
         host.Store.Arm(EventStoreFault.AppendThenThrow);
-        var confirmed = await AskAsync(slug, "afc18-found-" + Guid.NewGuid().ToString("N")[..8]);
+        var confirmed = await AskAsync(slug, "afc18-found-" + Guid.NewGuid().ToString("N")[..8], makesBoard: true);
         host.Store.Disarm();
         var sentence = Fold(PublishedConfirmWords.StoreSentence);
         var confirmedClean = confirmed.Exit == 0 && confirmed.Stdout.Contains("posted", StringComparison.Ordinal) && !confirmed.Text.Contains(sentence, StringComparison.Ordinal) && !confirmed.Text.Contains("The act sent:", StringComparison.Ordinal);

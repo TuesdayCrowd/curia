@@ -144,6 +144,34 @@ public sealed class ForumClient
                 ForumDocuments.ReadPosts, ct);
 
     /// <summary>
+    /// R9.58 (errata G63): <c>GET /v1/boards</c>, anonymous.
+    ///
+    /// <para><b>The net under both front ends</b> (R11.78, Amendment 2, ruling 29). A present blank <c>board</c> or <c>cursor</c> and a <c>limit</c> outside 1 to <see cref="BoardCheck.MaximumLimit"/> are refused
+    /// here, before a request, as <see cref="SearchAsync"/> refuses a blank criterion: a <c>board</c> dropped is the unfiltered corpus, which a caller of the library would read as the board's.</para>
+    /// </summary>
+    public async Task<ForumResult<BoardPage>> GetBoardsAsync(string? board, int? limit, string? cursor, CancellationToken ct)
+    {
+        if (SearchRequestRules.BlankCriterion(null, board, null, null, cursor: cursor) is { } blank)
+            return ForumResult<BoardPage>.Local(ClientErrors.BlankCriterion(blank));
+
+        if (limit is < 1 or > BoardCheck.MaximumLimit)
+            return ForumResult<BoardPage>.Local(ClientErrors.BoardListLimit(limit.Value));
+
+        if (board is not null && cursor is not null)
+            return ForumResult<BoardPage>.Local(ClientErrors.BoardWithCursor());
+
+        if (board is not null && RefuseUnstorable<BoardPage>(board, nameof(board)) is { } unstorable) return unstorable;
+
+        var parameters = new List<string>();
+        if (!string.IsNullOrWhiteSpace(board)) parameters.Add($"board={Uri.EscapeDataString(board)}");
+        if (limit is { } n) parameters.Add($"limit={n.ToString(CultureInfo.InvariantCulture)}");
+        if (!string.IsNullOrWhiteSpace(cursor)) parameters.Add($"cursor={Uri.EscapeDataString(cursor)}");
+
+        return await GetAsync("/v1/boards" + (parameters.Count == 0 ? string.Empty : "?" + string.Join("&", parameters)), ForumDocuments.ReadBoardPage, ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// R9.4's lexical half: <c>GET /v1/search</c>.
     ///
     /// <para><b>Every value is percent-encoded into the query string.</b> A term containing

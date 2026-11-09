@@ -64,6 +64,17 @@ internal static class ArgumentGuards
     }
 
     /// <summary>
+    /// R9.58, R11.88 (errata G63): an optional whole number that is present is within the published range. Absent (null) is the argument not given. The range is the Forum's to enforce too; the
+    /// adapter refuses by name before anything is sent so that the model is told which argument and not shown a refusal from a route it cannot read.
+    /// </summary>
+    internal static CallToolResult? Range(int? value, string argument, int minimum, int maximum)
+    {
+        return value is { } present && (present < minimum || present > maximum)
+            ? Refusal($"{argument} is not a whole number from {minimum} to {maximum}")
+            : null;
+    }
+
+    /// <summary>
     /// R11.52 (errata G40): a pin that is present is in the published form, <c>sha256:</c> and 64 lowercase hex (<see cref="EnvelopeDigest.IsPrefixedForm"/>).
     /// Absent (null) is no pin. A pin is a statement about a document and a digest has one spelling, so any other form is refused by name and is
     /// not folded; the refusal states the form and never echoes the value (R10.63).
@@ -96,6 +107,10 @@ internal static class ArgumentGuards
 
         return null;
     }
+
+    /// <summary>R11.88 (Amendment 4): <c>board</c> and <c>cursor</c> together are refused <c>NOT SENT</c>, by the sentence both surfaces share (<see cref="Curia.Client.BoardListWording.BoardWithCursor"/>).</summary>
+    internal static CallToolResult? BoardWithCursor(string? board, string? cursor) =>
+        board is not null && cursor is not null ? Refusal(Curia.Client.BoardListWording.BoardWithCursor(adapter: true)) : null;
 
     private static CallToolResult Refusal(string what) =>
         new() { IsError = true, Content = [new TextContentBlock { Text = $"NOT SENT: {what}. Nothing was sent." }] };

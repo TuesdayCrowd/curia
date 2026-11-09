@@ -65,6 +65,20 @@ internal sealed class RecordingForum : IDisposable
     /// </summary>
     internal Func<string, string, string, (int Status, string Body)?>? Responder { get; set; }
 
+    /// <summary>
+    /// Errata G63: as <see cref="Responder"/> with the request's query string too (<c>?board=rust</c>, empty where there is none), asked first; <see langword="null"/> from it falls to <see cref="Responder"/>.
+    /// </summary>
+    internal Func<string, string, string, string, (int Status, string Body)?>? QueryResponder { get; set; }
+
+    /// <summary>
+    /// Errata G63 (R9.58, R11.88): the boards this recorder's world serves a post on, each with one post by one author; where set, <c>GET /v1/boards</c> answers the exact <c>board=</c> filter or the
+    /// whole list from it, and where null the list route is not served (the recorder's fixed "No such post" document, which the board check reads as a fault and not as an older Forum).
+    /// </summary>
+    internal IReadOnlyList<string>? Boards { get; set; }
+
+    private (int Status, string Body)? ServeBoards(string method, string path, string query) =>
+        Boards is { } boards && method == "GET" && path == "/v1/boards" ? (200, BoardListHarness.WorldPage(boards, query)) : null;
+
     private async Task LoopAsync()
     {
         while (_listener.IsListening)
@@ -88,7 +102,9 @@ internal sealed class RecordingForum : IDisposable
 
             var answered = (context.Request.Url?.AbsolutePath ?? string.Empty) == "/oauth/token"
                 ? null
-                : Responder?.Invoke(context.Request.HttpMethod, context.Request.Url?.AbsolutePath ?? string.Empty, requestBody);
+                : QueryResponder?.Invoke(context.Request.HttpMethod, context.Request.Url?.AbsolutePath ?? string.Empty, context.Request.Url?.Query ?? string.Empty, requestBody)
+                    ?? ServeBoards(context.Request.HttpMethod, context.Request.Url?.AbsolutePath ?? string.Empty, context.Request.Url?.Query ?? string.Empty)
+                    ?? Responder?.Invoke(context.Request.HttpMethod, context.Request.Url?.AbsolutePath ?? string.Empty, requestBody);
 
             var (status, body, type) = answered is { } given
                 ? (given.Status, given.Body, "application/json")
