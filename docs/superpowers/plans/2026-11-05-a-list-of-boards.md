@@ -1358,7 +1358,7 @@ Task 4's whole run as CI runs it, the closed fuzz, preflight (green before every
 
 ## Next stage
 
-D118 (the `despaced` view and a reference), then PR 8, "A search says what it found" (D114, D115; errata G64), PR 9, "A question says what became of it" (D116, D117; errata G65; `curia_inbox`), the fourteenth exercise, PR 10 (the small-ones sweep, D119 first) and PR 11 (D105; waits).
+Superseded by `IMPLEMENTATION_PLAN.md`, "Next stage" and "Beta" (updated 2026-11-09, when this PR was built): the register is where the order now stands. At the time this plan was written it read: D118, then PR 8, then PR 9, the fourteenth exercise, PR 10 and PR 11.
 
 ## Open risks (named so the reviewer can look)
 
@@ -1374,4 +1374,69 @@ D118 (the `despaced` view and a reference), then PR 8, "A search says what it fo
 
 ## As run
 
-(Written by Task 8 from the task reports. The PR is #__, on `main` at ________.)
+(Written by Task 8 from the task reports in `.superpowers/sdd/2026-11-05-boards-list/` (untracked). Branch `a-list-of-boards`, from `main` e561c55b (#149).)
+
+### The commits, oldest first (`git log --reverse origin/main..a-list-of-boards`)
+
+- `f8cffc78` PR 7 after exercise 13 (plan): a list of boards (D113; errata G63 specified: R9.58, R10.98, R11.88; curia-mcp 0.11.0), and the thirteenth exercise's register
+- `28b5f94a` PR 7 (plan, amendment 1): Task 0's measurements and rulings 13 to 24 (errata G63: R9.58, R10.98, R11.88)
+- `63ec4ab0` PR 7 (T1): the seam, behaviour-preserving (errata G63: R9.58, R10.98, R11.88)
+- `385d310f` PR 7 (T1): the probes LOB1 to LOB41, in their failing form (errata G63: R9.58, R10.98, R11.88)
+- `5424e204` PR 7 (T2): the Forum lists boards, GET /v1/boards (errata G63: R9.58)
+- `24183fb3` PR 7 (T3): the clients list boards and check one before they sign (errata G63: R10.98, R11.88)
+- `0ac52177` PR 7 (T4): the end-to-end fixtures say what they mean (errata G63: R9.58, R11.88)
+- `f6ec8f33` PR 7 (plan, amendment 2): the review's rulings 25 to 41 (errata G63: R9.58, R10.98, R11.88)
+- `60b8edb4` PR 7 (T5 fix): the probes LOB42 to LOB52 and the widened rows, in their failing form (errata G63: R9.58, R10.98, R11.88)
+- `c8abe05a` PR 7 (T5 fix): the code the probes name (errata G63: R9.58, R10.98, R11.88)
+- `367b3440` PR 7 (plan, amendment 3): rulings 42 to 56 on the falsification's gaps, with exact patch text for every row (errata G63)
+- `dbf96920` PR 7 (T6b): the probes LOB53 and the widened LOB7, LOB10, LOB13, LOB22, LOB27, LOB33, LOB34 and LOB52, in their failing form (errata G63: R9.58, R10.98, R11.88)
+- `0cfbf1b9` PR 7 (T6b): curia_ask says what to do after an unreadable list, with the condition (errata G63: R11.88)
+- `48fdde4c` PR 7 (plan, amendment 4): the live run's rulings 57 to 69 (errata G63: R9.58, R10.98, R11.88)
+- `0897cf78` PR 7 (errata): G63 for amendment 4: the board-and-cursor refusal, the no-list words, the resource uri and non-properties (n) to (q) (errata G63: R9.58, R10.98, R11.88)
+- `4492d58d` PR 7 (T7b): the probes LOB54 to LOB58, in their failing form (errata G63: R9.58, R10.98, R11.88)
+- `1a262010` PR 7 (T7b): the clients refuse a board with a cursor, say a Forum has no list, and a board's resource uri is a token (errata G63: R9.58, R10.98, R11.88)
+- and the Task 8 commit that writes this section (its sha is in the PR's history, not here: a commit cannot name itself).
+
+The falsification runs (Task 7, 6b and 7b) changed no tracked file: the runner patched a kept copy, built with `--no-incremental`, restored by a plain copy so the modification time moved, and ran the row's probes; the records are `flob-results.jsonl`, `flob-results-step1.jsonl`, `flob-fix-results.jsonl`, `flob-results-2.jsonl` and `flob-results-3.jsonl`.
+
+### Probes LOB1 to LOB58 (58, none retired)
+
+LOB1 to LOB41: Task 1, in their failing form on a behaviour-preserving seam (Domain 29 red, Application 4, Architecture 2, Client 13, Mcp 8, Api `BoardList*` 13 red of 33; the rest green controls: LOB14 to LOB17 and LOB27 on the seam; LOB3's 24 refusal rows were red through their control). LOB42 to LOB52: Amendment 2's fix round (LOB46 to LOB49, LOB52 and the `--agent` and positional rows of LOB42 red on the tree; LOB42, LOB43, LOB44, LOB45, LOB50, LOB51 and the widened LOB2 controls on the current behaviour, so worth exactly what FLOB63 to FLOB86 made them; LOB20 and LOB22 were predicted red and were green, recorded as controls). LOB53 and the widened LOB7, LOB10, LOB13, LOB22, LOB27, LOB33, LOB34, LOB52: Amendment 3's round (green on the tree, red under the row's patch; LOB52 red on the old sentence before the code commit). LOB54 to LOB58: Amendment 4's round (LOB54, LOB55, LOB56 and the fence LOB37 red on the unmodified tree; LOB57 and LOB58 green on the tree and red under FLOB99 to FLOB101).
+
+### Falsification FLOB1 to FLOB101 (recounted by script from the five records)
+
+- First run (FLOB1 to FLOB86, `flob-results.jsonl`): 86 rows, 103 patched records and one unpatched run; **red on the first form 74 of 86** (72 first records red, 12 green, 2 build-failed; FLOB18 and FLOB77 were rewritten after the analyzers refused the first patch and their rewrites were red) and **77 in any form**; the unpatched run green. 9 rows were red in no form: FLOB15, FLOB20, FLOB26, FLOB28, FLOB33, FLOB43, FLOB50, FLOB57, FLOB62 (seven real gaps and two mis-aimed rows, Amendment 3, ruling 42). The runner read each row's first probe, so FLOB57 (LOB47 named as extra) was counted wrongly (ruling 43).
+- The T5 fix round (`flob-fix-results.jsonl`): FLOB63 to FLOB86, 24 rows and 26 forms, 26 red, each unpatched-green.
+- Round 6b (`flob-results-step1.jsonl` and `flob-results-2.jsonl`): the probes were first green on the tree and then red under the row's patch (25 records over 15 rows, all red); the whole table FLOB1 to FLOB90, 90 rows and 100 records, **90 of 90 red on the first form**, none green, the unpatched run green; FLOB89 red, so the ICU note is not needed; FLOB87 and FLOB88 compile in the real test build.
+- Round 7b (`flob-results-3.jsonl`): the whole table FLOB1 to FLOB101 with the closed fuzz row (FLOB16) last, 101 rows, **101 of 101 red on the first form**, no form b or c needed, the unpatched run green once after. FLOB99 costs the test's own 30-second timeout.
+
+### The rulings
+
+Plan rulings 1 to 12; Amendment 1 (Task 0, rulings 13 to 24: the check follows every local refusal; `AskCheckedAsync` registered; shared stubs serve the list; 64 fixtures take `--new-board` at the creating call; the P22 gate's two per-route forms; `curia_boards`'s guards; LOB5's wording; M9 by a within-run rule; LCB18 and AFC18 classified; counts); Amendment 2 (the review, rulings 25 to 41); Amendment 3 (the falsification, rulings 42 to 56); Amendment 4 (the live run, rulings 57 to 69). The errata G63 was edited in place by Amendments 1, 2 and 4.
+
+### Gates
+
+- Task 1 (the seam): Domain 987, Application 684, Domain.Primitives 64, Infrastructure 228, Mcp 917, Client 1560, Architecture 112 in Release and Debug, all green; the closed fuzz not run.
+- Task 4: `preflight.py --no-api` passed; the whole Api suite once, Release, `--no-build`, closed fuzz included: 1,546 tests, 1,545 passed, 1 failed in 52 m 55 s (`BrowseEndToEndTests.R10_73_SighupAfterTheMasterClosesExitsWithinTwoSeconds`, exit 2 against 129; passed alone twice: a flake under load, recorded under item 163); Domain 1,071, Application 688, Domain.Primitives 64, Canon 329, Client 1,576, Mcp 944 (4 skipped by design), Architecture 115 in Release and Debug; M9's within-run rule held (1 ms against 3 ms); the fuzz ledger empty.
+- The last fix round (7b): Client 1,591, Mcp 955 (4 skipped), Application 688, Domain 1,042 (cost tests excluded), Architecture 117 in Release and Debug, 0 warnings; `preflight.py --no-api` passed; the Api classes the rounds touched passed. `git diff --stat origin/main -- .github db rust conformance src/Curia.Domain/Screening` is empty.
+- The whole Api run is the final run's, below.
+
+### The live run (Task 7 and its re-run)
+
+Seven legs, **6 held and L5 in part**: L1 (an older Forum and the built tree: 404 and no word before, the list, the refusal and the flag after; events unchanged by every read and refused ask), L2 (a withheld-only board agrees across the list, the per-board listing, search and `curia boards`), L3 (213 boards, 5 pages by cursor, the union equal to SQL, no repeat, no gap; page one 21,596 bytes, 21 ms then about 3 ms; the snapshot holds), L4 (the `NOT STATED` line, the post goes), L5 (the log unreadable and the store unreachable: `NOT SENT`, exit 8, nothing signed or kept; **the timeout was not produced**), L6 (15 tools and 5 without, the refusals by name, nothing sent), L8 (`burst.sh` 12: 3 x 201, 9 x 403, 0 `agent-in-flight`, +3 events, 12 list reads). 25 of 25 of G63's words were byte-equal to the printed strings. Findings F1 to F9; F9 was the seam (a first corpus of mine whose payload board differed from its canonical form), not the product. **The re-run after Amendment 4 (7b)**: F2 (`--board rust --cursor c` exit 1 in the published sentence, the loopback listener saw 0 connections, the control served), F1 (the no-list words, exit 5, and the adapter's error result), F4 (six hostile boards, all six uris `curia://board/` and 64 hexadecimal characters), the timeout (a loopback listener that accepts and never answers: `NOT SENT`, exit 8, 10.17 s, "no answer within 10 seconds", events 9 to 9, no kept act), the four sentences byte-equal to the errata. Not shown live: the adapter's refusal of a board with a cursor against a silent listener (the adapter contacts the Forum at start-up and hangs on one; LOB54's adapter fact holds it), and a hostile name entered by `ask` (the grammar refuses ESC, bidi and emoji names, which entered by the direct-append seam).
+
+### The cold read
+
+First pass (2026-11-09 11:13, from the live run's captures of tip `0cfbf1b9`): "Eighteen fresh agents (sonnet, general-purpose), one neutral file each, read once with no other tool", two readers per read, the question before the text for one and after it for the other. H the positive word 2/2; I the refusal 2/2 (both "looks like a typo"); J the older Forum 2/2; K a hostile list 2/2; L the page 2/2 (reader 10 also said the CLI page showed 41 rows under "50"; the capture holds 50, checked by count: a miscount, not a finding); M1 the fault with no earlier act 2/2; M2 the fault after an act line 2/2; N the empty board 2/2; O the tool 2/2. "The gate passes: no wrong answer and no hedge on a gated line." **Second pass (13:01)**, for Amendment 4's words: "Six fresh agents (sonnet), one neutral note each, read once": K again (the adapter's list with hex uris) 2/2, with reader 2 adding "the listing doesn't say whether I can" start a board, "a hedge off the gated lines, recorded"; P no list (CLI, MCP) 2/2; Q board plus cursor 2/2. "The gate passes."
+
+### Deviations from the plan as written, with their reasons
+
+1. Task 1's seam did not register `curia_boards` or `AskCheckedAsync` (registering changes the tool lists 23 Mcp facts count and the brief required Mcp green): LOB32 to LOB36 and LOB40 were red by assertion instead. 2. The seam's `BoardCheck` read nothing and the CLI sent no list request (adding it would break request-counting tests): LOB28's pass half was red, not a control. 3. `BoardWording.cs` already existed (R11.78), so the words class took another name (`BoardListWording`); LOB37 finds its file by content. 4. The port-string allowlist rows were not added on the seam (a stale-row fence); LOB38 was the red for it. 5. `RouteQueryNameTests` classified `/v1/boards` as ignoring unknown names on the seam; Task 2 flipped it. 6. LOB10's invalid-sequence and NUL names go over TestServer, not raw Kestrel (the closed fuzz and the live run cover Kestrel); LOB14's "pair the model lacks" row is `Table10ConformanceTests`' and LOB15's held-gate row was the live run's L8 until Amendment 3 made it LOB53. 7. LOB27's tag row and null-item row exist only at the adapter (the CLI's `--tags` drops an empty item and a whitespace body is not locally refused), so the CLI rows used a missing title, an empty body and an unknown profile until LOB27 was widened. 8. LOB36 read the version out of R11.88's paragraph by string search until Task 3 re-pointed `PublishedReadersLastWords.Version()`. 9. LOB39 was a reflection fact for the `FirstAsk` helper Task 4 wrote. 10. LOB2 uses a seeded xorshift generator over 100 logs, not CsCheck (the store appends are asynchronous), and its pool lost the decomposed spelling for the corpus shape (a canonical form is NFC) and got it back for `PostView` (ruling 28). 11. `RecordingForum` gained an additive `QueryResponder` (the query string, for the exact `board=` read). 12. The T5 fix round did not apply the plan's "In-place edits" step (its brief did not list it, and the round's report records it). 13. `tools/fault-harness/burst.sh` read status `?` once the board line preceded `posted`; it matches `^posted` on any line, and the README of the harness gained one sentence (ruling 37).
+
+### Concerns left
+
+The adapter's pair refusal and a hostile name entered by `ask` were not shown live (above). BRB6 (`InMemoryAgentWriteGateContractTests`) failed once in `preflight.py`'s parallel step and the Browse SIGHUP test failed in the whole Api run; both are joined to item 163. The falsification table ran sequentially in about 1.5 hours and the unpatched pass re-ran the closed fuzz (about an hour). The tools/fault-harness scripts were edited; ruling 37's run recorded `burst.sh` (3 asks) and `latecommit.sh`'s digest drill only, and the live run's L8 ran `burst.sh` 12. Wall times in the fix round are unreliable (machine sleeps inflated several row durations).
+
+The PR is #150, on `main` at ________.
+
+Final whole run: FINAL_RUN
