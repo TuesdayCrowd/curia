@@ -229,7 +229,7 @@ public sealed partial class RouteQueryNameTests(ForumFixture forum) : IClassFixt
     {
         ["/v1/search"] = true,
         ["/v1/boards/{board}/posts"] = true,
-        ["/v1/boards"] = false,   // errata G63, seam (PR 7, Task 1): the route ignores a name it does not read until Task 2; BoardListQueryNameTests (LOB11) is the red and Task 2 flips this to true
+        ["/v1/boards"] = true,   // errata G63, R9.58: the board listing reads board, limit and cursor and refuses every other name
         ["/v1/inbox"] = true,
         ["/v1/posts/{postId}"] = true,
         ["/v1/threads/{rootPostId}"] = true,

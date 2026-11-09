@@ -144,8 +144,9 @@ public sealed class ServedBoardsTests
         members.Add(new("kind", new JsonValue.String(kind)));
         members.Add(new("author", new JsonValue.String(author)));
         members.Add(new("board", new JsonValue.String(board)));
-        if (parent is not null) members.Add(new("parent", new JsonValue.String(parent)));
-        if (kind == "question") members.Add(new("title", new JsonValue.String("A title " + board)));
+        // A comment names a parent and a question or a finding a title (Table 9): a canonical form without them is no post the corpus can read, so the oracle would disagree with a fixture and not with the code.
+        if (parent is not null || kind == "comment") members.Add(new("parent", new JsonValue.String(parent ?? "01JLOB2ROOT")));
+        if (kind is "question" or "finding") members.Add(new("title", new JsonValue.String("A title " + board)));
         members.Add(new("body", new JsonValue.String("A body on " + board)));
         members.Add(new("code_blocks", new JsonValue.Array([])));
         members.Add(new("refs", new JsonValue.Array([])));
@@ -202,7 +203,7 @@ public sealed class ServedBoardsTests
     }
 
     /// <summary>
-    /// LOB2. One predicate in three shapes, over a hundred logs a seeded generator builds (a pool of six board spellings; posts of a discussion kind or a vote; each withheld or not). For
+    /// LOB2. One predicate in three shapes, over a hundred logs a seeded generator builds (a pool of six board spellings, each one a canonical form can hold; posts of a discussion kind or a vote; each withheld or not). For
     /// every spelling in the pool the three answers are the same: listed by <see cref="NamedFilters.ServedBoards"/>, <c>BoardHasServedPost</c> over <see cref="PostProjector"/>'s projection, and
     /// <c>BoardHasServedPost</c> over <see cref="SearchProjector"/>'s corpus. The classes (a board listed, a board whose only discussion posts are withheld, a board with only votes) are each asserted
     /// reached before the agreement is read, so a comparison over logs that never reach them is not an agreement. Predicted red on the seam: the first log with a listed board.
@@ -211,7 +212,9 @@ public sealed class ServedBoardsTests
     public async Task R9_58_LOB2_TheListingTheProjectionAndTheCorpusAgreeOnEveryBoardOverRandomLogs()
     {
         var ct = TestContext.Current.CancellationToken;
-        string[] pool = ["rust", "Rust", "chat", Composed, Decomposed, "meta"];
+        // The pool holds spellings a signed canonical form can hold: it is written in NFC, and the corpus shape reads its board from the canonical form, so a decomposed spelling
+        // reaches the log only as a payload member alone (LOB1 holds that row over PostView) and the three shapes could not be compared on it.
+        string[] pool = ["rust", "Rust", "chat", Composed, "Chat", "meta"];
         string[] kinds = ["question", "comment", "vote", "finding"];
         var reached = new Dictionary<string, int> { ["listed"] = 0, ["withheld-only"] = 0, ["votes-only"] = 0 };
         var disagreements = new List<string>();

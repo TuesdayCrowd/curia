@@ -67,6 +67,7 @@ internal static class PortStringAllowlist
         ("Curia.Application.Projections.NamedFilters.Unmatched", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),
         ("Curia.Application.Projections.NamedFilters.BoardHasServedPost", "board", "a value the author signed, the board of a question or a finding about to be stored, which may be no board name the log holds (errata G62, R8.88: the post is answered new); compared ordinally in memory with projected posts' boards and never stored or looked up"),
         ("Curia.Application.Projections.NamedFilters.BoardHasServedPost", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),
+        ("Curia.Application.Projections.NamedFilters.ServedBoards", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),
         ("Curia.Application.Projections.CitationCheck.Resolve", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),
         ("Curia.Application.Projections.CorrectionIndex.Fold", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),
         ("Curia.Application.Projections.AcceptedAnswerIndex.Fold", "servable", "a Forum-minted value: the host's servability predicate over projected post ids"),

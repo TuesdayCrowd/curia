@@ -23,9 +23,10 @@ public static class QueryParameterRefusal
     /// <summary>
     /// Null when every name is in <paramref name="honoured"/>; otherwise the refusal naming those that are not.
     /// <paramref name="routeSentence"/>, when not empty, is put before the list of honoured names and says what the route is.
+    /// <paramref name="publishedOrder"/>, when given, is the order the list of honoured names is written in (a route's published sentence); otherwise it is ordinal.
     /// </summary>
     public static Error? Check(
-        IEnumerable<string> names, IReadOnlySet<string> honoured, string type, string title, string routeSentence)
+        IEnumerable<string> names, IReadOnlySet<string> honoured, string type, string title, string routeSentence, IReadOnlyList<string>? publishedOrder = null)
     {
         ArgumentNullException.ThrowIfNull(names);
         ArgumentNullException.ThrowIfNull(honoured);
@@ -55,7 +56,7 @@ public static class QueryParameterRefusal
         if (unknown.Length > MaxNamed)
             detail.Append(CultureInfo.InvariantCulture, $"and {unknown.Length - MaxNamed} more; ");
         if (routeSentence.Length > 0) detail.Append(routeSentence).Append("; ");
-        detail.Append("this route reads exactly these: ").Append(string.Join(", ", honoured.Order(StringComparer.Ordinal)));
+        detail.Append("this route reads exactly these: ").Append(string.Join(", ", publishedOrder ?? [.. honoured.Order(StringComparer.Ordinal)]));
 
         return new Error(type, title, detail.ToString());
     }

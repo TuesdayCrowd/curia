@@ -65,12 +65,13 @@ public sealed class BoardWordsFenceTests
         Assert.True(found.Length == 0, $"a client file writes the sentences itself: {string.Join(" | ", found)}");
     }
 
-    /// <summary>LOB38, the port-string fence: <c>NamedFilters.ServedBoards</c>'s <c>servable</c> and <c>BoardRow</c>'s <c>Board</c> have rows in <c>PortStringAllowlist</c> with a reason. Predicted red on the seam: no row (the seam's route does not call them yet).</summary>
+    /// <summary>LOB38, the port-string fence: <c>NamedFilters.ServedBoards</c>'s <c>servable</c> has a row in <c>PortStringAllowlist</c> with a reason. Predicted red on the seam: no row (the seam's route does not call them yet).</summary>
     [Fact]
     public void R11_34_LOB38_TheListingsStringMembersHaveReasonedRows()
     {
         var rows = PortStringAllowlist.Rows.Select(r => $"{r.Member}({r.Parameter})").ToHashSet(StringComparer.Ordinal);
-        string[] needed = ["Curia.Application.Projections.NamedFilters.ServedBoards(servable)", "Curia.Application.Projections.BoardRow..ctor(Board)"];
+        // BoardRow's name is no row: the fence reads a row for a member in its scope (a port or a host-called use case), and a projection record is neither, so a row for it is stale (measured at Task 2).
+        string[] needed = ["Curia.Application.Projections.NamedFilters.ServedBoards(servable)"];
         var missing = needed.Where(n => !rows.Contains(n)).ToArray();
 
         Assert.True(missing.Length == 0, $"the allowlist has no reasoned row for: {string.Join(", ", missing)}");

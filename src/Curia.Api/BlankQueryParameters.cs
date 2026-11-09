@@ -11,6 +11,9 @@ public enum BlankQueryRoute
 
     /// <summary><c>GET /v1/inbox</c>.</summary>
     Inbox,
+
+    /// <summary><c>GET /v1/boards</c> (R9.58).</summary>
+    BoardList,
 }
 
 /// <summary>
@@ -27,7 +30,10 @@ public static class BlankQueryParameters
     /// <summary>The problem type of a blank inbox parameter.</summary>
     public const string InboxType = "curia/inbox/blank-parameter";
 
-    /// <summary>The title of both types.</summary>
+    /// <summary>The problem type of a blank board-listing parameter (R9.58).</summary>
+    public const string BoardListType = "curia/board-list/blank-parameter";
+
+    /// <summary>The title of all three types.</summary>
     public const string Title =
         "A parameter is present and blank; it is refused rather than dropped, because a filter dropped returns the unfiltered corpus to a caller that believes it filtered";
 
@@ -36,6 +42,9 @@ public static class BlankQueryParameters
 
     /// <summary>The inbox's closed list.</summary>
     public static IReadOnlyList<string> InboxParameters { get; } = ["board", "tags", "cursor"];
+
+    /// <summary>The board listing's closed list (R9.58): a blank cursor is not a first page.</summary>
+    public static IReadOnlyList<string> BoardListParameters { get; } = ["board", "cursor"];
 
     /// <summary>The parameters that are comma-separated lists (R9.56): a value of nothing but commas and white space names nothing, as an empty one does.</summary>
     private static readonly string[] ListParameters = ["kind", "tags"];
@@ -58,11 +67,23 @@ public static class BlankQueryParameters
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var names = route is BlankQueryRoute.Inbox ? InboxParameters : SearchParameters;
+        var names = route switch
+        {
+            BlankQueryRoute.Inbox => InboxParameters,
+            BlankQueryRoute.BoardList => BoardListParameters,
+            BlankQueryRoute.Search => SearchParameters,
+            _ => throw new ArgumentOutOfRangeException(nameof(route)),
+        };
         var blank = names.Where(n => query.ContainsKey(n) && NamesNothing(query[n].ToString(), ListParameters.Contains(n))).ToArray();
         if (blank.Length == 0) return null;
 
-        var type = route is BlankQueryRoute.Inbox ? InboxType : SearchType;
+        var type = route switch
+        {
+            BlankQueryRoute.Inbox => InboxType,
+            BlankQueryRoute.BoardList => BoardListType,
+            BlankQueryRoute.Search => SearchType,
+            _ => throw new ArgumentOutOfRangeException(nameof(route)),
+        };
         return new Error(type, Title, "parameter=" + string.Join(", ", blank));
     }
 }

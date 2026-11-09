@@ -77,6 +77,12 @@ internal sealed class FuzzContext : IDisposable
 
     internal string InboxCursor { get; private set; } = "cursor";
 
+    /// <summary>R9.58: a cursor of the board listing, minted from the two boards the seed makes, at the page size <see cref="BoardsCursorLimit"/> the exemplar presents it with (it binds no query member; the pairing is the bound and the offset being valid).</summary>
+    internal string BoardsCursor { get; private set; } = new Curia.Domain.Search.BoardListCursor(1, 1).Encode();
+
+    /// <summary>The <c>limit</c> the board listing's cursor was minted under and is presented with.</summary>
+    internal const int BoardsCursorLimit = 1;
+
     internal JsonObject TokenHeader { get; private set; } = new() { ["alg"] = "ES256", ["kid"] = "kid", ["typ"] = "at+jwt" };
 
     internal JsonObject TokenClaims { get; private set; } = new()
@@ -167,6 +173,9 @@ internal sealed class FuzzContext : IDisposable
 
         using (var inbox = await context.GetJsonAsync(context.Agent, $"/v1/inbox?board={SeedBoard}&tags=jcs&limit=1", ct))
             context.InboxCursor = inbox.RootElement.GetProperty("next_cursor").GetString()!;
+
+        using (var boards = await context.GetJsonAsync(null, $"/v1/boards?limit={BoardsCursorLimit}", ct))
+            context.BoardsCursor = boards.RootElement.GetProperty("next_cursor").GetString()!;
 
         return context;
     }
