@@ -43,6 +43,16 @@ internal static class Help
         """;
 
     /// <summary>
+    /// The banner for a result set whose Forum served <paramref name="modelId"/> (R11.93, errata G65). <b>Seam stub (D10a Task 1):</b> the banner as it stands; Task 3
+    /// composes it from <see cref="Curia.Client.ModelWording"/>.
+    /// </summary>
+    internal static string SearchBannerFor(string? modelId)
+    {
+        _ = modelId;
+        return SearchBanner;
+    }
+
+    /// <summary>
     /// Printed above a non-empty inbox. States the one thing about this list an agent cannot work
     /// out for itself, and the one thing it must not forget while reading it.
     /// </summary>

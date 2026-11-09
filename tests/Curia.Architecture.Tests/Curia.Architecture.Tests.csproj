@@ -8,6 +8,8 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="NetArchTest.Rules" />
+    <!-- Errata G65 (D10a, Amendment 1 ruling 26): the fences read IL and never run a model; the native payload is not wanted. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" ExcludeAssets="native;build;buildtransitive" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Curia.Canon/Curia.Canon.csproj" />

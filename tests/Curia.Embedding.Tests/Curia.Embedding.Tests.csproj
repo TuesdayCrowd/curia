@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Errata G65 (D10a): the suite that runs the real model. It reads CURIA_EMBEDDING_MODEL_DIR and FAILS, naming the variable and
+    `python3 tools/model/fetch-model.py`, when the files are absent (R14.13); it never skips. Curia.Infrastructure is the only
+    production assembly it references, and the one that holds ONNX Runtime (CS-7).
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Curia.Infrastructure/Curia.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

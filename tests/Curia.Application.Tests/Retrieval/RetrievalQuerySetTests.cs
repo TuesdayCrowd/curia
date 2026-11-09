@@ -26,6 +26,8 @@ public sealed class RetrievalQuerySetTests
     private sealed record Pair(string Id, string Class, string Verdict, string A, string B);
     private sealed record Measured(Pair Pair, double Cosine, double Overlap, DuplicateVerdict Verdict);
 
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
     private static readonly string Root = FindRoot();
     private static readonly DuplicateThresholds Thresholds = DuplicateThresholds.Published;
     private static readonly string[] Verdicts = ["duplicate", "related", "distinct"];
@@ -59,8 +61,8 @@ public sealed class RetrievalQuerySetTests
         var measured = new List<Measured>();
         foreach (var pair in Pairs())
         {
-            var a = Require(embedder.Embed(pair.A)).Vector;
-            var b = Require(embedder.Embed(pair.B)).Vector;
+            var a = Require(embedder.EmbedAsync(pair.A, EmbeddingRole.Passage, Ct).GetAwaiter().GetResult()).Vector;
+            var b = Require(embedder.EmbedAsync(pair.B, EmbeddingRole.Passage, Ct).GetAwaiter().GetResult()).Vector;
             var cosine = HashedNGramEmbedding.Cosine(a, b);
             var overlap = LexicalOverlap.Jaccard(pair.A, pair.B);
             measured.Add(new Measured(pair, cosine, overlap, DuplicatePolicy.Assess(PostKind.Question, cosine, overlap, false, Thresholds)));

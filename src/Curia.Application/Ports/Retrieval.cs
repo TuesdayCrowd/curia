@@ -16,7 +16,21 @@ public interface ITextEmbedder
 {
     EmbeddingModel Model { get; }
 
-    Result<Embedding> Embed(string text);
+    /// <summary>
+    /// Embeds <paramref name="text"/> in <paramref name="role"/> (R9.63). Total: a vector, <c>NoFeatures</c> or a fixed failure; the only exception is the
+    /// caller's own <see cref="OperationCanceledException"/> (R11.92).
+    /// </summary>
+    Task<Result<Embedding>> EmbedAsync(string text, EmbeddingRole role, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// An adapter that must be checked before the Forum accepts a request (R11.91): the composition root runs <see cref="Check"/> once, synchronously,
+/// and a failure stops the start.
+/// </summary>
+public interface IStartupChecked
+{
+    /// <summary>Verifies the adapter; throws <see cref="InvalidOperationException"/> naming the key, file or canary at fault, never a path.</summary>
+    void Check();
 }
 
 /// <summary>One stored vector's identity: the post it embeds and where that post sits in the log.</summary>

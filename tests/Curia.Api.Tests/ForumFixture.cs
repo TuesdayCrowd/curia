@@ -2,6 +2,7 @@ using Curia.Api.Issuer;
 using Curia.Application.Credentials;
 using Curia.Application.Moderation;
 using Curia.Application.Ports;
+using Curia.Application.Retrieval;
 using Curia.Application.Projections;
 using Curia.Canon;
 using Curia.Canon.Canonical;
@@ -476,10 +477,23 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
                 services.AddSingleton(PermissiveGateFor(_connectionString));
             }
 
+            if (ReplacesEmbedderWithTheHashedOne)
+            {
+                services.RemoveAll<ITextEmbedder>();
+                services.AddSingleton<ITextEmbedder, HashedNGramEmbedder>();
+            }
+
             ConfigureFuzz(services);
             ConfigureStore(services);
         });
     }
+
+    /// <summary>
+    /// Errata G65 (R11.91): whether this fixture's host runs with the hashed test adapter in place of the production embedder. The one explicit door: production
+    /// composition registers no hashed adapter and no configuration selects one, so a host that must run without a model asks for it here. A fixture that overrides
+    /// this to false boots the production path and needs a model directory (<c>EmbedderBootTests</c>).
+    /// </summary>
+    protected virtual bool ReplacesEmbedderWithTheHashedOne => true;
 
     /// <summary>
     /// The request fuzzer's hook (R14.10): its fixture installs what records the host's reads of

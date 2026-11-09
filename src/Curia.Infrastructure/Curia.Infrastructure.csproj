@@ -17,6 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Npgsql" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
   </ItemGroup>
   <ItemGroup>
     <!--
@@ -25,6 +26,7 @@
       enrollment's rule (errata G14, R4.31); its tests still reach it.
     -->
     <InternalsVisibleTo Include="Curia.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Curia.Embedding.Tests" />
   </ItemGroup>
   <ItemGroup>
     <!--

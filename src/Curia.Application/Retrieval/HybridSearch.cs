@@ -175,7 +175,8 @@ public sealed class HybridSearch
         if (string.IsNullOrWhiteSpace(filters.Text))
             return Result<ImmutableArray<VectorHit>>.Ok([]);
 
-        var embedded = _embedder.Embed(filters.Text);
+        // D10a Task 1 seam: every caller passes Passage, so the role is on the port and no behaviour moves (the hashed adapter ignores it). Task 2 passes Query here (Ruling 2, SEM1).
+        var embedded = await _embedder.EmbedAsync(filters.Text, EmbeddingRole.Passage, cancellationToken).ConfigureAwait(false);
         if (!embedded.TryGetValue(out var embedding, out var embedError))
         {
             return string.Equals(embedError!.Type, EmbeddingErrors.NoFeatures().Type, StringComparison.Ordinal)

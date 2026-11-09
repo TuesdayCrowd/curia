@@ -40,7 +40,7 @@ internal static class PortStringAllowlist
         ("Curia.Application.Ports.FlagDetail..ctor", "Salt", "a Forum-minted value: the commitment's salt"),
         ("Curia.Application.Ports.IFlagRaiserGate.TryEnterAsync", "raisedBy", "a Forum-minted value: the access token's sub, read after the issuer's signature verifies (B2's AccessTokenClaims.Jti precedent); the issuer signs only for an enrolled identifier"),
         ("Curia.Application.Ports.IRevisionGate.TryEnterAsync", "prevDigest", "a Forum-minted value: a digest the route has already found in the log (RevisesOwnPost compared it ordinally with projected posts' digests, which the Forum computed), used only as part of an advisory-lock key and never stored or looked up (IFlagRaiserGate.TryEnterAsync's raisedBy and IVectorIndex.UpsertAsync's digest precedents)"),
-        ("Curia.Application.Ports.ITextEmbedder.Embed", "text", "free text that is embedded or screened and never stored or looked up"),
+        ("Curia.Application.Ports.ITextEmbedder.EmbedAsync", "text", "free text that is embedded or screened and never stored or looked up"),
         ("Curia.Application.Ports.IVectorIndex.UpsertAsync", "digest", "a Forum-minted value: the digest computed by the Forum"),
         ("Curia.Application.Ports.IVectorIndex.UpsertAsync", "postId", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): EmbeddingIndexer passes a projected post's id (spec 4.8, precedence)"),
         ("Curia.Application.Ingest.AppendConfirmation.ConfirmAsync", "digest", "a Forum-minted value: the digest the Forum computed over the canonical bytes it verified (R8.78, R8.84), compared ordinally in memory with projected posts' digests by PostProjector.FirstWithDigest and never stored or looked up"),

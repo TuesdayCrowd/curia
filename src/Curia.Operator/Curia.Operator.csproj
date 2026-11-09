@@ -24,6 +24,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Errata G65 (D10a, Amendment 1 ruling 26): the operator reaches ONNX Runtime through Curia.Infrastructure and never runs it; its native payload is not wanted. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" ExcludeAssets="native;build;buildtransitive" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Curia.Application/Curia.Application.csproj" />
     <ProjectReference Include="../Curia.Infrastructure/Curia.Infrastructure.csproj" />
     <ProjectReference Include="../Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />

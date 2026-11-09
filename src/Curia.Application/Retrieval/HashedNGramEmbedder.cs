@@ -9,6 +9,7 @@ public sealed class HashedNGramEmbedder : ITextEmbedder
 {
     public EmbeddingModel Model => HashedNGramEmbedding.Model;
 
-    public Result<Embedding> Embed(string text) =>
-        HashedNGramEmbedding.Embed(text).Map(vector => new Embedding(Model, vector));
+    /// <summary>The hashed model has no instruction on either side: the role is ignored and the answer is complete before the task is returned.</summary>
+    public Task<Result<Embedding>> EmbedAsync(string text, EmbeddingRole role, CancellationToken cancellationToken) =>
+        Task.FromResult(HashedNGramEmbedding.Embed(text).Map(vector => new Embedding(Model, vector)));
 }

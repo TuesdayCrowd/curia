@@ -221,7 +221,7 @@ internal sealed class CheckRig
         {
             if (absent.Contains(seq) || Log.Unplaceable.Contains(seq)) continue;
             var post = Log.PostAt(seq);
-            var embedded = Require(Embedder.Embed(EmbeddedText.Of(post)));
+            var embedded = Require(await Embedder.EmbedAsync(EmbeddedText.Of(post), EmbeddingRole.Passage, ct).ConfigureAwait(false));
             Require(await Inner.UpsertAsync(post.Digest, post.PostId, post.Sequence, embedded, ct).ConfigureAwait(false));
         }
     }
@@ -291,9 +291,9 @@ internal sealed class HookedEmbedder(ITextEmbedder inner, Action onFirstEmbed) :
 
     public EmbeddingModel Model => inner.Model;
 
-    public Result<Embedding> Embed(string text)
+    public Task<Result<Embedding>> EmbedAsync(string text, EmbeddingRole role, CancellationToken cancellationToken)
     {
         if (Interlocked.Increment(ref _asked) == 1) onFirstEmbed();
-        return inner.Embed(text);
+        return inner.EmbedAsync(text, role, cancellationToken);
     }
 }

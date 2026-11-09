@@ -40,7 +40,7 @@ public sealed class EmbeddingIndexer
     {
         ArgumentNullException.ThrowIfNull(post);
 
-        var embedded = _embedder.Embed(EmbeddedText.Of(post));
+        var embedded = await _embedder.EmbedAsync(EmbeddedText.Of(post), EmbeddingRole.Passage, cancellationToken).ConfigureAwait(false);
         if (!embedded.TryGetValue(out var embedding, out var embedError))
         {
             // No letters or digits at all: nothing to place in the space. Not an error of the
@@ -142,7 +142,7 @@ public sealed class EmbeddingIndexer
 
                 if (skipKnown is not null && skipKnown(post.Digest)) continue;
 
-                var embedded = _embedder.Embed(EmbeddedText.Of(post));
+                var embedded = await _embedder.EmbedAsync(EmbeddedText.Of(post), EmbeddingRole.Passage, cancellationToken).ConfigureAwait(false);
                 if (!embedded.TryGetValue(out var embedding, out var embedError))
                 {
                     if (!string.Equals(embedError!.Type, EmbeddingErrors.NoFeatures().Type, StringComparison.Ordinal))
