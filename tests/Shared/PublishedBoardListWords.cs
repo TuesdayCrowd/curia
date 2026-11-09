@@ -16,6 +16,8 @@ internal static partial class PublishedBoardListWords
     private const string FaultAnchor = "**R10.98 words (the refusal of a list that could not be read).**";
     private const string EmptyAnchor = "**R10.98 words (an empty board).**";
     private const string RestAnchor = "**R10.98 words (the rest).**";
+    private const string CursorAnchor = "**R10.98 words (a board with a cursor).**";
+    private const string NoListAnchor = "**R10.98 words (a Forum with no list).**";
     private const string RouteAnchor = "**R9.58 words.**";
     private const string RouteRequirement = "**R9.58**";
     private const string ClientRequirement = "**R11.88**";
@@ -189,8 +191,33 @@ internal static partial class PublishedBoardListWords
     /// <summary>The sentence that ends the adapter's first block: each board is a block of its own and is data.</summary>
     internal static string RestBoardNamesNotice() => OneSpan(RestAnchor, "Each board below is a block of its own:");
 
-    /// <summary>The sentence of the server instructions that names <c>curia_boards</c>.</summary>
-    internal static string RestInstructionsSentence() => OneSpan(RestAnchor, "curia_boards lists the boards the Forum serves");
+    /// <summary>The sentence of the server instructions that names <c>curia_boards</c> and the tool that reads it, with an agent identity (Amendment 4: the no-identity text is the next accessor's).</summary>
+    internal static string RestInstructionsSentence() => OneSpanWhere(RestAnchor, "curia_boards lists the boards the Forum serves", s => s.Contains("which curia_ask reads before it signs", StringComparison.Ordinal));
+
+    /// <summary>The words of the server instructions with no agent identity, where <c>curia_ask</c> is not offered: they name no tool that reads the list (Amendment 4, ruling 64).</summary>
+    internal static string RestInstructionsNoIdentity() => OneSpanWhere(RestAnchor, "curia_boards lists the boards the Forum serves", s => !s.Contains("curia_ask", StringComparison.Ordinal));
+
+    /// <summary>The scheme and path of a board's resource uri, <c>curia://board/</c> (Amendment 4, ruling 59).</summary>
+    internal static string RestUriPrefix() => OneSpan(RestAnchor, "curia://board/");
+
+    // ---- a board with a cursor (R10.98, Amendment 4, ruling 57) ----
+
+    /// <summary>What <c>curia boards --board --cursor</c> prints, exit 1, nothing sent.</summary>
+    internal static string BoardWithCursorCli() => OneSpan(CursorAnchor, "error: --board and --cursor do not go together");
+
+    /// <summary>What <c>curia_boards</c> returns for a board with a cursor, an error result.</summary>
+    internal static string BoardWithCursorAdapter() => OneSpan(CursorAnchor, "NOT SENT: board and cursor do not go together");
+
+    /// <summary>The type the client library refuses the pair with.</summary>
+    internal static string BoardWithCursorType() => OneSpan(CursorAnchor, "curia/client/board-with-cursor");
+
+    // ---- a Forum with no list (R10.98, Amendment 4, ruling 58) ----
+
+    /// <summary>What <c>curia boards</c> prints on a Forum that serves no list of boards (exit 5).</summary>
+    internal static string NoListCli() => OneSpanWhere(NoListAnchor, "This Forum has no list of boards:", s => s.Contains("ask and finding print", StringComparison.Ordinal));
+
+    /// <summary>What <c>curia_boards</c> returns on a Forum that serves no list of boards, an error result.</summary>
+    internal static string NoListAdapter() => OneSpanWhere(NoListAnchor, "This Forum has no list of boards:", s => s.Contains("curia_ask prints", StringComparison.Ordinal));
 
     /// <summary>What the help of <c>ask</c> and <c>finding</c> says of the flag.</summary>
     internal static string RestNewBoardHelp() => OneSpan(RestAnchor, "--new-board says you mean to start a board:");
@@ -209,7 +236,23 @@ internal static partial class PublishedBoardListWords
             fault[..fault.IndexOf("(<cause>)", StringComparison.Ordinal)],
             FaultTail(),
             EmptySecondLine(),
+            .. NewSentencesCut(),
         ];
+    }
+
+    /// <summary>The runs of the two sentences Amendment 4 adds that <c>Curia.Client</c> writes once for both clients: the pair's reason (cut from the CLI's span around its second argument spelling) and the no-list words up to the surface-specific clause.</summary>
+    private static string[] NewSentencesCut()
+    {
+        var pair = BoardWithCursorCli();
+        var from = pair.IndexOf("do not go together", StringComparison.Ordinal);
+        var to = pair.IndexOf(" --board asks", StringComparison.Ordinal);
+        var tail = pair.IndexOf("asks for one board", StringComparison.Ordinal);
+        var noList = NoListCli();
+        var upTo = noList.IndexOf(" ask and finding print", StringComparison.Ordinal);
+        if (from < 0 || to < from || tail < 0 || upTo < 0)
+            throw new InvalidOperationException($"{Errata}'s Amendment 4 words are not shaped as the fence reads them; the parse read something else");
+
+        return [pair[from..to], pair[tail..].Replace(". Nothing was sent.", string.Empty, StringComparison.Ordinal), noList[..upTo]];
     }
 
     /// <summary>What the fault refusal says after the name: that this run signed and kept nothing, when to run again and the one condition under which not to.</summary>
@@ -238,6 +281,15 @@ internal static partial class PublishedBoardListWords
             RestInstructionsSentence(),
             RestNewBoardHelp(),
         ];
+    }
+
+    private static string OneSpanWhere(string anchor, string prefix, Func<string, bool> also)
+    {
+        var found = Spans(anchor).Where(s => s.StartsWith(prefix, StringComparison.Ordinal) && also(s)).Distinct(StringComparer.Ordinal).ToArray();
+        if (found.Length != 1)
+            throw new InvalidOperationException($"{Errata}'s {anchor} has {found.Length} spans that begin \"{prefix}\" and meet the condition; the parse read something else");
+
+        return found[0];
     }
 
     private static string OneSpan(string anchor, string prefix)

@@ -401,5 +401,130 @@ public sealed class BoardListArgumentTests
 
         Said(expected, actual);
     }
+
+    // ---- LOB54 ----
+
+    /// <summary>
+    /// LOB54 (Amendment 4, ruling 57), a <c>board</c> with a <c>cursor</c>: <c>curia boards --board rust --cursor c</c> is refused before any request, exit 1, in the published sentence, over a Forum that lists the
+    /// board (the false line the Forum's page would have been read as is never printed); <c>GetBoardsAsync</c> refuses the pair as <c>curia/client/board-with-cursor</c> as a local refusal, nothing sent. The controls,
+    /// each argument alone, send one list request each. Predicted red on the tree before the fix: the pair is sent and an empty page is printed as <c>0 of 0: no post the Forum serves is on rust</c>.
+    /// </summary>
+    [Fact]
+    public async Task R10_98_LOB54_ABoardWithACursorIsRefusedBeforeARequestByTheVerbAndByTheLibrary()
+    {
+        using var forum = Forum([Rust], listAnswer: query => query.Contains("cursor=", StringComparison.Ordinal) ? (200, PageJson([], 41)) : (200, PageJson([Rust], 1)));
+        var boardAlone = await RunAsync(forum, Ct, "boards", "--board", "rust");
+        var cursorAlone = await RunAsync(forum, Ct, "boards", "--cursor", "c");
+        var together = await RunAsync(forum, Ct, "boards", "--board", "rust", "--cursor", "c");
+
+        using var log = new StubLog();
+        var library = await log.Client().GetBoardsAsync("rust", null, "c", Ct);
+        var refused = library.TryGetValue(out _, out var refusal);
+        var libraryRequests = log.Requests.Count(r => r.StartsWith("GET /v1/boards", StringComparison.Ordinal));
+
+        var sentence = Fold(PublishedBoardListWords.BoardWithCursorCli());
+        var said = Fold(together.All);
+        Said(
+            [
+                "each alone: 1 and 1 list requests",
+                $"together: exit 1, the published sentence, 0 requests, not the 0 of 0 line",
+                $"library: refused, {PublishedBoardListWords.BoardWithCursorType()}, local, 0 requests",
+            ],
+            [
+                $"each alone: {boardAlone.ListRequests} and {cursorAlone.ListRequests} list requests",
+                $"together: exit {together.Exit}, {(said.Contains(sentence, StringComparison.Ordinal) ? "the published sentence" : "not the published sentence")}, {together.Requests.Length} requests, {(said.Contains("0 of 0", StringComparison.Ordinal) ? "the 0 of 0 line" : "not the 0 of 0 line")}",
+                $"library: {(refused ? "not refused" : "refused")}, {refusal?.Error.Type ?? "no refusal"}, {(refusal?.Kind == RefusalKind.Local ? "local" : "not local")}, {libraryRequests} requests",
+            ]);
+    }
+
+    // ---- LOB55 ----
+
+    /// <summary>
+    /// LOB55 (Amendment 4, ruling 58), a Forum with no list: <c>curia boards</c> over <c>404</c> as <c>curia/request/no-route</c> exits 5 and prints the published no-list words, not the bare route refusal; over a
+    /// <c>404</c> of another type, a <c>503</c> and a <c>405</c> it prints the Forum's own words and not the no-list sentence. The control is a served list. Predicted red on the tree before the fix: the bare
+    /// route refusal is all it prints.
+    /// </summary>
+    [Fact]
+    public async Task R10_98_LOB55_AForumWithNoListIsToldInWordsAndOnlyThatForum()
+    {
+        var words = Fold(PublishedBoardListWords.NoListCli());
+        using var served = Forum([Rust]);
+        var rows = new (string Label, Func<string, (int, string)> Answer, bool NoList)[]
+        {
+            ("404 no-route", _ => (404, """{"type":"curia/request/no-route","title":"No such route"}"""), true),
+            ("404 not-found", _ => (404, """{"type":"curia/posts/not-found","title":"No such post"}"""), false),
+            ("503 unreadable", _ => (503, """{"type":"curia/log/unreadable","title":"The event log could not be read"}"""), false),
+            ("405", _ => (405, """{"type":"curia/request/method-not-allowed","title":"No"}"""), false),
+        };
+
+        var control = await RunAsync(served, Ct, "boards");
+        var expected = new List<string> { "served: exit 0, not the no-list words" };
+        var actual = new List<string> { $"served: exit {control.Exit}, {(Fold(control.All).Contains(words, StringComparison.Ordinal) ? "the no-list words" : "not the no-list words")}" };
+        foreach (var (label, answer, noList) in rows)
+        {
+            using var forum = Forum(listAnswer: answer);
+            var run = await RunAsync(forum, Ct, "boards");
+            var text = Fold(run.All);
+            expected.Add($"{label}: {(noList ? "exit 5, the no-list words" : "not the no-list words")}");
+            actual.Add($"{label}: {(noList ? $"exit {run.Exit}, " + (text.Contains(words, StringComparison.Ordinal) ? "the no-list words" : "not the no-list words") : (text.Contains(words, StringComparison.Ordinal) ? "the no-list words" : "not the no-list words"))}");
+        }
+
+        Said(expected, actual);
+    }
+
+    // ---- LOB57 ----
+
+#pragma warning disable CA2000 // the stub's address is loopback and the client lives for one fact; the HttpClient is collected with it
+    private static ForumClient ClientOver(RawStubForum stub) => new(new HttpClient { BaseAddress = stub.Address }, stub.Address);
+#pragma warning restore CA2000
+
+    /// <summary>
+    /// LOB57 (Amendment 4, ruling 60), the check's own bound, with the real 10 seconds (the bound is a constant; the fact asserts a lower bound of real time and the test's own timeout is the upper, trap 182): a Forum that
+    /// reads the list request and never answers is an unreadable list, a transport refusal that says it waited, after at least the bound and not after the command's whole timeout. Predicted red where the bound is
+    /// absent: the read waits for the client's own 100 seconds and the test times out at 30.
+    /// </summary>
+    [Fact(Timeout = 30000)]
+    public async Task R11_88_LOB57_AListThatNeverAnswersIsUnreadableAfterTheBound()
+    {
+        using var stub = new RawStubForum(UnheardBehaviour.Fin) { StallReads = true };
+        var watch = Stopwatch.StartNew();
+        var result = await BoardCheck.CheckAsync(ClientOver(stub), "rust", Ct);
+        watch.Stop();
+
+        var waited = watch.Elapsed >= BoardCheck.Bound - TimeSpan.FromMilliseconds(500);
+        Said(
+            ["Unreadable, a transport refusal that says no answer within 10 seconds, after at least the bound"],
+            [$"{result.Outcome}, {(result.Fault?.Kind == RefusalKind.Transport && (result.Fault.Error.Detail ?? string.Empty).Contains("no answer within 10 seconds", StringComparison.Ordinal) ? "a transport refusal that says no answer within 10 seconds" : "another refusal: " + result.Fault?.Error.Detail)}, {(waited ? "after at least the bound" : "before the bound")}"]);
+    }
+
+    /// <summary>
+    /// LOB57, a connection that is reset is an unreadable list and not an older Forum, and the caller's own cancellation is the caller's: it propagates and is never read as a fault the Forum had. A control on what the
+    /// check already does; FLOB100 turns the second red.
+    /// </summary>
+    [Fact(Timeout = 30000)]
+    public async Task R11_88_LOB57_AResetIsUnreadableAndTheCallersCancellationPropagates()
+    {
+        string resetOutcome;
+        using (var reset = new RawStubForum(UnheardBehaviour.Fin) { ResetBoardListReads = true })
+            resetOutcome = (await BoardCheck.CheckAsync(ClientOver(reset), "rust", Ct)).Outcome.ToString();
+
+        string cancelled;
+        using (var stall = new RawStubForum(UnheardBehaviour.Fin) { StallReads = true })
+        using (var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct))
+        {
+            stop.CancelAfter(TimeSpan.FromMilliseconds(300));
+            try
+            {
+                var result = await BoardCheck.CheckAsync(ClientOver(stall), "rust", stop.Token);
+                cancelled = $"returned {result.Outcome}";
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled = "the cancellation";
+            }
+        }
+
+        Said(["a reset: Unreadable", "the caller's cancellation: the cancellation"], [$"a reset: {resetOutcome}", $"the caller's cancellation: {cancelled}"]);
+    }
 }
 
