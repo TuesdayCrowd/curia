@@ -1,8 +1,11 @@
+#pragma warning disable CA1416 // the kept-act files are mode 0600 and 0700 (R11.79): the probes read and set Unix modes, as PrivateFiles does
+
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Curia.Canon.Json;
 using Curia.Client.Cli;
+using Curia.Domain.Content;
 using Curia.Tests.Shared;
 using Xunit;
 using static Curia.Client.Tests.BoardListHarness;
@@ -178,7 +181,9 @@ public sealed class BoardListCliTests
     /// <summary>
     /// LOB22, the refusal of a board with no served post, in the published words: <c>NOT SENT.</c>, the sentence naming the board as a display literal and the kind, "cannot be moved or taken back", at most 20 boards
     /// with their counts, <c>(20 of 25; curia boards lists the rest)</c> where there are more, both ways forward and the withheld clause; exit 1 and <b>nothing sent</b>: no <c>POST</c>, no token request, no kept act. The
-    /// control, the same command on a listed board, posts. Predicted red on the seam: the post goes.
+    /// names line is found by its lead and compared whole (the lead, the names and the count clause where there is one, and nothing between or after: a name the Forum did not list is a failure). A third Forum
+    /// ignores <c>limit</c> and answers 100 rows of a total of 213 to the unfiltered read and an empty page to the typed name: the refusal names the first twenty in the Forum's order, says
+    /// <c>(20 of 213; curia boards lists the rest)</c> and names no twenty-first board (Amendment 3, ruling 50). The control, the same command on a listed board, posts. Predicted red on the seam: the post goes.
     /// </summary>
     [Fact]
     public async Task R11_88_LOB22_ABoardWithNoServedPostIsRefusedInThePublishedWordsAndNothingIsSent()
@@ -190,6 +195,9 @@ public sealed class BoardListCliTests
         var control = await RunAsync(forum, Ct, Ask("rust"));
         var refused = await RunAsync(forum, Ct, Ask("rsut"));
         var small = await RunAsync(smallForum, Ct, Ask("rsut"));
+        var flood = Enumerable.Range(0, 100).Select(i => new Board($"flood-{i:D3}", 300 - i, 1)).ToArray();
+        using var ignoring = Forum(listAnswer: query => query.Contains("board=", StringComparison.Ordinal) ? (200, PageJson([], 0)) : (200, PageJson(flood, 213)));
+        var ignored = await RunAsync(ignoring, Ct, Ask("rsut"));
         var text = Fold(refused.All);
         var smallText = Fold(small.All);
 
@@ -198,12 +206,20 @@ public sealed class BoardListCliTests
         var more = PublishedBoardListWords.RefusalMoreClause().Replace("<n>", "20", StringComparison.Ordinal).Replace("<total>", "26", StringComparison.Ordinal);
         var named = string.Join(", ", many.Concat([Rust]).OrderByDescending(b => b.Posts).ThenBy(b => b.Name, StringComparer.Ordinal).Take(20).Select(b => $"{Lit(b.Name)} {b.Posts}"));
 
+        var lead = PublishedBoardListWords.RefusalBoardsLead();
+        string NamesLine(Outcome run) => Lines(run.All).Select(Fold).FirstOrDefault(l => l.StartsWith(lead, StringComparison.Ordinal)) ?? "no names line";
+        var ignoredNamed = string.Join(", ", flood.Take(20).Select(b => $"{Lit(b.Name)} {b.Posts}"));
+        var ignoredMore = PublishedBoardListWords.RefusalMoreClause().Replace("<n>", "20", StringComparison.Ordinal).Replace("<total>", "213", StringComparison.Ordinal);
+
         string[] expected =
         [
             "control: exit 0, 1 post",
             "refused: exit 1, no post, no token, no kept act",
             $"says: {PublishedBoardListWords.NotSent()}; {sentence}; {PublishedBoardListWords.RefusalBoardsLead()} {named}; {more}; {ways}",
             "a list of two names carries no count clause",
+            $"the names line: {lead} {named} {more}",
+            $"the small forum's names line: {lead} {Lit("rust")} 41, {Lit("go")} 5",
+            $"a Forum that ignores limit: exit 1, no post, the names line {lead} {ignoredNamed} {ignoredMore}, no twenty-first board",
         ];
         string[] actual =
         [
@@ -218,6 +234,9 @@ public sealed class BoardListCliTests
                 text.Contains(ways, StringComparison.Ordinal) ? ways : "not the ways forward",
             }),
             smallText.Contains("lists the rest", StringComparison.Ordinal) ? "a list of two names carries a count clause" : "a list of two names carries no count clause",
+            $"the names line: {NamesLine(refused)}",
+            $"the small forum's names line: {NamesLine(small)}",
+            $"a Forum that ignores limit: exit {ignored.Exit}, {(ignored.Posts == 0 ? "no post" : "a post")}, the names line {NamesLine(ignored)}, {(Fold(ignored.All).Contains(Lit("flood-020"), StringComparison.Ordinal) ? "the twenty-first board is named" : "no twenty-first board")}",
         ];
         Said(expected, actual);
     }
@@ -346,8 +365,9 @@ public sealed class BoardListCliTests
 
     /// <summary>
     /// LOB27, the order of checks. The check follows every refusal the client makes on its own and precedes the signature: <c>RUST</c> (R8.85), a missing title, an empty body and a profile that cannot be resolved (the tag and null-item rows of R11.88 are the adapter's, in <c>BoardToolTests</c>: the CLI's <c>--tags</c> drops an empty item before any rule sees it)
-    /// are each refused for their own fault, send no <c>GET /v1/boards</c> and no post; an answer, a comment, a revision and a resend make no <c>GET /v1/boards</c>. The control is the same command on a listed board.
-    /// Predicted: green controls on the seam (the client reads no list at all); the rows are FLOB32, FLOB33, FLOB34 and FLOB53's first forms.
+    /// are each refused for their own fault, send no <c>GET /v1/boards</c> and no post. The control is the same command on a listed board. The reply rows are the next fact's: an answer, a comment, a revision and
+    /// a resend, which this fact does not run.
+    /// Predicted: green controls on the seam (the client reads no list at all); the rows are FLOB32, FLOB34 and FLOB53's first forms.
     /// </summary>
     [Fact]
     public async Task R11_88_LOB27_TheListIsReadAfterEveryLocalRefusalAndForNoReply_Control()
@@ -359,8 +379,6 @@ public sealed class BoardListCliTests
             ("no title", ["ask", "--agent", "alice", "--board", "fresh", "--body", "b"], "title"),
             ("an empty body", ["ask", "--agent", "alice", "--board", "fresh", "--title", "t", "--body", string.Empty], "body"),
             ("an unknown profile", ["ask", "--agent", "nobody", "--board", "fresh", "--title", "t", "--body", "b"], "nobody"),
-            ("an answer", ["answer", "--agent", "alice", "--parent", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--body", "b"], string.Empty),
-            ("a comment", ["comment", "--agent", "alice", "--parent", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--body", "b"], string.Empty),
         };
 
         var expected = new List<string>();
@@ -370,6 +388,72 @@ public sealed class BoardListCliTests
             var run = await RunAsync(forum, Ct, argv);
             expected.Add($"{label}: no list request, no post, not the list's refusal");
             actual.Add($"{label}: {(run.ListRequests == 0 ? "no list request" : run.ListRequests + " list request(s)")}, {(run.Posts == 0 ? "no post" : "a post")}, {(run.All.Contains("would start a new board", StringComparison.Ordinal) ? "the list's refusal" : "not the list's refusal")}");
+        }
+
+        Said(expected, actual);
+    }
+
+    /// <summary>The scripted stub outlives each command's client, which disposes its handler.</summary>
+    private sealed class NonDisposing(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        protected override void Dispose(bool disposing) => base.Dispose(false);
+    }
+
+    /// <summary>One command run in process against the stub <paramref name="log"/> (which serves the parent post <c>StubLog.PostId</c> on the board it was given).</summary>
+    private static async Task<(int Exit, string[] Requests, int DistinctActs, string Text)> RunStubAsync(StubLog log, params string[] args)
+    {
+        var savedHome = Environment.GetEnvironmentVariable("CURIA_CLIENT_HOME");
+        var savedFactory = Program.HttpClientFactory;
+        try
+        {
+            Environment.SetEnvironmentVariable("CURIA_CLIENT_HOME", log.Home);
+            Program.HttpClientFactory = forum => new HttpClient(new NonDisposing(log.Handler)) { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
+            var run = await ConsoleCapture.CaptureAsync(() => Program.RunAsync(args)).ConfigureAwait(false);
+            return (run.Exit, [.. log.Requests], log.WrittenBodies.Where(ReceivedAct.IsSubmission).Select(ReceivedAct.DigestOf).Distinct(StringComparer.Ordinal).Count(), run.Stdout + " " + run.Stderr);
+        }
+        finally
+        {
+            Program.HttpClientFactory = savedFactory;
+            Environment.SetEnvironmentVariable("CURIA_CLIENT_HOME", savedHome);
+        }
+    }
+
+    /// <summary>
+    /// LOB27, the reply rows reach their send (Amendment 3, rulings 49 and 54). An answer, a comment and a revision run over a stub that serves the parent post on <c>rust</c>, a board the stub's own list (which holds
+    /// <c>b</c> only) does not hold, so a check that ran would refuse or at least read the list; a resend sends a kept question on <c>fresh</c>, a board the list does not hold. Each row asserts first that it reached its
+    /// send (one distinct act received) and then that no <c>GET /v1/boards</c> was made. Predicted: green on the tree; FLOB33 and FLOB87 turn it red.
+    /// </summary>
+    [Fact]
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The stub is disposed by the using declaration; the analyzer does not see through the object initializer.")]
+    public async Task R11_88_LOB27_AReplyAndAResendReachTheirSendAndReadNoList()
+    {
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var label in new[] { "an answer", "a comment", "a revision", "a resend" })
+        {
+            using var log = new StubLog { ServedBoard = "rust" };
+            string[] argv;
+            if (label == "a resend")
+            {
+                Assert.True(new ProfileStore(log.Home).Load("alice").TryGetValue(out var agent, out var loadError), loadError?.Type);
+                using (agent)
+                {
+                    var draft = new PostDraft { Kind = PostKind.Question, Board = "fresh", Title = "A kept question", Body = "A kept body." };
+                    Assert.True(SubmissionBuilder.Build(agent!, draft, DateTimeOffset.UtcNow).TryGetValue(out var signed, out var error), error?.Type);
+                    KeptActFiles.Plant(Path.Combine(log.Store.DirectoryFor("alice"), "acts"), signed!, "question", "http://forum.test", agent!.Profile.AgentId, attempts: 1, lastAnswer: "503", board: "fresh");
+                    argv = ["resend", signed!.PrefixedDigest, "--agent", "alice", "--forum", "http://forum.test"];
+                }
+            }
+            else
+            {
+                var verb = label switch { "an answer" => "answer", "a comment" => "comment", _ => "revision" };
+                argv = [verb, "--agent", "alice", "--parent", StubLog.PostId, "--body", "A reply.", "--forum", "http://forum.test"];
+            }
+
+            var run = await RunStubAsync(log, argv);
+            var lists = run.Requests.Count(r => r == "GET /v1/boards");
+            expected.Add($"{label}: reached its send (1 act), no list request");
+            actual.Add($"{label}: {(run.DistinctActs == 1 ? "reached its send (1 act)" : $"{run.DistinctActs} acts, exit {run.Exit}, {string.Join(' ', run.Requests)}, {run.Text}")}, {(lists == 0 ? "no list request" : lists + " list request(s)")}");
         }
 
         Said(expected, actual);

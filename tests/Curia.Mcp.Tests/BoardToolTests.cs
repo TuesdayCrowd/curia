@@ -118,7 +118,8 @@ public sealed class BoardToolTests : IDisposable
 
     /// <summary>
     /// LOB33, <c>curia_boards</c>: an undefined argument is refused by name with nothing sent; a blank <c>board</c>, a <c>board</c> holding U+0000, a blank <c>cursor</c> and a <c>limit</c> of 0 or 101 (outside the
-    /// published 1 to 100, read from R9.58) are each <c>NOT SENT</c> by name; the control is a served call. The first block states the shown count, the total and the cursor or <c>no further pages</c>, with each
+    /// published 1 to 100, read from R9.58) are each an <c>isError</c> result whose text begins <c>NOT SENT</c> and names the argument, nothing sent: a refusal the library throws instead reaches the model as a protocol
+    /// error the adapter did not write, which R11.43 and R11.57 say is not the one the model was promised (Amendment 3, ruling 53); the undefined argument keeps its form; the control is a served call. The first block states the shown count, the total and the cursor or <c>no further pages</c>, with each
     /// row a display literal; the schema's optional arguments carry <c>default: null</c>. Predicted red on the seam: the tool does not exist.
     /// </summary>
     [Fact]
@@ -144,18 +145,19 @@ public sealed class BoardToolTests : IDisposable
         {
             log.Requests.Clear();
             string said;
+            var guard = label != "an undefined argument";
             try
             {
                 var answer = await session.CallAsync("curia_boards", arguments);
-                said = $"{(answer.IsError ? "an error" : "served")}, {(answer.Text.Contains(mentions, StringComparison.Ordinal) ? "names " + mentions : "does not name " + mentions)}";
+                said = $"{(answer.IsError ? "an error" : "served")}, {(guard ? (answer.Text.TrimStart().StartsWith("NOT SENT", StringComparison.Ordinal) ? "NOT SENT, " : "not NOT SENT, ") : string.Empty)}{(answer.Text.Contains(mentions, StringComparison.Ordinal) ? "names " + mentions : "does not name " + mentions)}";
             }
             catch (Exception ex) when (ex is ModelContextProtocol.McpException or InvalidOperationException)
             {
                 said = $"thrown, {(ex.Message.Contains(mentions, StringComparison.Ordinal) ? "names " + mentions : "does not name " + mentions)}";
             }
 
-            expected.Add($"{label}: an error, names {mentions}, nothing sent");
-            actual.Add($"{label}: {said.Replace("thrown", "an error", StringComparison.Ordinal)}, {(log.Requests.Any(r => r.StartsWith("GET /v1/boards", StringComparison.Ordinal)) ? "a request was sent" : "nothing sent")}");
+            expected.Add($"{label}: an error, {(guard ? "NOT SENT, " : string.Empty)}names {mentions}, nothing sent");
+            actual.Add($"{label}: {(guard ? said : said.Replace("thrown", "an error", StringComparison.Ordinal))}, {(log.Requests.Any(r => r.StartsWith("GET /v1/boards", StringComparison.Ordinal)) ? "a request was sent" : "nothing sent")}");
         }
 
         log.Requests.Clear();
@@ -173,7 +175,8 @@ public sealed class BoardToolTests : IDisposable
 
     /// <summary>
     /// LOB34, <c>curia_ask</c>: <c>newBoard</c> is an optional boolean in the schema; the description says this adapter checks the Forum's list of boards before it signs and that <c>newBoard</c> is how an agent says
-    /// it means to make one, and does not say the Forum refuses a new board. Predicted red on the seam: no <c>newBoard</c>, no sentence.
+    /// it means to make one, and does not say the Forum refuses a new board. The negation is two patterns (Amendment 3, ruling 51), each shown to match four sentences that say it and to match neither the sentence
+    /// the description has on purpose nor R8.85's own, so a pattern that matches nothing cannot pass. Predicted red on the seam: no <c>newBoard</c>, no sentence.
     /// </summary>
     [Fact]
     public void R11_88_LOB34_TheAskToolSaysItChecksTheListAndTakesNewBoard()
@@ -190,8 +193,39 @@ public sealed class BoardToolTests : IDisposable
             [
                 $"newBoard: {(hasFlag ? (required ? "required" : "an optional boolean") : "absent")}",
                 description.Contains("checks", StringComparison.Ordinal) && description.Contains("list of boards", StringComparison.Ordinal) && description.Contains("newBoard", StringComparison.Ordinal) ? "the description says the adapter checks the list before it signs" : "the description does not say the adapter checks",
-                Regex.IsMatch(description, @"(refuses|rejects)[^.]*\b(new|unlisted) board", RegexOptions.CultureInvariant) ? "the description says the Forum refuses a new board" : "the description does not say the Forum refuses a new board",
+                RefusalPatterns.Any(p => SentencesOf(description).Any(s => Regex.IsMatch(s, p, RegexOptions.CultureInvariant))) ? "the description says the Forum refuses a new board" : "the description does not say the Forum refuses a new board",
             ]);
+    }
+
+    private static readonly string[] RefusalPatterns =
+    [
+        @"\bForum\b[^.]{0,120}\b(?:(?:refus|reject|declin)\w*|(?:will|does|did) not accept)[^.]{0,120}\b(?:new board|unlisted|no post|not listed|no served post)",
+        @"\b(?:new board|unlisted|no post|not listed|no served post)[^.]{0,120}\b(?:(?:refus|reject|declin)\w*|(?:will|does|did) not accept)[^.]{0,120}\bForum\b",
+    ];
+
+    private static IEnumerable<string> SentencesOf(string text) => text.Split('.', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim() + ".");
+
+    /// <summary>LOB34, the negation's patterns are shown to match (Amendment 3, ruling 51): each of the four sentences that say the Forum refuses a board no post is on is matched by one of them, and neither the sentence the description has on purpose nor R8.85's is.</summary>
+    [Fact]
+    public void R11_88_LOB34_TheNegationPatternsMatchWhatTheyAreToForbidAndNothingElse()
+    {
+        string[] says =
+        [
+            "The Forum refuses a board no post is on.",
+            "The Forum itself refuses a post on a board no post is on",
+            "A board no post is on is refused by the Forum.",
+            "The Forum will not accept a new board.",
+        ];
+        string[] allowed =
+        [
+            "The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.",
+            "The Forum refuses any other name for a new post and never changes one for you; a board that exists already is read as it is.",
+        ];
+
+        bool Matches(string sentence) => RefusalPatterns.Any(p => Regex.IsMatch(sentence, p, RegexOptions.CultureInvariant));
+        Said(
+            [.. says.Select(s => $"matched: {s}"), .. allowed.Select(s => $"not matched: {s}")],
+            [.. says.Select(s => $"{(Matches(s) ? "matched" : "not matched")}: {s}"), .. allowed.Select(s => $"{(Matches(s) ? "matched" : "not matched")}: {s}")]);
     }
 
     /// <summary>
@@ -249,18 +283,19 @@ public sealed class BoardToolTests : IDisposable
 
     /// <summary>
     /// LOB27, at the adapter: a <c>curia_ask</c> with a blank tag item, a blank body or a board R8.85 refuses is refused for that fault and sends no <c>GET /v1/boards</c>, and a reply tool (<c>curia_answer</c>) makes
-    /// none: the list is read after every refusal the adapter makes on its own and for no reply. A control on the seam (no list is read at all).
+    /// none: the list is read after every refusal the adapter makes on its own and for no reply. The answer row runs over a parent the stub serves on <c>rust</c>, a board the stub's list (<c>b</c>) does not
+    /// hold, and asserts first that it reached its send (a <c>POST /v1/posts</c>) and then that no list was read (Amendment 3, ruling 49; FLOB88). A control on the seam (no list is read at all).
     /// </summary>
     [Fact]
     public async Task R11_88_LOB27_TheAdapterReadsTheListAfterItsOwnRefusalsAndForNoReply_Control()
     {
-        using var log = new StubLog();
+        using var log = new StubLog { ServedBoard = "rust" };
         await using var session = await McpProtocolSession.StartAsync(ToolsOver(log), "https://agents.example/alice");
         var rows = new (string Label, string Tool, Dictionary<string, object?> Arguments)[]
         {
             ("a blank tag item", "curia_ask", new() { ["board"] = "fresh", ["title"] = "T?", ["body"] = "B.", ["tags"] = new[] { "a", " " } }),
             ("a board R8.85 refuses", "curia_ask", new() { ["board"] = "RUST", ["title"] = "T?", ["body"] = "B." }),
-            ("an answer", "curia_answer", new() { ["parent"] = StubLog.PostId, ["body"] = "An answer." }),
+            ("an answer", "curia_answer", new() { ["parentPostId"] = StubLog.PostId, ["body"] = "An answer." }),
         };
 
         var expected = new List<string>();
@@ -277,8 +312,10 @@ public sealed class BoardToolTests : IDisposable
                 // A refusal thrown is a refusal; this row reads only what was sent.
             }
 
-            expected.Add($"{label}: no list request");
-            actual.Add($"{label}: {(log.Requests.Any(r => r.StartsWith("GET /v1/boards", StringComparison.Ordinal) && !r.StartsWith("GET /v1/boards/", StringComparison.Ordinal)) ? "a list request" : "no list request")}");
+            var sendsExpected = tool == "curia_answer";
+            var sent = log.Requests.Any(r => r == "POST /v1/posts");
+            expected.Add($"{label}: {(sendsExpected ? "a post" : "no post")}, no list request");
+            actual.Add($"{label}: {(sent ? "a post" : "no post")}, {(log.Requests.Any(r => r.StartsWith("GET /v1/boards", StringComparison.Ordinal) && !r.StartsWith("GET /v1/boards/", StringComparison.Ordinal)) ? "a list request" : "no list request")}");
         }
 
         Said(expected, actual);
@@ -476,6 +513,24 @@ public sealed class BoardToolTests : IDisposable
             [
                 $"refused: {(refused.IsError ? "an error" : "not an error")}, {(text.Contains(lead, StringComparison.Ordinal) ? "the lead" : "no lead")}, {(text.Contains(tail, StringComparison.Ordinal) ? "the tail" : "no tail")}, {(text.Contains("again is safe", StringComparison.Ordinal) ? "says it is safe" : "no permission")}, {(text.Contains("newBoard", StringComparison.Ordinal) ? "the flag is offered" : "no flag")}, {(command.IsMatch(text) ? "a command" : "no command")}",
                 $"control: {(control.IsError ? "an error" : "not an error")}, {(served.Requests.Any(r => r == "POST /v1/posts") ? "1 post" : "not 1 post")}",
+            ]);
+    }
+
+    /// <summary>
+    /// LOB52 (Amendment 3, ruling 55), the registered <c>curia_ask</c> description says what to do after an unreadable list, with the condition: it contains <c>unless an earlier call printed an act line</c> and
+    /// does not say the call <c>may be made again</c> as it was. Predicted: green on the tree; FLOB90 restores the old sentence and turns it red.
+    /// </summary>
+    [Fact]
+    public void R10_98_LOB52_TheRegisteredAskDescriptionNamesTheActLineCondition()
+    {
+        using var log = new StubLog();
+        var description = Fold(Registered(ToolsOver(log)).Single(t => t.Name == "curia_ask").Description);
+
+        Said(
+            ["the description names the act line condition", "the description does not say the call may be made again"],
+            [
+                description.Contains("unless an earlier call printed an act line", StringComparison.Ordinal) ? "the description names the act line condition" : "the description does not name the act line condition",
+                description.Contains("may be made again", StringComparison.Ordinal) ? "the description says the call may be made again" : "the description does not say the call may be made again",
             ]);
     }
 

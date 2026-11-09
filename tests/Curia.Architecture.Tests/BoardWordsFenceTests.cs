@@ -112,7 +112,8 @@ public sealed class BoardWordsFenceTests
 
     /// <summary>
     /// LOB52 (ruling 39), no source says a command is safe to run again, or may be run again, without the condition: the phrase <c>running the same command again is safe</c> occurs nowhere in <c>src</c>, and each <c>may be run again</c>
-    /// is followed within 120 characters by <c>unless an earlier run</c>. Predicted red on a source that restores either sentence (FLOB82 and FLOB83).
+    /// is followed within 120 characters by <c>unless an earlier run</c>, and each <c>may be made again</c> (the adapter's descriptions) is followed within 160 characters by <c>unless an earlier</c> (Amendment 3, ruling 55).
+    /// Predicted red on a source that restores either sentence (FLOB82, FLOB83 and FLOB90).
     /// </summary>
     [Fact]
     public void R10_98_LOB52_NoSourceSaysACommandIsSafeOrMayBeRunAgainWithoutTheCondition()
@@ -129,6 +130,12 @@ public sealed class BoardWordsFenceTests
             {
                 if (!text[at..Math.Min(text.Length, at + 120)].Contains("unless an earlier run", StringComparison.Ordinal))
                     bad.Add($"{Path.GetRelativePath(root, path)}: says \"may be run again\" without the condition");
+            }
+
+            for (var at = text.IndexOf("may be made again", StringComparison.Ordinal); at >= 0; at = text.IndexOf("may be made again", at + 1, StringComparison.Ordinal))
+            {
+                if (!text[at..Math.Min(text.Length, at + 160)].Contains("unless an earlier", StringComparison.Ordinal))
+                    bad.Add($"{Path.GetRelativePath(root, path)}: says \"may be made again\" without the condition");
             }
         }
 

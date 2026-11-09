@@ -158,26 +158,29 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
     }
 
     /// <summary>
-    /// LOB7, order and bound, on a Forum of its own: 200 boards of one post and three real boards of 5, 3 and 3 (stored through the seam). The first rows are the three in order (the tie by ordinal name);
+    /// LOB7, order and bound, on a Forum of its own: 200 boards of one post and five real boards of 5, 4, 4, 3 and 3 (stored through the seam). The ties are stored against every order but one: in descending
+    /// name order (<c>real-c</c> before <c>real-b</c>, <c>flood-199</c> down to <c>flood-000</c>), and a second tie of two boards of 4 posts, <c>real-</c> and U+00E9 stored first and <c>real-z</c> after it,
+    /// which ordinal order puts the other way round and a culture comparer, insertion order and descending name each put as the accented board first. The first rows are the five in order (the tie by ordinal name);
     /// the default page is 50 rows and <c>limit=100</c> is 100; <c>limit=0</c>, <c>101</c>, <c>abc</c> and an empty <c>limit=</c> are <c>invalid-limit</c> with <c>maximum=100</c> beside the served control
-    /// <c>limit=50</c>; <c>total</c> is 203; paging by <c>next_cursor</c> returns every board once. Predicted red on the seam: no rows, total 0.
+    /// <c>limit=50</c>; <c>total</c> is 205; paging by <c>next_cursor</c> returns every board once. Predicted red on the seam: no rows, total 0.
     /// </summary>
     [Fact]
     public async Task R9_58_LOB7_TheListingIsOrderedByPostsThenNameAndBoundedAndPaged()
     {
         await using var fresh = await FreshAsync();
-        foreach (var (board, posts) in new[] { ("real-a", 5), ("real-b", 3), ("real-c", 3) })
+        var accented = "real-" + char.ConvertFromUtf32(0x00E9);
+        foreach (var (board, posts) in new[] { ("real-c", 3), ("real-b", 3), (accented, 4), ("real-z", 4), ("real-a", 5) })
             await StoreAsync(fresh, board, posts, 2, Ct);
-        for (var i = 0; i < 200; i++)
+        for (var i = 199; i >= 0; i--)
             await StoreAsync(fresh, $"flood-{i:D3}", 1, 1, Ct);
 
         var invalidType = PublishedBoardListWords.Types()[2];
         var first = await ListAsync(fresh.Client, string.Empty, Ct);
         var wide = await ListAsync(fresh.Client, "limit=100", Ct);
-        var expected = new List<string> { "default: 200, 50 rows, total 203, next_cursor; first three real-a 5, real-b 3, real-c 3", "limit=100: 200, 100 rows, total 203, next_cursor" };
+        var expected = new List<string> { $"default: 200, 50 rows, total 205, next_cursor; first five real-a 5, real-z 4, {accented} 4, real-b 3, real-c 3", "limit=100: 200, 100 rows, total 205, next_cursor" };
         var actual = new List<string>
         {
-            $"default: {Summary(first)}; first three {string.Join(", ", (Rows(first) ?? []).Take(3).Select(r => $"{r.Board} {r.Posts}"))}",
+            $"default: {Summary(first)}; first five {string.Join(", ", (Rows(first) ?? []).Take(5).Select(r => $"{r.Board} {r.Posts}"))}",
             $"limit=100: {Summary(wide)}",
         };
 
@@ -189,7 +192,7 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
         }
 
         var control = await ListAsync(fresh.Client, "limit=50", Ct);
-        expected.Add("limit=50: 200, 50 rows, total 203, next_cursor");
+        expected.Add("limit=50: 200, 50 rows, total 205, next_cursor");
         actual.Add($"limit=50: {Summary(control)}");
 
         // Paging: the union of the pages is the whole list, once each.
@@ -203,7 +206,7 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
             if (cursor is null) break;
         }
 
-        expected.Add("paged: 203 boards, 203 distinct");
+        expected.Add("paged: 205 boards, 205 distinct");
         actual.Add($"paged: {seen.Count} boards, {seen.Distinct(StringComparer.Ordinal).Count()} distinct");
         Said(expected, actual);
     }
@@ -270,7 +273,8 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
     }
 
     /// <summary>
-    /// LOB10, the filter. <c>board=&lt;stored&gt;</c> is its row (total 1); the upper-case spelling and a decomposed spelling of a stored name are no row (total 0); a present blank <c>board</c> or <c>cursor</c> is
+    /// LOB10, the filter. Three boards are stored that tell a prefix from a whole: <c>P</c>, <c>P-b</c> (which begins with <c>P</c>) and <c>zP</c> (which holds it); <c>board=P</c> is exactly the row <c>P</c>, total 1, and
+    /// the proper prefix <c>P[..^1]</c> and the fragment <c>P[1..^1]</c> are each <c>200</c> with no row and total 0, and <c>search</c> states <c>[]</c> for the three and <c>[board]</c> for the two. <c>board=&lt;stored&gt;</c> is its row (total 1); the upper-case spelling and a decomposed spelling of a stored name are no row (total 0); a present blank <c>board</c> or <c>cursor</c> is
     /// <c>blank-parameter</c> naming it (<c>parameter=board</c>, <c>parameter=board, cursor</c>); a NUL, an invalid sequence and an over-cap name are <c>200</c> and empty, never a <c>5xx</c> (the
     /// route's totality over the closed fuzz's alphabet is the fuzz's); and for every listed name <c>search?board=</c> states <c>[]</c> while for every other it states <c>[board]</c>. Predicted red on the seam:
     /// the stored board has no row, the blank forms are <c>200</c>.
@@ -281,8 +285,12 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
         var composed = "lob10-caf" + char.ConvertFromUtf32(0xE9);
         var decomposed = "lob10-cafe" + char.ConvertFromUtf32(0x301);
         var board = Name("lob10");
+        var (prefixed, contained) = (board + "-b", "z" + board);
+        var (properPrefix, fragment) = (board[..^1], board[1..^1]);
         await StoreAsync(forum, board, 2, 1, Ct);
         await StoreAsync(forum, composed, 1, 1, Ct);
+        await StoreAsync(forum, prefixed, 1, 1, Ct);
+        await StoreAsync(forum, contained, 1, 1, Ct);
         var blank = PublishedBoardListWords.Types()[1];
 
         var expected = new List<string>();
@@ -296,6 +304,9 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
         }
 
         await Row("the stored board", "board=" + board, $"200, 1 rows, total 1, {board}");
+        await Row("a proper prefix", "board=" + properPrefix, "200, 0 rows, total 0");
+        await Row("a fragment", "board=" + fragment, "200, 0 rows, total 0");
+        await Row("the longer board", "board=" + prefixed, $"200, 1 rows, total 1, {prefixed}");
         await Row("upper case", "board=" + board.ToUpperInvariant(), "200, 0 rows, total 0");
         await Row("decomposed", "board=" + Uri.EscapeDataString(decomposed), "200, 0 rows, total 0");
         await Row("blank board", "board=", $"400 {blank} parameter=board");
@@ -305,9 +316,9 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
         await Row("an invalid sequence", "board=%ED%A0%80", "200, 0 rows, total 0");
         await Row("over the cap", "board=" + new string('r', 70), "200, 0 rows, total 0");
 
-        var all = new HashSet<string>([board, composed], StringComparer.Ordinal);   // what this test stored: the oracle is not the listing under test
+        var all = new HashSet<string>([board, composed, prefixed, contained], StringComparer.Ordinal);   // what this test stored: the oracle is not the listing under test
         var agreements = new List<string>();
-        foreach (var name in new[] { board, composed, board.ToUpperInvariant(), decomposed, Name("lob10-typo") })
+        foreach (var name in new[] { board, composed, prefixed, contained, properPrefix, fragment, board.ToUpperInvariant(), decomposed, Name("lob10-typo") })
         {
             var search = await SearchAsync(forum.Client, "board=" + Uri.EscapeDataString(name), Ct);
             agreements.Add($"{name}: search {(all.Contains(name) ? "[]" : "[board]")} = {search.Unmatched}");
@@ -372,9 +383,8 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
     }
 
     /// <summary>
-    /// LOB15, no event, no hold. List reads (served, filtered, refused as unknown, blank, over the limit) append nothing: the event count is the same after them; on a Forum of its own with nothing in the log the
-    /// listing is <c>200</c> with no row and <c>total</c> 0. A control on the seam. (That the route takes no agent's write hold is held by the route taking no agent: it is anonymous, and the live run's burst leg, L8, is
-    /// where a list read beside a held write is seen.)
+    /// LOB15, no event. List reads (served, filtered, refused as unknown, blank, over the limit) append nothing: the event count is the same after them; on a Forum of its own with nothing in the log the
+    /// listing is <c>200</c> with no row and <c>total</c> 0. A control on the seam. (That the route takes no agent's write hold is not asserted here: LOB53, in <c>BoardListGateHoldTests</c>, counts the entries the agent gate records.)
     /// </summary>
     [Fact]
     public async Task R9_58_LOB15_AListReadAppendsNothingAndAnEmptyForumIsAnEmptyListing_Control()
