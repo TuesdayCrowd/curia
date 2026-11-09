@@ -247,8 +247,8 @@ internal static class ToolText
     /// </summary>
     private const string BoardCheckSentence =
         "Before it signs, this adapter checks the Forum's list of boards for `board`: a board no post the Forum serves is on is NOT SENT, naming the boards the Forum serves, unless `newBoard` is true, " +
-        "which says you mean to start that board (it changes nothing for a board that has posts); a list that could not be read is NOT SENT as well, nothing was signed, and the call may be made again " +
-        "as it was. The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.";
+        "which says you mean to start that board (it changes nothing for a board that has posts); a list that could not be read is NOT SENT as well, nothing was signed or kept, and the call is made again when the list can be read, " +
+        "unless an earlier call printed an act line: send that act again with the resend that line names, and do not call the tool again. The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.";
 
     /// <summary>
     /// R11.17's <c>curia_ask</c>: "Post a question (runs dedupe first, may return an existing answer
