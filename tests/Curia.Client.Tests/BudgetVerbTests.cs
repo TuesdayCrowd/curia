@@ -113,7 +113,7 @@ public sealed class BudgetVerbTests
     private static async Task<List<string>> DriveAsync(CliHome home, string verb, string[] args, string name)
     {
         var problems = new List<string>();
-        using var forum = new ListenerForum();
+        using var forum = new ListenerForum { Boards = ["b"] };   // errata G63: the world holds the board the question is asked on
         string[] withForum = [.. args, "--forum", forum.Address.ToString()];
 
         forum.Answer = (_, _) => (201, Receipt(verb) + $",\"budget\":{{\"name\":\"{name}\",\"limit\":9,\"used\":7,\"remaining\":2}}}}");

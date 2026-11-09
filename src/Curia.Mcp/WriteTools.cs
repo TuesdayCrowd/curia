@@ -29,19 +29,71 @@ namespace Curia.Mcp;
 internal sealed partial class ForumTools
 {
     /// <summary>
-    /// R11.88 (errata G63): the method <c>curia_ask</c> is registered as, the arguments of <see cref="AskAsync"/> with <paramref name="newBoard"/> before the token: the check of the Forum's list of
-    /// boards is made here and then <see cref="AskAsync"/> is called, so a test that calls <see cref="AskAsync"/> directly does not probe the check (trap 194). Seam (PR 7, Task 1): the check is not made
-    /// and the tool is not registered as this method; Task 3 does both.
+    /// R11.88 (errata G63): the method <c>curia_ask</c> is registered as, the arguments of <see cref="AskAsync"/> with <paramref name="newBoard"/> before the token. The Forum's list of boards is read
+    /// here for the typed board, after every refusal this adapter makes on its own (<see cref="SubmissionBuilder.LocalRefusal"/> is asked, and a draft it refuses goes on to <see cref="AskAsync"/>,
+    /// which makes that refusal, with no request made here) and before anything is signed, and then <see cref="AskAsync"/> is called. A test that calls <see cref="AskAsync"/> directly does not
+    /// probe the check (trap 194); the tool the agent calls is this one. The board line is the block after the receipt, or the tail of the refusal thrown; <c>newBoard</c> is an optional boolean
+    /// (<c>false</c> when omitted), which the schema serves as <c>boolean</c> and not as a nullable one.
     /// </summary>
-    internal Task<CallToolResult> AskCheckedAsync(
+    internal async Task<CallToolResult> AskCheckedAsync(
         string board,
         string title,
         string body,
         string[]? tags = null,
         string? notDuplicateRationale = null,
-        bool? newBoard = null,
-        CancellationToken cancellationToken = default) =>
-        AskAsync(board, title, body, tags, notDuplicateRationale, cancellationToken);
+        bool newBoard = false,
+        CancellationToken cancellationToken = default)
+    {
+        // The guards of AskAsync, in its order, so a blank board or a null tag item is told as it is today.
+        if (ArgumentGuards.Identifier(board, nameof(board)) is { } refusedBoard) return refusedBoard;
+        if (ArgumentGuards.Items(tags, nameof(tags)) is { } refused) return refused;
+        var writer = Writer();
+
+        var draft = new PostDraft
+        {
+            Kind = PostKind.Question,
+            Board = board,
+            Title = title,
+            Body = body,
+            Tags = tags is null ? [] : [.. tags],
+            NotDuplicate = string.IsNullOrWhiteSpace(notDuplicateRationale) ? null : true,
+            DuplicateRationale = string.IsNullOrWhiteSpace(notDuplicateRationale) ? null : notDuplicateRationale,
+        };
+
+        string? line = null;
+        if (SubmissionBuilder.LocalRefusal(writer.Agent.Profile.AgentId, draft, writer.Now) is null)
+        {
+            var flagGiven = newBoard;
+            var check = await BoardCheck.CheckAsync(_forum, board, cancellationToken).ConfigureAwait(false);
+            if (check.Outcome is BoardCheckOutcome.Unreadable)
+                return NotSentText(BoardListWording.Unreadable(board, check.Fault!));
+
+            if (check.Outcome is BoardCheckOutcome.NotOnList && !flagGiven)
+            {
+                var names = await BoardCheck.FirstPageAsync(_forum, cancellationToken).ConfigureAwait(false);
+                return NotSentText(BoardListWording.NotListed(board, PostKind.Question, names.TryGetValue(out var page, out _) ? page : null, adapter: true));
+            }
+
+            line = BoardListWording.BoardLine(board, check, flagGiven, adapter: true);
+        }
+
+        CallToolResult result;
+        try
+        {
+            result = await AskAsync(board, title, body, tags, notDuplicateRationale, cancellationToken).ConfigureAwait(false);
+        }
+        catch (McpException ex) when (line is not null)
+        {
+            throw new McpException(ex.Message + "\n" + line, ex);
+        }
+
+        if (line is not null) result.Content = [.. result.Content, new TextContentBlock { Text = line }];
+        return result;
+    }
+
+    /// <summary>A refusal of this adapter's own, as the guards give one: an <c>isError</c> result whose text is already R10.98's published words (they begin <c>NOT SENT.</c>).</summary>
+    private static CallToolResult NotSentText(string text) =>
+        new() { IsError = true, Content = [new TextContentBlock { Text = text.TrimEnd('\n') }] };
 
     /// <summary>
     /// R11.17's <c>curia_ask</c>: "Post a question (runs dedupe first, may return an existing answer

@@ -955,25 +955,49 @@ internal static class ForumDocuments
     }
 
     /// <summary>
-    /// R9.58 (errata G63): the board listing's page. Seam (PR 7, Task 1): lenient, so a page that lacks a member or holds a row that is not one is read as what it has; Task 3 makes
-    /// any such page malformed and never an empty list.
+    /// R9.58 (errata G63): the board listing's page, read strictly. A page without <c>boards</c> (an array), <c>total</c> or <c>corpus_bound</c> (whole numbers), or with a row that holds no <c>board</c>
+    /// (a string) or no <c>posts</c> or <c>authors</c> (whole, not negative), is a malformed page and never an empty list: a client that read such a page as "no boards" would tell an agent its board is new.
+    /// <c>latest_post_at</c> and <c>next_cursor</c> are optional; a present <c>latest_post_at</c> must be a stored instant (digits and the separators of one), or the page is malformed, and an absent one is
+    /// <see langword="null"/>, which the clients print as <c>NOT STATED</c>.
     /// </summary>
     internal static Result<BoardPage> ReadBoardPage(JsonValue value)
     {
-        if (value is not JsonValue.Object o) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed("board listing is not an object"));
+        const string Malformed = "board listing";
+        if (value is not JsonValue.Object o) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"{Malformed} is not an object"));
+        if (ClientJson.Member(o, "boards") is not JsonValue.Array list) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"{Malformed} has no boards array"));
+        if (Count(o, "total") is not { } total) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"{Malformed} has no total"));
+        if (ClientJson.WholeNumber(o, "corpus_bound") is not { } bound || bound < 0) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"{Malformed} has no corpus_bound"));
+        if (ClientJson.Member(o, "next_cursor") is { } cursor and not JsonValue.String) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"{Malformed} has a next_cursor that is not a string"));
 
-        var rows = ImmutableArray.CreateBuilder<BoardRow>();
-        if (ClientJson.Member(o, "boards") is JsonValue.Array list)
+        var rows = ImmutableArray.CreateBuilder<BoardRow>(list.Items.Length);
+        foreach (var item in list.Items)
         {
-            foreach (var item in list.Items)
+            if (item is not JsonValue.Object row || ClientJson.String(row, "board") is not { } name || Count(row, "posts") is not { } posts || Count(row, "authors") is not { } authors)
+                return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"a row of the {Malformed} lacks its board, posts or authors"));
+
+            string? latest = null;
+            if (ClientJson.Member(row, "latest_post_at") is { } stated)
             {
-                if (item is JsonValue.Object row && ClientJson.String(row, "board") is { } name)
-                    rows.Add(new BoardRow(name, (int)(ClientJson.WholeNumber(row, "posts") ?? 0), (int)(ClientJson.WholeNumber(row, "authors") ?? 0), ClientJson.String(row, "latest_post_at")));
+                if (stated is not JsonValue.String instant || !IsStoredInstant(instant.Value))
+                    return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"a row of the {Malformed} has a latest_post_at that is not an instant"));
+                latest = instant.Value;
             }
+
+            rows.Add(new BoardRow(name, posts, authors, latest));
         }
 
-        return Result<BoardPage>.Ok(new BoardPage(rows.ToImmutable(), (int)(ClientJson.WholeNumber(o, "total") ?? rows.Count), ClientJson.WholeNumber(o, "corpus_bound"), ClientJson.String(o, "next_cursor")));
+        return Result<BoardPage>.Ok(new BoardPage(rows.ToImmutable(), total, bound, ClientJson.String(o, "next_cursor")));
     }
+
+    /// <summary>A count the Forum served: a whole number from 0 to <see cref="int.MaxValue"/>.</summary>
+    private static int? Count(JsonValue.Object o, string name) =>
+        ClientJson.WholeNumber(o, name) is { } n and >= 0 and <= int.MaxValue ? (int)n : null;
+
+    /// <summary>An instant as the Forum stores one: the characters of an ISO 8601 instant and nothing else, so it can be printed as it came.</summary>
+    private static bool IsStoredInstant(string text) =>
+        text.Length is > 0 and <= 40
+        && text.All(c => char.IsAsciiDigit(c) || c is '-' or ':' or '.' or 'T' or 'Z' or '+')
+        && DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out _);
 
     /// <summary>The three names R9.50 publishes, in its order.</summary>
     internal static readonly string[] BudgetNames = ["posting", "acceptance", "flag"];
@@ -1403,4 +1427,4 @@ internal static class ForumDocuments
 public sealed record BoardRow(string Board, int Posts, int Authors, string? LatestPostAt);
 
 /// <summary>R9.58 (errata G63): a page of the board listing: the rows, the total the listing holds, the corpus bound it was cut from, and the cursor of the next page where there is one.</summary>
-public sealed record BoardPage(ImmutableArray<BoardRow> Boards, int Total, long? CorpusBound, string? NextCursor);
+public sealed record BoardPage(ImmutableArray<BoardRow> Boards, int Total, long CorpusBound, string? NextCursor);

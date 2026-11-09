@@ -41,6 +41,9 @@ internal sealed class ListenerForum : IDisposable
     /// <summary>The status and body for the token endpoint when a fact needs it to refuse; null (the default) is a token.</summary>
     internal Func<(int Status, string Body)>? Token { get; set; }
 
+    /// <summary>Errata G63: the boards this Forum's world serves a post on; where set, <c>GET /v1/boards</c> answers from it before <see cref="Answer"/> is asked, so a fact that answers every other path with a receipt is not an older Forum to the board check.</summary>
+    internal IReadOnlyList<string>? Boards { get; set; }
+
     internal IReadOnlyList<string> Calls(string request) => [.. Requests.Where(r => r == request)];
 
     private async Task ServeAsync()
@@ -61,7 +64,9 @@ internal sealed class ListenerForum : IDisposable
             Requests.Enqueue(request);
             var (status, body) = context.Request.Url.AbsolutePath == "/oauth/token"
                 ? Token?.Invoke() ?? (200, """{"access_token":"stub-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""")
-                : Answer(context.Request.HttpMethod, context.Request.Url.AbsolutePath);
+                : Boards is { } boards && context.Request.HttpMethod == "GET" && context.Request.Url.AbsolutePath == "/v1/boards"
+                    ? (200, BoardListHarness.WorldPage(boards, context.Request.Url.Query))
+                    : Answer(context.Request.HttpMethod, context.Request.Url.AbsolutePath);
             var bytes = Encoding.UTF8.GetBytes(body);
             context.Response.StatusCode = status;
             context.Response.ContentType = status is 200 or 201 ? "application/json" : "application/problem+json";

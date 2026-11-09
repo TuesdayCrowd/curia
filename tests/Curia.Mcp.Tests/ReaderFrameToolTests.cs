@@ -570,6 +570,7 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_search" => await tools.SearchAsync(new SearchCriteria { Query = "anything" }, ct),
                 "curia_verify" => await tools.VerifyAsync(StubLog.PostId, null, ct),
                 "curia_recheck" => await tools.RecheckAsync([_log.Submission.PrefixedDigest], ct),
+                "curia_boards" => await tools.BoardsAsync(null, null, null, ct),
                 "curia_ask" => await tools.AskAsync("b", "Asked before?", "A question.", null, null, ct),
                 "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", null, ct),
                 "curia_comment" => await tools.CommentAsync(StubLog.PostId, "A reply.", null, ct),

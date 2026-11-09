@@ -124,7 +124,7 @@ internal sealed class Args
     // as why's value and pushed `b` into the search terms. Both are the shape R9.25 is about: a
     // flag the caller supplied and the program did not honour, with nothing said.
     private static readonly ImmutableArray<string> Switches =
-        ["titles", "json", "why", "plain", "screen"];
+        ["titles", "json", "why", "plain", "screen", "new-board"];
 
     /// <summary>
     /// Flags whose value names something on the Forum, and so may be given as the display literal

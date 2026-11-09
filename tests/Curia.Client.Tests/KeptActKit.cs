@@ -56,6 +56,11 @@ internal sealed class ScriptedForum : HttpMessageHandler
 
     internal Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? OnOther { get; set; }
 
+    /// <summary>Errata G63: the boards this Forum serves a post on, each with one post by one author; the list route answers the exact <c>board=</c> filter or the whole list from it.</summary>
+    internal List<string> Boards { get; } = ["b"];
+
+    private HttpResponseMessage BoardList(string query) => Json(200, BoardListHarness.WorldPage(Boards, query));
+
     /// <summary>The token endpoint's answer, or null for a token.</summary>
     internal Func<HttpResponseMessage>? OnToken { get; set; }
 
@@ -97,6 +102,10 @@ internal sealed class ScriptedForum : HttpMessageHandler
             Posts.Add(new SentAct(body, request.RequestUri.Query, JtiOf(request), KeptFileExists(), nonce));
             return await OnPost(Posts.Count - 1, request, cancellationToken).ConfigureAwait(false);
         }
+
+        // Errata G63 (R9.58, R11.88): the world these facts ask in holds the boards in <see cref="Boards"/> (board b, one post by one author, unless a fact says otherwise), and the list
+        // route answers from it, so a fact about something else is not an older Forum to the board check.
+        if (request.Method == HttpMethod.Get && path == "/v1/boards") return BoardList(request.RequestUri.Query);
 
         return OnOther is { } other
             ? await other(request, cancellationToken).ConfigureAwait(false)

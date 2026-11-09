@@ -193,8 +193,8 @@ internal static class Program
     /// <summary>The flags a verb accepts when its method serves several verbs, by verb. PostAsync and SignalAsync refuse any other flag for that verb, so a flag one kind reads is never silently taken by another. D37_EveryVerbAnswersHelp holds each such verb's help to name every flag listed here, and to name no other.</summary>
     internal static string[] SharedVerbFlags(string verb) => verb switch
     {
-        "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate"],
-        "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum"],
+        "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate", "new-board"],
+        "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "new-board"],
         "comment" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "refs", "forum"],
         "revision" => ["agent", "board", "parent", "prev", "title", "body", "body-file", "tags", "refs", "forum"],
         "endorse" => ["agent", "board", "predict", "reject", "epoch", "forum"],
@@ -347,15 +347,42 @@ internal static class Program
                 DuplicateRationale = args.Value("not-duplicate"),
             };
 
-            if (kind is PostKind.Question or PostKind.Finding)
-            {
-                // R11.88 (errata G63), seam (PR 7, Task 1): the place the check is made, after every local refusal and before anything is signed or kept. It decides nothing yet.
-                using var listHttp = HttpFor(ForumUri(args, agent.Profile));
-                _ = await BoardCheck.CheckAsync(new ForumClient(listHttp, ForumUri(args, agent.Profile)), board!, ct).ConfigureAwait(false);
-            }
+            if ((kind is PostKind.Question or PostKind.Finding) && await CheckBoardAsync(args, agent, draft, kind, args.Has("new-board"), ct).ConfigureAwait(false) is { } boardRefusal)
+                return boardRefusal;
 
             return await SendDraftAsync(args, store, agent, draft, ct, supersession, question).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// R11.88 (errata G63): the Forum's list of boards, read for the typed board after every refusal this client makes on its own (the draft's local refusal is asked of
+    /// <see cref="SubmissionBuilder.LocalRefusal"/>, so a draft with a second fault is told that fault by the send that follows, with no request made here) and before anything is
+    /// signed or kept. Prints the board line and returns null where the post goes; otherwise prints the refusal and returns its exit code: <c>1</c> for a board no served post is on that
+    /// <c>--new-board</c> does not acknowledge, <c>8</c> for a list that could not be read (which does not offer the flag).
+    /// </summary>
+    private static async Task<int?> CheckBoardAsync(Args args, EnrolledAgent agent, PostDraft draft, PostKind kind, bool flagGiven, CancellationToken ct)
+    {
+        if (SubmissionBuilder.LocalRefusal(agent.Profile.AgentId, draft, TimeProvider.System.GetUtcNow()) is not null) return null;
+
+        var forum = ForumUri(args, agent.Profile);
+        using var http = HttpFor(forum);
+        var client = new ForumClient(http, forum);
+        var board = draft.Board;
+
+        var check = await BoardCheck.CheckAsync(client, board, ct).ConfigureAwait(false);
+        if (check.Outcome is BoardCheckOutcome.Unreadable)
+            return Output.Fail($"{new OwnText(BoardListWording.Unreadable(board, check.Fault!).TrimEnd('\n'))}", ExitCode.ForumFault);
+
+        if (check.Outcome is BoardCheckOutcome.NotOnList && !flagGiven)
+        {
+            var names = await BoardCheck.FirstPageAsync(client, ct).ConfigureAwait(false);
+            return Output.Fail(
+                $"{new OwnText(BoardListWording.NotListed(board, kind, names.TryGetValue(out var page, out _) ? page : null, adapter: false).TrimEnd('\n'))}",
+                ExitCode.Usage);
+        }
+
+        if (BoardListWording.BoardLine(board, check, flagGiven, adapter: false) is { } line) Output.Line($"{new OwnText(line)}");
+        return null;
     }
 
     /// <summary>
@@ -1174,12 +1201,27 @@ internal static class Program
     }
 
     /// <summary>
-    /// <c>curia boards</c> (R11.88, errata G63): the list of boards the Forum serves. Seam (PR 7, Task 1): reads one page and prints nothing; Task 3 prints R10.98's words.
+    /// <c>curia boards</c> (R9.58, R10.98, R11.88): the boards with a post the Forum serves, most posts first, in the published words. Anonymous. A <c>--board</c>, <c>--cursor</c> or
+    /// <c>--limit</c> that cannot be sent is refused before any request, and none of them is dropped.
     /// </summary>
     private static async Task<int> BoardsAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown(["agent", "board", "limit", "cursor", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        if (args.Has("board") && QueryValue.NamesNothing(args.Value("board"), isList: false))
+            return Output.Fail("error: --board is empty or blank; omit it to list every board. Nothing was sent.", ExitCode.Usage);
+
+        if (args.Has("cursor") && QueryValue.NamesNothing(args.Value("cursor"), isList: false))
+            return Output.Fail("error: --cursor is empty or blank; omit it to start the listing. Nothing was sent.", ExitCode.Usage);
+
+        int? limit = null;
+        if (args.Has("limit"))
+        {
+            if (!int.TryParse(args.Value("limit"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) || n is < 1 or > BoardCheck.MaximumLimit)
+                return Output.Fail($"error: --limit is a whole number from 1 to {BoardCheck.MaximumLimit}. Nothing was sent.", ExitCode.Usage);
+            limit = n;
+        }
 
         // The route reads no `marking` (R9.58), so the context's marking is not asked of it: only the Forum the named agent's profile records.
         var store = ProfileStore.Default();
@@ -1193,18 +1235,33 @@ internal static class Program
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
 
-        int? limit = int.TryParse(args.Value("limit"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : null;
-        var page = await client.GetBoardsAsync(args.Value("board"), limit, args.Value("cursor"), ct).ConfigureAwait(false);
-        return page.TryGetValue(out _, out var refusal) ? ExitCode.Ok : Output.Fail(refusal);
+        var read = await client.GetBoardsAsync(args.Value("board"), limit, args.Value("cursor"), ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
+
+        Output.Line(Help.BoardsBanner);
+        if (args.Value("board") is { } filter && page!.Boards.IsEmpty)
+        {
+            Output.Line($"{new OwnText(BoardListWording.FilteredEmpty(filter))}");
+            return ExitCode.Ok;
+        }
+
+        Output.Line($"{new OwnText(BoardListWording.Header(page!.Boards.Length, page.Total))}");
+        foreach (var row in page.Boards)
+            Output.Line($"{new OwnText(BoardListWording.Row(row))}");
+
+        if (page.NextCursor is { Length: > 0 } next)
+            Output.Line($"{new OwnText(BoardListWording.MoreLabel)}{Hints.More("curia boards", next)}");
+        else
+            Output.Line($"{new OwnText(BoardListWording.NoFurtherPages)}");
+
+        return ExitCode.Ok;
     }
 
     /// <summary>What a board with no posts prints, for the line form and for the screen before it draws.</summary>
     internal static int EmptyBoard(string board)
     {
         Output.Line($"no posts on board {board}.");
-        Output.Line(
-            "An unknown board and an empty board are the same answer here: the Forum returns "
-            + "an empty list for both, and there is no endpoint that enumerates boards.");
+        Output.Line($"{new OwnText(BoardListWording.EmptyBoardSecondLine)}");
         return ExitCode.Ok;
     }
 

@@ -19,6 +19,15 @@ public static class NameWording
 
     private const string EmptyPageTail = "; every name here has posts, so this empty page comes from the rest of the request, from posts the floor line counts as removed, or from the names taken together";
 
+    /// <summary>
+    /// The state of a board the Forum serves a post on, in capitals, and its negation: one definition for the filters line (R10.97) and the board line (R10.98, errata G63), so a reader who has
+    /// read one has read the other and a content fence holds the words here and nowhere else.
+    /// </summary>
+    public const string BoardServed = "THE FORUM SERVES POSTS ON IT";
+
+    /// <summary>The negation of <see cref="BoardServed"/>: no post the Forum serves is on the board.</summary>
+    public const string BoardNotServed = "NO POST THE FORUM SERVES IS ON IT";
+
     private const string Board = "board";
     private const string Author = "author";
 
@@ -101,10 +110,10 @@ public static class NameWording
             return $"{name} {typed}: NOT STATED (the Forum did not say whether a post bears it)";
 
         if (!stated.Contains(name, StringComparer.Ordinal))
-            return name == Board ? $"board {typed}: THE FORUM SERVES POSTS ON IT" : $"author {typed}: THE FORUM SERVES POSTS BY IT";
+            return name == Board ? $"board {typed}: {BoardServed}" : $"author {typed}: THE FORUM SERVES POSTS BY IT";
 
         return name == Board
-            ? $"board {typed}: NO POST THE FORUM SERVES IS ON IT; {BoardHint(typedValue)}"
+            ? $"board {typed}: {BoardNotServed}; {BoardHint(typedValue)}"
             : $"author {typed}: NO POST THE FORUM SERVES BEARS IT; an author is the full agent identifier, as the author line of a post prints it";
     }
 

@@ -120,6 +120,7 @@ public sealed partial class UnheardActTests
     {
         using var stub = new RawStubForum(UnheardBehaviour.Stall);
         var run = await RunAsync(stub.Address, ShortTimeout, AskArgs);
+        stub.ExpectOlderForumLine(run.Text);
         var facts = Read(run.Text);
         var received = stub.Submissions.LastOrDefault();
         var digest = received is null ? null : ReceivedAct.DigestOf(received);
@@ -163,9 +164,29 @@ public sealed partial class UnheardActTests
                 });
             }
 
+            // Errata G63 (R11.88): the world these rows ask in holds board b, so the check passes on the Forum's list and the transport failure under test is the post's.
+            if (request.Method == HttpMethod.Get && request.RequestUri.AbsolutePath == "/v1/boards")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(BoardListHarness.WorldPage(["b"], request.RequestUri.Query), System.Text.Encoding.UTF8, "application/json") });
+
             throw thrown();
         }
     }
+
+    /// <summary>Serves the Forum's list of boards (board b) from memory and sends every other request on: the rows whose transport failure is real (a refused connection, a name that does not resolve) fail at the token step or the post, not at the check.</summary>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "A response the handler returns is disposed by the HttpClient that reads it.")]
+    private sealed class ListServingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            return request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/v1/boards"
+                ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(BoardListHarness.WorldPage(["b"], request.RequestUri.Query), System.Text.Encoding.UTF8, "application/json") })
+                : base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    private static Func<Uri, HttpClient> ShortTimeoutWithTheList =>
+        forum => new HttpClient(new ShortTimeoutHandler(new ListServingHandler(new HttpClientHandler()))) { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
 
     private static Func<Uri, HttpClient> Throwing(Func<HttpRequestException> thrown) =>
         forum => new HttpClient(new ThrowingHandler(thrown)) { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
@@ -177,19 +198,23 @@ public sealed partial class UnheardActTests
             case "a FIN after the request was read (ResponseEnded)":
             {
                 using var stub = new RawStubForum(UnheardBehaviour.Fin);
-                return await RunAsync(stub.Address, ShortTimeout, AskArgs);
+                var printed = await RunAsync(stub.Address, ShortTimeout, AskArgs);
+                stub.ExpectOlderForumLine(printed.Text);
+                return printed;
             }
 
             case "an RST after the request was read (no name)":
             {
                 using var stub = new RawStubForum(UnheardBehaviour.Reset);
-                return await RunAsync(stub.Address, ShortTimeout, AskArgs);
+                var printed = await RunAsync(stub.Address, ShortTimeout, AskArgs);
+                stub.ExpectOlderForumLine(printed.Text);
+                return printed;
             }
 
             case "a refused connection (ConnectionError)":
-                return await RunAsync(UnusedPort(), ShortTimeout, AskArgs);
+                return await RunAsync(UnusedPort(), ShortTimeoutWithTheList, AskArgs);
             case "an unresolvable name (NameResolutionError)":
-                return await RunAsync(new Uri("http://forum.invalid"), ShortTimeout, AskArgs);
+                return await RunAsync(new Uri("http://forum.invalid"), ShortTimeoutWithTheList, AskArgs);
             case "a constructed ConnectionError":
                 return await RunAsync(new Uri("http://forum.test"), Throwing(() => new HttpRequestException(HttpRequestError.ConnectionError, "refused")), AskArgs);
             case "a constructed SecureConnectionError":
@@ -255,6 +280,7 @@ public sealed partial class UnheardActTests
         async Task CheckAsync(string name, RawStubForum stub, params string[] args)
         {
             var run = await RunAsync(stub.Address, stub.StallToken ? ShortTimeoutEvenForTheToken : ShortTimeout, args);
+            if (args[0] == "ask") stub.ExpectOlderForumLine(run.Text);
             var facts = Read(run.Text);
             var titleAllowed = args[0] is "resolve" or "flag";
             if (facts.Sentence || facts.ActLines > 0 || (facts.UnheardTitle && !titleAllowed)) problems.Add($"{name}: {facts.Says}");
@@ -287,7 +313,7 @@ public sealed partial class UnheardActTests
     public async Task R11_77_AFC24_OneDefinitionDecidesWhatIsUnheardAndNeitherPrinterDecidesIt()
     {
         using var stub = new RawStubForum(UnheardBehaviour.Stall);
-        await RunAsync(stub.Address, ShortTimeout, AskArgs);
+        stub.ExpectOlderForumLine((await RunAsync(stub.Address, ShortTimeout, AskArgs)).Text);
         var posts = stub.Requests.Count(r => r == "POST /v1/posts");
 
         var src = Path.Combine(RepoRoot(), "src");

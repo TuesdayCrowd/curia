@@ -110,7 +110,8 @@ public sealed class BoardListCliTests
         string RowLine(Board b, string latest) => PublishedBoardListWords.ListingRow().Replace("<name>", Lit(b.Name), StringComparison.Ordinal)
             .Replace("<posts>", b.Posts.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("<authors>", b.Authors.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
             .Replace("<latest_post_at>", latest, StringComparison.Ordinal);
-        var more = PublishedBoardListWords.MoreLine().Replace("<next_cursor>", "bmV4dA==", StringComparison.Ordinal);
+        // The cursor is a value in a command the reader may run, so it is written as a shell word (R10.65, errata G17; Amendment 1, ruling 22(b)): between single quotation marks.
+        var more = PublishedBoardListWords.MoreLine().Replace("<next_cursor>", "'bmV4dA=='", StringComparison.Ordinal);
         string[] expected =
         [
             "exit 0",

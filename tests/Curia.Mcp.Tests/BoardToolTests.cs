@@ -328,17 +328,11 @@ public sealed class BoardToolTests : IDisposable
             [read.Contains("curia_boards") ? "curia_boards is a read tool" : "curia_boards is not a read tool", withIdentity.Contains("curia_boards", StringComparison.Ordinal) ? "named in the instructions with an identity" : "not named in the instructions with an identity", withoutIdentity.Contains("curia_boards", StringComparison.Ordinal) ? "named in the instructions without one" : "not named in the instructions without one"]);
     }
 
-    /// <summary>LOB36, the version: <see cref="ToolCatalogue.Version"/> is the number R11.88's paragraph names (0.11.0). RLW40 (nothing else in <c>tests/</c> reads a version out of the errata) is <c>ReadersLastWordsPinsTests</c>'s and stays green. Predicted red on the seam: 0.10.4.</summary>
+    /// <summary>LOB36, the version: <see cref="ToolCatalogue.Version"/> is the number the one parser, <see cref="PublishedReadersLastWords.Version"/>, reads out of R11.88's paragraph (0.11.0). RLW40 (nothing else in <c>tests/</c> reads a version out of the errata) stays green.</summary>
     [Fact]
     public void R11_88_LOB36_TheVersionIsTheOneTheErrataNames()
     {
-        // The one reader of an errata version is PublishedReadersLastWords.Version() (RLW40); it still reads R11.87's paragraph, so until Task 3 re-points it to R11.88 this fact takes the
-        // sentence out of R11.88's paragraph by plain string search (no pattern RLW40's scanner reads) and Task 3 deletes it in favour of the re-pointed reader.
-        var paragraph = Fold(PublishedAcceptBudget.Paragraph("**R11.88**"));
-        const string Marker = "`curia-mcp` is ";
-        var at = paragraph.IndexOf(Marker, StringComparison.Ordinal);
-        var named = at < 0 ? "(no version sentence)" : paragraph[(at + Marker.Length)..].Split(' ', '.')[0] + "." + paragraph[(at + Marker.Length)..].Split('.')[1] + "." + paragraph[(at + Marker.Length)..].Split('.')[2].Split(' ')[0];
-        Said(named, ToolCatalogue.Version);
+        Said(PublishedReadersLastWords.Version(), ToolCatalogue.Version);
     }
 
     private static void Said(IEnumerable<string> expected, IEnumerable<string> actual)

@@ -131,7 +131,7 @@ public sealed class PrintedAgentToolTests : IDisposable
     public void R11_85_CWK50_CuriaMcpIs0103()
     {
         // 0.10.4 is the figure the plan names and R11.87 states; the one reader of a version out of an errata paragraph is PublishedReadersLastWords.Version(), which the G62 build points at R11.87 (it read R11.84's 0.10.2 until then, R11.83's, 0.10.1, until then).
-        var published = "0.10.4".ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var published = "0.11.0".ToString(System.Globalization.CultureInfo.InvariantCulture);
         var problems = new List<string>();
         if (ToolCatalogue.Version != published) problems.Add($"the catalogue reports {ToolCatalogue.Version}, expected {published}");
         if (PublishedReadersLastWords.Version() != published) problems.Add($"the one version parser reads {PublishedReadersLastWords.Version()}, expected {published}");

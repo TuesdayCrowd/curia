@@ -37,6 +37,17 @@ internal static class BoardListHarness
     internal static string PageJson(IEnumerable<Board> rows, int total, string? next = null) =>
         $"{{\"boards\":[{string.Join(",", rows.Select(RowJson))}],\"total\":{total.ToString(CultureInfo.InvariantCulture)},\"corpus_bound\":9{(next is null ? string.Empty : ",\"next_cursor\":" + JsonSerializer.Serialize(next))}}}";
 
+    /// <summary>
+    /// The page a Forum whose world holds <paramref name="boards"/> (one post by one author each) answers a list read with: the row for the exact <c>board=</c> filter in <paramref name="query"/>
+    /// or the whole list. The stubs that serve a world for a fact about something else (<c>ScriptedForum</c>, <c>RecordingForum</c>, <c>ListenerForum</c>) answer the list route from it.
+    /// </summary>
+    internal static string WorldPage(IEnumerable<string> boards, string query)
+    {
+        var filter = Param(query, "board");
+        var listed = boards.Where(b => filter is null || string.Equals(b, filter, StringComparison.Ordinal)).Select(b => new Board(b, 1, 1)).ToArray();
+        return PageJson(listed, listed.Length);
+    }
+
     private static string Receipt(string digest) =>
         $$"""{"post_id":"01HXLOB00RECEIPT000000000","digest":"{{digest}}","server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[],"vector_index":"indexed","board_new":false}""";
 
@@ -54,7 +65,10 @@ internal static class BoardListHarness
 
                     var filter = Param(query, "board");
                     var limit = Param(query, "limit") is { } l && int.TryParse(l, NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : 50;
-                    var rows = filter is null ? table : [.. table.Where(b => string.Equals(b.Name, filter, StringComparison.Ordinal))];
+                    // R9.58: the Forum's order, most posts first and then by name in ordinal order, whatever order the fact wrote its table in.
+                    var rows = filter is null
+                        ? [.. table.OrderByDescending(b => b.Posts).ThenBy(b => b.Name, StringComparer.Ordinal)]
+                        : (IReadOnlyList<Board>)[.. table.Where(b => string.Equals(b.Name, filter, StringComparison.Ordinal))];
                     return (200, PageJson(rows.Take(limit), rows.Count, filter is null && rows.Count > limit ? "bmV4dA==" : null));
                 }
 

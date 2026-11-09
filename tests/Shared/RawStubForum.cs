@@ -31,6 +31,9 @@ internal sealed class RawStubForum : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly ConcurrentBag<TcpClient> _open = [];
     private readonly Task _loop;
+    private int _boardListReads;
+    private bool _olderForumAsserted;
+    private bool _disposed;
 
     internal RawStubForum(UnheardBehaviour behaviour)
     {
@@ -116,6 +119,10 @@ internal sealed class RawStubForum : IDisposable
 
             if (StallReads) await Task.Delay(Timeout.Infinite, _stop.Token).ConfigureAwait(false);
 
+            // Errata G63 (R11.88): this stub serves no list of boards, so it is an older Forum to the board check, and every client test that drives ask over it takes the
+            // NOT STATED branch. The branch must not be passed through unasserted (trap 192): a test that read the list here must say so with ExpectOlderForumLine, or Dispose throws.
+            if (method == "GET" && (path == "/v1/boards" || path.StartsWith("/v1/boards?", StringComparison.Ordinal))) Interlocked.Increment(ref _boardListReads);
+
             await RespondAsync(stream, 404, "application/problem+json", """{"type":"curia/request/no-route","title":"No route","detail":null}""").ConfigureAwait(false);
             client.Close();
         }
@@ -165,8 +172,26 @@ internal sealed class RawStubForum : IDisposable
         await stream.FlushAsync().ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Asserts that <paramref name="output"/> (what a command that read this stub's list of boards printed) holds the line that says the Forum has no list of boards and the board was not checked
+    /// (R10.98's third state), and records that the test did. A test that drove <c>ask</c> over this stub and did not call it fails at <see cref="Dispose"/>.
+    /// </summary>
+    internal void ExpectOlderForumLine(string output)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+
+        var folded = System.Text.RegularExpressions.Regex.Replace(output, @"\s+", " ");
+        if (!folded.Contains("NOT STATED (this Forum has no list of boards, so the board was not checked)", StringComparison.Ordinal))
+            throw new Xunit.Sdk.XunitException("a command ran over the raw stub, which is an older Forum to the board check, and printed no NOT STATED board line: " + folded);
+
+        _olderForumAsserted = true;
+    }
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         _stop.Cancel();
         _listener.Stop();
         _listener.Dispose();
@@ -182,5 +207,8 @@ internal sealed class RawStubForum : IDisposable
 
         _stop.Dispose();
         GC.SuppressFinalize(this);
+
+        if (_boardListReads > 0 && !_olderForumAsserted)
+            throw new InvalidOperationException($"the raw stub answered {_boardListReads} read(s) of GET /v1/boards as an older Forum's route, and the test never asserted the NOT STATED line (ExpectOlderForumLine): it passed through the older-Forum branch unasserted");
     }
 }

@@ -56,6 +56,10 @@ public sealed class PropertyP22ToolResultTests : IDisposable
         // R11.49: ids and standings; no title, body, tag, reference or span reaches the result (the stub's batch post carries the marker).
         ["curia_recheck"] = null,
 
+        // Errata G63 (R9.58, R10.98): board names, other agents' words, each written as a literal beside the standing warning. A board has no author and no level (R10.17's envelope
+        // for a name is content_type, the warning and the reader contract), and no post's title, body or span reaches the result, so the classification is the one of the tools that return none.
+        ["curia_boards"] = null,
+
         // R8.19: the duplicate outcome returns other agents' answers, which is content on a serving
         // path -- invoked below against a Forum that refuses the question as a duplicate.
         ["curia_ask"] = StubLog.AnswerMarker,
@@ -328,6 +332,7 @@ public sealed class PropertyP22ToolResultTests : IDisposable
             "curia_search" => await tools.SearchAsync(new SearchCriteria(), ct),
             "curia_verify" => await tools.VerifyAsync(StubLog.PostId, null, ct),
             "curia_recheck" => await tools.RecheckAsync([_log.Submission.PrefixedDigest], ct),
+            "curia_boards" => await tools.BoardsAsync(null, null, null, ct),
             "curia_ask" => await tools.AskAsync("b", "Asked before?", "A question.", null, null, ct),
             "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", null, ct),
             "curia_comment" => await tools.CommentAsync(StubLog.PostId, "A reply.", null, ct),

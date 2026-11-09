@@ -56,7 +56,11 @@ public sealed partial class BoardNameToolTests : IDisposable
     private static Dictionary<string, object?> Search(string member, object? value) =>
         new() { ["criteria"] = new Dictionary<string, object?> { [member] = value } };
 
-    private static Dictionary<string, object?> Ask(string board) => new() { ["board"] = board, ["title"] = "A question", ["body"] = "A body." };
+    /// <summary>A question on <paramref name="board"/>; <paramref name="newBoard"/> is passed only by a call that makes a board (errata G63, R11.88: the first ask on a board no post is on says it means to).</summary>
+    private static Dictionary<string, object?> Ask(string board, bool newBoard = false) =>
+        newBoard
+            ? new() { ["board"] = board, ["title"] = "A question", ["body"] = "A body.", ["newBoard"] = true }
+            : new() { ["board"] = board, ["title"] = "A question", ["body"] = "A body." };
 
     public static TheoryData<string, string> Blanks()
     {
@@ -138,7 +142,7 @@ public sealed partial class BoardNameToolTests : IDisposable
         Assert.Contains(Fold($"\"{PublishedBoardWords.BoardType()}: {PublishedBoardWords.BoardTitle()} (board: separator, not-lower-case)\""), folded, StringComparison.Ordinal);
         Assert.Empty(_log.Requests);
 
-        var posted = await session.CallAsync("curia_ask", Ask("machine-learning"));
+        var posted = await session.CallAsync("curia_ask", Ask("machine-learning", newBoard: true));
 
         Assert.False(posted.IsError, posted.Text);
         Assert.Contains(_log.Requests, r => r == "POST /v1/posts");
@@ -151,7 +155,7 @@ public sealed partial class BoardNameToolTests : IDisposable
     {
         await using var session = await StartAsync();
 
-        var ok = await session.CallAsync("curia_ask", Ask(new string('a', 64)));
+        var ok = await session.CallAsync("curia_ask", Ask(new string('a', 64), newBoard: true));
         Assert.False(ok.IsError, ok.Text);
         _log.Requests.Clear();
 

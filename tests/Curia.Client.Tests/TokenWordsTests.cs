@@ -83,6 +83,11 @@ public sealed partial class TokenWordsTests
             if (run.Requests.LastOrDefault() != Token) problems.Add($"the last request was {run.Requests.LastOrDefault() ?? "none"}, not the token's");
             if (verb == "answer" && !run.Requests.SequenceEqual([Parent, Token])) problems.Add($"requests {string.Join(", ", run.Requests)}; expected the parent and the token");
         }
+        else if (verb == "ask")
+        {
+            // Errata G63 (R11.88): a question reads the Forum's list of boards for the typed board before it asks for a token, and the stub serves that read.
+            if (!run.Requests.SequenceEqual(["GET /v1/boards", Token])) problems.Add($"requests {string.Join(", ", run.Requests)}; expected the read of the list of boards and the token's");
+        }
         else if (!run.Requests.SequenceEqual([Token])) problems.Add($"requests {string.Join(", ", run.Requests)}; expected the token's alone");
 
         Assert.True(problems.Count == 0, $"{verb}: {string.Join("; ", problems)}. Printed: \"{run.Text}\"");
