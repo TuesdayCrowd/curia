@@ -335,6 +335,188 @@ public sealed class BoardToolTests : IDisposable
         Said(PublishedReadersLastWords.Version(), ToolCatalogue.Version);
     }
 
+    private static string Cut(string span) => span[..span.IndexOf('<', StringComparison.Ordinal)];
+
+    /// <summary>
+    /// LOB43 (Amendment 2, ruling 25), the adapter's filtered line and argument surface: <c>curia_boards {board: &lt;unlisted&gt;}</c> has a first block with the published filtered line and neither <c>more</c> nor
+    /// <c>no further pages</c> (FLOB68); <c>{board: &lt;listed&gt;}</c> the header and the row; <c>{limit: 100}</c> reaches the request as <c>limit=100</c> and <c>{limit: 101}</c> is <c>NOT SENT</c> by name; <c>{cursor: c}</c>
+    /// reaches it as <c>cursor=c</c> (FLOB69). A control on the current behaviour.
+    /// </summary>
+    [Fact]
+    public async Task R10_98_LOB43_TheBoardsToolStatesAFilteredEmptyPageAndForwardsItsArguments()
+    {
+        using var log = new StubLog();
+        await using var session = await McpProtocolSession.StartAsync(ToolsOver(log), "https://agents.example/alice");
+        var filtered = Fold(PublishedBoardListWords.FilteredEmpty().Replace("<name>", DisplayLiteral.Of("rsut"), StringComparison.Ordinal));
+        var more = Fold(Cut(PublishedBoardListWords.RestAdapterMore()));
+
+        log.Requests.Clear();
+        var unlisted = await session.CallAsync("curia_boards", new() { ["board"] = "rsut" });
+        var listed = await session.CallAsync("curia_boards", new() { ["board"] = "b" });
+        var first = Fold(unlisted.Blocks[0]);
+
+        log.Queries.Clear();
+        _ = await session.CallAsync("curia_boards", new() { ["limit"] = 100 });
+        var limitQuery = log.Queries.LastOrDefault() ?? "no request";
+        log.Queries.Clear();
+        _ = await session.CallAsync("curia_boards", new() { ["cursor"] = "c" });
+        var cursorQuery = log.Queries.LastOrDefault() ?? "no request";
+        log.Requests.Clear();
+        string over;
+        try
+        {
+            var refused = await session.CallAsync("curia_boards", new() { ["limit"] = 101 });
+            over = refused.IsError && refused.Text.Contains("limit", StringComparison.Ordinal) ? "NOT SENT, names limit" : "not refused";
+        }
+        catch (Exception ex) when (ex is ModelContextProtocol.McpException or InvalidOperationException)
+        {
+            over = ex.Message.Contains("limit", StringComparison.Ordinal) ? "NOT SENT, names limit" : "refused without naming limit";
+        }
+
+        Said(
+            [
+                "unlisted: not an error, the filtered line, no more line, no closing line",
+                "listed: the header and the row",
+                "limit 100: reaches the request as limit=100",
+                "cursor c: reaches the request as cursor=c",
+                "limit 101: NOT SENT, names limit, nothing sent",
+            ],
+            [
+                $"unlisted: {(unlisted.IsError ? "an error" : "not an error")}, {(first.Contains(filtered, StringComparison.Ordinal) ? "the filtered line" : "not the filtered line")}, {(first.Contains(more, StringComparison.Ordinal) ? "a more line" : "no more line")}, {(first.Contains(PublishedBoardListWords.NoFurtherPages(), StringComparison.Ordinal) ? "a closing line" : "no closing line")}",
+                $"listed: {(Fold(listed.Blocks[0]).Contains("boards 1 of 1", StringComparison.Ordinal) && listed.Text.Contains(DisplayLiteral.Of("b"), StringComparison.Ordinal) ? "the header and the row" : "not the header and the row")}",
+                $"limit 100: {(limitQuery.Contains("limit=100", StringComparison.Ordinal) ? "reaches the request as limit=100" : limitQuery)}",
+                $"cursor c: {(cursorQuery.Contains("cursor=c", StringComparison.Ordinal) ? "reaches the request as cursor=c" : cursorQuery)}",
+                $"limit 101: {over}, {(log.Requests.Any(r => r.StartsWith("GET /v1/boards", StringComparison.Ordinal)) ? "a request was sent" : "nothing sent")}",
+            ]);
+    }
+
+    /// <summary>
+    /// LOB43, the round trip: a stub with three boards and <c>limit: 1</c>; the cursor taken from the text between the quotes of the first block's <c>more</c> line, passed back as the <c>cursor</c> argument, serves the
+    /// second page. An agent can follow the pointer it was given (FLOB80 and FLOB69's first form: the second page is the first).
+    /// </summary>
+    [Fact]
+    public async Task R10_98_LOB43_ThePointerTheMoreLineGivesFollowsToTheSecondPage()
+    {
+        var pages = new Dictionary<string, string>
+        {
+            [string.Empty] = Page([("rust", 3, 2)], 3, "bmV4dA=="),
+            ["bmV4dA=="] = Page([("go", 2, 2)], 3, "Z28="),
+            ["Z28="] = Page([("c", 1, 1)], 3),
+        };
+        using var log = new StubLog
+        {
+            BoardListFor = query => pages.TryGetValue(Regex.Match(query, "cursor=([^&]*)") is { Success: true } m ? Uri.UnescapeDataString(m.Groups[1].Value) : string.Empty, out var body) ? body : null,
+        };
+        await using var session = await McpProtocolSession.StartAsync(ToolsOver(log), "https://agents.example/alice");
+        var prefix = Cut(PublishedBoardListWords.RestAdapterMore());
+
+        var first = await session.CallAsync("curia_boards", new() { ["limit"] = 1 });
+        var moreLine = first.Blocks[0].Split('\n').FirstOrDefault(l => l.StartsWith(prefix, StringComparison.Ordinal)) ?? string.Empty;
+        var open = moreLine.IndexOf('"', StringComparison.Ordinal);
+        var close = moreLine.LastIndexOf('"');
+        var cursor = open >= 0 && close > open ? moreLine[(open + 1)..close] : string.Empty;
+        var second = await session.CallAsync("curia_boards", new() { ["limit"] = 1, ["cursor"] = cursor });
+
+        Said(
+            ["the first page names rust and a more line with the cursor bmV4dA==", "the second page names go"],
+            [
+                $"the first page names {(first.Text.Contains(DisplayLiteral.Of("rust"), StringComparison.Ordinal) ? "rust" : "not rust")} and {(cursor == "bmV4dA==" ? "a more line with the cursor bmV4dA==" : "a more line with the cursor " + DisplayLiteral.Of(cursor))}",
+                $"the second page names {(second.Text.Contains(DisplayLiteral.Of("go"), StringComparison.Ordinal) && !second.Text.Contains(DisplayLiteral.Of("rust"), StringComparison.Ordinal) ? "go" : "not go")}",
+            ]);
+    }
+
+    /// <summary>
+    /// LOB51 (the adapter's half): the first block ends with the published sentence that says each board is a block of its own, the <c>more</c> line is the published one with the cursor a display literal, and the
+    /// server instructions carry the published sentence that names <c>curia_boards</c>.
+    /// </summary>
+    [Fact]
+    public async Task R10_98_LOB51_TheAdaptersRestOfTheWordsArePrintedAsPublished()
+    {
+        using var log = new StubLog { BoardListBody = Page([("rust", 3, 2)], 9, "bmV4dA==") };
+        await using var session = await McpProtocolSession.StartAsync(ToolsOver(log), "https://agents.example/alice");
+        var first = await session.CallAsync("curia_boards", []);
+        var block = Fold(first.Blocks[0]);
+        var more = PublishedBoardListWords.RestAdapterMore().Replace("<next_cursor>", DisplayLiteral.Of("bmV4dA=="), StringComparison.Ordinal);
+        var instructions = Fold(ToolText.ServerInstructions("https://agents.example/alice", []));
+
+        var facts = new (string Label, bool Holds)[]
+        {
+            ("the notice ends the first block", block.EndsWith(Fold(PublishedBoardListWords.RestBoardNamesNotice()), StringComparison.Ordinal)),
+            ("the more line", first.Blocks[0].Split('\n').Contains(more)),
+            ("the instructions sentence", instructions.Contains(PublishedBoardListWords.RestInstructionsSentence(), StringComparison.Ordinal)),
+        };
+        Said(facts.Select(f => f.Label + ": as published"), facts.Select(f => f.Label + ": " + (f.Holds ? "as published" : "not as published")));
+    }
+
+    /// <summary>
+    /// LOB52 (the adapter's half, ruling 39): over a list that answers <c>503</c>, <c>curia_ask</c> is <c>NOT SENT</c> in the published lead and tail, never <c>again is safe</c>, never <c>newBoard</c> and no command
+    /// of its own. A control on the same call over a served list posts.
+    /// </summary>
+    [Fact]
+    public async Task R10_98_LOB52_TheAdaptersRefusalOfAListThatCannotBeReadCarriesTheActLineCondition()
+    {
+        using var fault = new StubLog { BoardListStatus = System.Net.HttpStatusCode.ServiceUnavailable, BoardListBody = """{"type":"curia/log/unreadable","title":"The event log could not be read"}""" };
+        using var served = new StubLog();
+        var published = PublishedBoardListWords.FaultSentence();
+        var lead = published[..published.IndexOf("(<cause>)", StringComparison.Ordinal)].Replace("<name>", DisplayLiteral.Of("b"), StringComparison.Ordinal);
+        var tail = PublishedBoardListWords.FaultTail();
+        var command = new Regex(@"\bcuria_(ask|answer|comment|revise|resend|acts|boards)\b|\bcuria (ask|resend|acts|boards)\b", RegexOptions.CultureInvariant);
+
+        async Task<McpAnswer> Ask(StubLog log)
+        {
+            await using var session = await McpProtocolSession.StartAsync(ToolsOver(log), "https://agents.example/alice");
+            return await session.CallAsync("curia_ask", new() { ["board"] = "b", ["title"] = "A title?", ["body"] = "A body." });
+        }
+
+        var refused = await Ask(fault);
+        var control = await Ask(served);
+        var text = Fold(refused.Text);
+        Said(
+            ["refused: an error, the lead, the tail, no permission, no flag, no command", "control: not an error, 1 post"],
+            [
+                $"refused: {(refused.IsError ? "an error" : "not an error")}, {(text.Contains(lead, StringComparison.Ordinal) ? "the lead" : "no lead")}, {(text.Contains(tail, StringComparison.Ordinal) ? "the tail" : "no tail")}, {(text.Contains("again is safe", StringComparison.Ordinal) ? "says it is safe" : "no permission")}, {(text.Contains("newBoard", StringComparison.Ordinal) ? "the flag is offered" : "no flag")}, {(command.IsMatch(text) ? "a command" : "no command")}",
+                $"control: {(control.IsError ? "an error" : "not an error")}, {(served.Requests.Any(r => r == "POST /v1/posts") ? "1 post" : "not 1 post")}",
+            ]);
+    }
+
+    /// <summary>
+    /// LOB40 (Amendment 2, ruling 30), the list is read for the name that is signed: through <c>tools/call</c>, <c>curia_ask</c> with <c>newBoard: true</c> on <c>rust</c> reads <c>GET /v1/boards?board=rust</c> and the
+    /// post the stub received names the same board, byte for byte; <c>Rust</c> is refused before any list read (R8.85). FLOB85's first form: the list says the board exists and the post goes to another.
+    /// </summary>
+    [Fact]
+    public async Task R11_88_LOB40_TheListIsReadForTheNameThatIsSigned()
+    {
+        using var log = new StubLog();
+        await using var session = await McpProtocolSession.StartAsync(ToolsOver(log), "https://agents.example/alice");
+        log.Requests.Clear();
+        log.Queries.Clear();
+        _ = await session.CallAsync("curia_ask", new() { ["board"] = "rust", ["title"] = "A title?", ["body"] = "A body.", ["newBoard"] = true });
+
+        var read = log.Requests.Select((r, i) => (r, i)).Where(x => x.r == "GET /v1/boards").Select(x => log.Queries[x.i]).ToArray();
+        var named = read.Select(q => Regex.Match(q, "board=([^&]*)")).Where(m => m.Success).Select(m => Uri.UnescapeDataString(m.Groups[1].Value)).ToArray();
+        var signed = log.WrittenBodies.Where(b => b.StartsWith("{\"envelope\"", StringComparison.Ordinal)).Select(b => Regex.Match(b, "\"board\":\"([^\"]*)\"")).Where(m => m.Success).Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray();
+
+        log.Requests.Clear();
+        string upper;
+        try
+        {
+            var refused = await session.CallAsync("curia_ask", new() { ["board"] = "Rust", ["title"] = "A title?", ["body"] = "A body." });
+            upper = refused.IsError ? "an error" : "not an error";
+        }
+        catch (Exception ex) when (ex is ModelContextProtocol.McpException or InvalidOperationException)
+        {
+            upper = "an error";
+        }
+
+        Said(
+            ["the list was read for rust once", "the post signed names rust", "Rust: an error, no list read, no post"],
+            [
+                $"the list was read for {(named.Length == 1 ? named[0] : named.Length + " names")} once",
+                $"the post signed names {(signed.Length == 1 ? signed[0] : signed.Length + " boards")}",
+                $"Rust: {upper}, {(log.Requests.Any(r => r.StartsWith("GET /v1/boards", StringComparison.Ordinal)) ? "a list read" : "no list read")}, {(log.Requests.Any(r => r == "POST /v1/posts") ? "a post" : "no post")}",
+            ]);
+    }
+
     private static void Said(IEnumerable<string> expected, IEnumerable<string> actual)
     {
         var (e, a) = (string.Join(" | ", expected), string.Join(" | ", actual));

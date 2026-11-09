@@ -15,6 +15,7 @@ internal static partial class PublishedBoardListWords
     private const string RefusalAnchor = "**R10.98 words (the refusal of a board with no post).**";
     private const string FaultAnchor = "**R10.98 words (the refusal of a list that could not be read).**";
     private const string EmptyAnchor = "**R10.98 words (an empty board).**";
+    private const string RestAnchor = "**R10.98 words (the rest).**";
     private const string RouteAnchor = "**R9.58 words.**";
     private const string RouteRequirement = "**R9.58**";
     private const string ClientRequirement = "**R11.88**";
@@ -171,15 +172,73 @@ internal static partial class PublishedBoardListWords
             : throw new InvalidOperationException($"{Errata}'s R11.88 does not say \"at most N boards\"; the parse read something else");
     }
 
-    /// <summary>The words of R10.98 and R11.88 that the clients must hold once (a content fence's needles): the sentences, not the templates.</summary>
-    internal static string[] FencedSentences() =>
-    [
-        RefusalSentence()[..RefusalSentence().IndexOf("<name>", StringComparison.Ordinal)],
-        "A post cannot be moved or taken back.",
-        FaultSentence()[..FaultSentence().IndexOf("(<cause>)", StringComparison.Ordinal)],
-        "Nothing was signed or kept, so running the same command again is safe.",
-        EmptySecondLine(),
-    ];
+    // ---- the rest (R10.98; Amendment 2, ruling 38) ----
+
+    /// <summary>The preface of <c>curia boards</c>, one span (a line break inside it is not part of its words).</summary>
+    internal static string RestPreface() => OneSpan(RestAnchor, "the boards the Forum serves a post on.");
+
+    /// <summary>What the refusal's list reads after its colon where the Forum serves no board.</summary>
+    internal static string RestNone() => OneSpan(RestAnchor, "none");
+
+    /// <summary>The line that replaces the refusal's list where the names could not be read.</summary>
+    internal static string RestNamesUnreadable() => OneSpan(RestAnchor, "The boards the Forum serves could not be listed just now;");
+
+    /// <summary>The adapter's line that says where the next page is, <c>more      call curia_boards again with the cursor &lt;next_cursor&gt;</c>.</summary>
+    internal static string RestAdapterMore() => OneSpan(RestAnchor, "more      call curia_boards again with the cursor");
+
+    /// <summary>The sentence that ends the adapter's first block: each board is a block of its own and is data.</summary>
+    internal static string RestBoardNamesNotice() => OneSpan(RestAnchor, "Each board below is a block of its own:");
+
+    /// <summary>The sentence of the server instructions that names <c>curia_boards</c>.</summary>
+    internal static string RestInstructionsSentence() => OneSpan(RestAnchor, "curia_boards lists the boards the Forum serves");
+
+    /// <summary>What the help of <c>ask</c> and <c>finding</c> says of the flag.</summary>
+    internal static string RestNewBoardHelp() => OneSpan(RestAnchor, "--new-board says you mean to start a board:");
+
+    /// <summary>
+    /// The sentences of R10.98 and R11.88 that <c>Curia.Client</c> writes once for both clients (a content fence's needles): each is cut from the published span, none is a literal of its own.
+    /// </summary>
+    internal static string[] FencedSentences()
+    {
+        var refusal = RefusalSentence();
+        var fault = FaultSentence();
+        return
+        [
+            refusal[..refusal.IndexOf("<name>", StringComparison.Ordinal)],
+            refusal[refusal.IndexOf("A post cannot be moved", StringComparison.Ordinal)..],
+            fault[..fault.IndexOf("(<cause>)", StringComparison.Ordinal)],
+            FaultTail(),
+            EmptySecondLine(),
+        ];
+    }
+
+    /// <summary>What the fault refusal says after the name: that this run signed and kept nothing, when to run again and the one condition under which not to.</summary>
+    internal static string FaultTail()
+    {
+        var fault = FaultSentence();
+        var at = fault.IndexOf("was not checked. ", StringComparison.Ordinal);
+        if (at < 0) throw new InvalidOperationException($"{Errata}'s {FaultAnchor} does not say \"was not checked.\"; the parse read something else");
+
+        return fault[(at + "was not checked. ".Length)..];
+    }
+
+    /// <summary>
+    /// The sentences the CLI and the adapter write once each, in <c>src</c>, outside <c>Curia.Client</c>: each cut to a run of at least twenty characters that holds no placeholder and no line break
+    /// (the preface is folded by the caller). The count is asserted by the caller.
+    /// </summary>
+    internal static string[] RestSentences()
+    {
+        string Cut(string span) => span.Contains('<', StringComparison.Ordinal) ? span[..span.IndexOf('<', StringComparison.Ordinal)].TrimEnd() : span;
+        return
+        [
+            RestPreface(),
+            RestNamesUnreadable(),
+            Cut(RestAdapterMore())["more      ".Length..],
+            RestBoardNamesNotice(),
+            RestInstructionsSentence(),
+            RestNewBoardHelp(),
+        ];
+    }
 
     private static string OneSpan(string anchor, string prefix)
     {

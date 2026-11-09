@@ -76,4 +76,62 @@ public sealed class BoardWordsFenceTests
 
         Assert.True(missing.Length == 0, $"the allowlist has no reasoned row for: {string.Join(", ", missing)}");
     }
+
+    private static IEnumerable<string> AllSources(string root) =>
+        Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal) && !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
+
+    private static string Folded(string text) => System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
+
+    /// <summary>
+    /// LOB51 (Amendment 2, ruling 38), the sentences of "R10.98 words (the rest)" are written once in <c>src</c>: each, cut to a run with no placeholder (whitespace folded in the source and in the sentence), occurs
+    /// exactly once across every source file, and the list of them is parsed from the errata and has at least six sentences of at least twenty characters. Predicted red where a sentence is written twice
+    /// (FLOB81's second form), where it is not written as published (the help of <c>ask</c> as it stood) and where the parse found fewer.
+    /// </summary>
+    [Fact]
+    public void R10_98_LOB51_EachSentenceOfTheRestIsWrittenOnceInSource()
+    {
+        var root = Root();
+        var sentences = PublishedBoardListWords.RestSentences().Select(Folded).ToArray();
+        Assert.True(sentences.Length >= 6 && sentences.All(f => f.Trim().Length >= 20), $"NOT REACHED: the parse of the rest holds {sentences.Length} sentences, one shorter than 20 characters or fewer than six");
+
+        var texts = AllSources(root).Select(path => (Path: path, Text: Folded(File.ReadAllText(path)))).ToArray();
+        Assert.True(texts.Length > 100, $"NOT REACHED: only {texts.Length} source files were read");
+
+        var found = sentences.Select(f => (Sentence: f, Count: texts.Sum(t => CountOf(t.Text, f)))).Where(x => x.Count != 1)
+            .Select(x => $"\"{x.Sentence[..Math.Min(40, x.Sentence.Length)]}...\" occurs {x.Count} times").ToArray();
+        Assert.True(found.Length == 0, string.Join(" | ", found));
+
+        static int CountOf(string text, string needle)
+        {
+            var count = 0;
+            for (var at = text.IndexOf(needle, StringComparison.Ordinal); at >= 0; at = text.IndexOf(needle, at + needle.Length, StringComparison.Ordinal)) count++;
+            return count;
+        }
+    }
+
+    /// <summary>
+    /// LOB52 (ruling 39), no source says a command is safe to run again, or may be run again, without the condition: the phrase <c>again is safe</c> occurs nowhere in <c>src</c>, and each <c>may be run again</c>
+    /// is followed within 120 characters by <c>unless an earlier run</c>. Predicted red on a source that restores either sentence (FLOB82 and FLOB83).
+    /// </summary>
+    [Fact]
+    public void R10_98_LOB52_NoSourceSaysACommandIsSafeOrMayBeRunAgainWithoutTheCondition()
+    {
+        var root = Root();
+        var bad = new List<string>();
+        var files = AllSources(root).ToArray();
+        Assert.True(files.Length > 100, $"NOT REACHED: only {files.Length} source files were read");
+        foreach (var path in files)
+        {
+            var text = Folded(File.ReadAllText(path));
+            if (text.Contains("again is safe", StringComparison.Ordinal)) bad.Add($"{Path.GetRelativePath(root, path)}: says \"again is safe\"");
+            for (var at = text.IndexOf("may be run again", StringComparison.Ordinal); at >= 0; at = text.IndexOf("may be run again", at + 1, StringComparison.Ordinal))
+            {
+                if (!text[at..Math.Min(text.Length, at + 120)].Contains("unless an earlier run", StringComparison.Ordinal))
+                    bad.Add($"{Path.GetRelativePath(root, path)}: says \"may be run again\" without the condition");
+            }
+        }
+
+        Assert.True(bad.Count == 0, string.Join(" | ", bad));
+    }
 }

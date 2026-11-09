@@ -110,8 +110,12 @@ public sealed class BoardListCliTests
         string RowLine(Board b, string latest) => PublishedBoardListWords.ListingRow().Replace("<name>", Lit(b.Name), StringComparison.Ordinal)
             .Replace("<posts>", b.Posts.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal).Replace("<authors>", b.Authors.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
             .Replace("<latest_post_at>", latest, StringComparison.Ordinal);
-        // The cursor is a value in a command the reader may run, so it is written as a shell word (R10.65, errata G17; Amendment 1, ruling 22(b)): between single quotation marks.
-        var more = PublishedBoardListWords.MoreLine().Replace("<next_cursor>", "'bmV4dA=='", StringComparison.Ordinal);
+        // The cursor is a value in a command the reader may run, so it is written as a shell word (R10.65, errata G17): the oracle is a shell, which is neither the errata nor Hints (Amendment 2, ruling 27, trap 196).
+        var moreTemplate = PublishedBoardListWords.MoreLine();
+        var morePrefix = moreTemplate[..moreTemplate.IndexOf("<next_cursor>", StringComparison.Ordinal)];
+        var moreLine = lines.FirstOrDefault(l => l.StartsWith(morePrefix, StringComparison.Ordinal));
+        var shellRead = moreLine is null ? ("no more line", string.Empty) : await BoardListArgumentTests.ShellAsync(moreLine[morePrefix.Length..]);
+        var more = "the more line: the template and a word the shell reads as bmV4dA==";
         string[] expected =
         [
             "exit 0",
@@ -131,7 +135,7 @@ public sealed class BoardListCliTests
             "exit " + page.Exit,
             headerAt >= 0 ? header : "no header line",
             .. Enumerable.Range(1, 3).Select(i => headerAt >= 0 && headerAt + i < lines.Length ? lines[headerAt + i] : "no row line"),
-            lines.Contains(more) ? more : "no more line",
+            moreLine is null ? "no more line" : shellRead is ("bmV4dA==", "") ? more : $"the more line: the shell read {Lit(shellRead.Item1)} and said {Lit(shellRead.Item2)}",
             headerAt > 0 && lines[..headerAt].Any(l => l.Length > 0) ? "a preface before the header" : "no preface",
             bare && page.Stdout.Length > 0 ? "no count is quoted" : "a count is quoted or nothing is printed",
             "the last page: " + (Lines(final.Stdout).Contains(PublishedBoardListWords.NoFurtherPages()) ? PublishedBoardListWords.NoFurtherPages() : "no closing line"),
@@ -282,13 +286,13 @@ public sealed class BoardListCliTests
 
     /// <summary>
     /// LOB25, every fault. A <c>503</c> <c>curia/log/unreadable</c>, a <c>503</c> <c>curia/store/unavailable</c>, a <c>500</c>, a <c>403</c> and a <c>200</c> that is not the document are each exit 8, name the cause, say
-    /// <c>Nothing was signed or kept, so running the same command again is safe.</c>, never mention <c>--new-board</c>, send no post and keep no act; and the same command posts once the list is served again.
+    /// the published tail (this run signed nothing and kept nothing, when to run again and the act-line condition), never mention <c>--new-board</c>, send no post and keep no act; and the same command posts once the list is served again.
     /// (A reset and a stall past the check's own bound are the live run's L5; the stub cannot reset.) Predicted red on the seam: the post goes for every fault.
     /// </summary>
     [Fact]
     public async Task R11_88_LOB25_AListThatCannotBeReadIsRefusedWithTheCauseAndTheFlagIsNotOffered()
     {
-        var safe = PublishedBoardListWords.FaultSentence()[PublishedBoardListWords.FaultSentence().IndexOf("Nothing was signed", StringComparison.Ordinal)..];
+        var tail = PublishedBoardListWords.FaultTail();
         var lead = PublishedBoardListWords.FaultSentence()[..PublishedBoardListWords.FaultSentence().IndexOf("(<cause>)", StringComparison.Ordinal)];
         var flag = PublishedBoardListWords.FaultForbiddenFlag();
         var faults = new (string Label, int Status, string Body)[]
@@ -307,8 +311,8 @@ public sealed class BoardListCliTests
             using var forum = Forum(listAnswer: _ => (status, body));
             var run = await RunAsync(forum, Ct, Ask("rust"));
             var text = Fold(run.All);
-            expected.Add($"{label}: exit 8, {PublishedBoardListWords.NotSent()}, the lead, the safe sentence, no flag, no post, no kept act");
-            actual.Add($"{label}: exit {run.Exit}, {(text.Contains(PublishedBoardListWords.NotSent(), StringComparison.Ordinal) ? PublishedBoardListWords.NotSent() : "no NOT SENT.")}, {(text.Contains(lead.Replace("<name>", Lit("rust"), StringComparison.Ordinal), StringComparison.Ordinal) ? "the lead" : "no lead")}, {(text.Contains(safe, StringComparison.Ordinal) ? "the safe sentence" : "no safe sentence")}, {(text.Contains(flag, StringComparison.Ordinal) ? "the flag is offered" : "no flag")}, {(run.Posts == 0 ? "no post" : "a post")}, {(run.KeptActs.Length == 0 ? "no kept act" : "a kept act")}");
+            expected.Add($"{label}: exit 8, {PublishedBoardListWords.NotSent()}, the lead, the published tail, no flag, no post, no kept act");
+            actual.Add($"{label}: exit {run.Exit}, {(text.Contains(PublishedBoardListWords.NotSent(), StringComparison.Ordinal) ? PublishedBoardListWords.NotSent() : "no NOT SENT.")}, {(text.Contains(lead.Replace("<name>", Lit("rust"), StringComparison.Ordinal), StringComparison.Ordinal) ? "the lead" : "no lead")}, {(text.Contains(tail, StringComparison.Ordinal) ? "the published tail" : "no published tail")}, {(text.Contains(flag, StringComparison.Ordinal) ? "the flag is offered" : "no flag")}, {(run.Posts == 0 ? "no post" : "a post")}, {(run.KeptActs.Length == 0 ? "no kept act" : "a kept act")}");
         }
 
         using var recovering = Forum([Rust]);

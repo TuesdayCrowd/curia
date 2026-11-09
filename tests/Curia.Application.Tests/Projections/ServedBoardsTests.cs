@@ -211,10 +211,23 @@ public sealed class ServedBoardsTests
     [Fact]
     public async Task R9_58_LOB2_TheListingTheProjectionAndTheCorpusAgreeOnEveryBoardOverRandomLogs()
     {
+        // Two pools (Amendment 2, ruling 28). Pool A: spellings a signed canonical form can hold (NFC), over all three shapes. Pool B: pool A and the decomposed spelling, over the listing and
+        // BoardHasServedPost over PostView only, because a SearchablePost is built from the canonical form, which is NFC, so the corpus shape cannot be given a decomposed board. Whether a stored
+        // payload can differ from its canonical form is not read here: LOB45 asks the real store.
+        string[] poolA = ["rust", "Rust", "chat", Composed, "Chat", "meta"];
+        string[] poolB = [.. poolA, Decomposed];
+        var a = await AgreeOverAsync(poolA, includeCorpus: true).ConfigureAwait(true);
+        var b = await AgreeOverAsync(poolB, includeCorpus: false).ConfigureAwait(true);
+
+        var missing = a.Reached.Concat(b.Reached).Where(r => r.Value == 0).Select(r => r.Key).Distinct().ToArray();
+        Assert.True(missing.Length == 0, "NOT REACHED: " + string.Join(", ", missing));
+        Assert.True(a.Disagreements.Count == 0, $"pool A (three shapes): {a.Disagreements.Count} disagreements; first: {a.Disagreements.FirstOrDefault()}");
+        Assert.True(b.Disagreements.Count == 0, $"pool B (the listing and PostView, with the decomposed spelling): {b.Disagreements.Count} disagreements; first: {b.Disagreements.FirstOrDefault()}");
+    }
+
+    private static async Task<(Dictionary<string, int> Reached, List<string> Disagreements)> AgreeOverAsync(string[] pool, bool includeCorpus)
+    {
         var ct = TestContext.Current.CancellationToken;
-        // The pool holds spellings a signed canonical form can hold: it is written in NFC, and the corpus shape reads its board from the canonical form, so a decomposed spelling
-        // reaches the log only as a payload member alone (LOB1 holds that row over PostView) and the three shapes could not be compared on it.
-        string[] pool = ["rust", "Rust", "chat", Composed, "Chat", "meta"];
         string[] kinds = ["question", "comment", "vote", "finding"];
         var reached = new Dictionary<string, int> { ["listed"] = 0, ["withheld-only"] = 0, ["votes-only"] = 0 };
         var disagreements = new List<string>();
@@ -259,14 +272,13 @@ public sealed class ServedBoardsTests
                 else if (discussion > 0) reached["withheld-only"]++;
                 else if (votes > 0) reached["votes-only"]++;
 
-                var shapes = (Listed: listed.Contains(board), Projection: NamedFilters.BoardHasServedPost(posts, Servable, board), Corpus: NamedFilters.BoardHasServedPost(corpus, board));
-                if (shapes.Listed != shapes.Projection || shapes.Projection != shapes.Corpus || shapes.Projection != served > 0)
-                    disagreements.Add($"seed {seed} board {DisplayLiteral.Of(board)}: oracle {served > 0}, listed {shapes.Listed}, projection {shapes.Projection}, corpus {shapes.Corpus}");
+                var shapes = (Listed: listed.Contains(board), Projection: NamedFilters.BoardHasServedPost(posts, Servable, board), Corpus: !includeCorpus || NamedFilters.BoardHasServedPost(corpus, board));
+                var corpusAgrees = !includeCorpus || shapes.Corpus == shapes.Projection;
+                if (shapes.Listed != shapes.Projection || !corpusAgrees || shapes.Projection != served > 0)
+                    disagreements.Add($"seed {seed} board {DisplayLiteral.Of(board)}: oracle {served > 0}, listed {shapes.Listed}, projection {shapes.Projection}, corpus {(includeCorpus ? shapes.Corpus.ToString() : "not asked")}");
             }
         }
 
-        var missing = reached.Where(r => r.Value == 0).Select(r => r.Key).ToArray();
-        Assert.True(missing.Length == 0, "NOT REACHED: " + string.Join(", ", missing));
-        Assert.True(disagreements.Count == 0, $"{disagreements.Count} disagreements; first: {disagreements.FirstOrDefault()}");
+        return (reached, disagreements);
     }
 }

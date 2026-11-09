@@ -36,24 +36,114 @@ public sealed class BoardListStubTests
             ]);
     }
 
-    [Fact]
-    public async Task R11_88_LOB41_ATestThatDrivesAskOverTheRawStubWithoutAssertingTheOlderForumLineFailsAtDispose()
-    {
-        using var stub = new RawStubForum(UnheardBehaviour.Fin);
-        using (var http = new HttpClient { BaseAddress = stub.Address })
-            _ = await http.GetAsync(new Uri("/v1/boards?board=rust", UriKind.Relative), Ct);
+    private const string OlderForumOutput = "boards    rust: NOT STATED (this Forum has no list of boards, so the board was not checked)";
 
-        string outcome;
+    private static async Task ReadTheListAsync(RawStubForum stub)
+    {
+        using var http = new HttpClient { BaseAddress = stub.Address };
+        _ = await http.GetAsync(new Uri("/v1/boards?board=rust", UriKind.Relative), Ct);
+    }
+
+    /// <summary>The outcome of <paramref name="act"/>: the exception it threw, or "none". Disposal is inside <paramref name="act"/>, so a throw from <c>Dispose</c> is seen as the test would see it.</summary>
+    private static async Task<string> ThrownAsync(Func<Task> act)
+    {
         try
         {
-            stub.Dispose();
-            outcome = "Dispose did not throw";
+            await act();
+            return "none";
         }
         catch (Exception ex) when (ex is Xunit.Sdk.XunitException or InvalidOperationException)
         {
-            outcome = ex.Message.Contains("/v1/boards", StringComparison.Ordinal) ? "Dispose threw, naming the list route" : "Dispose threw without naming the list route";
+            return ex.Message;
         }
+    }
 
-        Said(["Dispose threw, naming the list route"], [outcome]);
+    /// <summary>
+    /// LOB47 (Amendment 2, ruling 31), the tripwire does not hide a test's own failure: a test that reads the list over the raw stub, never asserts the older-Forum line and then fails for its own reason reports that
+    /// reason, and not the tripwire (FLOB75's first form: <c>Dispose</c> throws and its exception replaces the test's).
+    /// </summary>
+    [Fact]
+    public async Task R11_88_LOB47_ATestThatFailsForItsOwnReasonReportsThatReasonAndNotTheTripwire()
+    {
+        var thrown = await ThrownAsync(async () =>
+        {
+            using var stub = new RawStubForum(UnheardBehaviour.Fin);
+            await ReadTheListAsync(stub);
+            throw new InvalidOperationException("its own reason");
+        });
+
+        Said(["its own reason"], [thrown.Contains("its own reason", StringComparison.Ordinal) ? "its own reason" : thrown]);
+    }
+
+    /// <summary>LOB47, a test that reaches the older-Forum branch and never asserts fails, from the explicit assertion; a test that asserted passes it (the control).</summary>
+    [Fact]
+    public async Task R11_88_LOB47_ATestThatNeverAssertedTheOlderForumLineFailsFromTheExplicitAssertion()
+    {
+        var silent = await ThrownAsync(async () =>
+        {
+            var stub = new RawStubForum(UnheardBehaviour.Fin);
+            try
+            {
+                await ReadTheListAsync(stub);
+                stub.AssertOlderForumAsserted();
+            }
+            finally
+            {
+                Quietly(stub);
+            }
+        });
+        var asserted = await ThrownAsync(async () =>
+        {
+            var stub = new RawStubForum(UnheardBehaviour.Fin);
+            try
+            {
+                await ReadTheListAsync(stub);
+                stub.ExpectOlderForumLine(OlderForumOutput);
+                stub.AssertOlderForumAsserted();
+            }
+            finally
+            {
+                Quietly(stub);
+            }
+        });
+
+        Said(["never asserted: the assertion fails, naming the list route", "asserted: none"], [$"never asserted: {(silent.Contains("/v1/boards", StringComparison.Ordinal) ? "the assertion fails, naming the list route" : silent)}", $"asserted: {asserted}"]);
+    }
+
+    /// <summary>LOB47, one assertion covers only the reads made before it: a second read after <c>ExpectOlderForumLine</c> is not asserted and the explicit assertion fails (FLOB76).</summary>
+    [Fact]
+    public async Task R11_88_LOB47_OneAssertionCoversOnlyTheReadsMadeBeforeIt()
+    {
+        var thrown = await ThrownAsync(async () =>
+        {
+            var stub = new RawStubForum(UnheardBehaviour.Fin);
+            try
+            {
+                await ReadTheListAsync(stub);
+                stub.ExpectOlderForumLine(OlderForumOutput);
+                await ReadTheListAsync(stub);
+                stub.AssertOlderForumAsserted();
+            }
+            finally
+            {
+                Quietly(stub);
+            }
+        });
+
+        Said(["a later read: the assertion fails, naming the list route"], [$"a later read: {(thrown.Contains("/v1/boards", StringComparison.Ordinal) ? "the assertion fails, naming the list route" : thrown)}"]);
+    }
+
+    /// <summary>Disposes <paramref name="stub"/> and says nothing of what the disposal threw: the probe above has already read the assertion's word and a leftover tripwire is the thing FLOB75 measures elsewhere.</summary>
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Only the stub's own disposal is guarded, so that a probe can release it after reading its word.")]
+    private static void Quietly(RawStubForum stub)
+    {
+        try
+        {
+            stub.Dispose();
+        }
+        catch (Exception)
+        {
+            // The disposal's word is not the one this probe reads.
+        }
     }
 }

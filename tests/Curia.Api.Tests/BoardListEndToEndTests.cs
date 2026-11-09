@@ -409,4 +409,68 @@ public sealed class BoardListEndToEndTests(PassThroughGateForumFixture forum) : 
 
         Said("the per-board listing reads the log once and this route reads it once", $"the per-board listing reads the log {(perBoard == 1 ? "once" : perBoard + " times")} and this route reads it {(list == 1 ? "once" : list + " times")}");
     }
+
+    /// <summary>
+    /// LOB49 (Amendment 2, ruling 34): the route reads <c>limit</c> in canonical numerals. <c>limit=+5</c>, <c>%205</c>, <c>5%20</c>, <c>05</c> and <c>0x5</c> are each <c>400</c>
+    /// <c>curia/board-list/invalid-limit</c> with the event count unchanged, beside the served controls <c>5</c> and <c>100</c> (FLOB78's first form: <c>limit=+5</c> served on a route that promised no leniency).
+    /// </summary>
+    [Fact]
+    public async Task R9_58_LOB49_TheLimitIsReadInCanonicalNumeralsAndNothingElse()
+    {
+        await StoreAsync(forum, Name("lob49"), 1, 1, Ct);
+        var invalid = PublishedBoardListWords.Types()[2];
+        var events = await EventCountAsync(forum, Ct);
+        var expected = new List<string>();
+        var actual = new List<string>();
+
+        foreach (var (label, query, served) in new[] { ("5", "limit=5", true), ("100", "limit=100", true), ("+5", "limit=+5", false), ("%205", "limit=%205", false), ("5%20", "limit=5%20", false), ("05", "limit=05", false), ("0x5", "limit=0x5", false) })
+        {
+            var reply = await ListAsync(forum.Client, query, Ct);
+            expected.Add($"limit={label}: {(served ? "200 as a listing" : "400 " + invalid)}");
+            actual.Add($"limit={label}: {(Rows(reply) is not null ? "200 as a listing" : reply.Says)}");
+        }
+
+        expected.Add("events unchanged");
+        actual.Add((await EventCountAsync(forum, Ct)) == events ? "events unchanged" : "events changed");
+        Said(expected, actual);
+    }
+
+    /// <summary>
+    /// LOB45 (Amendment 2, ruling 28), a stored payload board that differs from its canonical form, asked of the real store through the direct-append seam: one post whose board is the decomposed spelling.
+    /// For each spelling R9.58's own sentence is the expectation: the board is listed exactly when <c>search?board=</c> states <c>unmatched_filters</c> <c>[]</c> and exactly when the per-board listing is not empty
+    /// (for a name that route can address). A SQL count of <c>payload-&gt;&gt;'board'</c> is recorded beside them. <b>Red is a finding and stops the build.</b>
+    /// </summary>
+    [Fact]
+    public async Task R9_58_LOB45_AStoredPayloadBoardThatDiffersFromItsCanonicalFormIsListedAsTheOtherReadersSayIt()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..6];
+        var composed = "lob45-" + suffix + "-caf" + char.ConvertFromUtf32(0xE9);
+        var decomposed = "lob45-" + suffix + "-cafe" + char.ConvertFromUtf32(0x301);
+        // The wire is signed over the composed spelling (the canonical form is NFC), and its envelope is then written with the decomposed one: the stored payload member is read from the envelope as it
+        // arrived, and the canonical form from the envelope as it canonicalizes, so the two differ in the one place R9.58's equivalence could fail. The seam does not verify, as a post stored before R8.85 was not.
+        var agent = ForumAgent.Create("https://agents.example/lob45-" + suffix, "lob");
+        var wire = System.Text.Encoding.UTF8.GetString(agent.SignQuestion(composed, RevisionProbe.Unrelated(), "About " + RevisionProbe.Unrelated(), forum.Now));
+        Assert.True(wire.Contains(composed, StringComparison.Ordinal), "NOT REACHED: the signed wire does not carry the composed spelling to replace");
+        _ = await BudgetBursts.StoreAsync(forum, System.Text.Encoding.UTF8.GetBytes(wire.Replace(composed, decomposed, StringComparison.Ordinal)), Ct);
+
+        // The question LOB45 asks is about a payload that differs from its canonical form, so the store must hold the post under the decomposed spelling and not under the composed one.
+        var held = (await SqlRowsAsync(forum, [decomposed], Ct)).Sum(r => r.Posts);
+        var heldComposed = (await SqlRowsAsync(forum, [composed], Ct)).Sum(r => r.Posts);
+        Assert.True(held == 1 && heldComposed == 0, $"NOT REACHED: the events table holds {held} post(s) under the decomposed spelling and {heldComposed} under the composed one");
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (label, spelling) in new[] { ("composed", composed), ("decomposed", decomposed) })
+        {
+            var escaped = Uri.EscapeDataString(spelling);
+            var listed = (Rows(await ListAsync(forum.Client, "board=" + escaped, Ct)) ?? []).Count > 0;
+            var perBoard = (await PerBoardAsync(forum.Client, spelling, Ct)) is { Posts: > 0 };
+            var searched = (await SearchAsync(forum.Client, "board=" + escaped, Ct)).Unmatched == "[]";
+            var sql = (await SqlRowsAsync(forum, [spelling], Ct)).Sum(r => r.Posts);
+            expected.Add($"{label}: the list, the per-board listing and search agree");
+            actual.Add($"{label}: {(listed == perBoard && listed == searched ? "the list, the per-board listing and search agree" : $"they disagree (list {Truth(listed)}, per-board {(perBoard ? "non-empty" : "empty")}, search {(searched ? "matched" : "unmatched")}, SQL count {sql})")}");
+        }
+
+        Said(expected, actual);
+    }
 }

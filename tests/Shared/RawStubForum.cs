@@ -51,6 +51,9 @@ internal sealed class RawStubForum : IDisposable
     /// <summary>True: a request that is neither the token endpoint nor the submission route (a read, an acceptance, a flag) is read and never answered.</summary>
     internal bool StallReads { get; set; }
 
+    /// <summary>True: a read of the list of boards is reset (RST) and never answered, as a connection a proxy drops is (errata G63, LOB52).</summary>
+    internal bool ResetBoardListReads { get; set; }
+
     /// <summary>True: the token endpoint is read and never answered.</summary>
     internal bool StallToken { get; set; }
 
@@ -121,7 +124,18 @@ internal sealed class RawStubForum : IDisposable
 
             // Errata G63 (R11.88): this stub serves no list of boards, so it is an older Forum to the board check, and every client test that drives ask over it takes the
             // NOT STATED branch. The branch must not be passed through unasserted (trap 192): a test that read the list here must say so with ExpectOlderForumLine, or Dispose throws.
-            if (method == "GET" && (path == "/v1/boards" || path.StartsWith("/v1/boards?", StringComparison.Ordinal))) Interlocked.Increment(ref _boardListReads);
+            if (method == "GET" && (path == "/v1/boards" || path.StartsWith("/v1/boards?", StringComparison.Ordinal)))
+            {
+                // A reset is not an older Forum's answer, so it is not a read the tripwire counts.
+                if (ResetBoardListReads)
+                {
+                    client.LingerState = new LingerOption(true, 0);
+                    client.Close();
+                    return;
+                }
+
+                Interlocked.Increment(ref _boardListReads);
+            }
 
             await RespondAsync(stream, 404, "application/problem+json", """{"type":"curia/request/no-route","title":"No route","detail":null}""").ConfigureAwait(false);
             client.Close();
@@ -185,6 +199,16 @@ internal sealed class RawStubForum : IDisposable
             throw new Xunit.Sdk.XunitException("a command ran over the raw stub, which is an older Forum to the board check, and printed no NOT STATED board line: " + folded);
 
         _olderForumAsserted = true;
+    }
+
+    /// <summary>
+    /// Fails if a list read was answered as an older Forum's route and no <see cref="ExpectOlderForumLine"/> was made (the explicit form of the check that <see cref="Dispose"/> makes).
+    /// Seam form (Amendment 2, ruling 31, before its fix): the same condition as <see cref="Dispose"/>'s.
+    /// </summary>
+    internal void AssertOlderForumAsserted()
+    {
+        if (_boardListReads > 0 && !_olderForumAsserted)
+            throw new Xunit.Sdk.XunitException($"the raw stub answered {_boardListReads} read(s) of GET /v1/boards as an older Forum's route, and the test never asserted the NOT STATED line (ExpectOlderForumLine)");
     }
 
     public void Dispose()

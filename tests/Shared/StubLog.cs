@@ -729,6 +729,9 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal string? BoardListBody { get; set; }
 
+    /// <summary>Errata G63 (R9.58, Amendment 2): where set, the body <c>GET /v1/boards</c> answers for a query string (<c>?cursor=c</c>, empty where there is none), asked before <see cref="BoardListBody"/>.</summary>
+    internal Func<string, string?>? BoardListFor { get; set; }
+
     /// <summary>Errata G63 (R9.58): the status <c>GET /v1/boards</c> answers with (<c>200</c> by default).</summary>
     internal HttpStatusCode BoardListStatus { get; set; } = HttpStatusCode.OK;
 
@@ -2077,7 +2080,7 @@ internal sealed class StubLog : IDisposable
         {
             if (path == "/v1/budget") return (log.BudgetStatus, log.BudgetBody ?? ValidBudgetJson);
 
-            if (path == "/v1/boards") return (log.BoardListStatus, log.BoardListBody ?? OwnBoardList(query));
+            if (path == "/v1/boards") return (log.BoardListStatus, log.BoardListFor?.Invoke(query) ?? log.BoardListBody ?? OwnBoardList(query));
 
             if (path.StartsWith("/v1/jwks", StringComparison.Ordinal))
                 return (HttpStatusCode.OK, log.JwksJson());
