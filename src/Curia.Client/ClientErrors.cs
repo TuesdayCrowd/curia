@@ -237,6 +237,15 @@ public static class ClientErrors
         limit.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
     /// <summary>
+    /// The list of boards asked with both a <c>board</c> and a <c>cursor</c> (R11.88, Amendment 4): a filtered listing holds at most one row, so a cursor sent with a filter answered an empty page whose
+    /// sentence ("no post the Forum serves is on that board") was false for a board with posts. The client refuses the pair before a request.
+    /// </summary>
+    public static Error BoardWithCursor() => new(
+        "curia/client/board-with-cursor",
+        BoardListWording.BoardWithCursor(adapter: false) + "; nothing was sent",
+        "board, cursor");
+
+    /// <summary>
     /// A filter tag the Forum's <c>tags</c> parameter cannot carry: one that is empty, holds a comma,
     /// or begins or ends with white space. The Forum splits that parameter on commas and trims each
     /// element (R9.26), so it would read such a tag as another, or as none, and answer a query that

@@ -28,6 +28,23 @@ public static class BoardListWording
     public const string EmptyBoardSecondLine =
         "No post the Forum serves is on it: the name may be misspelt, or every post there may be withheld; curia boards lists the boards that have one.";
 
+    /// <summary>
+    /// R10.98 (Amendment 4): the refusal of a <c>board</c> given with a <c>cursor</c>, without its closing period; the arguments are spelled as the surface takes them. A filtered listing holds at most one row,
+    /// so the pair has no meaning and the one sentence it could print, "0 of 0: no post the Forum serves is on that board", was false for a board with posts.
+    /// </summary>
+    public static string BoardWithCursor(bool adapter)
+    {
+        var (board, cursor) = adapter ? ("board", "cursor") : ("--board", "--cursor");
+        return $"{board} and {cursor} do not go together: a cursor continues the list of every board, and {board} asks for one board's row; omit one of them";
+    }
+
+    /// <summary>
+    /// R10.98 (Amendment 4): what <c>curia boards</c> and <c>curia_boards</c> say on a Forum that serves no list of boards (<c>404</c> as <c>curia/request/no-route</c>, <see cref="BoardCheck.IsOlderForum"/>),
+    /// so the verb the empty-board words point at does not answer with a bare "no route".
+    /// </summary>
+    public static string NoList(bool adapter) =>
+        $"This Forum has no list of boards: it does not serve one, so a board cannot be looked up here. {(adapter ? "curia_ask prints" : "ask and finding print")} the board line {NotStated} and {(adapter ? "sends" : "send")} the post as typed.";
+
     // ---- the listing ----
 
     /// <summary>The header: how many are shown of how many the listing holds, and what the list is.</summary>

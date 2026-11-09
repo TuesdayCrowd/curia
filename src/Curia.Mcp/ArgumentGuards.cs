@@ -108,6 +108,10 @@ internal static class ArgumentGuards
         return null;
     }
 
+    /// <summary>R11.88 (Amendment 4): <c>board</c> and <c>cursor</c> together are refused <c>NOT SENT</c>, by the sentence both surfaces share (<see cref="Curia.Client.BoardListWording.BoardWithCursor"/>).</summary>
+    internal static CallToolResult? BoardWithCursor(string? board, string? cursor) =>
+        board is not null && cursor is not null ? Refusal(Curia.Client.BoardListWording.BoardWithCursor(adapter: true)) : null;
+
     private static CallToolResult Refusal(string what) =>
         new() { IsError = true, Content = [new TextContentBlock { Text = $"NOT SENT: {what}. Nothing was sent." }] };
 }

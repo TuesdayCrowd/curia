@@ -1219,6 +1219,9 @@ internal static class Program
         if (args.Has("cursor") && QueryValue.NamesNothing(args.Value("cursor"), isList: false))
             return Output.Fail("error: --cursor is empty or blank; omit it to start the listing. Nothing was sent.", ExitCode.Usage);
 
+        if (args.Has("board") && args.Has("cursor"))
+            return Output.Fail($"{new OwnText("error: " + BoardListWording.BoardWithCursor(adapter: false) + ". Nothing was sent.")}", ExitCode.Usage);
+
         int? limit = null;
         if (args.Has("limit"))
         {
@@ -1248,7 +1251,10 @@ internal static class Program
         var client = new ForumClient(http, forum);
 
         var read = await client.GetBoardsAsync(args.Value("board"), limit, args.Value("cursor"), ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
+        if (!read.TryGetValue(out var page, out var refusal))
+            return BoardCheck.IsOlderForum(refusal!)
+                ? Output.Fail($"{new OwnText(BoardListWording.NoList(adapter: false))}", ExitCode.NotFound)
+                : Output.Fail(refusal);
 
         Output.Line(Help.BoardsBanner);
         if (args.Value("board") is { } filter && page!.Boards.IsEmpty)

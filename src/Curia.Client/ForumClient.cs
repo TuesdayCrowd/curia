@@ -157,6 +157,9 @@ public sealed class ForumClient
         if (limit is < 1 or > BoardCheck.MaximumLimit)
             return ForumResult<BoardPage>.Local(ClientErrors.BoardListLimit(limit.Value));
 
+        if (board is not null && cursor is not null)
+            return ForumResult<BoardPage>.Local(ClientErrors.BoardWithCursor());
+
         if (board is not null && RefuseUnstorable<BoardPage>(board, nameof(board)) is { } unstorable) return unstorable;
 
         var parameters = new List<string>();

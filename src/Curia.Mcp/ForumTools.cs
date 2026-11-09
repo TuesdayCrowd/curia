@@ -404,9 +404,17 @@ internal sealed partial class ForumTools(
         if (ArgumentGuards.PresentValue(cursor, nameof(cursor)) is { } blankCursor) return blankCursor;
         if (ArgumentGuards.StorableIdentifier(cursor, nameof(cursor)) is { } unstorableCursor) return unstorableCursor;
         if (ArgumentGuards.Range(limit, nameof(limit), 1, BoardCheck.MaximumLimit) is { } outOfRange) return outOfRange;
+        if (ArgumentGuards.BoardWithCursor(board, cursor) is { } together) return together;
 
         var read = await _forum.GetBoardsAsync(board, limit, cursor, cancellationToken).ConfigureAwait(false);
-        if (!read.TryGetValue(out var page, out var refusal)) throw Refused(refusal!);
+        if (!read.TryGetValue(out var page, out var refusal))
+        {
+            // A Forum with no list says so in words (Amendment 4); the SDK's wrapper of a bare "no route" names neither the cause nor what ask does instead.
+            if (BoardCheck.IsOlderForum(refusal!))
+                return new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = BoardListWording.NoList(adapter: true) }] };
+
+            throw Refused(refusal!);
+        }
 
         var first = new FrameBuilder();
         if (board is not null && page!.Boards.IsEmpty)
@@ -428,7 +436,8 @@ internal sealed partial class ForumTools(
             {
                 Resource = new TextResourceContents
                 {
-                    Uri = "curia://board/" + Uri.EscapeDataString(row.Board),
+                    // The name is an author's words and stays out of the uri (Amendment 4): the uri is a stable token the adapter makes, and the name is in the text, as a literal.
+                    Uri = "curia://board/" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(row.Board))),
                     MimeType = "text/plain",
                     Text = BoardListWording.Row(row) + "\n" + Provenance.StandardWarning,
                 },
