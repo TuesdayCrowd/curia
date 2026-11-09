@@ -93,9 +93,10 @@ public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : I
 
     private async Task<(string PostId, string Digest, string Board)> AskAsync(string slug, string title, string body, string? board = null)
     {
+        var makesBoard = board is null;   // a call that chooses the board's name makes it (errata G63, R11.88); a call that is given one asks on a board an earlier call made
         board ??= "g39-" + Guid.NewGuid().ToString("N")[..8];
         var unique = Guid.NewGuid().ToString("N")[..10];
-        var asked = await CuriaAsync("ask", "--agent", slug, "--board", board, "--title", $"{title} {unique}", "--body", $"{body} ({unique})", "--forum", Address);
+        var asked = await CuriaAsync(FirstAsk.Args(slug, board, $"{title} {unique}", $"{body} ({unique})", Address, makesBoard));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var (postId, digest) = ReadReceipt(asked.Stdout);
         return (postId, digest, board);

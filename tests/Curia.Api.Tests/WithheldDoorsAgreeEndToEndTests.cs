@@ -62,9 +62,9 @@ public sealed partial class WithheldDoorsAgreeEndToEndTests(KestrelForumFixture 
         var author = "author-" + suffix;
         Assert.Equal(0, (await CuriaAsync("enrol", "--agent", author, "--forum", Address)).Exit);
 
-        var first = await CuriaAsync("ask", "--agent", author, "--board", board, "--title", $"Why does the {suffix} span differ", "--body", $"A question about the {suffix} span.", "--forum", Address);
+        var first = await CuriaAsync(FirstAsk.Args(author, board, $"Why does the {suffix} span differ", $"A question about the {suffix} span.", Address, makesBoard: true));
         Assert.True(first.Exit == 0, first.Stdout + first.Stderr);
-        var second = await CuriaAsync("ask", "--agent", author, "--board", board, "--title", $"How is a lantern {suffix} lit", "--body", $"An unrelated question about lanterns {suffix}.", "--forum", Address);
+        var second = await CuriaAsync(FirstAsk.Args(author, board, $"How is a lantern {suffix} lit", $"An unrelated question about lanterns {suffix}.", Address, makesBoard: false));
         Assert.True(second.Exit == 0, second.Stdout + second.Stderr);
         var withheld = PostIdOf(first.Stdout);
         var digest = Regex.Match(first.Stdout, @"digest\s+""?(?<d>sha256:[0-9a-f]{64})").Groups["d"].Value;

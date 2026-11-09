@@ -201,7 +201,7 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
         var asker = await EnrolAsync("waf-asker");
         var board = "waf-" + Guid.NewGuid().ToString("N")[..8];
         forum.SyncClock();
-        var asked = await CuriaProcess.RunAsync(forum.Home, Ct, "ask", "--agent", asker, "--board", board, "--title", $"Which of two answers {Guid.NewGuid():N}?", "--body", "A question body.", "--forum", Address);
+        var asked = await CuriaProcess.RunAsync(forum.Home, Ct, FirstAsk.Args(asker, board, $"Which of two answers {Guid.NewGuid():N}?", "A question body.", Address, makesBoard: true));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var question = PostedLine().Match(asked.Stdout).Groups["id"].Value;
 
@@ -218,7 +218,8 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
 
     private async Task<string> AskActAsync(string slug, EventStoreFault fault)
     {
-        var asked = await ArmedAsync(fault, () => CuriaAsync("ask", "--agent", slug, "--board", "waf-act", "--title", $"An act {Guid.NewGuid():N}?", "--body", $"A body {Guid.NewGuid():N}", "--forum", Address));
+        var board = "waf-act-" + Guid.NewGuid().ToString("N")[..8];   // a board of its own, so this ask makes it whatever ran before
+        var asked = await ArmedAsync(fault, () => CuriaAsync(FirstAsk.Args(slug, board, $"An act {Guid.NewGuid():N}?", $"A body {Guid.NewGuid():N}", Address, makesBoard: true)));
         return asked.Text;
     }
 
@@ -354,7 +355,7 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
         forum.Store.Arm(EventStoreFault.ThrowThenCommitWhenReleased);
         try
         {
-            asked = (await CuriaAsync("ask", "--agent", slug, "--board", "waf-late", "--title", $"A late act {Guid.NewGuid():N}?", "--body", $"A body {Guid.NewGuid():N}", "--forum", Address)).Text;
+            asked = (await CuriaAsync(FirstAsk.Args(slug, "waf-late-" + Guid.NewGuid().ToString("N")[..8], $"A late act {Guid.NewGuid():N}?", $"A body {Guid.NewGuid():N}", Address, makesBoard: true))).Text;
             var digest = DigestOf(asked, problems, "ask");
 
             var early = await EventsAsync() - before;
@@ -658,10 +659,17 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
         return queue;
     }
 
+    /// <summary>The board this test's questions for the head are asked on: its own, so the first ask of it makes it whatever ran before (errata G63, R11.88).</summary>
+    private readonly string _headBoard = "waf-head-" + Guid.NewGuid().ToString("N")[..8];
+
+    private bool _headBoardMade;
+
     private async Task<string> PostQuestionAsync(Queue<string> posters)
     {
         forum.SyncClock();
-        var asked = await CuriaProcess.RunAsync(forum.Home, Ct, "ask", "--agent", posters.Dequeue(), "--board", "waf-head", "--title", $"A question for the head {Guid.NewGuid():N}?", "--body", $"A body {Guid.NewGuid():N}", "--forum", Address);
+        var makesBoard = !_headBoardMade;
+        _headBoardMade = true;
+        var asked = await CuriaProcess.RunAsync(forum.Home, Ct, FirstAsk.Args(posters.Dequeue(), _headBoard, $"A question for the head {Guid.NewGuid():N}?", $"A body {Guid.NewGuid():N}", Address, makesBoard));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         return PostedLine().Match(asked.Stdout).Groups["id"].Value;
     }

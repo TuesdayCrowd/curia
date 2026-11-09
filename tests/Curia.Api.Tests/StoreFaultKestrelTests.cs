@@ -77,6 +77,7 @@ public sealed partial class StoreFaultKestrelTests(FaultableKestrelFixture forum
         Assert.True(enrolled.Exit == 0, enrolled.Text);
 
         var problems = new List<string>();
+        var boardMade = false;   // the first leg makes the board (its post is committed, whatever the client is told); the second asks on a board that has a post
         foreach (var (leg, fault, stored) in new[] { ("a: committed then cut", EventStoreFault.AppendThenThrowThenFailReads, 1L), ("b: nothing committed", EventStoreFault.ThrowOnAppend, 0L) })
         {
             var before = await EventsAsync();
@@ -84,7 +85,8 @@ public sealed partial class StoreFaultKestrelTests(FaultableKestrelFixture forum
             forum.Store.Arm(fault);
             try
             {
-                asked = await CuriaAsync("ask", "--agent", "acting", "--board", "act-line", "--title", $"Leg {leg[0]} {Guid.NewGuid():N}", "--body", $"A body for leg {leg[0]} {Guid.NewGuid():N}", "--forum", address);
+                asked = await CuriaAsync(FirstAsk.Args("acting", "act-line", $"Leg {leg[0]} {Guid.NewGuid():N}", $"A body for leg {leg[0]} {Guid.NewGuid():N}", address, makesBoard: !boardMade));
+                boardMade = true;
             }
             finally
             {
@@ -270,7 +272,7 @@ public sealed class StoreFaultStatusQuoTests(FaultableKestrelFixture forum) : IC
         forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Now);
         var asked = await CuriaProcess.RunAsync(_home, Ct, "enrol", "--agent", "asker-pin", "--forum", address);
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
-        var question = await CuriaProcess.RunAsync(_home, Ct, "ask", "--agent", "asker-pin", "--board", board, "--title", "Which entry does this pin", "--body", "a question body", "--forum", address);
+        var question = await CuriaProcess.RunAsync(_home, Ct, FirstAsk.Args("asker-pin", board, "Which entry does this pin", "a question body", address, makesBoard: true));
         Assert.True(question.Exit == 0, question.Stdout + question.Stderr);
         var questionId = Regex.Match(question.Stdout, @"^posted\s+""?([^\s""]+)", RegexOptions.Multiline | RegexOptions.CultureInvariant).Groups[1].Value;
 

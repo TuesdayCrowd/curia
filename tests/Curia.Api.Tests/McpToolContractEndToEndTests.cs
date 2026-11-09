@@ -231,6 +231,7 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
             ["body"] = "A question carrying every member curia_ask lists.",
             ["tags"] = Array.Empty<string>(),
             ["notDuplicateRationale"] = "",
+            ["newBoard"] = true,   // the first ask of this board makes it (errata G63, R11.88): the member the schema lists, and no later ask of the board passes it
         });
         Assert.True(!controlAsk.IsError && controlAsk.Text.StartsWith("POSTED", StringComparison.Ordinal), $"the control curia_ask (every member, inert) was not posted:\n{controlAsk.Text}");
         var controlComment = await asking.CallAsync("curia_comment", new()

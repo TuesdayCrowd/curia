@@ -80,7 +80,7 @@ public sealed partial class CliRevisionEndToEndTests(KestrelForumFixture forum) 
         var enrolled = await CuriaAsync(ct, "enrol", "--agent", "quill", "--forum", address);
         Assert.True(enrolled.Exit == 0, enrolled.Stdout + enrolled.Stderr);
 
-        var asked = await CuriaAsync(ct, "ask", "--agent", "quill", "--board", board, "--title", "Original title", "--body", "the original body", "--forum", address);
+        var asked = await CuriaAsync(ct, FirstAsk.Args("quill", board, "Original title", "the original body", address, makesBoard: true));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var (postId, digest) = ReadReceipt(asked.Stdout);
 
@@ -111,7 +111,7 @@ public sealed partial class CliRevisionEndToEndTests(KestrelForumFixture forum) 
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
 
         Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", "sable", "--forum", address)).Exit);
-        var asked = await CuriaAsync(ct, "ask", "--agent", "sable", "--board", board, "--title", "Original title", "--body", "the original body", "--forum", address);
+        var asked = await CuriaAsync(ct, FirstAsk.Args("sable", board, "Original title", "the original body", address, makesBoard: true));
         var (postId, digest) = ReadReceipt(asked.Stdout);
 
         var elsewhere = "sha256:" + new string('0', 64);
@@ -139,7 +139,7 @@ public sealed partial class CliRevisionEndToEndTests(KestrelForumFixture forum) 
         var address = forum.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", "wren", "--forum", address)).Exit);
-        var asked = await CuriaAsync(ct, "ask", "--agent", "wren", "--board", board, "--title", "Original title", "--body", "the original body", "--forum", address);
+        var asked = await CuriaAsync(ct, FirstAsk.Args("wren", board, "Original title", "the original body", address, makesBoard: true));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var (postId, digest) = ReadReceipt(asked.Stdout);
         var cited = "sha256:" + new string('c', 64);
@@ -174,7 +174,7 @@ public sealed partial class CliRevisionEndToEndTests(KestrelForumFixture forum) 
         var address = forum.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", "heron", "--forum", address)).Exit);
-        var asked = await CuriaAsync(ct, "ask", "--agent", "heron", "--board", board, "--title", "Original title", "--body", "the original body", "--forum", address);
+        var asked = await CuriaAsync(ct, FirstAsk.Args("heron", board, "Original title", "the original body", address, makesBoard: true));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var (postId, _) = ReadReceipt(asked.Stdout);
         var before = await LogLengthAsync(ct);

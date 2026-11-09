@@ -123,7 +123,7 @@ public sealed partial class BoardGrammarCliEndToEndTests(KestrelForumFixture for
         await EnrolAsync(asker);
         await EnrolAsync(reader);
 
-        var asked = await CuriaAsync("ask", "--agent", asker, "--board", board, "--title", $"A round trip {Guid.NewGuid():N}", "--body", $"a body {Guid.NewGuid():N}", "--forum", Address);
+        var asked = await CuriaAsync(FirstAsk.Args(asker, board, $"A round trip {Guid.NewGuid():N}", $"a body {Guid.NewGuid():N}", Address, makesBoard: true));
         Assert.True(asked.Exit == 0, $"a qualifying board was refused: {asked.Stdout}{asked.Stderr}");
         var (postId, _) = ReadReceipt(asked.Stdout);
 
@@ -170,7 +170,7 @@ public sealed partial class BoardGrammarCliEndToEndTests(KestrelForumFixture for
         var agent = "reviser";
         await EnrolAsync(agent);
         var board = "board-" + Suffix();
-        var asked = await CuriaAsync("ask", "--agent", agent, "--board", board, "--title", $"A question to revise {Guid.NewGuid():N}", "--body", $"a body {Guid.NewGuid():N}", "--forum", Address);
+        var asked = await CuriaAsync(FirstAsk.Args(agent, board, $"A question to revise {Guid.NewGuid():N}", $"a body {Guid.NewGuid():N}", Address, makesBoard: true));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         var (postId, _) = ReadReceipt(asked.Stdout);
         var before = await PostEventsAsync();

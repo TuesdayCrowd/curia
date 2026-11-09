@@ -204,10 +204,11 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         return (slug, agentId, kid);
     }
 
-    private async Task<string> AskAsync(string slug, string board, string title, string body, CancellationToken ct)
+    /// <summary>A question through the real command. <paramref name="makesBoard"/> is passed only by the call that makes the board (errata G63, R11.88).</summary>
+    private async Task<string> AskAsync(string slug, string board, string title, string body, bool makesBoard, CancellationToken ct)
     {
         AdvanceClock();
-        var asked = await CuriaAsync(ct, null, "ask", "--agent", slug, "--board", board, "--title", title, "--body", body, "--forum", Address);
+        var asked = await CuriaAsync(ct, null, FirstAsk.Args(slug, board, title, body, Address, makesBoard));
         Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
         return Receipt().Matches(asked.Stdout).First(m => m.Groups["key"].Value == "posted").Groups["value"].Value;
     }
@@ -256,7 +257,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         var ct = TestContext.Current.CancellationToken;
         var author = await EnrolAsync(ct);
         var board = "board-" + Suffix();
-        var postId = await AskAsync(author.Slug, board, "A title to index", "A body for the line form.", ct);
+        var postId = await AskAsync(author.Slug, board, "A title to index", "A body for the line form.", makesBoard: true, ct);
 
         foreach (var (browse, verb) in new[]
         {
@@ -281,7 +282,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         var ct = TestContext.Current.CancellationToken;
         var author = await EnrolAsync(ct);
         var board = "board-" + Suffix();
-        await AskAsync(author.Slug, board, "A title to index", "A body.", ct);
+        await AskAsync(author.Slug, board, "A title to index", "A body.", makesBoard: true, ct);
 
         var verb = await CuriaAsync(ct, null, "board", board, "--titles", "--forum", Address);
         var plain = await CuriaAsync(ct, null, "browse", "board", board, "--plain", "--forum", Address);
@@ -351,7 +352,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
     {
         var author = await EnrolAsync(ct);
         var board = "board-" + Suffix();
-        var postId = await AskAsync(author.Slug, board, "A title", "line one\nline two\nline three", ct);
+        var postId = await AskAsync(author.Slug, board, "A title", "line one\nline two\nline three", makesBoard: true, ct);
         return (postId, board);
     }
 
@@ -559,7 +560,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         var ct = TestContext.Current.CancellationToken;
         var author = await EnrolAsync(ct);
         var board = "board-" + Suffix();
-        var postId = await AskAsync(author.Slug, board, "Signed before the declaration", "A body.", ct);
+        var postId = await AskAsync(author.Slug, board, "Signed before the declaration", "A body.", makesBoard: true, ct);
         await DeclareCompromisedAsync(author.AgentId, ct);
 
         // 80 by 30: a disputed post's compact header needs more than 24 rows (spec 14.1), and 30 is a size a person has.
@@ -583,7 +584,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         var author = await EnrolAsync(ct);
         var other = await EnrolAsync(ct);
         var board = "board-" + Suffix();
-        await AskAsync(author.Slug, board, "Served under the wrong keys", "A body.", ct);
+        await AskAsync(author.Slug, board, "Served under the wrong keys", "A body.", makesBoard: true, ct);
         await ForgeAsync(author.AgentId, other.AgentId, ct);
 
         // Enter opens the post, Backspace goes back, q quits.
@@ -603,8 +604,8 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         var disputedAuthor = await EnrolAsync(ct);
         var honestAuthor = await EnrolAsync(ct);
         var board = "board-" + Suffix();
-        await AskAsync(disputedAuthor.Slug, board, "Signed before the declaration", "A body.", ct);
-        var verifiedId = await AskAsync(honestAuthor.Slug, board, "Signed by an honest key", "Another body.", ct);
+        await AskAsync(disputedAuthor.Slug, board, "Signed before the declaration", "A body.", makesBoard: true, ct);
+        var verifiedId = await AskAsync(honestAuthor.Slug, board, "Signed by an honest key", "Another body.", makesBoard: false, ct);
         await DeclareCompromisedAsync(disputedAuthor.AgentId, ct);
 
         // The index loads both posts and counts the disputed one. Tab moves to the verified post and Enter opens it; its reload is a load of that
@@ -625,7 +626,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         var ct = TestContext.Current.CancellationToken;
         var author = await EnrolAsync(ct);
         var board = "board-" + Suffix();
-        await AskAsync(author.Slug, board, "Signed before the declaration", "A body.", ct);
+        await AskAsync(author.Slug, board, "Signed before the declaration", "A body.", makesBoard: true, ct);
         await DeclareCompromisedAsync(author.AgentId, ct);
 
         var run = await BrowseAsync(["--alive-ms", "300", "--send", "72@0", "--send", "72@500", "--send", "71@1000"], ["board", board], ct, "80x30");
