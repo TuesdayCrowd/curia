@@ -276,6 +276,408 @@ Written by `curia-architect` after reading `.superpowers/sdd/2026-11-05-boards-l
 
 **Traps from 196:** (196) a probe edited to match the code where the published word differs (LOB20's `Replace("<next_cursor>", "'bmV4dA=='")`): when a printed word is not the published word, the errata or the code changes; the probe never carries the difference, and its oracle is something other than either (here a shell); (197) a ruling that names a test that is then not a row in the probe list (ruling 18's three-way comparison was written as a clause of a ruling and not as an LOB), so the build had nothing to be red against: every test a ruling names has a probe number in the same amendment; (198) a sentence true of the run that printed it and read as a rule for the next one ("running the same command again is safe" beside "do not run the verb again"): a claim about an act is scoped to the act and says what would change it, and two sentences that never print together are read together by an agent who meets them a minute apart; (199) a tripwire that throws from `Dispose`, which replaces the exception of a test that failed for its own reason and so hides the failure it came to expose.
 
+## Amendment 3 (2026-11-09, falsification)
+
+Written by `curia-architect` after reading `.superpowers/sdd/2026-11-05-boards-list/task-7-report.md` and its raw `flob-results.jsonl`, the runner's patch specs (`.superpowers/keep-tools/flob_specs.py`, `flob.py`) and the probes, the stubs and the source each green row touches, in the tree as checked out on `a-list-of-boards` (head `c8abe05a`). Rulings continue from 42 (Amendment 2's last is 41). **The errata is not edited by this amendment** (nothing here changes a published word; `check-spec.py` has nothing to be clean about). The plan is edited by the builder from `### In-place edits`, which is the only place the plan changes, and the edits are applied **before** this amendment is appended, because every `Old` block quotes the plan and would occur twice after.
+
+What was done to check the rows: each green row's patch was read in the specs and set against the probe it was supposed to turn red; every anchor of the 26 rows below was counted by script in the file it names at this head, each occurring once (0 misses); the four patches that did not exist before this amendment (FLOB87, FLOB88, FLOB89, FLOB90's fix) were compiled in a scratch copy of `src` outside the repository with the repository's analyzers (Curia.Mcp, Curia.Client.Cli and Curia.Application: 0 warnings, 0 errors). **No probe was run and no test project was built**; every "red" below is by reading, and the two test-side patches (the P22 gate's table, the sweep's table) are the runner's own text, which built.
+
+### What was checked, and what it found
+
+- **The count has a hole.** The report's 74 and 77 count a row by its first listed probe. FLOB57's row in the table says `green`, and the report's last note says "LOB47: red"; both are true: the runner's spec lists LOB41 as the row's probe and LOB47 as `also`, and the verdict reads the first. Ruling 43.
+- **FLOB7 (a).** `LOB7` stores `real-a`, `real-b`, `real-c` and then `flood-000` to `flood-199` in ascending name order (`BoardListEndToEndTests.cs:169-172`). The fold's dictionary hands the tied boards back in arrival order, which is name order, so removing the tie-break changes nothing the fixture can see. The second form (descending name) is red only because it reverses what the fixture happens to make. Real gap.
+- **FLOB15.** `LOB10` filters by exactly the stored name, and the other values it sends (upper case, a decomposed spelling, a NUL, an over-cap run of `r`) are neither prefixes nor fragments of any stored board. `StartsWith` and `Contains` return the same single row. Real gap.
+- **FLOB20 and FLOB62.** `LOB13`'s two facts read the route's row and the *existence* of `PropertyP22GateTests.RouteForms` (`BoardListGateTests.cs:37-52`); neither reads a form's content. The gate always asserts the warning itself (`PropertyP22GateTests.cs:160-166`), and a form with no members or a containment of `""` asserts less and still passes: a gate that is weakened is green by construction. The runner's second forms (a row with a blank `reader_contract`; a row with an upper-cased name) passed because the row-level facts print member *names* and never a value, and the name is compared by `LOB12`, which the runner did not run. Real gap in `LOB13`; the rows are aimed correctly.
+- **FLOB26.** `LOB15`'s name says "no hold"; its comment says the hold "is held by the route taking no agent" and that the live burst leg is where it is seen. It asserts events unchanged and an empty-Forum answer, nothing about the gate. The seam that records the gate exists (`ObservingAgentWriteGate.Entered`, used by `AgentWriteGateEndpointTests` BRB38 for the flag). Real gap: a claim in a probe's name with no assertion behind it. The runner's second form (a delay) adds nothing a probe that counts entries could use; dropped.
+- **FLOB28.** Mis-aimed. `LOB17` faults the log and asserts `503` for the route; it cannot see the route's place in the table of routes that reach no nonce, replay or key store, which only `FaultedStoreSweepTests` `ULG3` (three stores) reads. Dropping the route from `anonymousReads` makes `ULG3` judge it as reaching the nonce store, where it answers `200`. The row names the wrong probe.
+- **FLOB33.** `LOB27`'s CLI reply rows run `answer --parent 01ARZ3NDEKTSV4RRFFQ69G5FAV` against a stub that serves boards and no post: since G61 (`Program.PostAsync`, R11.85) the verb reads the parent first and refuses when it cannot, so the row never reaches the check whether the check is there or not. The test's own comment says "an answer, a comment, a revision and a resend" and has no row for the last two. Real gap, and the vacuity the project already names (a refusal probe that something earlier also satisfies).
+- **FLOB43.** (a) `FirstPageAsync` sends `limit=20` (`BoardCheck.cs:99`) and the harness `Forum()` honours `limit` (`BoardListHarness.cs:67`), so the page never holds more than 20 rows and `.Take(20)` is a second layer nothing exercises. (b) `LOB22` asserts the names line with `Contains(lead + " " + named)`; an invented name appended after the twentieth leaves that substring intact. Real gap in both halves.
+- **FLOB50.** `LOB34` reads the description with `(refuses|rejects)[^.]*\b(new|unlisted) board`; the runner's two patches say "refuses a board no post is on" and "refuses a post on a board no post is on", which contain neither `new board` nor `unlisted board`. R11.88's "SHALL NOT say the Forum refuses a new board" is held by a pattern that matches two spellings and has never been shown to match anything. Real gap.
+- **FLOB57.** Mis-aimed. Amendment 2's ruling 31 moved the tripwire out of `LOB41` into `LOB47`; the row still lists `LOB41` and the plan's `LOB41` bullet still describes the old `Dispose` throw. `LOB47` goes red on form (a). Form (b) (the stub never counts the read) has never been run against `LOB47`; its first attempt failed to build (CS0649) and its rerun listed `LOB41` only.
+- **FLOB58 (a).** `curia_boards` keeps `ArgumentGuards.StorableIdentifier`; the patch removes it; `ForumClient.GetBoardsAsync` still refuses the NUL (`RefuseUnstorable`), so nothing is sent either way. What changes is the delivery: the adapter's guard answers `NOT SENT: ...` as an `isError` result, and the library's refusal reaches the adapter as a thrown `McpException`. `ArgumentGuards.cs:11-14` says a refusal that does not begin `NOT SENT` "is not the one the model was promised" (R11.43; R11.57), and `LOB33` rewrites `thrown` to `an error` before comparing (`BoardToolTests.cs:158`), so it cannot tell the two. Not an equivalent mutant: the observable differs, in the dimension the requirement names. Real gap.
+- **FLOB61 (a).** `CommandHintTests` R10_65 scans for interpolation holes and the patch is a concatenation (`"curia boards --cursor " + next`), which the scan does not see; `LOB20`'s stub cursor `bmV4dA==` is a safe shell word either way. Ruling 27 made `LOB50` (a shell) the oracle for this property; the row still names the older probes. Mis-aimed. Form (b) is `FLOB79`'s patch, byte for byte; dropped as a duplicate.
+- **Equivalent mutants: none.** The one candidate, FLOB58 (a), is not (above).
+- **Found on the way, not in the nine.** `ToolText.BoardCheckSentence` (the `curia_ask` description) says of an unreadable list "nothing was signed, and the call may be made again as it was". That is trap 198 again, in the one place Amendment 2's ruling 39 did not look: an agent that holds an act line from an earlier faulted call is told, in the description it read first, that calling again is fine. `LOB52`'s fence reads the phrases `running the same command again is safe` and `may be run again`; `may be made again` is neither. Ruling 55.
+
+### Rulings
+
+42. **Verdicts, one per row.** Real gap, a probe to widen or add: FLOB7 (a), FLOB15, FLOB20, FLOB26, FLOB33, FLOB43, FLOB50, FLOB58 (a), FLOB62. Mis-aimed, the row rewritten: FLOB28, FLOB57, FLOB61 (and FLOB20 and FLOB62's second forms, whose probe was the right one run with the wrong companions). Equivalent mutant: none, none claimed. The rows below stay in the table for what they are; the counts are written from the next run and not from this amendment.
+43. **A row's verdict is its own probes.** In the runner's specs `lobs` is the row's probe list and `also` is never read for a verdict (FLOB57 hid behind it); a row lists every probe it must turn red and is red when **each** of them goes red on the first form, or the row is a gap and is closed before it is recorded. A patch that does not build is reported with the compiler's line and is not reworded by the runner (FLOB18's and FLOB77's rewrites in Task 7 are now those rows' own text). The runner re-reads its specs from this amendment's `### Patch text`, and `flob_specs.py` is regenerated, not edited by hand.
+44. **FLOB7 (a) and FLOB89: `LOB7` stores ties against every order but one.** The tied boards are stored in descending name order (`real-c` before `real-b`, `flood-199` down to `flood-000`), and a second tie is added: two boards of 4 posts, `real-` followed by U+00E9 (built with `char.ConvertFromUtf32`) stored first and `real-z` after it, which ordinal order puts the other way round (z, then é) and a culture comparer, insertion order and descending name each put as é, z. The expected first rows become `real-a 5, real-z 4, real-é 4, real-b 3, real-c 3`; totals are what the test stored. FLOB89 (the culture comparer) is claimed only because `InvariantGlobalization` is false in `Directory.Build.props`; if it is green the first thing read is whether the host's ICU compared the two strings as ordinal.
+45. **FLOB15: `LOB10` stores the names that tell a prefix from a whole.** With `P = Name("lob10")`: stored boards `P`, `P` followed by `-b`, and `z` followed by `P`. `board=P` is exactly the row `P`, `total` 1; `board=` the proper prefix `P[..^1]` and `board=` the fragment `P[1..^1]` are each `200`, no row, `total` 0; `search?board=` states `[]` for `P`, `P-b` and `zP` and `["board"]` for the two fragments (the oracle is the search route, not the listing under test).
+46. **FLOB26: LOB53, new, and `LOB15` stops claiming what it does not assert.** A new class `BoardListGateHoldTests(AgentWriteGateForumFixture)`, in the `forum` collection as `AgentWriteGateEndpointTests` is. It seeds one board (`BoardListProbe.StoreAsync`), calls `forum.ResetSeams()`, makes the reads (bare, `board=<seeded>`, `board=nowhere`, `x=1`, `board=`, `limit=0`, `cursor=@@@`), and asserts `forum.Gate.Entered` is empty and `EnteredCount` is 0; the control, in the same assertion, is one post sent through the route by an enrolled agent as BRB38 sends one, after which the gate has entered exactly that agent once (a recorder that cannot see an entry is not a probe, vacuity question 1). Expected text: `list reads entered the agent gate never; a post entered it once`. FLOB26's second form is dropped.
+47. **FLOB28 is run against `ULG3`.** The row's probe is `Curia.Api.Tests[FullyQualifiedName~ULG3]` (the theory's three stores), not `LOB17`. Form (b) (the route moved to `tokenReads`) is red under the replay store, where the token reads are not listed as unreached. `LOB17` is unchanged and its bullet says what it does not hold.
+48. **FLOB20 and FLOB62: `LOB13` reads the table's content.** Three facts in `BoardListGateTests`, the table read directly (`PropertyP22GateTests.RouteForms` is `internal` in the same assembly): (a) a **hand-written** expectation per route, quoted from G63's tenth finding and the plan's finding 5: the four post routes (`/v1/posts/{postId}`, `/v1/threads/{rootPostId}`, `/v1/boards/{board}/posts`, `/v1/search`) have `ContainsWhat` `the post`, members `author`, `verification_level` and a containment that returns the *post id* it is given (`Contains("B-sentinel", "I-sentinel")` is `I-sentinel`); `/v1/boards` has `the board`, members `content_type`, `reader_contract` and a containment that returns the *board* (`B-sentinel`); (b) the **live** board row's provenance member names, less `warning`, equal the board form's `Members` as ordered sets, so a table that lost a member, or a row that gained one the table does not know, is red; (c) the live row's `reader_contract` is not blank and equals the `provenance.reader_contract` that `GET /v1/boards/{board}/posts` serves for the same board (another route's artifact), `content_type` equals `PostEnvelope.RequiredContentType`, and the row's `board` equals the stored name character for character. The first existing fact gains (c). FLOB62's second form is red on (a) and (c); FLOB20's on (a), (b) and (c).
+49. **FLOB33, FLOB87, FLOB88: the reply rows reach their send first.** In `BoardListCliTests` LOB27: `answer` and `comment` run over a stub that serves the parent post (the fixture `CliBoardRefusalTests` uses) on a board the stub's list does **not** hold, so a check that ran would refuse or at least read the list; `revision` runs over the verified-read fixture `CliRevisionGuardTests` builds; and a `resend` row sends a kept act (made by a first send the stub answers `503`) for a board the stub's list does not hold. Each row asserts first `Posts == 1` (it reached its send; the row's name says so) and then `ListRequests == 0`. In `BoardToolTests` LOB27 the `curia_answer` row gains the same `POST` count. The comment of the test stops listing what it does not run. FLOB87 (CLI resend) and FLOB88 (the adapter's `curia_answer`) are new rows for the two verbs the old comment named and no row touched.
+50. **FLOB43: a Forum that ignores `limit`, and the names line compared whole.** `LOB22` gains a case over `Forum(listAnswer: ...)` where the unfiltered read answers 100 rows of a total of 213 whatever `limit` says and the filtered read of the typed name answers an empty page; the expectations are the first twenty names in the Forum's order, the clause `(20 of 213; curia boards lists the rest)` and the absence of the twenty-first name. In the existing case the line beginning with `RefusalBoardsLead()` is found by line and compared **equal** to `lead + " " + named` followed by the count clause where there is one; nothing between or after.
+51. **FLOB50: the negation is a pattern shown to match.** `LOB34` holds that no sentence of the registered `curia_ask` description matches either of
+```text
+\bForum\b[^.]{0,120}\b(?:(?:refus|reject|declin)\w*|(?:will|does|did) not accept)[^.]{0,120}\b(?:new board|unlisted|no post|not listed|no served post)
+\b(?:new board|unlisted|no post|not listed|no served post)[^.]{0,120}\b(?:(?:refus|reject|declin)\w*|(?:will|does|did) not accept)[^.]{0,120}\bForum\b
+```
+and, in the same test, that both match each of `The Forum refuses a board no post is on.`, `The Forum itself refuses a post on a board no post is on`, `A board no post is on is refused by the Forum.` and `The Forum will not accept a new board.`, and match neither `The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.` nor R8.85's `The Forum refuses any other name for a new post and never changes one for you; a board that exists already is read as it is.` (the sentence of `BoardWording.Sentence`, which is in the description on purpose). Run over the string literals of `ToolText.cs` and `BoardWording.cs` at this head the pattern matches nothing; the builder runs it over the registered description.
+52. **FLOB57 is run against `LOB47`.** Both forms; `LOB41`'s bullet is edited to stop describing the old `Dispose` throw.
+53. **FLOB58 (a): `LOB33` tells an `isError` `NOT SENT` from a thrown refusal.** The five guard rows (a blank `board`, a NUL `board`, a blank `cursor`, a `limit` of 0 and of 101) are red unless the answer is an `isError` result whose first text begins `NOT SENT` and names the argument; the line that rewrites `thrown` to `an error` is removed for them. The undefined-argument row keeps the form it asserts today.
+54. **FLOB61: `LOB50` is the oracle and the row says so.** Form (a) is the concatenation, which `CommandHintTests` R10_65 cannot see and `LOB50` (a shell given the printed word, over `a b`, `$(id)`, `x;y` and a value holding a single quote) cannot pass; the second form is `FLOB79`'s and is dropped.
+55. **`curia_ask`'s description says what to do after an unreadable list, with the condition (found on the way; LOB52 widened, FLOB90).** The sentence in `ToolText.cs` changes from the first to the second text of `### Code change` below. `LOB52`'s fence also reads `may be made again` in `src` (each occurrence must be followed within 160 characters by `unless an earlier`), and a fact through `tools/list` holds that the registered `curia_ask` description contains `unless an earlier call printed an act line`. The sentence is the adapter's own words and is not restated in G63 (lead 213); the phrase `can be made again once you have read the post` at `ToolText.cs:375` is about a refusal before anything is read and is not touched. Read O (the cold read of the tool) reads the changed sentence.
+56. **Allocations.** Probes **LOB53**; falsification **FLOB87 to FLOB90**; D61 lead **213** (the tool descriptions' fault sentences are hand-written and held by a phrase, not by a published span); traps **200 to 202** (the plan's last is 199): (200) a probe whose name or comment claims a property it does not assert (LOB15's "no hold", LOB27's "a resend"); (201) a layer that a second layer hides, so the second is never exercised (`Take(20)` behind `limit=20`; the adapter's guard behind the library's), and the probe needs a stub that defeats the first; (202) a falsification row whose runner-chosen probe is not the probe that carries the claim (FLOB28, FLOB57, FLOB61: the verdict read the first of two). Re-grepped on 2026-11-09 over the tree (`git grep` finds no hit for `LOB53`, `FLOB87` to `FLOB90`, `item 213` or `trap 200` to `trap 202`). Totals: probes LOB1 to LOB53, falsification FLOB1 to FLOB90. None of the new or widened probes has been written or run.
+
+### Code change (ruling 55)
+
+File `src/Curia.Mcp/ToolText.cs`. Anchor (occurs once in the file):
+```text
+        "which says you mean to start that board (it changes nothing for a board that has posts); a list that could not be read is NOT SENT as well, nothing was signed, and the call may be made again " +
+        "as it was. The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.";
+```
+Replacement:
+```text
+        "which says you mean to start that board (it changes nothing for a board that has posts); a list that could not be read is NOT SENT as well, nothing was signed or kept, and the call is made again when the list can be read, " +
+        "unless an earlier call printed an act line: send that act again with the resend that line names, and do not call the tool again. The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.";
+```
+
+### Patch text (every row of this amendment, exact)
+
+Each row is a patch to a kept copy: the file, an anchor that occurs once in it at this head (counted by script) and its replacement; `Edit n of m` rows apply every edit before the build. The rows not listed here (FLOB1 to FLOB6, FLOB8 to FLOB14, FLOB16 to FLOB19, FLOB21 to FLOB25, FLOB27, FLOB29 to FLOB32, FLOB34 to FLOB42, FLOB44 to FLOB49, FLOB51 to FLOB56, FLOB59, FLOB60 and FLOB63 to FLOB86) were red on the first form and keep their specs. FLOB90's patch applies **after** the code change above and restores the old sentence.
+
+**FLOB7a** (ties in insertion order). Must go red: LOB7 (widened: tied boards stored in descending name order). First form: two runs order equal boards by who posted first, so the order of the real boards moves with arrival.
+File `src/Curia.Application/Projections/NamedFilters.cs`. Anchor (occurs once in the file):
+```text
+.OrderByDescending(r => r.Posts)
+            .ThenBy(r => r.Board, StringComparer.Ordinal)
+```
+Replacement:
+```text
+.OrderByDescending(r => r.Posts)
+```
+
+**FLOB7b** (ties by descending name). Must go red: LOB7. First form: equal boards are listed from Z to A.
+File `src/Curia.Application/Projections/NamedFilters.cs`. Anchor (occurs once in the file):
+```text
+.OrderByDescending(r => r.Posts)
+            .ThenBy(r => r.Board, StringComparer.Ordinal)
+```
+Replacement:
+```text
+.OrderByDescending(r => r.Posts)
+            .ThenByDescending(r => r.Board, StringComparer.Ordinal)
+```
+
+**FLOB15a** (the board filter matches by prefix). Must go red: LOB10 (widened: a stored board that begins with another stored name, and a proper prefix of a stored name). First form: `ru` finds `rust`.
+File `src/Curia.Api/ForumEndpoints.cs`. Anchor (occurs once in the file):
+```text
+string.Equals(r.Board, boardFilter, StringComparison.Ordinal)
+```
+Replacement:
+```text
+r.Board.StartsWith(boardFilter, StringComparison.Ordinal)
+```
+
+**FLOB15b** (the board filter matches by containment). Must go red: LOB10 (widened). First form: `us` finds `rust`.
+File `src/Curia.Api/ForumEndpoints.cs`. Anchor (occurs once in the file):
+```text
+string.Equals(r.Board, boardFilter, StringComparison.Ordinal)
+```
+Replacement:
+```text
+r.Board.Contains(boardFilter, StringComparison.Ordinal)
+```
+
+**FLOB20a** (the board form's required members dropped). Must go red: LOB13 (widened: the table is held to the live row). First form: the gate no longer asks a board row for its content type or its reader contract.
+File `tests/Curia.Api.Tests/PropertyP22GateTests.cs`. Anchor (occurs once in the file):
+```text
+new("/v1/boards", (b, _) => $"/v1/boards?board={b}", (b, _) => b, "the board", ["content_type", "reader_contract"]),
+```
+Replacement:
+```text
+new("/v1/boards", (b, _) => $"/v1/boards?board={b}", (b, _) => b, "the board", []),
+```
+
+**FLOB20b** (the board form's members dropped and the row's reader_contract blank). Must go red: LOB13 (widened). First form: a board row with a blank reader contract passes the gate.
+Edit 1 of 2, file `tests/Curia.Api.Tests/PropertyP22GateTests.cs`. Anchor (occurs once in the file):
+```text
+new("/v1/boards", (b, _) => $"/v1/boards?board={b}", (b, _) => b, "the board", ["content_type", "reader_contract"]),
+```
+Replacement:
+```text
+new("/v1/boards", (b, _) => $"/v1/boards?board={b}", (b, _) => b, "the board", []),
+```
+Edit 2 of 2, file `src/Curia.Api/ForumEndpoints.cs`. Anchor (occurs once in the file):
+```text
+PostEnvelope.RequiredContentType, Provenance.StandardWarning, contract)))],
+```
+Replacement:
+```text
+PostEnvelope.RequiredContentType, Provenance.StandardWarning, string.Empty)))],
+```
+
+**FLOB26a** (the route enters the agent write gate). Must go red: LOB53 (new). First form: a list read queues behind an agent's write (R7.27's gate entered by an anonymous read).
+Edit 1 of 2, file `src/Curia.Api/ForumEndpoints.cs`. Anchor (occurs once in the file):
+```text
+    private static async Task<IResult> ListBoardsAsync(
+        HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
+```
+Replacement:
+```text
+    private static async Task<IResult> ListBoardsAsync(
+        HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, IAgentWriteGate agentGate, CancellationToken cancellationToken)
+```
+Edit 2 of 2, file `src/Curia.Api/ForumEndpoints.cs`. Anchor (occurs once in the file):
+```text
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var newest = log.Count == 0 ? 0L : log[^1].Seq.Value;
+```
+Replacement:
+```text
+        if (!AgentId.Parse("lob26-agent").TryGetValue(out var lobAgent, out _)) throw new InvalidOperationException();
+        var lobTurn = await agentGate.EnterAsync(lobAgent, cancellationToken).ConfigureAwait(false);
+        if (!lobTurn.TryGetValue(out var lobHold, out _)) return Results.StatusCode(503);
+        await using var lobHeld = lobHold!.ConfigureAwait(false);
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var newest = log.Count == 0 ? 0L : log[^1].Seq.Value;
+```
+
+**FLOB28a** (the route left out of the sweep's anonymous reads). Must go red: ULG3 (FaultedStoreSweepTests, the three stores). First form: the sweep expects a route that reads no registry key, nonce or replay store to answer `503` when one of those faults.
+File `tests/Curia.Api.Tests/Fuzz/FaultedStoreSweepTests.cs`. Anchor (occurs once in the file):
+```text
+"GET /v1/boards", "GET /v1/boards/{board}/posts"
+```
+Replacement:
+```text
+"GET /v1/boards/{board}/posts"
+```
+
+**FLOB28b** (the route listed with the token reads). Must go red: ULG3. First form: the sweep expects the same of a route it lists with the token reads, for the replay store.
+Edit 1 of 2, file `tests/Curia.Api.Tests/Fuzz/FaultedStoreSweepTests.cs`. Anchor (occurs once in the file):
+```text
+"GET /v1/boards", "GET /v1/boards/{board}/posts"
+```
+Replacement:
+```text
+"GET /v1/boards/{board}/posts"
+```
+Edit 2 of 2, file `tests/Curia.Api.Tests/Fuzz/FaultedStoreSweepTests.cs`. Anchor (occurs once in the file):
+```text
+string[] tokenReads = ["GET /v1/inbox",
+```
+Replacement:
+```text
+string[] tokenReads = ["GET /v1/boards", "GET /v1/inbox",
+```
+
+**FLOB33a** (the check made for every kind but a vote). Must go red: LOB27 (widened: reply rows reach the send). First form: an answer, a comment or a revision is told about a board it did not choose, or delayed by a read of the list.
+File `src/Curia.Client.Cli/Program.cs`. Anchor (occurs once in the file):
+```text
+if ((kind is PostKind.Question or PostKind.Finding) && await CheckBoardAsync(
+```
+Replacement:
+```text
+if (kind is not PostKind.Vote && await CheckBoardAsync(
+```
+
+**FLOB33b** (the check made for every kind). Must go red: LOB27 (widened). First form: the same, for every kind but none.
+File `src/Curia.Client.Cli/Program.cs`. Anchor (occurs once in the file):
+```text
+if ((kind is PostKind.Question or PostKind.Finding) && await CheckBoardAsync(
+```
+Replacement:
+```text
+if (await CheckBoardAsync(
+```
+
+**FLOB43a** (the refusal names every board the Forum served). Must go red: LOB22 (widened: a Forum that ignores limit). First form: a refusal names every board a Forum served, where the client promised at most 20.
+File `src/Curia.Client/BoardListWording.cs`. Anchor (occurs once in the file):
+```text
+names.Boards.Take(BoardCheck.NamedBoards).ToArray()
+```
+Replacement:
+```text
+names.Boards.ToArray()
+```
+
+**FLOB43b** (the refusal names a board the Forum did not list). Must go red: LOB22 (widened: the line is compared whole). First form: a refusal names a board the Forum did not list.
+File `src/Curia.Client/BoardListWording.cs`. Anchor (occurs once in the file):
+```text
+            if (names.Total > shown.Length)
+```
+Replacement:
+```text
+            text.Append($"{new OwnText(", invented-board 1")}");
+            if (names.Total > shown.Length)
+```
+
+**FLOB50a** (curia_ask says the Forum refuses a board no post is on). Must go red: LOB34 (widened: the negation is a pattern shown to match). First form: the description gives a guarantee the Forum does not give.
+File `src/Curia.Mcp/ToolText.cs`. Anchor (occurs once in the file):
+```text
+The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.
+```
+Replacement:
+```text
+The Forum refuses a board no post is on.
+```
+
+**FLOB50b** (curia_ask says the Forum refuses a post on a board no post is on). Must go red: LOB34 (widened). First form: the same guarantee in other words.
+File `src/Curia.Mcp/ToolText.cs`. Anchor (occurs once in the file):
+```text
+The Forum itself accepts a post on any board a name allows
+```
+Replacement:
+```text
+The Forum itself refuses a post on a board no post is on
+```
+
+**FLOB57a** (the stub's unasserted-read comparison disabled). Must go red: LOB47. First form: a test reaches the older-Forum branch and passes with no assertion.
+File `tests/Shared/RawStubForum.cs`. Anchor (occurs once in the file):
+```text
+if (reads > asserted)
+```
+Replacement:
+```text
+if (reads > asserted && reads < 0)
+```
+
+**FLOB57b** (the stub never counts a list read). Must go red: LOB47. First form: the same, because the stub never counts the read.
+File `tests/Shared/RawStubForum.cs`. Anchor (occurs once in the file):
+```text
+                Interlocked.Increment(ref _boardListReads);
+
+```
+Replacement:
+```text
+                Interlocked.Add(ref _boardListReads, 0);
+
+```
+
+**FLOB58a** (curia_boards lets a NUL board reach the library). Must go red: LOB33 (widened: the delivery form). First form: a NUL board is refused by a protocol error the adapter did not write, and not as `NOT SENT` by name.
+File `src/Curia.Mcp/ForumTools.cs`. Anchor (occurs once in the file):
+```text
+        if (ArgumentGuards.StorableIdentifier(board, nameof(board)) is { } unstorableBoard) return unstorableBoard;
+        if (ArgumentGuards.PresentValue(cursor
+```
+Replacement:
+```text
+        if (ArgumentGuards.PresentValue(cursor
+```
+
+**FLOB58b** (curia_boards and the library let a NUL board through). Must go red: LOB33. First form: a NUL board is sent.
+Edit 1 of 2, file `src/Curia.Mcp/ForumTools.cs`. Anchor (occurs once in the file):
+```text
+        if (ArgumentGuards.StorableIdentifier(board, nameof(board)) is { } unstorableBoard) return unstorableBoard;
+        if (ArgumentGuards.PresentValue(cursor
+```
+Replacement:
+```text
+        if (ArgumentGuards.PresentValue(cursor
+```
+Edit 2 of 2, file `src/Curia.Client/ForumClient.cs`. Anchor (occurs once in the file):
+```text
+if (board is not null && RefuseUnstorable<BoardPage>(board, nameof(board)) is { } unstorable) return unstorable;
+```
+Replacement:
+```text
+
+```
+
+**FLOB61a** (the more line's cursor concatenated, not written through Hints). Must go red: LOB50. First form: a Forum's `next_cursor` becomes a command the agent is told to run.
+File `src/Curia.Client.Cli/Program.cs`. Anchor (occurs once in the file):
+```text
+Hints.More("curia boards", next)
+```
+Replacement:
+```text
+new OwnText("curia boards --cursor " + next)
+```
+
+**FLOB62a** (the board form's containment skipped). Must go red: LOB13 (widened). First form: a board row whose name is not checked passes the gate.
+File `tests/Curia.Api.Tests/PropertyP22GateTests.cs`. Anchor (occurs once in the file):
+```text
+(b, _) => b, "the board", ["content_type"
+```
+Replacement:
+```text
+(_, _) => "", "the board", ["content_type"
+```
+
+**FLOB62b** (the board form's containment skipped and the name upper-cased). Must go red: LOB13 (widened). First form: a board row whose name was changed on the way out passes the gate.
+Edit 1 of 2, file `tests/Curia.Api.Tests/PropertyP22GateTests.cs`. Anchor (occurs once in the file):
+```text
+(b, _) => b, "the board", ["content_type"
+```
+Replacement:
+```text
+(_, _) => "", "the board", ["content_type"
+```
+Edit 2 of 2, file `src/Curia.Api/ForumEndpoints.cs`. Anchor (occurs once in the file):
+```text
+                r.Board,
+                r.Posts,
+```
+Replacement:
+```text
+                r.Board.ToUpperInvariant(),
+                r.Posts,
+```
+
+**FLOB87a** (curia resend reads the list of boards). Must go red: LOB27 (widened: a resend row). First form: a resend of a kept act is delayed or refused by a read of the list.
+File `src/Curia.Client.Cli/Program.cs`. Anchor (occurs once in the file):
+```text
+            var resent = await session.ResendAsync(kept!, Marking(args), ct).ConfigureAwait(false);
+```
+Replacement:
+```text
+            _ = await BoardCheck.CheckAsync(client, kept!.Header.Board, ct).ConfigureAwait(false);
+            var resent = await session.ResendAsync(kept!, Marking(args), ct).ConfigureAwait(false);
+```
+
+**FLOB88a** (curia_answer reads the list of boards). Must go red: LOB27 (the adapter's row). First form: `curia_answer` reads the list for a board it did not choose.
+File `src/Curia.Mcp/WriteTools.cs`. Anchor (occurs once in the file):
+```text
+    internal Task<CallToolResult> AnswerAsync(
+        string parentPostId, string body, string[]? refs = null, CancellationToken cancellationToken = default) =>
+        ReplyAsync(PostKind.Answer, ResourceKind.Answer, parentPostId, body, refs, cancellationToken);
+```
+Replacement:
+```text
+    internal async Task<CallToolResult> AnswerAsync(
+        string parentPostId, string body, string[]? refs = null, CancellationToken cancellationToken = default)
+    {
+        _ = await BoardCheck.CheckAsync(_forum, "rust", cancellationToken).ConfigureAwait(false);
+        return await ReplyAsync(PostKind.Answer, ResourceKind.Answer, parentPostId, body, refs, cancellationToken).ConfigureAwait(false);
+    }
+```
+
+**FLOB89a** (ties broken by the culture comparer). Must go red: LOB7 (widened). First form: equal boards are ordered by a locale, so two hosts order them differently.
+File `src/Curia.Application/Projections/NamedFilters.cs`. Anchor (occurs once in the file):
+```text
+.OrderByDescending(r => r.Posts)
+            .ThenBy(r => r.Board, StringComparer.Ordinal)
+```
+Replacement:
+```text
+.OrderByDescending(r => r.Posts)
+            .ThenBy(r => r.Board, StringComparer.InvariantCulture)
+```
+
+**FLOB90a** (curia_ask's description restores `the call may be made again as it was`). Must go red: LOB52 (widened to the adapter's descriptions). First form: an agent holding an act line is told to call the tool again as it was.
+File `src/Curia.Mcp/ToolText.cs`. Anchor (occurs once in the file):
+```text
+        "which says you mean to start that board (it changes nothing for a board that has posts); a list that could not be read is NOT SENT as well, nothing was signed or kept, and the call is made again when the list can be read, " +
+        "unless an earlier call printed an act line: send that act again with the resend that line names, and do not call the tool again. The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.";
+```
+Replacement:
+```text
+        "which says you mean to start that board (it changes nothing for a board that has posts); a list that could not be read is NOT SENT as well, nothing was signed, and the call may be made again " +
+        "as it was. The Forum itself accepts a post on any board a name allows, and a wrong board is a post that cannot be moved.";
+```
+
+### What the fix round must do
+
+1. Apply `### In-place edits` to the plan, each `Old` once, then append this amendment before `## Tasks`; re-run the check at the end of the edits (each `Old` occurs once before and `New` once after).
+2. **Write red first**, positive before negative (trap 50), and record each first failing line: LOB53 (new), the widened LOB7, LOB10, LOB13, LOB22, LOB27, LOB33, LOB34 and LOB52. All of them are red on the current tree **except** where they hold a property the code already has; for those, the row that makes them red is the proof they work, so the order is: write the probe, run it green on the tree, apply the row's patch, see it red, restore.
+3. Apply the code change (ruling 55) with its fence widening; run LOB52 and the cold read's Read O on it.
+4. Regenerate `flob_specs.py` from `### Patch text` (rows FLOB7, 15, 20, 26, 28, 33, 43, 50, 57, 58, 61, 62 replaced; FLOB87 to FLOB90 added; `also` unused). Run **only** the rows of this amendment (FLOB7, FLOB15, FLOB20, FLOB26, FLOB28, FLOB33, FLOB43, FLOB50, FLOB57, FLOB58, FLOB61, FLOB62, FLOB87 to FLOB90, each form) with the probes each row names, then once unpatched, then the full FLOB1 to FLOB90 table once before the PR; a row green where it should be red is a gap in a probe and is closed before it is recorded, never a row reworded.
+5. Record, beside the table: the counts by ruling 43's reading, FLOB89's ICU note if it applies, and the compile result of FLOB87 and FLOB88 in the real test build (they were compiled here only as source).
+6. Gates for the round: the new and widened classes through `preflight.py --api`, `FaultedStoreSweepTests` and `PropertyP22GateTests` whole (their tables were patched), the Architecture rules in both configurations, `check-spec.py`, `git diff --stat origin/main -- .github db rust conformance src/Curia.Domain/Screening` empty.
+
 ## Tasks
 
 ### Task 0: Re-read, operate the unmodified tree, write the rules first
@@ -317,7 +719,7 @@ Flip exactly the measured list; then the whole solution as CI runs it (`dotnet b
 
 Four lenses, each told this plan's premises: (1) spec compliance against G63 line by line; (2) information and order (can a caller learn that a withheld post exists, or a withheld board's name? is the unknown-name check before the log and after the allowed check? does the list answer anything its per-board listing and `unmatched_filters` do not? is the by-name read a probe of moderation?); (3) the clients (display literal for every name, typed or served; `NOT STATED` never rendered as listed; the check before the signature and the kept act; the CLI and the adapter one definition; the fault refusal never offering the flag; the older-Forum branch reading the type); (4) the fixtures (does each probe fail for the rule; does any accepting side take its input from the code it checks; does any fixture hold a flood the route could not actually see; is every oracle a different artifact than the function). Findings are verified before they are recorded.
 
-### Task 6: Falsification FLOB1 to FLOB86
+### Task 6: Falsification FLOB1 to FLOB90
 
 Each row is a patch to a **kept copy**, built `--no-incremental`, the named probes run, then restored by plain copy (mtime bumped) and run once unpatched. The first form is the harm.
 
@@ -355,29 +757,29 @@ Each states what it asserts and its prediction on the seam. "Control" = green on
 - **LOB4** *derived from SQL* (vacuity question 4): the rows of a corpus with no moderation equal a `GROUP BY` over the events table (board, count, distinct author, max instant), the query written in the test from `db/*.sql`. Red.
 - **LOB5** *derived from other routes*: for each listed board, `posts` equals the per-board listing's length, `authors` its distinct `provenance.author`, `latest_post_at` its greatest `server_ts`; for each unlisted name (withheld-only, votes-only, a typo) the per-board listing is empty and `search?board=` states `unmatched_filters` naming it; the `/`, `.` and `..` rows by search and SQL alone, with the per-board route's own answers (empty `200`, `404`, `405`) recorded beside them and not read as a count (finding 11). Red.
 - **LOB6** withholding: a withheld-only board is absent, restore puts it back, a board with one withheld and one served post says `posts` 1. Red.
-- **LOB7** order and bound: 200 one-post boards and three of 5, 3 and 3 (direct append): the first rows are the three in order, ties by ordinal name, default 50 rows, `limit=100` 100, `limit=0`, `101`, `abc` and an empty `limit=` are `invalid-limit` with `maximum=100`; `total` is 203; the pages' union equals the whole list with no repeat and no gap (property). Red.
+- **LOB7** order and bound: 200 one-post boards and three of 5, 3 and 3 (direct append): the first rows are the three in order, ties by ordinal name (Amendment 3, ruling 44: the boards of a tie are stored in descending name order, and one tie is `real-z` stored after `real-` followed by U+00E9, both of 4 posts, so that insertion order, descending name and a culture comparer each give an order other than ordinal), default 50 rows, `limit=100` 100, `limit=0`, `101`, `abc` and an empty `limit=` are `invalid-limit` with `maximum=100`; `total` is 203; the pages' union equals the whole list with no repeat and no gap (property). Red.
 - **LOB8** snapshot: a post and a new board added between page 1 and page 2 change no row of page 2 and not `total`; a fresh query shows them. Red.
 - **LOB9** cursor refusals: the search cursor, the inbox cursor, a malformed one, a bound beyond the log's newest event: `cursor-malformed`, type, no echo, event count, and the first-page control. Red.
-- **LOB10** the filter: `board=rust` is the row or none with `total` 0; `RUST` and a decomposed spelling are none; a blank `board` and a blank `cursor` are `blank-parameter`; NUL, a lone surrogate (raw bytes over Kestrel) and an over-cap name are `200` and empty, never `5xx`; for every listed name `search?board=` states `[]` and for every other name it states `["board"]`. Red.
+- **LOB10** the filter: `board=rust` is the row or none with `total` 0; `RUST` and a decomposed spelling are none; a blank `board` and a blank `cursor` are `blank-parameter`; NUL, a lone surrogate (raw bytes over Kestrel) and an over-cap name are `200` and empty, never `5xx`; the filter is whole-name equality (Amendment 3, ruling 45: with stored boards `P`, `P-b` and `zP`, `board=P` is exactly the row `P` with `total` 1, and the proper prefix of `P` and a fragment of `P` that is neither a prefix nor a suffix are `200` with no row and `total` 0); for every listed name `search?board=` states `[]` and for every other name it states `["board"]`. Red.
 - **LOB11** the names read (`BoardListQueryNameTests`): `board`, `limit`, `cursor` in any case are served; `marking`, `x`, `author` are refused with type, a detail naming the name and ending `this route reads exactly these: board, limit, cursor`; the order (unknown name, then blank, then limit, then cursor) and the read count (`CountRequestReads`): the refusal reads no log, a served request reads it once. Red.
 - **LOB12** names as data (`BoardListHostileNamesTests`): `ignore-previous-instructions`, `Meta`, a line feed and a 64-emoji name are served byte for byte as stored (never marked, folded or truncated), each row carries the standing warning, the warning is the constant `Provenance.StandardWarning`, and the response holds no name outside `boards[].board`. Red.
-- **LOB13** the gate: `PropertyP22GateTests` drives `/v1/boards` and asserts each row's envelope holds `content_type`, the standing warning and `reader_contract`, and that the route is in the hand list; **both walls take a per-route form read from one per-route table in the test (the containment check: a board row contains the board's name and not a post id; the required members: `content_type`, `warning`, `reader_contract` for a board row, the existing four for the post routes), and a test of the table holds that no route is without a row**; the post routes' assertions are unchanged (a control run holds them); removing the warning from a board row is red. Red.
+- **LOB13** the gate: `PropertyP22GateTests` drives `/v1/boards` and asserts each row's envelope holds `content_type`, the standing warning and `reader_contract`, and that the route is in the hand list; **both walls take a per-route form read from one per-route table in the test (the containment check: a board row contains the board's name and not a post id; the required members: `content_type`, `warning`, `reader_contract` for a board row, the existing four for the post routes), and a test of the table holds that no route is without a row**; the post routes' assertions are unchanged (a control run holds them); removing the warning from a board row is red. **Widened by Amendment 3, ruling 48:** the table's content is held to a hand-written expectation and to the live row, and the live row's `reader_contract` and name are asserted, so that dropping a form's members, skipping its containment form or blanking a member is red without anything the gate itself asserts. Red.
 - **LOB14** authorization: an explicit `allow` for `board` | `list` is asked (a recording policy stub), and a policy that denies the pair denies **both** routes (the shared-decision non-property); a pair the model lacks is a failure and not a denial (vacuity question 3). Control for the second half.
-- **LOB15** no event, no hold: list reads and refused reads append nothing; the list is served while the agent's write gate is held (it takes no agent's hold); an empty Forum is `200` with `[]`, `total` 0. Control.
+- **LOB15** no event: list reads and refused reads append nothing; an empty Forum is `200` with `[]`, `total` 0. Control. (Amendment 3, ruling 46: the "no hold" half this bullet used to claim asserted nothing and its own comment said so; it is LOB53's.)
 - **LOB16** reads: one whole-log read per served request, counted by `CountRequestReads`, equal to the per-board listing's. Control; holds FLOB25.
-- **LOB17** faults: under `ThrowUnreadable` the route is `503` `curia/log/unreadable` (R9.52), with no detail; the sweep's swept set contains the route (so its omission is not a pass). Red until the hand lists are fixed.
+- **LOB17** faults: under `ThrowUnreadable` the route is `503` `curia/log/unreadable` (R9.52), with no detail; the sweep's swept set contains the route (so its omission is not a pass). Red until the hand lists are fixed. The route's place in the sweep's table of routes that reach no nonce, replay or key store is `ULG3`'s (`FaultedStoreSweepTests`, three stores), not this probe's, and FLOB28 runs `ULG3` (Amendment 3, ruling 47).
 - **LOB18** the fuzz facts: the exemplar exists and carries the three names, the inventory lists them, and the minted cursor is valid for the exemplar's `limit`. Red.
 
 **Client (`BoardCheckTests`, `BoardListCliTests`)**
 - **LOB19** the page reader: an absent `boards`, `total` or `corpus_bound`, a non-array, a row without `posts`: a malformed page (never an empty list). Red.
 - **LOB20** the listing's words, parsed from G63's R10.98 words: header, rows as display literals, `more` or `no further pages`, `NOT STATED`, the preface; **the counts (`k`, `total`, `posts`, `authors`) are written unquoted (a `FrameText` hole quotes every interpolated value, so the numbers go through `OwnText` of the invariant-culture text, and the test searches each count's neighbours for a quotation mark), and the `more` line's cursor is written by `Hints` (`CommandHintTests` R10_65 reads every command the CLI prints and fails a cursor written any other way)**. Red.
 - **LOB21** *the four states together* (trap 185: the positive beside its negation): one test runs a listed board, an unlisted one with `--new-board`, an older Forum and a listed one with `--new-board`, and asserts each line against the published state words, so a positive printed for every board, or never, cannot pass. Red.
-- **LOB22** the refusal's words parsed from the errata; at most 20 names, `(n of total; curia boards lists the rest)` above 20; both ways forward; `cannot be moved or taken back`; the withheld clause; every name a display literal; **nothing sent**: a recording stub holds zero `POST`, the profile has no kept act, no token was requested; exit `1`. Red.
+- **LOB22** the refusal's words parsed from the errata; at most 20 names, `(n of total; curia boards lists the rest)` above 20, the names line compared whole and not searched (the lead, the first twenty of the Forum's order, the count clause and nothing between or after), and once over a Forum that ignores `limit` and serves 100 rows of a total of 213, so that the twenty and `(20 of 213; ...)` are the client's own (Amendment 3, ruling 50); both ways forward; `cannot be moved or taken back`; the withheld clause; every name a display literal; **nothing sent**: a recording stub holds zero `POST`, the profile has no kept act, no token was requested; exit `1`. Red.
 - **LOB23** `--new-board`: the post is sent; on a board that exists the line says it changed nothing; the flag is accepted by `ask` and `finding` and refused as unknown by `answer`, `comment`, `revision` and `endorse`. Red.
 - **LOB24** the older Forum is read by **type**: `404` `curia/request/no-route` is `NOT STATED` and the post goes; a bare `404`, `404` `curia/posts/not-found` and `405` are exit 8, as the faults are. Red for the second half.
 - **LOB25** every fault: a `503` `curia/log/unreadable`, `503` `curia/store/unavailable`, a reset, a stall past the check's own bound, a `200` with the wrong document, a `403`: exit `8`, the cause named, G63's fault sentence as parsed (`This run signed nothing and kept nothing.` and the condition about an earlier act line; the phrase `again is safe` absent), the string `--new-board` absent from the text, no kept act, and the same command succeeds once the stub recovers. Red.
 - **LOB26** *by name, not membership*: a stub with 213 boards whose page one does not hold the typed board answers the `board=` read with its row; the post goes. A client that compared with page one is red.
-- **LOB27** order of checks: `RUST` is refused by the grammar with zero requests; **a submission with a comma tag, a blank body, a null `tags` item or a profile it cannot resolve, on a board that is new, is refused on that fault and sends no `GET /v1/boards` (twelve tests saw the list's refusal in the spike, where the check ran first)**; the check precedes the signature (a refusal leaves no kept act); an answer, a comment, a revision and a resend make no `GET /v1/boards`. Red for the first two.
+- **LOB27** order of checks: `RUST` is refused by the grammar with zero requests; **a submission with a comma tag, a blank body, a null `tags` item or a profile it cannot resolve, on a board that is new, is refused on that fault and sends no `GET /v1/boards` (twelve tests saw the list's refusal in the spike, where the check ran first)**; the check precedes the signature (a refusal leaves no kept act); an answer, a comment, a revision and a resend make no `GET /v1/boards`, each of those rows first proved to reach its send (exactly one `POST`) so that a refusal that came before the check is not read as the check's absence (Amendment 3, ruling 49). Red for the first two.
 - **LOB28** request count: a pass makes one list request, a refusal two (the filtered read and page one), counted at the stub. Control on the seam for the pass; red for the refusal.
 - **LOB29** an empty board's words from the errata, for `curia board` and the screen's `EmptyBoard`; the old sentence is asserted absent by content, not by identifier. Red.
 - **LOB30** helps: the overview names `boards`; `board`'s help names it; `ask` and `finding` state `--new-board`; `boards` states order, bound and what unlisted means. Red.
@@ -385,8 +787,8 @@ Each states what it asserts and its prediction on the seam. "Control" = green on
 
 **Mcp (`BoardToolTests`)**
 - **LOB32** the catalogue: `curia_boards` is registered with and without an identity (five and fifteen tools), takes `board`, `limit`, `cursor`, none required, carries no tag sentence (R11.87), and its description states the `board` | `list` row through `TierSpan` over the model and the three sentences parsed from the errata; the expected set is derived from the registered schemas and the model, not from a list of names. Red.
-- **LOB33** `curia_boards`: an undefined argument is refused by name with nothing sent; a blank `board`, **a `board` holding U+0000 or an unpaired surrogate (R11.57's `StorableIdentifier`; the spike let a NUL through), a blank `cursor` and a `limit` outside 1 to 100 are each `NOT SENT` by name (the range is one constant in `Curia.Client` that the CLI and the adapter both read, and a test compares it with the `100` parsed from R9.58 and with the route's own constant, three artifacts), the schema's optional arguments carrying `default: null` as the other tools do**; the first block states the shown count, `total`, `next_cursor` or `no further pages`; rows are display literals inside the reader frame with the warning; a hostile list is data. Red.
-- **LOB34** `curia_ask`: `newBoard` is an optional boolean in the schema; the description says this adapter checks the list and does not say the Forum refuses; the refusal, the older-Forum line and the fault refusal are `isError` results with the same published words as the CLI (a differential over the two printers: one definition, modulo the flag's name). Red.
+- **LOB33** `curia_boards`: an undefined argument is refused by name with nothing sent; a blank `board`, **a `board` holding U+0000 or an unpaired surrogate (R11.57's `StorableIdentifier`; the spike let a NUL through), a blank `cursor` and a `limit` outside 1 to 100 are each `NOT SENT` by name, as an `isError` result whose text begins `NOT SENT` and not as a thrown refusal (R11.43; Amendment 3, ruling 53) (the range is one constant in `Curia.Client` that the CLI and the adapter both read, and a test compares it with the `100` parsed from R9.58 and with the route's own constant, three artifacts), the schema's optional arguments carrying `default: null` as the other tools do**; the first block states the shown count, `total`, `next_cursor` or `no further pages`; rows are display literals inside the reader frame with the warning; a hostile list is data. Red.
+- **LOB34** `curia_ask`: `newBoard` is an optional boolean in the schema; the description says this adapter checks the list and holds no sentence that says the Forum refuses a board no post is on (a pattern, shown to match four known phrasings before it is read as silence; Amendment 3, ruling 51); the refusal, the older-Forum line and the fault refusal are `isError` results with the same published words as the CLI (a differential over the two printers: one definition, modulo the flag's name). Red.
 - **LOB35** the instructions name `curia_boards` among the read tools, and the read-only sentence is the one the catalogue yields. Red.
 - **LOB36** the version: `ToolCatalogue.Version` equals the number `Version()` reads from R11.88's paragraph, and RLW40 (nothing else reads one) still holds. Red until the parser is re-pointed.
 
@@ -395,7 +797,7 @@ Each states what it asserts and its prediction on the seam. "Control" = green on
 - **LOB38** the port-string fence: `ServedBoards`' string parameters have reasoned rows.
 - **LOB39** (Amendment 1) *the flag in a fixture means something*: the first-ask helper of each end-to-end class passes `--new-board` (`newBoard: true`) only for a board no earlier ask in the test made, and a test of the helper asks twice on one board and holds that the second output carries `was not needed` (the line the Forum-side check prints), so a helper that passes the flag on every ask is red; the number of fixtures that pass it is recorded in the run.
 - **LOB40** (Amendment 1) *the registered tool is the checked one*: through `tools/list` and `tools/call` (never by calling the method), `curia_ask` on an unlisted board without `newBoard` is an `isError` `NOT SENT` and sends nothing, with `newBoard: true` it posts, and a reflection fact holds that the delegate registered as `curia_ask` is `AskCheckedAsync`; the tests that call `AskAsync` directly are named and none claims to probe the check. **(Amendment 2, ruling 30)** and the `board` of the recorded `GET /v1/boards?board=` equals the `board` of the post the stub received, so the list is read for the name that is signed.
-- **LOB41** (Amendment 1) *a stub that is an older Forum says so*: `StubLog` serves `GET /v1/boards[?board=]` from its own posts; `RawStubForum` records that it answered the list unrouted and a test that drove `ask` over it and did not assert the `NOT STATED` line fails at dispose; a stub that answers the list with a type other than `curia/request/no-route` is a fault (LOB24) and is changed to serve the list or named as the fault it is.
+- **LOB41** (Amendment 1) *a stub that is an older Forum says so*: `StubLog` serves `GET /v1/boards[?board=]` from its own posts; `RawStubForum`'s tripwire for an unasserted older-Forum read is LOB47's (Amendment 2, ruling 31: `Dispose` no longer throws; Amendment 3, ruling 52); a stub that answers the list with a type other than `curia/request/no-route` is a fault (LOB24) and is changed to serve the list or named as the fault it is.
 
 **Added by Amendment 2 (ruling 25 onward; each is stated in full in the amendment's "Probe and falsification rows added")**
 - **LOB42** the CLI's argument surface and the filtered line: `curia boards --board`, `--limit`, `--cursor`, a positional and an unknown `--agent` (S1, Q8).
@@ -408,7 +810,8 @@ Each states what it asserts and its prediction on the seam. "Control" = green on
 - **LOB49** the route reads `limit` in canonical numerals (Q6).
 - **LOB50** the `more` line's cursor is a shell word, by a shell, for a padded and a plain cursor, and the adapter's line is the published one (S3).
 - **LOB51** every sentence of "R10.98 words (the rest)" is printed as published, and the fence's list is parsed (S4).
-- **LOB52** the unreadable-list words carry the act-line condition in the verb, the adapter and the help, and no source says "safe" without it (ruling 39).
+- **LOB52** the unreadable-list words carry the act-line condition in the verb, the adapter and the help, and no source says "safe" without it (ruling 39). **Widened by Amendment 3, ruling 55:** the fence also reads `may be made again` in `src`, and the registered `curia_ask` description carries the condition.
+- **LOB53** (Amendment 3, ruling 46) no list read enters an agent's write gate: over the host that records every subject reaching the gate, a bare list read, a filtered one, one for a board nobody posted on, an unknown name, a blank value, a refused limit and a malformed cursor leave the record empty, and one post sent through the route beside them enters it once.
 
 ## Falsification rows (the first form is the harm)
 
@@ -439,9 +842,9 @@ Each states what it asserts and its prediction on the seam. "Control" = green on
 | FLOB23 | a pair the model lacks | LOB14 | a missing row is a denial and not a failure |
 | FLOB24 | the route authorized as another pair | LOB14 | the shared decision is silently split |
 | FLOB25 | a second whole-log read added | LOB16 | two reads where the listing makes one |
-| FLOB26 | a write-gate hold taken by the route | LOB15 | a list read queues behind an agent's write |
+| FLOB26 | a write-gate hold taken by the route | LOB53 | a list read queues behind an agent's write |
 | FLOB27 | an exception from the store answered as an empty list | LOB17 | `200 []` over an unreadable log |
-| FLOB28 | the route left out of `anonymousReads` | LOB17 | the sweep expects the key registry to be read |
+| FLOB28 | the route left out of `anonymousReads` | `ULG3` | the sweep expects the key registry to be read |
 | FLOB29 | the exemplar left out | LOB18 | the fuzz does not know the route |
 | FLOB30 | `BoardCheck` returns "on the list" for every board | LOB21, LOB22 | a typo is posted |
 | FLOB31 | the check reads page one and compares | LOB26 | a board past the first page is refused |
@@ -470,11 +873,11 @@ Each states what it asserts and its prediction on the seam. "Control" = green on
 | FLOB54 | `curia_ask` registered as the unchecked `AskAsync` | LOB40 | the tool the agent calls sends a typo |
 | FLOB55 | the first-ask helper passes `--new-board` on every ask | LOB39 | the flag is in every fixture and means nothing |
 | FLOB56 | `StubLog` serves every board as listed | LOB22, LOB41 | the refusal is never seen over the shared stub |
-| FLOB57 | `RawStubForum`'s unrouted-list tripwire removed | LOB41 | a test passes through the older-Forum branch unasserted |
+| FLOB57 | `RawStubForum`'s unrouted-list tripwire removed | LOB47 | a test passes through the older-Forum branch unasserted |
 | FLOB58 | `curia_boards` passes a NUL board | LOB33 | R11.57's check is not made on the new tool |
 | FLOB59 | `curia_boards` lets a blank cursor or a limit of 101 through | LOB33 | the range is the route's to refuse and the tool does not say |
 | FLOB60 | a count written through a `FrameText` hole | LOB20 | `"41" posts by "6" authors` |
-| FLOB61 | the `more` line's cursor printed without `Hints` | LOB20, `CommandHintTests` R10_65 | a cursor not written as a shell word |
+| FLOB61 | the `more` line's cursor concatenated and not written through `Hints` | LOB50 | a cursor not written as a shell word |
 | FLOB62 | the gate's containment form skipped for the board row | LOB13 | a board row whose name is not checked passes |
 | FLOB63 | `FilteredEmpty` says `0 of 0: the board is new` | LOB42, LOB43 | a filtered read tells the agent a new board is fine |
 | FLOB64 | the CLI's `--limit` upper bound removed | LOB42, LOB44 | `--limit 101` is sent and the route's refusal is the only word |
@@ -500,6 +903,10 @@ Each states what it asserts and its prediction on the seam. "Control" = green on
 | FLOB84 | `ServedBoards` normalizes the name to NFC | LOB2, LOB45 | the decomposed and composed spellings are one row |
 | FLOB85 | `AskCheckedAsync` reads the list for a different spelling from the one it signs | LOB40 | the list says the board exists and the post goes to another |
 | FLOB86 | the fault words drop the act-line condition (keep "Run the command again") | LOB52 | the condition is the whole difference and nothing holds it |
+| FLOB87 | `curia resend` reads the list of boards | LOB27 | a resend delayed or refused by a read of the list |
+| FLOB88 | `curia_answer` reads the list of boards | LOB27 | a reply tool checks a board it did not choose |
+| FLOB89 | ties broken by the culture comparer | LOB7 | two hosts order equal boards differently |
+| FLOB90 | `curia_ask`'s description restores `the call may be made again as it was` | LOB52 | the reader who holds an act line is told to call again |
 
 ## Traps applied (the point of each, in this PR)
 
@@ -527,7 +934,7 @@ Task 4's whole run as CI runs it, the closed fuzz, preflight (green before every
 
 ## Docs owed before the PR
 
-- `curia-whitepaper-ERRATA-AND-ADDENDUM.md`: G63's status "built" with the actual probe and falsification counts (the entry says none; the lists run to LOB52 and FLOB86 (LOB42 to LOB52 and FLOB63 to FLOB86 by Amendment 2) and the run's numbers are written from the run), the amendments from Task 0 and the cold read, the `(rev.)` marks the build makes in the index.
+- `curia-whitepaper-ERRATA-AND-ADDENDUM.md`: G63's status "built" with the actual probe and falsification counts (the entry says none; the lists run to LOB53 and FLOB90 (LOB42 to LOB52 and FLOB63 to FLOB86 by Amendment 2, LOB53 and FLOB87 to FLOB90 by Amendment 3) and the run's numbers are written from the run), the amendments from Task 0 and the cold read, the `(rev.)` marks the build makes in the index.
 - `IMPLEMENTATION_PLAN.md`: "Current work"; D113 closed with its paragraph rewritten from what was built; D61 item 4 closed and item 76 amended; new items from 200; traps from 188; the "Next stage" updated; the PR table gains a row.
 - `docs/superpowers/plans/2026-11-05-a-name-that-matches-nothing-says-so.md`, **line 646**: `The PR is #149, on main at ________.` reads `The PR is #149, on main at e561c55b.` (ruling 11; the file is outside the architect's allowlist, so the builder edits it, after re-checking the merge commit).
 - `README.md`: the paragraph on boards and posting (the list, `--new-board`, the board line); `CLAUDE.md`: one clause, "and, since errata G63 (the list-of-boards PR, #<n>: R9.58, R10.98, R11.88, closing D113 and D61 item 4, amending item 76)", in the same style; no other line.
@@ -537,7 +944,7 @@ Task 4's whole run as CI runs it, the closed fuzz, preflight (green before every
 
 ## Register text to paste
 
-**D113 (closed):** `GET /v1/boards`, anonymous, authorized as `board` | `list` (Table 10 gains no row), states the boards with a post of a discussion kind that moderation serves, each as `board`, `posts`, `authors`, `latest_post_at` and a row `provenance` (`content_type`, `warning`, `reader_contract`), by the one predicate R9.55 and the board's own listing use, most posts first then by name, 50 by default and 100 at most, a snapshot cursor `b<bound>:<offset>`, an exact `board` filter, three names read and every other refused (`marking` included), names served as stored and never marked; `curia boards` and `curia_boards` (admitted on both limbs of R11.30 (rev.); 15 tools with an identity, 5 without); `curia ask`, `curia finding` and `curia_ask` read the typed board by name after the grammar and before anything is signed or kept and refuse one with no served post unless `--new-board` (`newBoard: true`), print a four-state board line, treat an older Forum (`404` `curia/request/no-route` and no other `404`) as `NOT STATED`, and refuse a list that could not be read with the cause, exit 8, saying nothing was signed or kept and not offering the flag; `curia board`'s empty-board words no longer say there is no endpoint that enumerates boards. Probes LOB1 to LOB52, falsification FLOB1 to FLOB86, the live run, the cold read. Recorded: the order is a count a fleet can move at its budgets' price; a name is not screened; the check is advisory and racy; `--new-board` is not proof of intent; `curia_finding` was never built.
+**D113 (closed):** `GET /v1/boards`, anonymous, authorized as `board` | `list` (Table 10 gains no row), states the boards with a post of a discussion kind that moderation serves, each as `board`, `posts`, `authors`, `latest_post_at` and a row `provenance` (`content_type`, `warning`, `reader_contract`), by the one predicate R9.55 and the board's own listing use, most posts first then by name, 50 by default and 100 at most, a snapshot cursor `b<bound>:<offset>`, an exact `board` filter, three names read and every other refused (`marking` included), names served as stored and never marked; `curia boards` and `curia_boards` (admitted on both limbs of R11.30 (rev.); 15 tools with an identity, 5 without); `curia ask`, `curia finding` and `curia_ask` read the typed board by name after the grammar and before anything is signed or kept and refuse one with no served post unless `--new-board` (`newBoard: true`), print a four-state board line, treat an older Forum (`404` `curia/request/no-route` and no other `404`) as `NOT STATED`, and refuse a list that could not be read with the cause, exit 8, saying nothing was signed or kept and not offering the flag; `curia board`'s empty-board words no longer say there is no endpoint that enumerates boards. Probes LOB1 to LOB53, falsification FLOB1 to FLOB90, the live run, the cold read. Recorded: the order is a count a fleet can move at its budgets' price; a name is not screened; the check is advisory and racy; `--new-board` is not proof of intent; `curia_finding` was never built.
 **D61 item 4 (closed):** no list of boards is closed by R9.58 (its other half was G62). **Item 76 (amended, not closed):** the list shows a stored board holding `/`, or `.` or `..`, and the per-board route still cannot read it.
 **Leads to file from the first free item (200), if the build confirms them:** (200) board names are never screened (`ignore-previous-instructions` is a valid, stored, listed name; extending SCREEN to the board changes what ingest rejects and carries R10.69's cost step, so it is its own decision); (201) the order by `posts` is a ranking a fleet moves at its budgets' price, and a count of distinct attested owners (R4.30) is the Sybil-bounded alternative (reopens on the fourteenth exercise's leg (f)); (202) `curia browse` has no boards screen; (203) `board` | `read` is exercised by no route and the per-board route is authorized as `list` (a split moves no cell today); (204) the external skill's files (item 164's family); (205) an unreadable list stops every `ask` by design (decision 8), and the lead is the day the list route breaks while posts still work; (206) `RawStubForum` answers `404` `curia/request/no-route` to every unlisted route, so every client test over it is an older Forum to a new check, and a shared helper that serves the list is the fixture the next such check needs; (207) the suite builds its worlds by a first ask: 64 of 1,525 Api tests make their board by asking on a name new by construction (Task 0), so a check on a first ask costs a fixture per class and the convention's flag is in the fixtures as it is in the agent's first command; (208) `AskCheckedAsync` and `AskAsync` build the draft twice (Amendment 2, ruling 30); (209) the unreadable-list refusal cannot name a kept act; (210) a list that stays unreadable has no stop sentence; (211) the shared stubs other than `RawStubForum` are not tripwired against an unasserted older-Forum branch; (212) only if LOB45 is red: a payload board that differs from its canonical form is listed by the payload and found by the canonical; whatever Task 0 and the cold read add.
 **Traps, from 188:** (188) a ruling's sentence that names an artifact which does not exist or has another shape (`curia_finding`; "a cursor in the form the inbox's is", a keyset that cannot carry a name), found by reading the catalogue and the cursor types before the plan repeated them; (189) a bounded list used as a membership test: "absent from the list" over a page is a claim about the page; (190) an envelope gate whose assertions assume one shape (`author` and `verification_level` on every provenance block): a new shape either forces the Forum to say what it does not know or the gate gains a per-route list, and loosening it is the wrong one; (191) a sentence in a client's own prose that a PR falsifies and no test pins (`EmptyBoard`: "no endpoint that enumerates boards"), found by grepping the client for the claim the PR changes; (192) a stub that answers every unlisted route as an older Forum, which makes every test over it a victim of a new check and silently green for the branch that passes through; (193) a call-site count asserted before the signature was changed (the plan's file list did not count the 78 sites in 36 test files that a parameter before the token breaks; CA1068 refuses it after), found by building the change; (194) a method registered as a tool that tests call directly, so a check added in a wrapper is bypassed by every test that calls the method and the registered tool's check is probed only by a test that calls through the tool; (195) an order rule that names one refusal where the verb has several ("after the grammar" for a check that must follow every local refusal); (196) a probe edited to match the code where the published word differs (the oracle is then neither the errata nor something other than the code); (197) a ruling that names a test that is not a row in the probe list, so the build has nothing to be red against; (198) a sentence true of the run that printed it and read as a rule for the next one, beside another sentence that never prints with it; (199) a tripwire that throws from `Dispose` and replaces the exception of the test that failed for its own reason.
