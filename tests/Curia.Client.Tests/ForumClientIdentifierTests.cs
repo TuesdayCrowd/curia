@@ -115,6 +115,7 @@ public sealed class ForumClientIdentifierTests : IDisposable
         if (type == typeof(SearchRequest)) return new SearchRequest("x");
         if (type == typeof(InboxRequest)) return new InboxRequest();
         if (type == typeof(long) || type == typeof(long?)) return 0L;
+        if (type == typeof(int?)) return null;   // errata G63: GetBoardsAsync's optional page size
         throw new NotSupportedException($"no default for {type.Name} {name}");
     }
 

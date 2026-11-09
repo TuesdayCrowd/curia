@@ -42,6 +42,17 @@ public static class NamedFilters
         return corpus.Any(p => string.Equals(p.Board, board, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// R9.58 (errata G63): the boards a served discussion post is on, one row each, by the predicate <see cref="BoardHasServedPost(ImmutableArray{PostView}, Func{string, bool}, string)"/> uses.
+    /// Seam (PR 7, Task 1): lists nothing; Task 2 replaces it with the fold.
+    /// </summary>
+    public static ImmutableArray<BoardRow> ServedBoards(ImmutableArray<PostView> posts, Func<string, bool> servable)
+    {
+        ArgumentNullException.ThrowIfNull(servable);
+
+        return [];
+    }
+
     private static bool AuthorHasServedPost(ImmutableArray<PostView> posts, Func<string, bool> servable, string author) =>
         posts.Any(p => string.Equals(p.Author, author, StringComparison.Ordinal) && IsServedDiscussion(p, servable));
 

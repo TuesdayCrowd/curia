@@ -724,6 +724,14 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal string? ReceiptBudgetJson { get; set; }
 
+    /// <summary>
+    /// Errata G63 (R9.58): the body <c>GET /v1/boards</c> answers, whatever the query; null answers the list of the stub's own posts (one board, <c>b</c>) and, for a <c>board</c> filter, that row or none.
+    /// </summary>
+    internal string? BoardListBody { get; set; }
+
+    /// <summary>Errata G63 (R9.58): the status <c>GET /v1/boards</c> answers with (<c>200</c> by default).</summary>
+    internal HttpStatusCode BoardListStatus { get; set; } = HttpStatusCode.OK;
+
     /// <summary>Errata G49 (R9.50): the body <c>GET /v1/budget</c> answers; null answers <see cref="ValidBudgetJson"/>.</summary>
     internal string? BudgetBody { get; set; }
 
@@ -2053,11 +2061,23 @@ internal sealed class StubLog : IDisposable
             return string.Empty;
         }
 
+        /// <summary>Errata G63 (R9.58): the listing of the stub's own posts: one board, <c>b</c>, with one post by the stub's author; none where a <c>board</c> filter names another.</summary>
+        private static string OwnBoardList(string query)
+        {
+            var filter = query.Contains("board=", StringComparison.Ordinal) ? Uri.UnescapeDataString(Value(query, "board")) : null;
+            var rows = filter is null || filter == "b"
+                ? $$$"""[{"board":"b","posts":1,"authors":1,"latest_post_at":"1970-01-01T00:00:00.0000000+00:00","provenance":{"content_type":"{{{PostEnvelope.RequiredContentType}}}","warning":{{{System.Text.Json.JsonSerializer.Serialize(Provenance.StandardWarning)}}},"reader_contract":"/.well-known/reader-contract/v1"}}]"""
+                : "[]";
+            return $$"""{"boards":{{rows}},"total":{{(rows == "[]" ? 0 : 1)}},"corpus_bound":1}""";
+        }
+
         private static string Problem(string type, string title) => $$"""{"type":"{{type}}","title":"{{title}}"}""";
 
         private static (HttpStatusCode Status, string Body) Answer(StubLog log, string path, string query)
         {
             if (path == "/v1/budget") return (log.BudgetStatus, log.BudgetBody ?? ValidBudgetJson);
+
+            if (path == "/v1/boards") return (log.BoardListStatus, log.BoardListBody ?? OwnBoardList(query));
 
             if (path.StartsWith("/v1/jwks", StringComparison.Ordinal))
                 return (HttpStatusCode.OK, log.JwksJson());

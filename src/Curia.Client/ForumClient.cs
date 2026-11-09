@@ -144,6 +144,22 @@ public sealed class ForumClient
                 ForumDocuments.ReadPosts, ct);
 
     /// <summary>
+    /// R9.58 (errata G63): <c>GET /v1/boards</c>, anonymous. Seam (PR 7, Task 1): sends the request the arguments name and reads the page leniently; Task 3 makes the reader strict.
+    /// </summary>
+    public async Task<ForumResult<BoardPage>> GetBoardsAsync(string? board, int? limit, string? cursor, CancellationToken ct)
+    {
+        if (board is not null && RefuseUnstorable<BoardPage>(board, nameof(board)) is { } unstorable) return unstorable;
+
+        var parameters = new List<string>();
+        if (!string.IsNullOrWhiteSpace(board)) parameters.Add($"board={Uri.EscapeDataString(board)}");
+        if (limit is { } n) parameters.Add($"limit={n.ToString(CultureInfo.InvariantCulture)}");
+        if (!string.IsNullOrWhiteSpace(cursor)) parameters.Add($"cursor={Uri.EscapeDataString(cursor)}");
+
+        return await GetAsync("/v1/boards" + (parameters.Count == 0 ? string.Empty : "?" + string.Join("&", parameters)), ForumDocuments.ReadBoardPage, ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// R9.4's lexical half: <c>GET /v1/search</c>.
     ///
     /// <para><b>Every value is percent-encoded into the query string.</b> A term containing

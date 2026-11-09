@@ -89,6 +89,7 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
             ("GET", "/v1/log/jwks") => [("/v1/log/jwks", null)],
             ("GET", "/v1/posts/{postId}") => [($"/v1/posts/{postId}", null)],
             ("GET", "/v1/threads/{rootPostId}") => [($"/v1/threads/{postId}", null)],
+            ("GET", "/v1/boards") => [("/v1/boards", null)],   // errata G63: the listing of boards, swept like the per-board listing for a leaked raiser or rationale
             ("GET", "/v1/boards/{board}/posts") => [($"/v1/boards/{board}/posts", null)],
             ("GET", "/v1/search") => [($"/v1/search?q=ordering&board={board}", null)],
             ("GET", "/v1/inbox") => [($"/v1/inbox?board={board}", null)],

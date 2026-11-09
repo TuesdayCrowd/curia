@@ -391,6 +391,18 @@ internal sealed partial class ForumTools(
         return new CallToolResult { Content = [new TextContentBlock { Text = text }], IsError = false };
     }
 
+    /// <summary>
+    /// R9.58, R11.88 (errata G63): <c>curia_boards</c>, the boards the Forum serves. Seam (PR 7, Task 1): reads one page and answers an empty first block; the tool is not registered yet, and Task 3
+    /// registers it with the guards of ruling 18 and R10.98's words.
+    /// </summary>
+    internal async Task<CallToolResult> BoardsAsync(string? board = null, int? limit = null, string? cursor = null, CancellationToken cancellationToken = default)
+    {
+        var page = await _forum.GetBoardsAsync(board, limit, cursor, cancellationToken).ConfigureAwait(false);
+        if (!page.TryGetValue(out _, out var refusal)) throw Refused(refusal!);
+
+        return new CallToolResult { Content = [new TextContentBlock { Text = string.Empty }], IsError = false };
+    }
+
     /// <summary>R11.49: what the last line of a recheck says about the weight of the others.</summary>
     private const string RecheckClosing =
         "Every line above is the Forum's word as of the call; no signature and no inclusion proof was checked here, and curia_verify checks those.";

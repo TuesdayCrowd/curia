@@ -29,6 +29,21 @@ namespace Curia.Mcp;
 internal sealed partial class ForumTools
 {
     /// <summary>
+    /// R11.88 (errata G63): the method <c>curia_ask</c> is registered as, the arguments of <see cref="AskAsync"/> with <paramref name="newBoard"/> before the token: the check of the Forum's list of
+    /// boards is made here and then <see cref="AskAsync"/> is called, so a test that calls <see cref="AskAsync"/> directly does not probe the check (trap 194). Seam (PR 7, Task 1): the check is not made
+    /// and the tool is not registered as this method; Task 3 does both.
+    /// </summary>
+    internal Task<CallToolResult> AskCheckedAsync(
+        string board,
+        string title,
+        string body,
+        string[]? tags = null,
+        string? notDuplicateRationale = null,
+        bool? newBoard = null,
+        CancellationToken cancellationToken = default) =>
+        AskAsync(board, title, body, tags, notDuplicateRationale, cancellationToken);
+
+    /// <summary>
     /// R11.17's <c>curia_ask</c>: "Post a question (runs dedupe first, may return an existing answer
     /// instead)". Three outcomes: posted, a near duplicate answered with the thread, or refused.
     /// </summary>

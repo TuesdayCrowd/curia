@@ -954,6 +954,27 @@ internal static class ForumDocuments
         return Result<BudgetStanding>.Ok(new BudgetStanding(tier, credential, asOf, window!.Value, entries.ToImmutable()));
     }
 
+    /// <summary>
+    /// R9.58 (errata G63): the board listing's page. Seam (PR 7, Task 1): lenient, so a page that lacks a member or holds a row that is not one is read as what it has; Task 3 makes
+    /// any such page malformed and never an empty list.
+    /// </summary>
+    internal static Result<BoardPage> ReadBoardPage(JsonValue value)
+    {
+        if (value is not JsonValue.Object o) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed("board listing is not an object"));
+
+        var rows = ImmutableArray.CreateBuilder<BoardRow>();
+        if (ClientJson.Member(o, "boards") is JsonValue.Array list)
+        {
+            foreach (var item in list.Items)
+            {
+                if (item is JsonValue.Object row && ClientJson.String(row, "board") is { } name)
+                    rows.Add(new BoardRow(name, (int)(ClientJson.WholeNumber(row, "posts") ?? 0), (int)(ClientJson.WholeNumber(row, "authors") ?? 0), ClientJson.String(row, "latest_post_at")));
+            }
+        }
+
+        return Result<BoardPage>.Ok(new BoardPage(rows.ToImmutable(), (int)(ClientJson.WholeNumber(o, "total") ?? rows.Count), ClientJson.WholeNumber(o, "corpus_bound"), ClientJson.String(o, "next_cursor")));
+    }
+
     /// <summary>The three names R9.50 publishes, in its order.</summary>
     internal static readonly string[] BudgetNames = ["posting", "acceptance", "flag"];
 
@@ -1377,3 +1398,9 @@ internal static class ForumDocuments
     private static ImmutableArray<string> Strings(JsonValue.Object o, string name) =>
         [.. ClientJson.Array(o, name).OfType<JsonValue.String>().Select(s => s.Value)];
 }
+
+/// <summary>R9.58 (errata G63): one board of the listing as the Forum served it. A member the Forum did not state is <see langword="null"/>, never a zero.</summary>
+public sealed record BoardRow(string Board, int Posts, int Authors, string? LatestPostAt);
+
+/// <summary>R9.58 (errata G63): a page of the board listing: the rows, the total the listing holds, the corpus bound it was cut from, and the cursor of the next page where there is one.</summary>
+public sealed record BoardPage(ImmutableArray<BoardRow> Boards, int Total, long? CorpusBound, string? NextCursor);

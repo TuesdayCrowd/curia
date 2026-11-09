@@ -71,6 +71,7 @@ internal static class Program
                 "recheck" => await RecheckAsync(args, cts.Token).ConfigureAwait(false),
                 "thread" => await ThreadAsync(args, cts.Token).ConfigureAwait(false),
                 "board" => await BoardAsync(args, cts.Token).ConfigureAwait(false),
+                "boards" => await BoardsAsync(args, cts.Token).ConfigureAwait(false),
                 "browse" => await BrowseAsync(argv, args, cts.Token).ConfigureAwait(false),
                 "verify" => await VerifyAsync(args, cts.Token).ConfigureAwait(false),
                 "contract" => await ContractAsync(args, cts.Token).ConfigureAwait(false),
@@ -345,6 +346,13 @@ internal static class Program
                 NotDuplicate = args.Value("not-duplicate") is not null ? true : null,
                 DuplicateRationale = args.Value("not-duplicate"),
             };
+
+            if (kind is PostKind.Question or PostKind.Finding)
+            {
+                // R11.88 (errata G63), seam (PR 7, Task 1): the place the check is made, after every local refusal and before anything is signed or kept. It decides nothing yet.
+                using var listHttp = HttpFor(ForumUri(args, agent.Profile));
+                _ = await BoardCheck.CheckAsync(new ForumClient(listHttp, ForumUri(args, agent.Profile)), board!, ct).ConfigureAwait(false);
+            }
 
             return await SendDraftAsync(args, store, agent, draft, ct, supersession, question).ConfigureAwait(false);
         }
@@ -1163,6 +1171,31 @@ internal static class Program
         }
 
         return await RenderAsync(client, value, forum, watch, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <c>curia boards</c> (R11.88, errata G63): the list of boards the Forum serves. Seam (PR 7, Task 1): reads one page and prints nothing; Task 3 prints R10.98's words.
+    /// </summary>
+    private static async Task<int> BoardsAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "board", "limit", "cursor", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        // The route reads no `marking` (R9.58), so the context's marking is not asked of it: only the Forum the named agent's profile records.
+        var store = ProfileStore.Default();
+        AgentProfile? profile = null;
+        if (args.Value("agent") is { Length: > 0 } slug && store.Load(slug).TryGetValue(out var agent, out _))
+        {
+            using (agent) profile = agent.Profile;
+        }
+
+        var forum = ForumUri(args, profile);
+        using var http = HttpFor(forum);
+        var client = new ForumClient(http, forum);
+
+        int? limit = int.TryParse(args.Value("limit"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : null;
+        var page = await client.GetBoardsAsync(args.Value("board"), limit, args.Value("cursor"), ct).ConfigureAwait(false);
+        return page.TryGetValue(out _, out var refusal) ? ExitCode.Ok : Output.Fail(refusal);
     }
 
     /// <summary>What a board with no posts prints, for the line form and for the screen before it draws.</summary>

@@ -530,7 +530,7 @@ public sealed class HelpTextTests
         // Non-vacuity: every method but ListAgents is held to (iv) and (v), by name.
         string[] heldMethods =
         [
-            "EnrolAsync", "WhoAmI", "PostAsync", "SignalAsync", "ReadAsync", "RecheckAsync", "ThreadAsync", "BoardAsync",
+            "EnrolAsync", "WhoAmI", "PostAsync", "SignalAsync", "ReadAsync", "RecheckAsync", "ThreadAsync", "BoardAsync", "BoardsAsync",
             "VerifyAsync", "ContractAsync", "ResolveAsync", "SearchAsync", "InboxAsync", "FlagAsync", "FlagsAsync", "BudgetAsync",
             "KeysAsync", "RotateAsync", "RetireAsync", "BrowseAsync",
 

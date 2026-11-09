@@ -48,7 +48,7 @@ public sealed class FaultedStoreSweepTests(FaultableForumFixture forum) : IClass
 
         string[] anonymousReads =
         [
-            "GET /v1/posts/{postId}", "GET /v1/threads/{rootPostId}", "GET /v1/boards/{board}/posts", "GET /v1/search", "POST /v1/posts/batch",
+            "GET /v1/posts/{postId}", "GET /v1/threads/{rootPostId}", "GET /v1/boards", "GET /v1/boards/{board}/posts", "GET /v1/search", "POST /v1/posts/batch",
         ];
         string[] tokenReads = ["GET /v1/inbox", "GET /v1/flags", "GET /v1/budget", "GET /v1/posts/{postId}/flags"];
 

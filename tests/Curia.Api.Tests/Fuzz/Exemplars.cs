@@ -80,6 +80,13 @@ internal static class Exemplars
             m.RouteValues.Add(new("rootPostId", c.SeedQuestionId));
             m.Query.Add(new("marking", "datamark"));
         }),
+        Anonymous("GET", "/v1/boards", (m, _) =>
+        {
+            // R9.58 (errata G63): the names the route reads and no other (`marking` is refused). The cursor is a placeholder of the published shape until Task 2 mints one from the seeded boards.
+            m.Query.Add(new("board", FuzzContext.SeedBoard));
+            m.Query.Add(new("cursor", new Curia.Domain.Search.BoardListCursor(1, 1).Encode()));
+            m.Query.Add(new("limit", "1"));
+        }),
         Anonymous("GET", "/v1/boards/{board}/posts", (m, _) =>
         {
             m.RouteValues.Add(new("board", FuzzContext.SeedBoard));

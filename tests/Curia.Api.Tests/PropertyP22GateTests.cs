@@ -189,6 +189,7 @@ public sealed class PropertyP22GateTests(ForumFixture forum) : IClassFixture<For
 
         Assert.Equal(
             [
+                "/v1/boards",
                 "/v1/boards/{board}/posts",
                 "/v1/inbox",
                 "/v1/posts",
