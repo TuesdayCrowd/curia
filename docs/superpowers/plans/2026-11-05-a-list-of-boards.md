@@ -1439,4 +1439,4 @@ The adapter's pair refusal and a hostile name entered by `ask` were not shown li
 
 The PR is #150, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-11-09, at the docs commit, Release, `--no-build`): Api 1551/1551, Application 688/688, Architecture 117/117 (and 117/117 in Debug), AuthN 140/140, Canon.Sodium 32/32, Canon 329/329, Client 1591/1591, Domain.Primitives 64/64, Domain 1042/1042, Infrastructure 228/228, Mcp 953 of 955 (4 skipped): the two README version probes (PIL31, ULG31) failed because the docs commit's README sentence ended `curia-mcp` 0.11.0 with a parenthesis and not a full stop; the sentence was reordered and Mcp re-run, 955/955. Locked restore, `cargo fmt`, clippy, `cargo test`, the differential (0 divergence classes), the spec checks and their falsification all passed.
