@@ -176,7 +176,7 @@ public sealed class BoardListArgumentTests
         {
             log.Requests.Clear();
             var read = await client.GetBoardsAsync(board, limit, cursor, Ct);
-            expected.Add($"control {label}: read, 1 request");
+            expected.Add($"control {label}: read, 1 request(s)");
             actual.Add($"control {label}: {(read.TryGetValue(out _, out _) ? "read" : "not read")}, {log.Requests.Count} request(s)");
         }
 
@@ -224,7 +224,7 @@ public sealed class BoardListArgumentTests
                         var result = outcome switch
                         {
                             BoardCheckOutcome.OnList => new BoardCheckResult(outcome, row),
-                            BoardCheckOutcome.Unreadable => new BoardCheckResult(outcome, Fault: fault),
+                            BoardCheckOutcome.Unreadable => new BoardCheckResult(outcome, fault: fault),
                             BoardCheckOutcome.NotOnList or BoardCheckOutcome.NotStated => new BoardCheckResult(outcome),
                             _ => throw new InvalidOperationException("an outcome the test does not know: " + outcome),
                         };

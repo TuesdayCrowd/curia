@@ -22,7 +22,28 @@ public enum BoardCheckOutcome
 /// The answer of <see cref="BoardCheck.CheckAsync"/>: the outcome, the board's row where the Forum served it (<see cref="BoardCheckOutcome.OnList"/>) and the refusal where the list
 /// could not be read (<see cref="BoardCheckOutcome.Unreadable"/>). A member that does not belong to the outcome is <see langword="null"/>.
 /// </summary>
-public sealed record BoardCheckResult(BoardCheckOutcome Outcome, BoardRow? Row = null, Refusal? Fault = null);
+public sealed record BoardCheckResult
+{
+    /// <summary>A result is <see cref="BoardCheckOutcome.OnList"/> only with its row (R10.98: silence is never an outcome).</summary>
+    public BoardCheckResult(BoardCheckOutcome outcome, BoardListRow? row = null, Refusal? fault = null)
+    {
+        if (outcome is BoardCheckOutcome.OnList && row is null)
+            throw new ArgumentException("a board that is on the list has its row", nameof(row));
+
+        Outcome = outcome;
+        Row = row;
+        Fault = fault;
+    }
+
+    /// <summary>What the Forum's list said.</summary>
+    public BoardCheckOutcome Outcome { get; }
+
+    /// <summary>The board's row, where the Forum served it.</summary>
+    public BoardListRow? Row { get; }
+
+    /// <summary>The refusal, where the list could not be read.</summary>
+    public Refusal? Fault { get; }
+}
 
 /// <summary>
 /// R11.88 (errata G63): the one place a client asks the Forum whether a board has a post it serves, and the one place the older-Forum signature is read.
@@ -58,7 +79,7 @@ public static class BoardCheck
         if (!read.TryGetValue(out var page, out var refusal))
             return IsOlderForum(refusal!)
                 ? new BoardCheckResult(BoardCheckOutcome.NotStated)
-                : new BoardCheckResult(BoardCheckOutcome.Unreadable, Fault: refusal);
+                : new BoardCheckResult(BoardCheckOutcome.Unreadable, fault: refusal);
 
         if (page!.Boards.IsEmpty) return new BoardCheckResult(BoardCheckOutcome.NotOnList);
 
@@ -66,7 +87,7 @@ public static class BoardCheck
         var row = page.Boards.FirstOrDefault(r => string.Equals(r.Board, board, StringComparison.Ordinal));
         return row is not null
             ? new BoardCheckResult(BoardCheckOutcome.OnList, row)
-            : new BoardCheckResult(BoardCheckOutcome.Unreadable, Fault: new Refusal(
+            : new BoardCheckResult(BoardCheckOutcome.Unreadable, fault: new Refusal(
                 RefusalKind.Malformed, 0, ClientErrors.ResponseMalformed("the board listing answered a row for another board than the one asked")));
     }
 

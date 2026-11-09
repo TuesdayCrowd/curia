@@ -144,10 +144,19 @@ public sealed class ForumClient
                 ForumDocuments.ReadPosts, ct);
 
     /// <summary>
-    /// R9.58 (errata G63): <c>GET /v1/boards</c>, anonymous. Seam (PR 7, Task 1): sends the request the arguments name and reads the page leniently; Task 3 makes the reader strict.
+    /// R9.58 (errata G63): <c>GET /v1/boards</c>, anonymous.
+    ///
+    /// <para><b>The net under both front ends</b> (R11.78, Amendment 2, ruling 29). A present blank <c>board</c> or <c>cursor</c> and a <c>limit</c> outside 1 to <see cref="BoardCheck.MaximumLimit"/> are refused
+    /// here, before a request, as <see cref="SearchAsync"/> refuses a blank criterion: a <c>board</c> dropped is the unfiltered corpus, which a caller of the library would read as the board's.</para>
     /// </summary>
     public async Task<ForumResult<BoardPage>> GetBoardsAsync(string? board, int? limit, string? cursor, CancellationToken ct)
     {
+        if (SearchRequestRules.BlankCriterion(null, board, null, null, cursor: cursor) is { } blank)
+            return ForumResult<BoardPage>.Local(ClientErrors.BlankCriterion(blank));
+
+        if (limit is < 1 or > BoardCheck.MaximumLimit)
+            return ForumResult<BoardPage>.Local(ClientErrors.BoardListLimit(limit.Value));
+
         if (board is not null && RefuseUnstorable<BoardPage>(board, nameof(board)) is { } unstorable) return unstorable;
 
         var parameters = new List<string>();

@@ -229,6 +229,14 @@ public static class ClientErrors
         criterion);
 
     /// <summary>
+    /// The list of boards asked for a page size outside 1 to <see cref="BoardCheck.MaximumLimit"/> (R9.58): the Forum refuses it, and the client refuses it before a request (Amendment 2, ruling 29).
+    /// </summary>
+    public static Error BoardListLimit(int limit) => new(
+        "curia/client/board-limit-out-of-range",
+        $"The page size of the list of boards is a whole number from 1 to {BoardCheck.MaximumLimit.ToString(System.Globalization.CultureInfo.InvariantCulture)}; nothing was sent",
+        limit.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>
     /// A filter tag the Forum's <c>tags</c> parameter cannot carry: one that is empty, holds a comma,
     /// or begins or ends with white space. The Forum splits that parameter on commas and trims each
     /// element (R9.26), so it would read such a tag as another, or as none, and answer a query that

@@ -43,7 +43,7 @@ public static class BoardListQueryParameters
 
     /// <summary>
     /// R9.58, R9.44: the page size, validated and never clamped, and stricter than the search route's: a present <c>limit</c> that is not an integer from 1 to
-    /// <see cref="MaximumLimit"/> is refused, an empty one included (D61 item 75's leniency is not repeated on a new route).
+    /// <see cref="MaximumLimit"/> in canonical numerals (no sign, no white space, no leading zero) is refused, an empty one included (D61 item 75's leniency is not repeated on a new route; Amendment 2, ruling 34).
     /// </summary>
     public static Result<int> ReadLimit(Microsoft.AspNetCore.Http.IQueryCollection query)
     {
@@ -52,7 +52,8 @@ public static class BoardListQueryParameters
         if (!query.TryGetValue("limit", out var values)) return Result<int>.Ok(DefaultLimit);
 
         var raw = values.ToString();
-        if (int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var limit) && limit is >= 1 and <= MaximumLimit)
+        if (int.TryParse(raw, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var limit) && limit is >= 1 and <= MaximumLimit
+            && string.Equals(raw, limit.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal))
             return Result<int>.Ok(limit);
 
         return Result<int>.Fail(new Error(

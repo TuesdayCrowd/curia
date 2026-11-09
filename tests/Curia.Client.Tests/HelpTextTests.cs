@@ -472,11 +472,13 @@ public sealed class HelpTextTests
                     : Regex.IsMatch(usage, "^curia " + verb + "(?=[\\s(])"),
                 $"'{verb}''s usage does not begin with its own command: {usage}");
 
-            // (iii) no other verb's command.
+            // (iii) no other verb's command. The one sentence R10.98 publishes for --new-board names `curia boards` in prose, as the way to find a board; it is held word for word by
+            // LOB51 and is taken out of the text this rule reads (Amendment 2, ruling 38), and nothing else is.
+            var scanned = usage.Replace(Help.WrappedForTest(Help.NewBoardSentence), string.Empty, StringComparison.Ordinal);
             foreach (var other in verbs.Where(w => w != verb && !Pair(w, verb)))
             {
                 Assert.False(
-                    Regex.IsMatch(usage, "curia " + other + "(?=\\s)") || Regex.IsMatch(usage, "(?m)^curia " + other + "(?=[\\s(])"),
+                    Regex.IsMatch(scanned, "curia " + other + "(?=\\s)") || Regex.IsMatch(scanned, "(?m)^curia " + other + "(?=[\\s(])"),
                     $"'{verb}''s usage names 'curia {other}': {usage}");
             }
 

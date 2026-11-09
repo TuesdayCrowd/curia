@@ -7,11 +7,12 @@ namespace Curia.Client.Tests;
 
 /// <summary>
 /// R11.88 (errata G63), LOB41, in the shared stubs: <c>StubLog</c> serves <c>GET /v1/boards[?board=]</c> from its own posts (the fixture every client test takes); <c>RawStubForum</c> answers the list route as an
-/// older Forum does (<c>404</c> <c>curia/request/no-route</c>), and a test that drives <c>ask</c> over it and does not assert the older-Forum line must fail when the stub is disposed, because otherwise the new
-/// check would pass such a test through the branch it was not written for (trap 192).
+/// older Forum does (<c>404</c> <c>curia/request/no-route</c>), and a test that drives <c>ask</c> over it must assert the older-Forum line for every list read it made and end with
+/// <c>AssertOlderForumAsserted</c>, because otherwise the new check would pass such a test through the branch it was not written for (trap 192). The tripwire is an explicit assertion and not a throw from
+/// <c>Dispose</c>, which would replace the exception of a test that failed for its own reason (trap 199, LOB47).
 ///
-/// <para><b>Oracle.</b> The stub's list is compared with the one post it holds (board <c>b</c>); the tripwire is probed by the observable it must have: a list read answered unrouted and never acknowledged makes
-/// <c>Dispose</c> throw. Predicted: the first fact is a green control on the seam (the stub serves its list); the tripwire fact is red (no tripwire exists).</para>
+/// <para><b>Oracle.</b> The stub's list is compared with the one post it holds (board <c>b</c>); the tripwire is probed by what it does to a test: its own failure is reported, a read never asserted fails the
+/// assertion, and one assertion covers only the reads made before it.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",

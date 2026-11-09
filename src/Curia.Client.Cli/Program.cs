@@ -1209,6 +1209,10 @@ internal static class Program
         if (args.Unknown(["agent", "board", "limit", "cursor", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
+        // A word typed where a flag was meant is an argument supplied and not honoured: `curia boards rust` would list every board and ignore `rust` (Amendment 2, ruling 36).
+        if (args.Positional.Length > 0)
+            return Output.Fail("error: usage: curia boards [--board <name>] [--limit <1-100>] [--cursor <cursor>] [--forum <url>]. Nothing was sent.", ExitCode.Usage);
+
         if (args.Has("board") && QueryValue.NamesNothing(args.Value("board"), isList: false))
             return Output.Fail("error: --board is empty or blank; omit it to list every board. Nothing was sent.", ExitCode.Usage);
 
@@ -1224,10 +1228,18 @@ internal static class Program
         }
 
         // The route reads no `marking` (R9.58), so the context's marking is not asked of it: only the Forum the named agent's profile records.
+        // `--agent` is read for its Forum alone, and one that names no profile this host can load is refused: the listing of another Forum under the words "the boards the Forum serves" is a quiet wrong answer
+        // (Amendment 2, ruling 36; D61 items 130 to 149's family).
         var store = ProfileStore.Default();
         AgentProfile? profile = null;
-        if (args.Value("agent") is { Length: > 0 } slug && store.Load(slug).TryGetValue(out var agent, out _))
+        if (args.Has("agent"))
         {
+            if (string.IsNullOrWhiteSpace(args.Value("agent")))
+                return Output.Fail($"{new OwnText(AgentWording.Blank("boards"))}", ExitCode.Usage);
+
+            if (!store.Load(args.Value("agent")!).TryGetValue(out var agent, out var loadError))
+                return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}. Nothing was sent.", ExitCode.Local);
+
             using (agent) profile = agent.Profile;
         }
 

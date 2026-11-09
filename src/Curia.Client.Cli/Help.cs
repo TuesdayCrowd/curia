@@ -237,9 +237,13 @@ internal static class Help
         instruction is only a name.
         """;
 
-    /// <summary>R11.88 (errata G63): what <c>ask</c> and <c>finding</c> say of <c>--new-board</c>, once.</summary>
-    private const string NewBoardHelp =
-        "--new-board says you mean to start a board: without it, a board no post the Forum serves is on is refused before\n    anything is signed or kept, naming the boards the Forum serves (`curia boards` lists them). It changes nothing for a board\n    that has posts, and where the list could not be read it is not a way round: the command is refused and may be run again.";
+    /// <summary>
+    /// R11.88 and R10.98 (errata G63; Amendment 2, ruling 39): what <c>ask</c> and <c>finding</c> say of <c>--new-board</c>, once, as "the rest of R10.98's words" publishes it. The condition is the same one
+    /// the refusal of a list that could not be read carries: the command may be run again unless an earlier run printed an act line.
+    /// </summary>
+    internal const string NewBoardSentence = "--new-board says you mean to start a board: without it, a board no post the Forum serves is on is refused before anything is signed or kept, naming the boards the Forum serves (curia boards lists them). It changes nothing for a board that has posts, and where the list could not be read it is not a way round: the command is refused, this run signs and keeps nothing, and it may be run again unless an earlier run printed an act line.";
+
+    private static string NewBoardHelp => Wrapped(NewBoardSentence);
 
     /// <summary>What <c>curia help</c> prints, held as a constant so a test reads the published text itself.</summary>
     internal const string Usage =

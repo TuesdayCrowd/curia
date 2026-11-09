@@ -32,7 +32,7 @@ internal sealed class RawStubForum : IDisposable
     private readonly ConcurrentBag<TcpClient> _open = [];
     private readonly Task _loop;
     private int _boardListReads;
-    private bool _olderForumAsserted;
+    private int _assertedReads;
     private bool _disposed;
 
     internal RawStubForum(UnheardBehaviour behaviour)
@@ -123,7 +123,7 @@ internal sealed class RawStubForum : IDisposable
             if (StallReads) await Task.Delay(Timeout.Infinite, _stop.Token).ConfigureAwait(false);
 
             // Errata G63 (R11.88): this stub serves no list of boards, so it is an older Forum to the board check, and every client test that drives ask over it takes the
-            // NOT STATED branch. The branch must not be passed through unasserted (trap 192): a test that read the list here must say so with ExpectOlderForumLine, or Dispose throws.
+            // NOT STATED branch. The branch must not be passed through unasserted (trap 192): a test that read the list here must say so with ExpectOlderForumLine and end with AssertOlderForumAsserted.
             if (method == "GET" && (path == "/v1/boards" || path.StartsWith("/v1/boards?", StringComparison.Ordinal)))
             {
                 // A reset is not an older Forum's answer, so it is not a read the tripwire counts.
@@ -188,7 +188,7 @@ internal sealed class RawStubForum : IDisposable
 
     /// <summary>
     /// Asserts that <paramref name="output"/> (what a command that read this stub's list of boards printed) holds the line that says the Forum has no list of boards and the board was not checked
-    /// (R10.98's third state), and records that the test did. A test that drove <c>ask</c> over this stub and did not call it fails at <see cref="Dispose"/>.
+    /// (R10.98's third state), and records that the test did, for the reads made so far: a read made after this call is not covered by it (Amendment 2, ruling 31).
     /// </summary>
     internal void ExpectOlderForumLine(string output)
     {
@@ -198,17 +198,19 @@ internal sealed class RawStubForum : IDisposable
         if (!folded.Contains("NOT STATED (this Forum has no list of boards, so the board was not checked)", StringComparison.Ordinal))
             throw new Xunit.Sdk.XunitException("a command ran over the raw stub, which is an older Forum to the board check, and printed no NOT STATED board line: " + folded);
 
-        _olderForumAsserted = true;
+        Volatile.Write(ref _assertedReads, Volatile.Read(ref _boardListReads));
     }
 
     /// <summary>
-    /// Fails if a list read was answered as an older Forum's route and no <see cref="ExpectOlderForumLine"/> was made (the explicit form of the check that <see cref="Dispose"/> makes).
-    /// Seam form (Amendment 2, ruling 31, before its fix): the same condition as <see cref="Dispose"/>'s.
+    /// The tripwire (trap 192, trap 199): fails when a list read was answered as an older Forum's route and a later read was never asserted with <see cref="ExpectOlderForumLine"/>. Called explicitly, at the end
+    /// of the test's body, so that it is reached only when the body did not throw and a test that failed for its own reason reports that reason (<see cref="Dispose"/> throws nothing).
     /// </summary>
     internal void AssertOlderForumAsserted()
     {
-        if (_boardListReads > 0 && !_olderForumAsserted)
-            throw new Xunit.Sdk.XunitException($"the raw stub answered {_boardListReads} read(s) of GET /v1/boards as an older Forum's route, and the test never asserted the NOT STATED line (ExpectOlderForumLine)");
+        var reads = Volatile.Read(ref _boardListReads);
+        var asserted = Volatile.Read(ref _assertedReads);
+        if (reads > asserted)
+            throw new Xunit.Sdk.XunitException($"the raw stub answered {reads} read(s) of GET /v1/boards as an older Forum's route, and the test asserted the NOT STATED line for {asserted} of them (ExpectOlderForumLine): the rest passed through the older-Forum branch unasserted");
     }
 
     public void Dispose()
@@ -231,8 +233,5 @@ internal sealed class RawStubForum : IDisposable
 
         _stop.Dispose();
         GC.SuppressFinalize(this);
-
-        if (_boardListReads > 0 && !_olderForumAsserted)
-            throw new InvalidOperationException($"the raw stub answered {_boardListReads} read(s) of GET /v1/boards as an older Forum's route, and the test never asserted the NOT STATED line (ExpectOlderForumLine): it passed through the older-Forum branch unasserted");
     }
 }

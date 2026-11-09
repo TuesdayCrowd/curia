@@ -43,7 +43,7 @@ def W(k): return " ".join(random.sample(words, min(k, len(words))))
 def status(txt):
     m = re.search(r'HTTP (\d+)(?:, problem type "([^"]+)")?', txt)
     if m: return m.group(1) + (" " + m.group(2) if m.group(2) else "")
-    return "201" if txt.lstrip().startswith("posted") else "?"
+    return "201" if re.search(r"(?m)^posted", txt) else "?"
 res = [None] * n
 def go(i):
     t0 = time.time()

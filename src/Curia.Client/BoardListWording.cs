@@ -39,7 +39,7 @@ public static class BoardListWording
         new FrameBuilder().Append($"{new OwnText(Label)}0 of 0: no post the Forum serves is on {board}").ToString();
 
     /// <summary>One row, the name as a display literal, the counts bare, the instant as the Forum stated it or <see cref="NotStated"/>.</summary>
-    public static string Row(BoardRow row)
+    public static string Row(BoardListRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
 
@@ -49,8 +49,8 @@ public static class BoardListWording
     // ---- the board line ----
 
     /// <summary>
-    /// The board line every <c>ask</c>, <c>finding</c> and <c>curia_ask</c> prints before anything is signed, in one of four states; null for a state that is a refusal (a board with no post and
-    /// no <paramref name="flagGiven"/>, a list that could not be read). <paramref name="adapter"/> spells the flag as the adapter takes it.
+    /// The board line every <c>ask</c>, <c>finding</c> and <c>curia_ask</c> prints before anything is signed, in one of four states; null only for the two states that are refusals, which print their own
+    /// words (a board with no post and no <paramref name="flagGiven"/>, a list that could not be read). Silence is never any other outcome: one the line has no words for throws. <paramref name="adapter"/> spells the flag as the adapter takes it.
     /// </summary>
     public static string? BoardLine(string typedBoard, BoardCheckResult check, bool flagGiven, bool adapter)
     {
@@ -60,17 +60,17 @@ public static class BoardListWording
         var flag = adapter ? "newBoard" : "--new-board";
         string? state = check.Outcome switch
         {
-            BoardCheckOutcome.OnList when check.Row is { } row => Listed(row) + (flagGiven ? $"; {flag} was not needed and changes nothing" : string.Empty),
+            BoardCheckOutcome.OnList => Listed(check.Row!) + (flagGiven ? $"; {flag} was not needed and changes nothing" : string.Empty),
             BoardCheckOutcome.NotOnList when flagGiven => $"{NameWording.BoardNotServed}; {flag} was {(adapter ? "true" : "given")}, so this post makes the board",
             BoardCheckOutcome.NotStated => "NOT STATED (this Forum has no list of boards, so the board was not checked)",
-            BoardCheckOutcome.OnList or BoardCheckOutcome.NotOnList or BoardCheckOutcome.Unreadable => null,
-            _ => null,
+            BoardCheckOutcome.NotOnList or BoardCheckOutcome.Unreadable => null,
+            _ => throw new InvalidOperationException($"a board check outcome the board line has no words for: {check.Outcome}"),
         };
 
         return state is null ? null : new FrameBuilder().Append($"{new OwnText(Label)}{typedBoard}: {new OwnText(state)}").ToString();
     }
 
-    private static string Listed(BoardRow row) =>
+    private static string Listed(BoardListRow row) =>
         $"{NameWording.BoardServed} ({row.Posts.ToString(CultureInfo.InvariantCulture)} posts by {row.Authors.ToString(CultureInfo.InvariantCulture)} authors as of this check)";
 
     // ---- the refusals ----
@@ -108,14 +108,17 @@ public static class BoardListWording
             .ToString();
     }
 
-    /// <summary>The refusal of a list that could not be read: the cause, and that nothing was signed or kept, so the command may be run again. It says nothing of the flag.</summary>
+    /// <summary>
+    /// The refusal of a list that could not be read (ruling 39): the cause, that this run signed and kept nothing, when to run the command again and the one condition under which not to (an earlier run of
+    /// the verb printed an act line, which is where the resend is named). It says nothing of the flag and prints no command of its own.
+    /// </summary>
     public static string Unreadable(string typedBoard, Refusal fault)
     {
         ArgumentNullException.ThrowIfNull(typedBoard);
         ArgumentNullException.ThrowIfNull(fault);
 
         return new FrameBuilder()
-            .Line($"NOT SENT. The Forum's list of boards could not be read ({new OwnText(Cause(fault))}), so {typedBoard} was not checked. Nothing was signed or kept, so running the same command again is safe.")
+            .Line($"NOT SENT. The Forum's list of boards could not be read ({new OwnText(Cause(fault))}), so {typedBoard} was not checked. This run signed nothing and kept nothing. Run the command again when the list can be read, unless an earlier run of this verb printed an act line: send that act again with the resend that line names, and do not run the verb again.")
             .ToString();
     }
 

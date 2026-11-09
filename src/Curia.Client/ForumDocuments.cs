@@ -969,7 +969,7 @@ internal static class ForumDocuments
         if (ClientJson.WholeNumber(o, "corpus_bound") is not { } bound || bound < 0) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"{Malformed} has no corpus_bound"));
         if (ClientJson.Member(o, "next_cursor") is { } cursor and not JsonValue.String) return Result<BoardPage>.Fail(ClientErrors.ResponseMalformed($"{Malformed} has a next_cursor that is not a string"));
 
-        var rows = ImmutableArray.CreateBuilder<BoardRow>(list.Items.Length);
+        var rows = ImmutableArray.CreateBuilder<BoardListRow>(list.Items.Length);
         foreach (var item in list.Items)
         {
             if (item is not JsonValue.Object row || ClientJson.String(row, "board") is not { } name || Count(row, "posts") is not { } posts || Count(row, "authors") is not { } authors)
@@ -983,7 +983,7 @@ internal static class ForumDocuments
                 latest = instant.Value;
             }
 
-            rows.Add(new BoardRow(name, posts, authors, latest));
+            rows.Add(new BoardListRow(name, posts, authors, latest));
         }
 
         return Result<BoardPage>.Ok(new BoardPage(rows.ToImmutable(), total, bound, ClientJson.String(o, "next_cursor")));
@@ -1424,7 +1424,7 @@ internal static class ForumDocuments
 }
 
 /// <summary>R9.58 (errata G63): one board of the listing as the Forum served it. A member the Forum did not state is <see langword="null"/>, never a zero.</summary>
-public sealed record BoardRow(string Board, int Posts, int Authors, string? LatestPostAt);
+public sealed record BoardListRow(string Board, int Posts, int Authors, string? LatestPostAt);
 
 /// <summary>R9.58 (errata G63): a page of the board listing: the rows, the total the listing holds, the corpus bound it was cut from, and the cursor of the next page where there is one.</summary>
-public sealed record BoardPage(ImmutableArray<BoardRow> Boards, int Total, long CorpusBound, string? NextCursor);
+public sealed record BoardPage(ImmutableArray<BoardListRow> Boards, int Total, long CorpusBound, string? NextCursor);

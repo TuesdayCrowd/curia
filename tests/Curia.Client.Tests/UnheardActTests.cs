@@ -132,6 +132,7 @@ public sealed partial class UnheardActTests
         if (received is not null && run.Exit == ExitCode.ForumFault && facts.UnheardTitle && facts.Sentence && facts.ActLines == 1 && facts.ActDigest == digest && !facts.TimedOut && facts.OrderViolations == 0)
             actual = expected;
         Said(expected, actual);
+        stub.AssertOlderForumAsserted();
     }
 
     private sealed record Row(string Name, bool Unheard);
@@ -200,6 +201,7 @@ public sealed partial class UnheardActTests
                 using var stub = new RawStubForum(UnheardBehaviour.Fin);
                 var printed = await RunAsync(stub.Address, ShortTimeout, AskArgs);
                 stub.ExpectOlderForumLine(printed.Text);
+                stub.AssertOlderForumAsserted();
                 return printed;
             }
 
@@ -208,6 +210,7 @@ public sealed partial class UnheardActTests
                 using var stub = new RawStubForum(UnheardBehaviour.Reset);
                 var printed = await RunAsync(stub.Address, ShortTimeout, AskArgs);
                 stub.ExpectOlderForumLine(printed.Text);
+                stub.AssertOlderForumAsserted();
                 return printed;
             }
 
@@ -281,6 +284,7 @@ public sealed partial class UnheardActTests
         {
             var run = await RunAsync(stub.Address, stub.StallToken ? ShortTimeoutEvenForTheToken : ShortTimeout, args);
             if (args[0] == "ask") stub.ExpectOlderForumLine(run.Text);
+            stub.AssertOlderForumAsserted();
             var facts = Read(run.Text);
             var titleAllowed = args[0] is "resolve" or "flag";
             if (facts.Sentence || facts.ActLines > 0 || (facts.UnheardTitle && !titleAllowed)) problems.Add($"{name}: {facts.Says}");
@@ -331,6 +335,7 @@ public sealed partial class UnheardActTests
             "one submission reached the stub; HttpRequestError is named in UnheardTransport.cs alone; UnheardTransport is called from ForumSession.cs alone; no printer compares a problem type to the store type",
             $"{(posts == 1 ? "one submission reached the stub" : posts + " submissions reached the stub")}; HttpRequestError is named in {(errorNamers.Length == 0 ? "no file" : string.Join(", ", errorNamers) + (errorNamers.Length == 1 ? " alone" : string.Empty))}; " +
             $"UnheardTransport is called from {(callers.Length == 0 ? "no file" : string.Join(", ", callers) + (callers.Length == 1 ? " alone" : string.Empty))}; {(comparers.Length == 0 ? "no printer compares a problem type to the store type" : string.Join(" and ", comparers.Select(Path.GetFileName)) + " compare a problem type to the store type")}");
+        stub.AssertOlderForumAsserted();
     }
 
     private static readonly string[] PrinterFiles = ["src/Curia.Client.Cli/Program.cs", "src/Curia.Mcp/WriteTools.cs"];

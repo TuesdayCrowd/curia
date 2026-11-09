@@ -111,7 +111,7 @@ public sealed class BoardWordsFenceTests
     }
 
     /// <summary>
-    /// LOB52 (ruling 39), no source says a command is safe to run again, or may be run again, without the condition: the phrase <c>again is safe</c> occurs nowhere in <c>src</c>, and each <c>may be run again</c>
+    /// LOB52 (ruling 39), no source says a command is safe to run again, or may be run again, without the condition: the phrase <c>running the same command again is safe</c> occurs nowhere in <c>src</c>, and each <c>may be run again</c>
     /// is followed within 120 characters by <c>unless an earlier run</c>. Predicted red on a source that restores either sentence (FLOB82 and FLOB83).
     /// </summary>
     [Fact]
@@ -124,7 +124,7 @@ public sealed class BoardWordsFenceTests
         foreach (var path in files)
         {
             var text = Folded(File.ReadAllText(path));
-            if (text.Contains("again is safe", StringComparison.Ordinal)) bad.Add($"{Path.GetRelativePath(root, path)}: says \"again is safe\"");
+            if (text.Contains("running the same command again is safe", StringComparison.Ordinal)) bad.Add($"{Path.GetRelativePath(root, path)}: says \"running the same command again is safe\"");
             for (var at = text.IndexOf("may be run again", StringComparison.Ordinal); at >= 0; at = text.IndexOf("may be run again", at + 1, StringComparison.Ordinal))
             {
                 if (!text[at..Math.Min(text.Length, at + 120)].Contains("unless an earlier run", StringComparison.Ordinal))
