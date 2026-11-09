@@ -23,6 +23,7 @@
     <Compile Include="../Shared/PublishedReadersLastWords.cs" Link="Shared/PublishedReadersLastWords.cs" />
     <Compile Include="../Shared/ConflictingEventStore.cs" Link="Shared/ConflictingEventStore.cs" />
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
+    <Compile Include="../Shared/PublishedBoardListWords.cs" Link="Shared/PublishedBoardListWords.cs" />
     <Compile Include="../Shared/PublishedParentRule.cs" Link="Shared/PublishedParentRule.cs" />
     <!-- Errata G61 (R8.87, R11.85): the words of the reply-board entry, read from the errata at test time. -->
     <Compile Include="../Shared/PublishedReplyBoardWords.cs" Link="Shared/PublishedReplyBoardWords.cs" />

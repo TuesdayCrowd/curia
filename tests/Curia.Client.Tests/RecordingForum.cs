@@ -65,6 +65,11 @@ internal sealed class RecordingForum : IDisposable
     /// </summary>
     internal Func<string, string, string, (int Status, string Body)?>? Responder { get; set; }
 
+    /// <summary>
+    /// Errata G63: as <see cref="Responder"/> with the request's query string too (<c>?board=rust</c>, empty where there is none), asked first; <see langword="null"/> from it falls to <see cref="Responder"/>.
+    /// </summary>
+    internal Func<string, string, string, string, (int Status, string Body)?>? QueryResponder { get; set; }
+
     private async Task LoopAsync()
     {
         while (_listener.IsListening)
@@ -88,7 +93,8 @@ internal sealed class RecordingForum : IDisposable
 
             var answered = (context.Request.Url?.AbsolutePath ?? string.Empty) == "/oauth/token"
                 ? null
-                : Responder?.Invoke(context.Request.HttpMethod, context.Request.Url?.AbsolutePath ?? string.Empty, requestBody);
+                : QueryResponder?.Invoke(context.Request.HttpMethod, context.Request.Url?.AbsolutePath ?? string.Empty, context.Request.Url?.Query ?? string.Empty, requestBody)
+                    ?? Responder?.Invoke(context.Request.HttpMethod, context.Request.Url?.AbsolutePath ?? string.Empty, requestBody);
 
             var (status, body, type) = answered is { } given
                 ? (given.Status, given.Body, "application/json")

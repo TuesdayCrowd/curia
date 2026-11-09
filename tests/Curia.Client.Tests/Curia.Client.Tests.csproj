@@ -33,6 +33,7 @@
     -->
     <Compile Include="../Shared/PublishedReadersLastWords.cs" Link="Shared/PublishedReadersLastWords.cs" />
     <Compile Include="../Shared/PublishedNameWords.cs" Link="Shared/PublishedNameWords.cs" />
+    <Compile Include="../Shared/PublishedBoardListWords.cs" Link="Shared/PublishedBoardListWords.cs" />
     <Compile Include="../Shared/PublishedReferenceWords.cs" Link="Shared/PublishedReferenceWords.cs" />
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
     <Compile Include="../Shared/PublishedRecheck.cs" Link="Shared/PublishedRecheck.cs" />
