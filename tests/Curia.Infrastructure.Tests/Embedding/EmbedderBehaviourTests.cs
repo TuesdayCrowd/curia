@@ -156,10 +156,12 @@ public sealed class EmbedderBehaviourTests
         using var queuedThenCancelled = new CancellationTokenSource();
         var cancelled = rig.Embedder.EmbedAsync("hello world", EmbeddingRole.Passage, queuedThenCancelled.Token);
         await queuedThenCancelled.CancelAsync();
+        var left = await Task.WhenAny(cancelled, Task.Delay(TimeSpan.FromSeconds(5), Ct));
+        Assert.True(left == cancelled, "a caller whose token was cancelled while it was queued was still waiting 5 seconds later: the gate did not let it leave");
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
 
         release.SetResult();
-        var results = await Task.WhenAll(calls);
+        var results = await Task.WhenAll(calls).WaitAsync(TimeSpan.FromSeconds(10), Ct);
         Assert.All(results, r => Assert.Equal("(a vector)", TypeOf(r)));
         Assert.True(rig.Runner.MaxInside <= 2, $"expected at most 2 inside, saw {rig.Runner.MaxInside}");
         Assert.Equal(8, rig.Runner.Runs - baseline);
@@ -210,7 +212,7 @@ public sealed class EmbedderBehaviourTests
             hold.SetResult();
         }
 
-        await Task.WhenAll(first.Concat(queued));
+        await Task.WhenAll(first.Concat(queued)).WaitAsync(TimeSpan.FromSeconds(10), Ct);
         var admitted = arrivals.Skip(2).ToList();
         var passedOver = Enumerable.Range(0, admitted.Count).FirstOrDefault(i => admitted[i] != expected[i], -1);
         Assert.True(passedOver < 0, $"expected admission order [0..19] but waiter {passedOver} was admitted while an earlier one was still queued");
@@ -266,6 +268,71 @@ public sealed class EmbedderBehaviourTests
         await WaitUntilAsync(() => rig.Runner.StopsObserved >= 1, "the run was never asked to stop: its token was not cancelled when the bound expired");
         var second = await rig.Embedder.EmbedAsync("hello world", EmbeddingRole.Passage, Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct);
         Assert.Equal("(a vector)", TypeOf(second));
+    }
+
+    /// <summary>
+    /// SEM58 (Amendment 3 ruling 49). The bound of R8.81 holds for an index step that is queued behind a full gate, which is where a flood puts it: both places held by runs that wait for their callers, the
+    /// post's step queued behind them and seen queued, a clock advanced 2 seconds: the step answers <c>Pending</c> with <c>curia/retrieval/index-bound</c> within 10 seconds of real time, the gate holds no
+    /// waiter, and the step ran nothing. SEM3 (runner half) starts its run at once and so cannot see a waiter that ignores its token (Task 6: FSEM18 left it green). Predicted red on FSEM18: <c>the index
+    /// step queued behind a full gate was still waiting 10 seconds after its bound expired: the waiter did not leave on its token</c>. Green on the tree as it stands.
+    /// </summary>
+    [Fact]
+    public async Task R11_92_SEM58_TheBoundExpiresOnAStepQueuedBehindAFullGate()
+    {
+        using var rig = Checked();
+        var running = 0;
+        rig.Runner.Behaviour = async (input, ct) =>
+        {
+            Interlocked.Increment(ref running);
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return FakeRunner.HiddenStateFor(input);
+        };
+
+        using var holders = new CancellationTokenSource();
+        var held = Enumerable.Range(0, 2).Select(i => rig.Embedder.EmbedAsync("hello " + EmbedderRig.Words[i], EmbeddingRole.Passage, holders.Token)).ToArray();
+        try
+        {
+            await WaitUntilAsync(() => Volatile.Read(ref running) == 2 && rig.Embedder.Gate.Inside == 2, "NOT REACHED: the two places were not both taken by running calls");
+            var runsWithBothPlacesHeld = rig.Runner.Runs;
+
+            var start = new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero);
+            var clock = new TimerManualTimeProvider(start);
+            var post = new SearchablePost(
+                "post-1", "sha256:" + new string('a', 64), "postgres", Curia.Domain.Content.PostKind.Question, "hello", "hello world", [], "https://agents.example/a", 1);
+            var backlog = new IndexBacklog();
+            var committed = new CommittedPostIndexer(new EmbeddingIndexer(rig.Embedder, new AcceptingIndex()), backlog, clock, new IndexSweep(start));
+
+            var step = committed.IndexAsync(post, Ct);
+            await WaitUntilAsync(() => rig.Embedder.Gate.Queued == 1, "NOT REACHED: the step was not queued behind the two places");
+            clock.Advance(CommittedPostIndexer.Bound);
+
+            var finished = await Task.WhenAny(step, Task.Delay(TimeSpan.FromSeconds(10), Ct));
+            Assert.True(finished == step, "the index step queued behind a full gate was still waiting 10 seconds after its bound expired: the waiter did not leave on its token");
+            var outcome = await step;
+            Assert.Equal(CommittedIndexState.Pending, outcome.State);
+            Assert.Equal("curia/retrieval/index-bound", outcome.FaultType);
+            Assert.Equal(0, rig.Embedder.Gate.Queued);
+            Assert.Equal(runsWithBothPlacesHeld, rig.Runner.Runs);
+        }
+        finally
+        {
+            await holders.CancelAsync();
+            foreach (var call in held)
+            {
+                try
+                {
+                    await call.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    // the holders were cancelled on purpose
+                }
+                catch (TimeoutException)
+                {
+                    // a run that does not stop is reported by the assertions above
+                }
+            }
+        }
     }
 
     // ---- SEM39, SEM40: the shape and the warm-up ----

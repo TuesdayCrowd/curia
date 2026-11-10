@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using System.Xml.Linq;
 using Xunit;
 
 namespace Curia.Architecture.Tests;
@@ -67,7 +68,8 @@ public sealed class EmbedderFenceTests
     /// <summary>
     /// SEM14. No type of <c>Microsoft.ML.OnnxRuntime</c> is referenced by a <c>src/</c> assembly but <c>Curia.Infrastructure</c> (CS-7), and <c>Curia.Infrastructure</c> does reference one (so the scan is
     /// not empty); no assembly of the solution references <c>Microsoft.ML.Tokenizers</c>, and no <c>packages.lock.json</c> lists it or <c>Google.Protobuf</c> (the dropped dependency stays dropped,
-    /// Amendment 1 ruling 22). Predicted red on the seam: <c>Curia.Infrastructure references no type of Microsoft.ML.OnnxRuntime, so the scan found nothing</c>.
+    /// Amendment 1 ruling 22); and none of the projects Curia.Infrastructure stands on (its project references, followed to the end) lists the native package in its lock file (Amendment 3 ruling 52: a bare
+    /// reference is elided from the IL, so the type scan cannot see it). Predicted red on the seam: <c>Curia.Infrastructure references no type of Microsoft.ML.OnnxRuntime, so the scan found nothing</c>.
     /// </summary>
     [Fact]
     public void R11_91_SEM14_OnlyInfrastructureReferencesOnnxRuntimeAndTheTokenizerPackageStaysDropped()
@@ -97,6 +99,39 @@ public sealed class EmbedderFenceTests
             return text.Contains("\"Microsoft.ML.Tokenizers\"", StringComparison.Ordinal) || text.Contains("\"Google.Protobuf\"", StringComparison.Ordinal);
         }).Select(f => Path.GetRelativePath(root, f)).ToList();
         Assert.True(listing.Count == 0, "a lock file lists the dropped dependency: " + string.Join(", ", listing));
+
+        // The projects Curia.Infrastructure stands on, read from the csproj files (a different artifact from the lock files they are held to): none lists the native package, direct or reached through
+        // another. A bare PackageReference in one of them is elided from the IL, because the compiler drops an assembly reference nothing uses, so the type scan above cannot see it (Task 6, FSEM31).
+        var below = ProjectsBelow(Path.Combine(root, "src", "Curia.Infrastructure", "Curia.Infrastructure.csproj"));
+        foreach (var layer in new[] { "Curia.Application", "Curia.Domain", "Curia.Domain.Primitives", "Curia.Canon" })
+            Assert.True(below.Contains(layer, StringComparer.Ordinal), $"NOT REACHED: Curia.Infrastructure's project references do not reach {layer}; they reach {string.Join(", ", below)}");
+        var holding = below
+            .Where(name => File.Exists(LockOf(root, name)) && File.ReadAllText(LockOf(root, name)).Contains("\"Microsoft.ML.OnnxRuntime\"", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(holding.Count == 0, "a project Curia.Infrastructure stands on lists Microsoft.ML.OnnxRuntime in its lock file: " + string.Join(", ", holding));
+    }
+
+    private static string LockOf(string root, string project) => Path.Combine(root, "src", project, "packages.lock.json");
+
+    /// <summary>The names of the projects <paramref name="csproj"/> references, followed to the end (the project itself is not among them).</summary>
+    private static List<string> ProjectsBelow(string csproj)
+    {
+        var found = new List<string>();
+        var pending = new Stack<string>([csproj]);
+        var seen = new HashSet<string>(StringComparer.Ordinal) { csproj };
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            foreach (var include in XDocument.Load(current).Descendants("ProjectReference").Select(e => (string?)e.Attribute("Include")).OfType<string>())
+            {
+                var path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(current)!, include.Replace('\\', '/')));
+                if (!seen.Add(path)) continue;
+                found.Add(Path.GetFileNameWithoutExtension(path));
+                pending.Push(path);
+            }
+        }
+
+        return found;
     }
 
     private static bool ReferencesAssembly(string path, string name)

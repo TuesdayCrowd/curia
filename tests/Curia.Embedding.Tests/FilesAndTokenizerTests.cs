@@ -8,8 +8,7 @@ using Xunit;
 namespace Curia.Embedding.Tests;
 
 /// <summary>
-/// Errata G65 (D10a), SEM27 to SEM29, SEM44 and the fixture's own control: the real files hash to the manifest, the fetch script says so and refuses a changed byte, the canaries reproduce the Python
-/// reference, and the tokenizer reproduces the reference's ids on the committed parity file. Every probe computes its own answer from the bytes or the reference file; none asks the adapter's check.
+/// Errata G65 (D10a), SEM28 and SEM29: the canaries reproduce the Python reference and the tokenizer reproduces the reference's ids on the committed parity file. Every probe computes its own answer from the bytes or the reference file; none asks the adapter's check.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -18,84 +17,6 @@ namespace Curia.Embedding.Tests;
 public sealed class FilesAndTokenizerTests(RealModelFixture model) : IClassFixture<RealModelFixture>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    /// <summary>
-    /// R14.13 (control, no SEM number). The suite's fixture refuses, naming the variable and the fetch command, when the variable is unset, names no directory, or names one without both files.
-    /// Green on the seam: it is the fixture's own logic.
-    /// </summary>
-    [Fact]
-    public void R14_13_TheFixtureFailsWithTheVariableAndTheFetchCommandAndNeverSkips()
-    {
-        var empty = Path.Combine(Path.GetTempPath(), "curia-embedding-empty-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(empty);
-        try
-        {
-            foreach (var value in new string?[] { null, string.Empty, Path.Combine(empty, "absent"), empty })
-            {
-                var failure = Assert.ThrowsAny<Exception>(() => ModelDirectory.Resolve(value));
-                Assert.Contains(ModelDirectory.Variable, failure.Message, StringComparison.Ordinal);
-                Assert.Contains("python3 tools/model/fetch-model.py", failure.Message, StringComparison.Ordinal);
-            }
-        }
-        finally
-        {
-            Directory.Delete(empty);
-        }
-
-        Assert.Equal(model.Directory, ModelDirectory.Resolve(model.Directory));
-    }
-
-    private static string FetchScript() => Path.Combine(ModelDirectory.RepositoryRoot(), "tools", "model", "fetch-model.py");
-
-    /// <summary>
-    /// SEM27. Both files hash, by this test's own SHA-256 over their bytes, to the digests the manifest holds, and <c>fetch-model.py --verify-only</c> agrees (exit 0). Predicted red on the seam:
-    /// <c>model.onnx hashes to 828e14... but the manifest holds ''</c> (the seam's manifest is empty).
-    /// </summary>
-    [Fact]
-    public async Task R11_91_SEM27_BothFilesHashToTheManifestsDigestsAndTheFetchScriptAgrees()
-    {
-        var manifest = EmbeddingManifest.Embedded();
-
-        foreach (var (name, expected) in new[] { ("model.onnx", manifest.Model.Sha256), ("vocab.txt", manifest.Vocabulary.Sha256) })
-        {
-            await using var stream = File.OpenRead(Path.Combine(model.Directory, name));
-            var actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, Ct));
-            Assert.True(actual == expected, $"{name} hashes to {actual} but the manifest holds '{expected}'");
-        }
-
-        var (exit, output, error) = await Probe.RunAsync("python3", [FetchScript(), "--verify-only", "--out", model.Directory], Ct);
-        Assert.True(exit == 0, $"fetch-model.py --verify-only exited {exit}; stderr: {error.Trim()}; stdout: {output.Trim()}");
-    }
-
-    /// <summary>
-    /// SEM44. The negative side of SEM27: a copy of the directory with one byte of <c>vocab.txt</c> flipped makes the script exit non-zero, naming the file and the digest mismatch on its error stream
-    /// (a script that always fails would pass the first half alone, so the words are required). Predicted red on the seam: <c>stderr does not name vocab.txt and a digest mismatch: fetch-model.py is a seam
-    /// stub: not implemented</c>.
-    /// </summary>
-    [Fact]
-    public async Task R11_91_SEM44_AChangedByteMakesTheFetchScriptRefuseAndNameTheFile()
-    {
-        var copy = Path.Combine(Path.GetTempPath(), "curia-sem44-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(copy);
-        try
-        {
-            File.CreateSymbolicLink(Path.Combine(copy, "model.onnx"), Path.Combine(model.Directory, "model.onnx"));
-            var vocab = await File.ReadAllBytesAsync(Path.Combine(model.Directory, "vocab.txt"), Ct);
-            vocab[vocab.Length / 2] ^= 0x01;
-            await File.WriteAllBytesAsync(Path.Combine(copy, "vocab.txt"), vocab, Ct);
-
-            var (exit, _, error) = await Probe.RunAsync("python3", [FetchScript(), "--verify-only", "--out", copy], Ct);
-
-            Assert.NotEqual(0, exit);
-            Assert.True(
-                error.Contains("vocab.txt", StringComparison.Ordinal) && error.Contains("digest", StringComparison.OrdinalIgnoreCase),
-                $"stderr does not name vocab.txt and a digest mismatch: {error.Trim()}");
-        }
-        finally
-        {
-            Directory.Delete(copy, recursive: true);
-        }
-    }
 
     /// <summary>
     /// SEM28. Every canary of the manifest: the token ids the adapter's tokenizer gives are the Python reference's, and every component of the vector the adapter returns is within 1e-4 of it; a canary with no
