@@ -84,6 +84,39 @@ public sealed class FifoGateTests
         Assert.Equal(0, gate.Queued);
     }
 
+    /// <summary>
+    /// SEM49 (Amendment 2 ruling 41). A gate of two, both places held, one waiter queued and seen queued; then, in one synchronous step, one lease is disposed and a fresh caller starts to
+    /// enter: the fresh caller has not been admitted, the queued waiter has, and no more than two are inside. Two hundred times on fresh gates, because a gate that frees the place and
+    /// then wakes the waiter opens a window of a thread-pool hand-off. Green on the gate as it stands; FSEM51's gate is what makes it a check. Predicted red on that gate:
+    /// <c>a fresh caller was admitted while the waiter queued before it was still waiting</c> or <c>expected at most 2 inside, saw 3</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_92_SEM49_ACallerArrivingAsAPlaceIsFreedQueuesBehindTheWaiterAlreadyQueued()
+    {
+        for (var iteration = 1; iteration <= 200; iteration++)
+        {
+            var gate = new FifoGate(2);
+            var first = await gate.EnterAsync(Ct);
+            var second = await gate.EnterAsync(Ct);
+            var queued = gate.EnterAsync(Ct).AsTask();
+            await WaitQueuedAsync(gate, 1, "the queued waiter");
+
+            first.Dispose();
+            var fresh = gate.EnterAsync(Ct).AsTask();
+
+            Assert.True(gate.Inside <= 2, $"expected at most 2 inside, saw {gate.Inside} (iteration {iteration} of 200)");
+            var admitted = await Task.WhenAny(queued, fresh).WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            Assert.True(ReferenceEquals(admitted, queued), $"a fresh caller was admitted while the waiter queued before it was still waiting (iteration {iteration} of 200)");
+            Assert.False(fresh.IsCompleted, $"a fresh caller was admitted while the waiter queued before it was still waiting (iteration {iteration} of 200)");
+            Assert.True(gate.Inside <= 2, $"expected at most 2 inside, saw {gate.Inside} (iteration {iteration} of 200)");
+
+            second.Dispose();
+            (await queued).Dispose();
+            (await fresh.WaitAsync(TimeSpan.FromSeconds(5), Ct)).Dispose();
+            Assert.Equal(0, gate.Inside);
+        }
+    }
+
     private static bool Admitted(List<int> admitted, int index)
     {
         lock (admitted) return admitted.Contains(index);

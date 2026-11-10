@@ -149,6 +149,47 @@ public sealed class ManifestAndFilesTests
         Assert.Equal(rig.PathOf("model.onnx"), rig.Loader.LastModelPath);
     }
 
+    /// <summary>
+    /// SEM52 (Amendment 2 ruling 39). The start-up check compares the manifest with the identity the code stamps on every vector before it reads a file: a manifest whose canaries are cut to
+    /// three, whose dimensions are 256, or whose id is <c>bge-small-en-v1.5@2</c> is refused, the message names the member, and no session is built. A manifest of the embedded one's shape
+    /// still passes. Predicted red on <c>a0cda877</c>: <c>Assert.Throws() Failure: No exception was thrown</c> for the canaries and the id (the dimensions fail late, at a canary).
+    /// </summary>
+    [Theory]
+    [InlineData("canaries", "canaries")]
+    [InlineData("dimensions", "dimensions")]
+    [InlineData("id", "id")]
+    public void R11_91_SEM52_AManifestThatIsNotTheIdentityTheCodeStampsIsRefusedNamingTheMember(string change, string member)
+    {
+        using var rig = EmbedderRig.Create();
+        var changed = change switch
+        {
+            "canaries" => rig.Manifest with { Canaries = [.. rig.Manifest.Canaries.Take(3)] },
+            "dimensions" => rig.Manifest with { Dimensions = 256 },
+            "id" => rig.Manifest with { Id = "bge-small-en-v1.5@2" },
+            _ => throw new ArgumentException("no such change", nameof(change)),
+        };
+
+        using var embedder = rig.Over(changed, rig.Loader);
+        var refusal = Assert.Throws<InvalidOperationException>(embedder.Check);
+
+        Assert.Contains(member, refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(rig.Directory, refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("bge-small-en-v1.5@2", refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(0, rig.Loader.LoadCalls);
+    }
+
+    /// <summary>SEM52, the other side: the manifest at the floor (fourteen canaries) with the right identity passes, so a check that refused everything cannot pass the row above.</summary>
+    [Fact]
+    public void R11_91_SEM52_AManifestAtTheFloorWithTheRightIdentityPasses()
+    {
+        using var rig = EmbedderRig.Create();
+        Assert.Equal(EmbedderRig.CanaryFloor, rig.Manifest.Canaries.Count);
+
+        rig.Embedder.Check();
+
+        Assert.Equal(1, rig.Loader.LoadCalls);
+    }
+
     /// <summary>SEM5, the causes are told apart: the five fixed types are five different strings.</summary>
     [Fact]
     public void R11_91_SEM5_TheRefusalTypesAreDistinct()

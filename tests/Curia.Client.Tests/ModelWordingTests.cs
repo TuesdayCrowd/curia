@@ -35,13 +35,15 @@ public sealed partial class ModelWordingTests
         Assert.False(string.IsNullOrWhiteSpace(hashed), $"the sentence for {Hashed} is empty");
         Assert.False(string.IsNullOrWhiteSpace(bge), $"the sentence for {Bge} is empty");
         Assert.Contains("paraphrase", hashed, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("512", bge, StringComparison.Ordinal);
+        Assert.Contains(ManifestMaxSequenceLength(), bge, StringComparison.Ordinal);
+        Assert.Contains("markers", bge, StringComparison.Ordinal);
+        Assert.Contains("instruction", bge, StringComparison.Ordinal);
         Assert.Contains(Unknown, unknown, StringComparison.Ordinal);
         Assert.Contains("limits NOT STATED", unknown, StringComparison.Ordinal);
         Assert.Contains("limits NOT STATED", ModelWording.Sentence(null), StringComparison.Ordinal);
 
         Assert.Equal(3, new[] { hashed, bge, unknown }.Distinct(StringComparer.Ordinal).Count());
-        Assert.DoesNotContain("512", hashed, StringComparison.Ordinal);
+        Assert.DoesNotContain(ManifestMaxSequenceLength(), hashed, StringComparison.Ordinal);
         Assert.DoesNotContain("does not find paraphrase", bge, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("limits NOT STATED", hashed, StringComparison.Ordinal);
         Assert.DoesNotContain("limits NOT STATED", bge, StringComparison.Ordinal);
@@ -85,6 +87,14 @@ public sealed partial class ModelWordingTests
 
         foreach (var id in tables.Append(Hashed).Distinct(StringComparer.Ordinal))
             Assert.DoesNotContain("limits NOT STATED", ModelWording.Sentence(id), StringComparison.Ordinal);
+    }
+
+    /// <summary>The token cap as the model's manifest states it (a different artifact from the definition), as the digits the sentence must hold.</summary>
+    private static string ManifestMaxSequenceLength()
+    {
+        var path = Path.Combine(Root(), "models", "bge-small-en-v1.5", "manifest.json");
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        return document.RootElement.GetProperty("max_sequence_length").GetInt32().ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     [GeneratedRegex(@"\|\s*Member of `(?<id>[a-z0-9.\-]+@[0-9]+)`\s*\|")]

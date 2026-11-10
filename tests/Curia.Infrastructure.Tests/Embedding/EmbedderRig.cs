@@ -123,6 +123,9 @@ internal sealed class FakeLoader(FakeRunner runner) : IModelLoader
 /// <summary>A model directory of fake files, the manifest that digests them, and the embedder over a fake runner.</summary>
 internal sealed class EmbedderRig : IDisposable
 {
+    /// <summary>The floor of canaries the start-up check demands (Amendment 2 ruling 39), restated here by the test and not read from the adapter.</summary>
+    internal const int CanaryFloor = 14;
+
     internal const string QueryPrefix = "Represent this sentence for searching relevant passages: ";
 
     /// <summary>The words after the five specials; ids 0 to 4 are [PAD] [UNK] [CLS] [SEP] [MASK].</summary>
@@ -145,7 +148,7 @@ internal sealed class EmbedderRig : IDisposable
         VocabBytes = vocab;
         Runner = new FakeRunner();
         Loader = new FakeLoader(Runner);
-        Manifest = ManifestFor(model, vocab, []);
+        Manifest = ManifestFor(model, vocab, DefaultCanaries());
         Embedder = new OnnxTextEmbedder(new OnnxEmbedderOptions(directory), Manifest, Loader);
     }
 
@@ -192,10 +195,32 @@ internal sealed class EmbedderRig : IDisposable
             canaries,
             new Dictionary<string, string>());
 
-    /// <summary>Rebuilds the embedder over a manifest with <paramref name="canaries"/>.</summary>
+    /// <summary>
+    /// Fourteen canaries over the synthetic vocabulary, the floor of Amendment 2 ruling 39: the ids the tokenizer gives each text and the vector the fake runner produces for them (row 0,
+    /// L2), computed here by the test's own arithmetic and not by the adapter.
+    /// </summary>
+    internal static IReadOnlyList<Canary> DefaultCanaries()
+    {
+        var tokenizer = new Curia.Infrastructure.Embedder.Tokenization.WordPieceTokenizer(Vocabulary);
+        var canaries = new List<Canary>();
+        for (var i = 0; i < CanaryFloor; i++)
+        {
+            var role = i % 2 == 0 ? EmbeddingRole.Passage : EmbeddingRole.Query;
+            var text = "hello " + Words[i + 18] + " world";
+            var ids = BgeInput.Build(tokenizer, text, role, QueryPrefix, 512).InputIds;
+            var hidden = FakeRunner.HiddenStateFor(new ModelRunInput(ids, [], []));
+            var row = hidden[..384];
+            var norm = Math.Sqrt(row.Sum(v => (double)v * v));
+            canaries.Add(new Canary($"rig-{i}", text, role, [.. ids.Select(id => (int)id)], [.. row.Select(v => (float)(v / norm))]));
+        }
+
+        return canaries;
+    }
+
+    /// <summary>Rebuilds the embedder over a manifest with <paramref name="canaries"/>, padded with the default ones up to the floor so that the canaries a probe names are the ones it changes.</summary>
     internal OnnxTextEmbedder WithCanaries(IReadOnlyList<Canary> canaries)
     {
-        Manifest = ManifestFor(ModelBytes, VocabBytes, canaries);
+        Manifest = ManifestFor(ModelBytes, VocabBytes, [.. canaries, .. DefaultCanaries().Take(Math.Max(0, CanaryFloor - canaries.Count))]);
         Embedder = new OnnxTextEmbedder(new OnnxEmbedderOptions(Directory), Manifest, Loader);
         return Embedder;
     }
