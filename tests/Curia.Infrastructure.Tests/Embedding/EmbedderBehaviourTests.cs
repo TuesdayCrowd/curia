@@ -304,7 +304,7 @@ public sealed class EmbedderBehaviourTests
     public void R11_91_SEM48_ANativeLibraryThatCannotLoadIsARefusalNamingThePackageAndThePlatform(string fault)
     {
         using var rig = EmbedderRig.Create();
-        const string path = "/home/someone/.nuget/packages/microsoft.ml.onnxruntime/1.31.0/runtimes/linux-x64/native/libonnxruntime.so";
+        const string path = "/home/you/.nuget/packages/microsoft.ml.onnxruntime/1.31.0/runtimes/linux-x64/native/libonnxruntime.so";
         Exception thrown = fault switch
         {
             "DllNotFoundException" => new DllNotFoundException("unable to load " + path),
