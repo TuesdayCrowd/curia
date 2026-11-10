@@ -69,7 +69,17 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
             if (!verified.TryGetValue(out var files, out var refusal))
                 throw new InvalidOperationException($"{refusal!.Title} named by {ConfigurationKey} (environment {EnvironmentVariable}); {refusal.Type}.");
 
-            var tokenizer = new WordPieceTokenizer(File.ReadAllLines(files!.VocabularyPath));
+            string[] vocabulary;
+            try
+            {
+                vocabulary = File.ReadAllLines(files!.VocabularyPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException($"{_manifest.Vocabulary.Name} could not be read ({ex.GetType().Name}) from the directory named by {ConfigurationKey}.");
+            }
+
+            var tokenizer = new WordPieceTokenizer(vocabulary);
             if (tokenizer.UnknownId < 0 || tokenizer.ClsId < 0 || tokenizer.SepId < 0)
                 throw new InvalidOperationException($"{_manifest.Vocabulary.Name} has no [CLS], [SEP] or [UNK] token.");
 
@@ -79,10 +89,16 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
                 ReproduceCanaries(tokenizer, runner);
                 WarmUp(tokenizer, runner);
             }
-            catch
+            catch (InvalidOperationException)
             {
                 runner.Dispose();
                 throw;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // A run that threw: its message may hold a path or the input, so only the type is named.
+                runner.Dispose();
+                throw new InvalidOperationException($"The embedding model could not be run at start ({ex.GetType().Name}). The Forum does not start without its embedding model.");
             }
 
             _tokenizer = tokenizer;

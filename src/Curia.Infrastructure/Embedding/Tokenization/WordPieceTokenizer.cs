@@ -47,6 +47,8 @@ internal sealed class WordPieceTokenizer
     internal TokenizeResult Tokenize(string text, int maxContentTokens)
     {
         ArgumentNullException.ThrowIfNull(text);
+        if (maxContentTokens <= 0) return new TokenizeResult([], 0, true);
+
         var scan = new Scan(this, maxContentTokens);
         var i = 0;
         while (i < text.Length && !scan.Full)
