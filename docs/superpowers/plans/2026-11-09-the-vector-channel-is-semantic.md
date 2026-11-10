@@ -46,7 +46,7 @@ Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `93a99
 - `src/Curia.Infrastructure/Embedding/`: `EmbeddingManifest.cs`, `ModelFiles.cs`, `BgeInput.cs`, `BgePooling.cs`, `OnnxTextEmbedder.cs`, `EmbedderStartup.cs`, `OnnxEmbedderOptions.cs`, `EmbeddingServiceCollectionExtensions.cs`, `FifoGate.cs`, and under `Tokenization/` the tokenizer (`WordPieceTokenizer.cs`, `TextCleaner.cs`; one namespace, `Curia.Infrastructure.Embedding.Tokenization`).
 - `src/Curia.Domain/Search/EmbeddingRole.cs`; `EmbeddingErrors.ModelFault()` and `ModelNotReady()` beside `NoFeatures()`.
 - `tests/Curia.Embedding.Tests/` (new assembly: the real-model suite, `packages.lock.json`, in `Curia.sln`).
-- Model-free tests: `tests/Curia.Infrastructure.Tests/Embedding/*` (SEM4 to SEM12, SEM26, SEM39, SEM40, SEM45, SEM48), `tests/Curia.Architecture.Tests/EmbedderFenceTests.cs` (SEM13 to SEM17), `tests/Curia.Api.Tests/EmbedderBootTests.cs` (SEM20 to SEM24), `tests/Curia.Client.Tests/ModelWordingTests.cs` (SEM42), `tests/Curia.Application.Tests/Retrieval/EmbedRoleTests.cs` (SEM1 to SEM3), `tests/Curia.Architecture.Tests/ThirdPartyRecordTests.cs` (SEM18).
+- Model-free tests: `tests/Curia.Infrastructure.Tests/Embedding/*` (SEM4 to SEM12, SEM26, SEM39, SEM40, SEM45, SEM48 to SEM52), `tests/Curia.Architecture.Tests/EmbedderFenceTests.cs` (SEM13 to SEM17), `tests/Curia.Api.Tests/EmbedderBootTests.cs` (SEM20 to SEM24), `tests/Curia.Client.Tests/ModelWordingTests.cs` (SEM42), `tests/Curia.Client.Tests/ModelWordingHostileTests.cs` (SEM53, SEM54), `tests/Curia.Mcp.Tests/ModelIdToolTests.cs` (SEM55), `tests/Curia.Application.Tests/Retrieval/EmbedRoleTests.cs` (SEM1 to SEM3), `tests/Curia.Architecture.Tests/ThirdPartyRecordTests.cs` (SEM18).
 - `docs/third-party.md` (Ruling 17).
 
 **Edited**
@@ -145,7 +145,7 @@ Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `93a99
 
 **R11.92** The embedding step SHALL run at most two inferences at once and SHALL admit callers in the order they arrived; a caller waiting for one SHALL honour its own cancellation, and an inference already started for a caller whose cancellation has been signalled SHALL be stopped; a text of any length and any code points SHALL answer a vector, no features or a failure whose text is fixed and carries no exception message, path or input; and the session SHALL be warmed with texts of the longest length before the first request. R8.81's two seconds bound only what can be cancelled, and an exception message that quotes a path or an author's text is D25 in a new place.
 
-**R11.93** A client that states what the vector model cannot do SHALL state it from the model id the Forum served, from one definition, and for an id it does not know SHALL state the id and that its limits are not stated. A banner that says "hashed" over a Forum serving a learned model, or the reverse, is a word the next reader acts on.
+**R11.93** A client that states what the vector model cannot do SHALL state it from the model id the Forum served, from one definition, and for an id it does not know SHALL state the id as a display literal (R10.64) and that its limits are not stated, and for a Forum that served no id or an empty one SHALL state that no model was named and that its limits are not stated. A banner that says "hashed" over a Forum serving a learned model, or the reverse, is a word the next reader acts on.
 
 **R14.13** A test that needs the deployed model's files SHALL fail, naming the variable and the command that fetches them, when they are absent, and SHALL NOT skip; the fetch SHALL check the committed digest on every use. A green suite that ran nothing is the failure R11.9 exists to prevent, and a model suite is the likeliest place for it.
 
@@ -159,7 +159,7 @@ Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `93a99
 
 ### Non-properties
 
-(a) The model does not make search correct: the floor, the diversification and the dedupe thresholds are the hashed era's until D10b, and the floor admits more than it did. (b) A long post is found by its first 510 tokens. (c) Vectors from two hosts agree to about 1e-4, not bit for bit (ORT is not bit-identical across CPU feature sets); a stored vector is never recomputed to be compared. (d) A cursor minted before a model change is not bound to the model (the binding has no model member). (e) A search that cannot embed its query is `503`; it does not fall back to words. (f) The first start after a model change blocks on the reindex, for a time that is measured and published. (g) Training-data provenance of the weights was not reviewed. (h) Nothing here bounds the cost of an anonymous novel query (D11). (i) The tokenizer is the project's own and agrees with the reference on the committed parity file and the canaries, not on every code point: an id for a character assigned or recategorised after the Unicode version of either the host or the reference can differ. (j) During the first start after a model change the port is closed and does not answer `503`; behind a proxy that is a `502`; the time is about 30 ms per post on the build machine. (k) After a long reconcile the first `vector_checked_at` read is the reconcile's beginning, which is R9.53's word for a check that completed. (l) The latency figures are the build machine's; the reference host is unmeasured, and a burst of about twenty long posts makes the tail `pending` (R8.81), retried by the catch-up. (m) ONNX Runtime 1.31.0 has no `osx-x64` native: the real embedder, and `Curia.Embedding.Tests`, do not run on an Intel Mac. (n) The native library's notices include MPL-2.0 and Intel-licensed components among 70 (Task 0 M2); this project does not redistribute the library.
+(a) The model does not make search correct: the floor, the diversification and the dedupe thresholds are the hashed era's until D10b, and the floor admits more than it did. (b) A long post is found by its first 510 tokens. (c) Vectors from two hosts agree to about 1e-4, not bit for bit (ORT is not bit-identical across CPU feature sets); a stored vector is never recomputed to be compared. (d) A cursor minted before a model change is not bound to the model (the binding has no model member). (e) A search that cannot embed its query is `503`; it does not fall back to words. (f) The first start after a model change blocks on the reindex, for a time that is measured and published. (g) Training-data provenance of the weights was not reviewed. (h) Nothing here bounds the cost of an anonymous novel query (D11). (i) The tokenizer is the project's own and agrees with the reference on the committed parity file and the canaries, not on every code point: an id for a character assigned or recategorised after the Unicode version of either the host or the reference can differ. (j) During the first start after a model change the port is closed and does not answer `503`; behind a proxy that is a `502`; the time is about 30 ms per post on the build machine. (k) After a long reconcile the first `vector_checked_at` read is the reconcile's beginning, which is R9.53's word for a check that completed. (l) The latency figures are the build machine's; the reference host is unmeasured, and a burst of about twenty long posts makes the tail `pending` (R8.81), retried by the catch-up. (m) ONNX Runtime 1.31.0 has no `osx-x64` native: the real embedder, and `Curia.Embedding.Tests`, do not run on an Intel Mac. (n) The native library's notices include MPL-2.0 and Intel-licensed components among 70 (Task 0 M2); this project does not redistribute the library. (o) The model directory's two files are verified by digest and then opened by path, so a writer to the directory can swap a file between the two; the canaries are the second line, and a model that reproduces them and differs elsewhere is not caught. The directory is the operator's to write and nobody else's.
 
 **Status.** Specified; not built.
 
@@ -973,6 +973,244 @@ sys.exit(1 if bad else 0)
 
 Before the edits every row reads `old 1 new 0`; after, `new 1` (and `old 0`, except where the New contains the Old). 67 edits are expected.
 
+## Amendment 2 (2026-11-09, Task 5)
+
+Written by `curia-architect` after reading `.superpowers/sdd/2026-11-09-d10a/task-5-review-report.md` and `task-build-report.md` in full and then checking each fact they state against the tree at `a0cda877` (`src/Curia.Client/ModelWording.cs`, `src/Curia.Client/ForumDocuments.cs`, `src/Curia.Client/Frame.cs`, `src/Curia.Client.Cli/Program.cs` and `Help.cs`, `src/Curia.Mcp/ForumTools.cs`, `src/Curia.Infrastructure/Embedding/{OnnxTextEmbedder,ModelFiles,EmbeddingManifest,FifoGate,BgeInput}.cs` and `Tokenization/TextCleaner.cs`, `src/Curia.Api/Adapters/EmbeddingReconcileService.cs`, `src/Curia.Api/Program.cs`, `tools/model/fetch-model.py`, `tools/preflight/README.md`, `.github/workflows/ci.yml`, `tests/Shared/StubLog.cs`, `tests/Curia.Client.Tests/ModelWordingTests.cs` and `NameWordsCliTests.cs`, `tests/Curia.Infrastructure.Tests/Embedding/FifoGateTests.cs`). Rulings continue from 35 (Amendment 1's last is 34). **The errata is not edited.** **Nothing was built or run by the architect**; the one thing executed was a one-line Python check of an exception hierarchy (below). The Python reference, the Hugging Face tokenizer and the model were not available to the review and are not to the architect, so nothing here is a parity statement. The plan body is **not yet edited**: the builder applies `### In-place edits` (each `Old` occurs exactly once in the body outside both amendments, counted by script when this amendment was written: 9 of 9, 0 misses) and runs the check at the end of this amendment, which is Amendment 1's extended to read a row that a later row supersedes; it covers 76 rows (Amendment 1's 67 and this one's 9).
+
+No ruling here decides something the plan reserved to the owner. What the controller or the owner should see is listed at the end of "What the fix round must do"; none of it is a ruling.
+
+### What was checked, and what it found
+
+- **I1 holds, and it is wider than the review says in one direction and narrower in another.** `src/Curia.Client/ModelWording.cs:25` is `$"The vector channel's model is {modelId}: limits NOT STATED (...)"` with no quoting; `src/Curia.Client.Cli/Program.cs:1096` is `Output.Line($"{new OwnText(Help.SearchBannerFor(page!.Model))}")`, and `Help.SearchBannerFor` (`Help.cs:36-39`) appends `ModelWording.Sentence(modelId)` after fixed text. `OwnText`'s own doc (`Frame.cs:11-20`) calls a use that wraps a Forum-served value "the defect R10.63 (errata G17) forbids". The neighbouring `model     {page.Model}` line (`Program.cs:1099`) is a `FrameText` string hole, which `Frame.cs:128` writes through `DisplayLiteral.Of`, so the id is quoted there and bare in the banner two lines above it. The existing test uses `some-future-model@3` (`ModelWordingTests.cs`, `Unknown`), a benign id; nothing holds a hostile one. **Narrower:** `Help.SearchBannerFor` has one caller in `src` (`Program.cs:1096`) and `ModelWording` has no other caller; so the harm is the CLI's search banner and no other surface.
+- **The second half of I1 holds.** `ForumDocuments.cs:647` is `ClientJson.String(o, "model") ?? string.Empty`: a page with no `model` member, or `"model":""`, reaches `Sentence("")`, which matches no arm but the default and prints `The vector channel's model is : limits NOT STATED (...)`. The `null` arm is unreachable from `curia`. For comparison `ForumDocuments.cs:807` treats an empty `model` in a duplicate verdict as a malformed document; the search reader does not, and this amendment leaves that difference (ruling 36).
+- **`curia-mcp` does not print the sentence, and quotes the id.** `grep -rn "ModelWording\|SearchBannerFor" src` finds `Help.cs` and `Program.cs` of the CLI and the definition, and nothing under `src/Curia.Mcp`. `ForumTools.cs:616` writes `.Append($"model={page.Model} results=...")` into a `FrameBuilder.Append(FrameText)` hole, so the id is a display literal there. The other two places a Forum-served model is printed (`WriteTools.cs:591`, `Cli.cs:413`, a duplicate verdict's `model`) are holes too. So the tool is not affected today, and Amendment 1's ruling 25 (the sentence is PR 8's to add to `curia_search`'s first block) stands; what is missing is a probe that holds the quoting when PR 8 adds it (SEM55).
+- **I2 holds, and the plan's own sentence is also wrong.** `grep -c "uses:" .github/workflows/ci.yml` is 17 (lines 31, 32, 72, 75, 84, 86, 153, 161, 169, 182, 185, 189, 224, 227, 232, 234, 261) and `git diff origin/main...HEAD -- .github` is empty. `tools/preflight/README.md:15` says `with the PR that added the model fetch CI has 18, and the model cache is one of them`: false at this head, true only once the owner's `ci.yml` commit is in. Ruling 28 quoted a different sentence, `CI has 17, the model cache is one`, which is false at both heads (17 does not include the cache step; with it there are 18). Two sentences, one fact, neither right at every commit: a count in prose has no check that moves with the file it counts.
+- **M1 holds.** `Program.cs:174-175` registers the embedder with `TryAddSingleton`; `tests/Curia.Architecture.Tests/JsonReaderFenceTests.cs` registers `HashedNGramEmbedder` before `Program.Build` and relies on it staying. No configuration key or environment variable reaches that door (`EmbeddingComposition.Create` is the only constructor). The comment says "nothing in configuration can" and is true; it does not say the door is outside SEM13's fence, which reads the shipped assemblies' IL for the construction of the real embedder and says nothing of who registers first.
+- **M2 holds, and one of its three halves is already caught by accident.** `OnnxTextEmbedder.Check` iterates `_manifest.Canaries` with no floor. `_manifest.Id` is read nowhere in `src` (grep). `_manifest.Dimensions` is read twice, both as `BgePooling.Pool`'s expected width (`OnnxTextEmbedder.cs:176, 213`), while the vector is stamped with `BgeModel`, whose 384 is a literal. A manifest that said 256 would fail at the first canary with "the vector has 256 components, the reference 384" (so by accident, naming a canary and not the member); a manifest whose `id` said `@2` or whose canaries were cut to three would start. `EmbeddingManifest.Empty` (`EmbeddingManifest.cs:40-42`) has no caller (grep) and is exactly the identity that a floor on canaries refuses.
+- **M3 holds.** `ModelFiles.Matches` hashes the file; `OnnxRuntimeLoader.Load(modelPath, ...)` opens it by path afterwards; `Check` reads the vocabulary with `File.ReadAllLines(files.VocabularyPath)` after its hash. No handle is held across. The canaries are the second line (a different model fails them; a model that reproduces fifteen vectors within 1e-4 and differs elsewhere does not).
+- **M4 holds, and is sharper than the review says.** `FifoGate.Release` (`FifoGate.cs:77-96`) passes the place to the head and leaves `_inside` unchanged, so `_inside < Limit && _queue.Count == 0` (`:43`) cannot be true while a waiter is queued: the `_queue.Count == 0` conjunct is defence in depth and removing it alone is an **equivalent mutant**. The barging the review describes needs a gate that frees the place and then wakes the waiter (release-then-wake) with an asynchronous continuation; SEM45 frees one place at a time and waits to see each admission, so it cannot tell such a gate from this one. Whether it also passes for a `SemaphoreSlim(2)` body (FSEM35's second form) is **not known**: `SemaphoreSlim`, as the architect remembers its implementation and did not read it here, hands a unit to its head async waiter under its lock, so it may well pass SEM45, in which case what M6 measured (p99 908 ms at 8 callers) is not an ordering property a unit probe can see, and L7's tail is the probe that carries it. Task 6 records which.
+- **M5 splits.** (c), the 1,024-mark cut (`TextCleaner.cs:14`, `Cleaned` in `WordPieceTokenizer.cs`): a mark past the cut starts its own cluster; `AppendNormalised` of a lone non-spacing mark decomposes it and drops it, which is what the reference does to the same mark; no input is known on which the cut changes an id, and `MaxCluster = 1` is an **equivalent mutant**. So no probe can be falsified by moving it; a rule-derived control (inserting non-spacing marks after a base changes no id) is cheap and is SEM50. (a) and (b) (code points assigned after Unicode 15.0; an exhaustive case and decomposition sweep) are about `reference.py`'s generator, which the architect has not read and cannot run; they are a lead.
+- **M6 holds.** `fetch-model.py` catches `(urllib.error.URLError, OSError, TimeoutError)` in `download`; `http.client.IncompleteRead` is a subclass of `HTTPException` and not of `OSError` (executed: `issubclass(IncompleteRead, OSError)` is `False`, of `HTTPException` `True`; `RemoteDisconnected` is an `OSError` and is caught). So a response cut short aborts with a traceback and skips the second source. The `finally` removes the temporary file. `shutil.copyfile(cached, target)` is not atomic; the next run re-checks the digest, so it is not a trust problem.
+- **M7 holds.** `EmbeddingManifest.Empty`: no caller. `TokenizeResult.StoppedAtCap`: read nowhere; `CharactersConsumed`: `BehaviourTests.cs:97` only. The folder is `Embedding/` and the namespace `Embedder`.
+- **M8 holds.** `EmbeddingReconcileService.cs` reads `counted.TryGetValue(out var absent, out _) ? absent : 0` and prints a progress line only when `stored % 1000 == 0 && stored < total`; a failed count makes `total` 0 and prints none. `README.md:99` says `Reconciling n of m` and does not say that `m` counts posts the model may not place. (The upper-bound claim is the review's and the doc comment's; the architect did not re-derive it from `FindAbsentAsync`.)
+- **M9 resolves to words, not numbers.** `BgeInput.Build` takes `budget = maxSequenceLength - 2` (510), counts a query's instruction tokens against it, and adds `[CLS]` and `[SEP]`: the sequence is 512 tokens, 510 of them text in the passage role and fewer in the query role. The G65 table row (body line "Truncation") already says `the first 512 tokens, [CLS] and [SEP] included`, `README.md:1092`, `CLAUDE.md:87`, `models/README.md:5` and the manifest's `max_sequence_length` say 512, and `README.md:109` and non-property (b) say 510 of a post. All are true of what they count; the client sentence is the one that says "512 tokens of a post and of a query", which is neither.
+- **Identifiers, re-grepped on 2026-11-09 against `a0cda877` and `origin/main` `2708d826` (they share a merge base; no PR landed):** highest errata entry G63 (G64 is PR 8's, G65 this PR's); the register's highest D is D119 (D120 is this plan's); D61 items are filed to 214 (this plan reserves 215 to 229 in its body and Amendment 1); traps to 206 (207 to 214 reserved); `git grep` finds no `SEM49` to `SEM55`, no `FSEM46` to `FSEM52`, no `item 230` to `item 235`, no `trap 215` to `trap 217` outside this plan.
+
+### Rulings
+
+35. **I1: the id is written by the definition, as a display literal, in one place.** `ModelWording.Sentence`'s default arm writes `DisplayLiteral.Of(modelId)` (R10.64) where it wrote `{modelId}`, and the file gains `using Curia.Canon.Json;`. The `OwnText` at `Program.cs:1096` **stays**: the sentence is then the client's constants and one display literal, which is what `ClampWords` already does (`ForumTools.cs`: `OwnText` over a string that holds `DisplayLiteral.Of(r)`), so the use still says "this is mine" and is true. *Why in the definition and not at the call site:* R11.93 says "from one definition"; PR 8 will call it again from `curia_search`'s first block and the titled index (ruling 25), and a definition that returns the client's words with a Forum-served value unquoted makes every caller remember to quote it, which is the defect shape of every G17 finding. The rule, as a sentence a reviewer can apply: **a function that returns the client's own words quotes its own holes.** The unknown-id sentence reads `The vector channel's model is "<literal>": limits NOT STATED (this client has no word on what that model can and cannot find).` The `hashed-ngram@1` and `bge-small-en-v1.5@1` arms compare against constants and print constants, so they carry no served text. R11.93's requirement text gains the clause (E68).
+   **Probes (red on the current code):** SEM53 (an id holding ESC, a line feed and a closing quotation mark: the sentence holds only printable ASCII, holds the display literal of the id, and `curia search` prints the same number of lines as for a benign id, with no line that begins with the injected words) and SEM54 (below). **Falsified by** FSEM46.
+
+36. **An absent or empty `model` is the `null` arm.** `ModelWording.Sentence` maps `null` **and** `""` to the existing words (`The vector channel's model was not stated by the Forum: limits NOT STATED.`), by the pattern `null or ""`, so the rule is in the one definition and PR 8's callers get it; `Help.SearchBannerFor` and `ForumDocuments.cs:647` are unchanged. A white-space id is an id (an unknown one: its literal is printed). *Why not refuse the page as malformed, as `ForumDocuments.cs:807` does a duplicate verdict:* a verdict's `model` says which vectors were compared and is a claim the client would repeat; a search page's `model` is a label the page also prints on its own `model` line as `""` where it is empty, so the reader sees both the banner and the fact. A refused page would also take the results away from an agent for a missing label. The difference between the two readers is recorded (lead 234 below), not removed. **Probe:** SEM54 (`Sentence("")` equals `Sentence(null)`, holds `limits NOT STATED`, and does not hold `model is :`; and `curia search` over a page with no `model` member and one with `"model":""` prints the banner with the `null` words and no `is :`). **Falsified by** FSEM47.
+
+37. **`curia-mcp` is unchanged; a probe holds its quoting.** The tool prints `model=<literal>` and no sentence; it needs no edit. SEM55 is a **control, green on the current tree by construction** (a `FrameText` hole): a `curia_search` first block for a stub serving a hostile `model` holds the display literal of the id, no control character, and no new line begun by the injected words. It exists so that PR 8's sentence, which will print the id again, cannot print it bare; it is falsified by FSEM48, which is the only reason to believe it. It does **not** assert that the sentence is absent (that would fail PR 8 for doing what ruling 25 says it will).
+
+38. **I2: the number and the cache clause are dropped, and the sentence is true at every commit.** `tools/preflight/README.md:15` becomes: `Steps that use an action (`uses:`) are neither run nor listed in the summary, so a step of that kind added to the workflow is not exercised by a local run.` It says no count, because a count in prose is a fact with no check that follows the file it counts (trap 217), and it does not name the model cache, because that step is in the owner's `ci.yml` commit and not in this head. The cache step is named where it is true: **the `ci.yml` commit's message and the PR body** say `adds the model fetch and cache steps (uses: steps), which tools/preflight does not run (lead 224)`. Ruling 28's quoted sentence is superseded by this one; its lead (item 224) stands and its "17" is the count of `ci.yml` today. No probe: the sentence states no countable fact, which is the fix.
+
+39. **M2, fixed now.** `OnnxTextEmbedder.Check` begins, before it reads a file, by comparing the manifest with the identity the code stamps on every vector: `_manifest.Id` must equal `BgeModel.Id` and `_manifest.Dimensions` must equal `BgeModel.Dimensions`, and `_manifest.Canaries.Count` must be at least a named constant `MinimumCanaries = 14` (SEM4's published floor; the manifest holds fifteen). A mismatch throws `InvalidOperationException` whose text names the member (`id`, `dimensions` or `canaries`) and the build, and holds no path, no value of the manifest and no exception message (R11.91). `EmbeddingManifest.Empty` is **deleted** (M7: no caller; it is an identity the floor refuses). *Honest limit, said in the doc comment:* the manifest is embedded in the assembly, so the guard protects against an edit of the manifest that the tests did not see, not against a hostile build; and the floor restates SEM4's number, so the two agree by construction and the guard's value is that the start, not only the test, refuses. **Probe (red on the current code):** SEM52, with an embedder over a manifest parsed from the embedded JSON with one member changed and a loader double that never loads: `canaries` cut to three, `dimensions` 256, `id` `bge-small-en-v1.5@2` each throw, the message names the member, and the unchanged manifest still passes the check as far as the loader double allows. **Falsified by** FSEM49 and FSEM50.
+
+40. **M3 is a lead and a non-property, not a fix in this PR.** The hole is a write to the model directory between the digest and the load. Closing it for the model means holding 133 MB as a managed `byte[]` for the life of the process (M19 measured 295 to 332 MB resident; this is roughly a third more) or a share mode that Unix does not enforce; for the vocabulary it is free (read the bytes once, hash them, parse the lines from them). The threat needs write access to the directory that holds the Forum's model, which is the operator's, and the fifteen canaries are a second line. It is non-property (o) (E69), the README says the directory is the operator's to write and nobody else's (one sentence, "Docs owed" below), and the lead is item 230, which names the vocabulary half as the cheap one so that the next PR that touches `ModelFiles` does it.
+
+41. **M4, fixed now: SEM49 adds the case SEM45 cannot see; its falsification is stated as what it is.** SEM49 (model-free, `Curia.Infrastructure.Tests`): a gate of two, both places held, **one** waiter queued and seen queued; then, in the same synchronous step, one lease is disposed and a fresh `EnterAsync` is started; the test asserts that the fresh call has **not** completed, that the queued waiter has been admitted, and that `Inside` is at most 2; repeated 200 times on fresh gates, because the mutant's window is a thread-pool hand-off. Predicted red on FSEM51's gate: `a fresh caller was admitted while the waiter queued before it was still waiting (iteration 3 of 200)` or `expected at most 2 inside, saw 3`. It is **green on the current gate and on the tree as it stands**, so by itself it carries no information; FSEM51 is what makes it a check, and Task 6 records the red count out of 200 on the mutant. The `_queue.Count == 0` conjunct is not given a row (an equivalent mutant, above). If Task 6 finds SEM45 and SEM49 both green on FSEM35's `SemaphoreSlim` form, that form is recorded as **not killed by a unit probe** and the tail is L7's, not a reason to make the unit probe time-dependent.
+
+42. **M6, fixed now.** `fetch-model.py` imports `http.client` and catches `http.client.HTTPException` beside the three it catches, in `download` (the sentence it returns is unchanged: `could not fetch <url> (IncompleteRead)`, so the next source is tried). `shutil.copyfile(cached, target)` is left (lead 235). **Probe (red on the current script):** SEM51, model-free (`Curia.Infrastructure.Tests`, loopback only, `python3` as SEM27 invokes it): a `127.0.0.1` listener whose first path answers `200` with `Content-Length: 4096` and sends 10 bytes before closing, and whose second serves the file; a manifest written to a temporary directory naming both paths as the file's `sources` with the sha256 of the real bytes; `--manifest <it> --no-cache`. Case one, both sources: exit 0, the file equals the bytes, no `Traceback` on stderr. Case two, the broken path only: exit 1, stderr names the file and `could not fetch`, no `Traceback`, no `.part` file left. Red on the current script: `Traceback ... http.client.IncompleteRead`. **Falsified by** FSEM52. (No part of this reaches the network beyond loopback; the release-asset URL stays a guess whose failure mode is safe, as the review found.)
+
+43. **M9, exact words.** `ModelWording`'s `bge-small-en-v1.5@1` arm reads, in full:
+   `The vector channel's model is bge-small-en-v1.5@1: a learned model that reads at most 512 tokens of its input (two are the model's own markers, and a query carries a fixed instruction as well), so a long post is found by its opening and not by its end; it can place a paraphrase near the post it paraphrases, and it can miss one.`
+   It keeps 512 (every document and the manifest say it), says what the 512 is, and does not claim 512 of a post. **SEM42 (words) is widened:** the number it asserts is **read from `models/bge-small-en-v1.5/manifest.json`'s `max_sequence_length`**, not typed (a different artifact from the definition), and the sentence must hold `markers` and `instruction`; the `hashed-ngram@1` arm still holds `paraphrase` and not that number. `Help.cs:34`'s comment ("its first 512 tokens") is true of the sequence and is left.
+
+44. **The rest of the minors, each with its disposition.** **M1:** comment only. `Program.cs:174` gains: `This door is for an in-process caller of Build and is outside SEM13's fence, which reads the shipped assemblies' IL for a construction of the real embedder and not for who registered first; no configuration value reaches it, and the check below runs only for an embedder that implements IStartupChecked.` **M5:** (c) and (d) are SEM50, a control (marks after a base, after a special token and after a dropped format character change no id; built over a small vocabulary in `Curia.Infrastructure.Tests`, no model; the oracle is the rule that a non-spacing mark is removed after decomposition, not the implementation; expected red on FSEM40, `FormD` to `FormC`, which Task 6 records; if green on it, SEM50 is recorded as adding nothing a row already holds, not edited into shape); (a) and (b) are lead 231. **M7:** `Empty` deleted (ruling 39); `StoppedAtCap` and the folder/namespace mismatch are lead 232, not worth a rename across the fence strings in this PR. **M8:** `README.md:99` gains `m counts the posts the index lacks, including any the model cannot place, so the last line can show fewer than m`; the dropped count is lead 233 (the reconcile itself fails on the same read, so the start refuses either way; the cost is silence on the first start, the case ruling 24 exists for).
+
+45. **Which probes are red on the current tree, said once.** Red on `a0cda877`: SEM53, SEM54, SEM51, SEM52 and the widened SEM42 (it asserts words the code does not yet have). Green on `a0cda877`, by design, and carried only by their falsification rows: SEM49 (FSEM51), SEM50 (FSEM40), SEM55 (FSEM48). A builder who reports all seven red has run them against something else.
+
+### Leads (D61 items, text for Task 8 to paste; none is fixed here)
+
+- **230.** The model directory is verified by path and then opened by path: a writer to it can swap `model.onnx` or `vocab.txt` between the digest and the load (`ModelFiles.Matches`, `OnnxRuntimeLoader.Load`, `File.ReadAllLines`). The vocabulary half is free (hash the bytes once, parse from them); the model half costs 133 MB resident or a share mode Unix does not enforce. The canaries are the second line. Non-property (o).
+- **231.** `reference.py`'s parity sample draws code points assigned in Unicode 15.0 and drops those the fast tokenizer disagrees on: a code point assigned later is never sampled, and case mapping and decomposition are sampled (about 100 of about 1,800 `Lu`), not swept. A sweep of every assigned code point as `"a<cp>b"` and `"<cp>"`, or of the ones whose lower-case or decomposition lands in the vocabulary, would close the class. It needs the Python 3.12 venv and changes the committed parity file, so it is its own PR.
+- **232.** `TokenizeResult.StoppedAtCap` is read nowhere; the folder is `Embedding/` and the namespace `Embedder` in every file and in the fence strings.
+- **233.** `EmbeddingReconcileService` drops a failed `CountAbsentAsync` (`total` 0, no progress lines) on the first start under a new model, the case ruling 24 exists for. Log the failure or print `Reconciling n` without `of m`.
+- **234.** `curia search` prints `model     ""` and `curia_search` prints `model=""` for a page with no `model` member, and the duplicate-verdict reader refuses an empty model while the search reader accepts it (`ForumDocuments.cs:807` against `:647`). The banner now says "not stated"; the model line does not.
+- **235.** `fetch-model.py`'s `shutil.copyfile(cached, target)` is not atomic: a kill leaves a partial `model.onnx` that the next run re-checks and replaces. Not a trust problem; a rename from a temporary name would match `download`.
+
+### Probe and falsification rows added
+
+**SEM49** to **SEM55**, and SEM42 widened, are rulings 41, 42, 39, 35, 36, 37, 44 and 43. Where each lives: SEM49 `tests/Curia.Infrastructure.Tests/Embedding/FifoGateTests.cs`; SEM50 and SEM52 `tests/Curia.Infrastructure.Tests/Embedding/` (a new `TokenizerMarkTests.cs` and `ManifestAndFilesTests.cs`); SEM51 `tests/Curia.Infrastructure.Tests/Embedding/FetchModelScriptTests.cs` (new); SEM53 and SEM54 `tests/Curia.Client.Tests/ModelWordingHostileTests.cs` (new); SEM55 `tests/Curia.Mcp.Tests/ModelIdToolTests.cs` (new). SEM53, SEM54 and SEM55 need one knob in `tests/Shared/StubLog.cs`, which hard-codes `"model":"hashed-ngram@1"` in `SearchJson()`:
+
+```text
+internal string? SearchModelJson { get; set; }   // null: "hashed-ngram@1" (as now); "": the member is left out; otherwise the JSON text of the value, e.g. a string built with JsonString(...)
+```
+
+and `SearchJson()` writes `"model":` + the value + `,` where it writes `"model":"hashed-ngram@1",` now, and nothing at all for `""`. The hostile ids are built at run time (`(char)0x1B`, `char.ConvertFromUtf32(0x202E)`, a line feed, a closing quotation mark), never typed as escapes in the test source, so that no invisible character reaches a tracked file.
+
+**FSEM46 to FSEM52** (exact patches; rows on files this amendment edits give the line shape, and the builder records the verbatim in "As run" before running, because the post-fix lines do not exist yet):
+
+| # | Mutation | Red probes | The harm |
+|---|---|---|---|
+| FSEM46 | `ModelWording.cs`, default arm: `{DisplayLiteral.Of(modelId)}` becomes `{modelId}` | SEM53 | a Forum serves a model id with an escape and a line feed and the terminal runs them as the client's words |
+| FSEM47 | `ModelWording.cs`: the arm `null or "" =>` becomes `null =>` | SEM54 | an older Forum's page prints `model is : limits NOT STATED` |
+| FSEM48 | `ForumTools.cs`, in `Floor`: `$"model={page.Model} results=...` becomes `$"model={new OwnText(page.Model)} results=...` | SEM55 | the tool writes a served id bare in its first block |
+| FSEM49 | `OnnxTextEmbedder.Check`: the line that throws when `_manifest.Canaries.Count < MinimumCanaries` is removed | SEM52 | a manifest with no canaries starts the Forum and checks nothing |
+| FSEM50 | `OnnxTextEmbedder.Check`: the two lines that compare `_manifest.Id` with `BgeModel.Id` and `_manifest.Dimensions` with `BgeModel.Dimensions` are removed | SEM52 | a build whose manifest names another model stamps its vectors as this one |
+| FSEM51 | `FifoGate.cs`, three sites. (a) `Waiter.Admitted` is `new(TaskCreationOptions.RunContinuationsAsynchronously)` where it is `new(TaskCreationOptions.None)`. (b) `Release`'s `if (_queue.First is { } head) {...} else { _inside--; }` becomes `_inside--; if (_queue.First is { } head) { next = head.Value; _queue.RemoveFirst(); next.Node = null; }`. (c) in `EnterAsync`, after `await waiter.Admitted.Task.ConfigureAwait(false);` the line `lock (_lock) _inside++;` is added before `return new Lease(this);` | SEM49 (and SEM45 where the window opens) | a place is freed and taken by whoever arrives first; a waiter is passed over |
+| FSEM52 | `fetch-model.py`: `http.client.HTTPException` is removed from the `except` tuple in `download` | SEM51 | a truncated download aborts with a traceback and the second source is never tried |
+
+Run order and what each is expected to do: FSEM46 to FSEM48, FSEM52 red on the first form (the probes are red on the current code and the row restores the defect). FSEM49 and FSEM50 red on the first form once ruling 39 is built. FSEM51 is red on SEM49 for some of the 200 iterations; Task 6 records the count and does not tune the probe to raise it. Totals: probes SEM1 to SEM55; falsification FSEM1 to FSEM52. SEM50 has no row of its own (ruling 44).
+
+### In-place edits
+
+Each `Old` is exact text of the plan body (extracted by script, not retyped). Apply in order.
+
+#### E68 — R11.93: the id as a display literal, an absent id as not stated (rulings 35, 36)
+Old:
+```text
+and for an id it does not know SHALL state the id and that its limits are not stated.
+```
+New:
+```text
+and for an id it does not know SHALL state the id as a display literal (R10.64) and that its limits are not stated, and for a Forum that served no id or an empty one SHALL state that no model was named and that its limits are not stated.
+```
+
+#### E69 — G65 non-property (o): the model directory is read twice (ruling 40)
+Old:
+```text
+this project does not redistribute the library.
+```
+New:
+```text
+this project does not redistribute the library. (o) The model directory's two files are verified by digest and then opened by path, so a writer to the directory can swap a file between the two; the canaries are the second line, and a model that reproduces them and differs elsewhere is not caught. The directory is the operator's to write and nobody else's.
+```
+
+#### E70 — Task 5b and the Task 6 heading (ruling 41 and the fix round)
+Old:
+```text
+### Task 6: Falsification FSEM1 to FSEM45
+```
+New:
+```text
+### Task 5b: The fix round (Amendment 2)
+
+Rulings 35 to 45 of Amendment 2 answer Task 5's review: tests first (red where ruling 45 says), then the code, the docs and the narrower gates of "What the fix round must do", one commit, then a re-read of the changed lines only.
+
+### Task 6: Falsification FSEM1 to FSEM52
+```
+
+#### E71 — As run: the totals
+Old:
+```text
+the probes SEM1 to SEM48 with any retired, the falsification FSEM1 to FSEM45,
+```
+New:
+```text
+the probes SEM1 to SEM55 with any retired, the falsification FSEM1 to FSEM52,
+```
+
+#### E72 — As run: the probe heading
+Old:
+```text
+### Probes SEM1 to SEM48 (SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+```
+New:
+```text
+### Probes SEM1 to SEM55 (SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+```
+
+#### E73 — As run: the falsification heading
+Old:
+```text
+### Falsification FSEM1 to FSEM45
+```
+New:
+```text
+### Falsification FSEM1 to FSEM52
+```
+
+#### E74 — Scope, model-free tests: SEM49 to SEM52
+Old:
+```text
+SEM39, SEM40, SEM45, SEM48)
+```
+New:
+```text
+SEM39, SEM40, SEM45, SEM48 to SEM52)
+```
+
+#### E75 — Scope, Client and Mcp tests: SEM53 to SEM55
+Old:
+```text
+`tests/Curia.Client.Tests/ModelWordingTests.cs` (SEM42),
+```
+New:
+```text
+`tests/Curia.Client.Tests/ModelWordingTests.cs` (SEM42), `tests/Curia.Client.Tests/ModelWordingHostileTests.cs` (SEM53, SEM54), `tests/Curia.Mcp.Tests/ModelIdToolTests.cs` (SEM55),
+```
+
+#### E76 — SEM42: the head length is read from the manifest (ruling 43)
+Old:
+```text
+the sentence for `bge-small-en-v1.5@1` states the 512-token head; for `hashed-ngram@1` the paraphrase limit. Red.
+```
+New:
+```text
+the sentence for `bge-small-en-v1.5@1` states the head length read from `models/bge-small-en-v1.5/manifest.json`'s `max_sequence_length` (512; a different artifact from the definition), says that two of them are the model's markers and that a query carries an instruction as well, and does not say 512 of a post; for `hashed-ngram@1` the paraphrase limit and no such number. Red.
+```
+
+
+### Allocations
+
+Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `a0cda877` and `origin/main` `2708d826` (errata highest entry G63, G64 reserved to PR 8, G65 this PR's; register highest D119, D120 this plan's; D61 items filed to 214, this plan's 215 to 229 reserved by its body and Amendment 1; traps filed to 206, 207 to 214 reserved), and against this plan with its reservations; re-grepped by script (`git grep` finds none of the identifiers below outside this plan). Task 8 re-greps and renumbers by hand if another PR landed first.
+
+- **Probes SEM49 to SEM55**, SEM42 widened. SEM1 to SEM55 (SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 stay unused).
+- **Falsification FSEM46 to FSEM52.** FSEM1 to FSEM52.
+- **Rulings 35 to 45.**
+- **D61 items 230 to 235** (the leads above). Items 215 to 229 stand as Amendment 1 lists them.
+- **Traps 215 to 217:** (215) a fairness probe that arrives one caller at a time and frees one place at a time, which passes for any first-come queue and is blind to the arrival that takes a place freed while others wait (SEM45), found by asking which mutant it would fail; (216) a function that returns the client's own words with a served value interpolated, wrapped in the type that means "mine" by its caller (`OwnText` over `ModelWording.Sentence`), so that the quoting depended on every call site remembering it, found by reading what the unknown-id arm interpolated; (217) a count written into prose (`CI has 18`) that is true only with a commit that is not yet in and that no check follows, found by counting `uses:` in the file the sentence is about.
+- **Requirement text:** R11.93's clause (E68); no new R number. **Non-property (o)** of G65 (E69).
+- **No `curia-mcp` version change; no errata entry beyond G65.**
+
+### What the fix round must do
+
+A fix round (call it Task 5b) before Task 6, in this order, one commit, then a re-read of the changed lines only (not a second full Task 5). It edits no file under `.github/`, `db/`, `conformance/` or `rust/`.
+
+1. **Tests first, red where ruling 45 says.** `tests/Shared/StubLog.cs` (the `SearchModelJson` knob); `ModelWordingHostileTests.cs` (SEM53, SEM54); `ModelWordingTests.cs` (SEM42 widened: the number from the manifest file, `markers` and `instruction`); `ModelIdToolTests.cs` (SEM55); `FifoGateTests.cs` (SEM49); `ManifestAndFilesTests.cs` (SEM52); `FetchModelScriptTests.cs` (SEM51); `TokenizerMarkTests.cs` (SEM50). Run each on the unmodified `a0cda877` and record the red text beside the prediction; SEM49, SEM50 and SEM55 are expected green and are recorded green.
+2. **Code.** `ModelWording.cs` (rulings 35, 36, 43, with `using Curia.Canon.Json;`); `OnnxTextEmbedder.cs` (ruling 39: `MinimumCanaries = 14`, the three comparisons at the top of `Check`, their messages naming the member only); `EmbeddingManifest.cs` (`Empty` deleted); `tools/model/fetch-model.py` (`import http.client`, the tuple); `src/Curia.Api/Program.cs` (the comment of ruling 44, text only).
+3. **Docs.** `tools/preflight/README.md:15` (ruling 38, exact words above); `README.md:99` (ruling 44's clause on `m`) and one sentence where the README says what `CURIA_EMBEDDING_MODEL_DIR` names: `the directory is read at start and again when the session is built; it must be writable by the operator and by nothing else (non-property (o) of errata G65)`; `models/README.md` if it states who may write the directory.
+4. **Gates, narrower than a full run because nothing in the Api, the write path or the fences moved:** `dotnet build Curia.sln` at 0 warnings; `Curia.Client.Tests`, `Curia.Infrastructure.Tests`, `Curia.Mcp.Tests`, `Curia.Embedding.Tests` (with `CURIA_EMBEDDING_MODEL_DIR` set; 14 of 14 before, the same after) and `Curia.Architecture.Tests` in Debug and Release; `Curia.Api.Tests` for `EmbedderBootTests` only (the start-up check moved); `python3 tools/preflight/preflight.py --no-api`; `check-spec.py`. The whole Api suite is **not** re-run: the only `src/Curia.Api` edit is a comment. Say so in the report.
+5. **The plan.** Apply `### In-place edits` below and run the check under Amendment 1; it must read `old 0 new 1` for every row of both amendments.
+6. **Task 6** then runs FSEM1 to FSEM52. Task 8 pastes leads 230 to 235 and traps 215 to 217 with the other allocations, and the non-property and requirement text through E68 and E69.
+
+**For the controller or the owner (nothing here is a ruling):**
+- The `ci.yml` commit is the owner's. Ruling 38 asks that its message say it adds `uses:` steps that preflight does not run; the PR body says it again. If the owner declines the commit, nothing in the README is then false.
+- The architect did not run the parity file, read `reference.py`, or open `JsonReaderFenceTests` beyond the lines quoted; leads 231 and the M1 claim rest on the review's reading of those and the lines above.
+- A hostile model id is printed once as a display literal in `curia`'s banner and once on the `model` line: the banner still repeats an unbounded string (a megabyte id prints a megabyte twice). `DisplayLiteral` has no length cap and neither does the existing `model` line; not new, not filed.
+
+### The check (run it on the plan before and after applying the edits)
+
+Amendment 1's check reads every pair of both amendments. Applying this amendment changes text that Amendment 1's rows produced (the `Task 6` heading, the As-run headings, the model-free test list), so a row of Amendment 1 whose `New` no longer stands is **superseded** when a later row's `Old` lies inside its `New`; the check says so and does not call it wrong.
+
+```python
+import re, sys
+p = "docs/superpowers/plans/2026-11-09-the-vector-channel-is-semantic.md"
+t = open(p, encoding="utf-8").read()
+a = t.index("\n## Amendment 1 (2026-11-09, Task 0)")
+b = t.index("\n## Tasks\n", a)
+amend, body = t[a:b], t[:a] + t[b:]
+pairs = re.findall(r"#### (E\d+) .*?\nOld:\n```text\n(.*?)\n```\nNew:\n```text\n(.*?)\n```", amend, re.S)
+bad = 0
+for i, (eid, old, new) in enumerate(pairs):
+    n_old, n_new = body.count(old), body.count(new)
+    before = n_old == 1 and n_new == 0
+    after = n_new == 1 and (n_old == 0 or old in new)
+    later = [j for j in range(i + 1, len(pairs)) if pairs[j][1] in new and body.count(pairs[j][2]) == 1]
+    superseded = n_old == 0 and n_new == 0 and bool(later)
+    ok = before or after or superseded
+    print(eid, "old", n_old, "new", n_new, "before" if before else ("after" if after else ("superseded by " + pairs[later[0]][0] if superseded else "<-- WRONG")))
+    bad += not ok
+print(len(pairs), "edits,", bad, "wrong")
+sys.exit(1 if bad else 0)
+```
+
+Before applying, every row of this amendment reads `old 1 new 0`. After, `new 1`, and the rows of Amendment 1 that this amendment supersedes (E23, E47, E48, E49 and E60 at the time of writing) read `superseded`. 76 rows are expected.
+
 ## Tasks
 
 ### Task 0: Re-read, operate the unmodified tree, write the rules first
@@ -1020,7 +1258,11 @@ Flip exactly the measured list (M12, M17). Then the whole solution as CI runs it
 
 Four lenses, each told the premises above: (1) spec compliance against G65 line by line; (2) trust and failure (every path that can serve model text, path or input; the boot order; whether any configuration can select a non-production embedder; the fence's reach: does it read `Curia.Mcp`, `Curia.Client*`, `Curia.Operator`; whether the canary's reference derives from a different artifact than the adapter: read `reference.py` and the manifest's `generated_by`); (3) the agent's reading (banner and description true for both ids and for an unknown one; no word claims what truncation or a missing model cannot give); (4) the fixtures (does each override site use the one helper; does any test construct `OnnxTextEmbedder` with a fake runner and then claim to test the model).
 
-### Task 6: Falsification FSEM1 to FSEM45
+### Task 5b: The fix round (Amendment 2)
+
+Rulings 35 to 45 of Amendment 2 answer Task 5's review: tests first (red where ruling 45 says), then the code, the docs and the narrower gates of "What the fix round must do", one commit, then a re-read of the changed lines only.
+
+### Task 6: Falsification FSEM1 to FSEM52
 
 Each row is a patch to a **kept copy**, built `--no-incremental`, the named probes run, restored by **plain copy** (mtime bumped), and run once unpatched. The first form is the harm. Rows on existing code give exact text below; rows on new files give the exact line shape and the builder records the verbatim in "As run" before running it (the file does not exist yet, so no text is exact today).
 
@@ -1081,7 +1323,7 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 - **SEM25** (not built; an unused number, kept so the references stay stable) M7 and M9 measured the listener closed for the whole reconcile: every poll for 16.5 s of a 15 s sleeper, and 48 of 48 polls over a 2,000-post reconcile, were refused (ruling 24).
 
 **Client**
-- **SEM42** the banner (and the titled index's header, if it names the model) is composed by `ModelWording`; the ids it knows are parsed from the errata's identity table and the register's `hashed-ngram@1` row (a different artifact), so a model added to the errata without a sentence fails; an unknown id prints the id and `limits NOT STATED`; none of the strings holds "until an ONNX model is configured"; the sentence for `bge-small-en-v1.5@1` states the 512-token head; for `hashed-ngram@1` the paraphrase limit. Red.
+- **SEM42** the banner (and the titled index's header, if it names the model) is composed by `ModelWording`; the ids it knows are parsed from the errata's identity table and the register's `hashed-ngram@1` row (a different artifact), so a model added to the errata without a sentence fails; an unknown id prints the id and `limits NOT STATED`; none of the strings holds "until an ONNX model is configured"; the sentence for `bge-small-en-v1.5@1` states the head length read from `models/bge-small-en-v1.5/manifest.json`'s `max_sequence_length` (512; a different artifact from the definition), says that two of them are the model's markers and that a query carries an instruction as well, and does not say 512 of a post; for `hashed-ngram@1` the paraphrase limit and no such number. Red.
 
 **Real model (`Curia.Embedding.Tests`; fail loudly without `CURIA_EMBEDDING_MODEL_DIR`)**
 - **SEM27** both files hash to the manifest's digests (computed in the test from the bytes, not by calling the adapter's check), and `fetch-model.py --verify-only` agrees; a copy with one byte flipped makes the script exit non-zero (**SEM44**, the negative side).
@@ -1227,11 +1469,11 @@ Task 4's whole run as CI runs it with the model fetched; the closed fuzz; prefli
 
 ## As run
 
-*(Empty. Written by the builder at Task 8 from the run: the commits oldest first, the probes SEM1 to SEM48 with any retired, the falsification FSEM1 to FSEM45, the measurements M1 to M20 beside their rules, the gates, the live run L1 to L8, the cold read, deviations from this plan with their reasons, concerns left.)*
+*(Empty. Written by the builder at Task 8 from the run: the commits oldest first, the probes SEM1 to SEM55 with any retired, the falsification FSEM1 to FSEM52, the measurements M1 to M20 beside their rules, the gates, the live run L1 to L8, the cold read, deviations from this plan with their reasons, concerns left.)*
 
 ### The commits, oldest first
-### Probes SEM1 to SEM48 (SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
-### Falsification FSEM1 to FSEM45
+### Probes SEM1 to SEM55 (SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+### Falsification FSEM1 to FSEM52
 ### The measurements (M1 to M20) beside their rules
 ### Gates
 ### The live run
