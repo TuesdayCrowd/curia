@@ -69,11 +69,52 @@ public sealed class EmbeddingIndexer
         await ReconcileAsync(events, sweep: null, cancellationToken).ConfigureAwait(false);
 
     /// <summary><see cref="ReconcileAsync(IEventReader, CancellationToken)"/>, noting to <paramref name="sweep"/> the posts the model cannot place.</summary>
-    public async Task<Result<long>> ReconcileAsync(IEventReader events, IndexSweep? sweep, CancellationToken cancellationToken = default)
+    public async Task<Result<long>> ReconcileAsync(IEventReader events, IndexSweep? sweep, CancellationToken cancellationToken = default) =>
+        await ReconcileAsync(events, sweep, onStored: null, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// <see cref="ReconcileAsync(IEventReader, IndexSweep, CancellationToken)"/>, calling <paramref name="onStored"/> with the running count after each vector it stores (errata G65, the first
+    /// start under a model id reindexes the whole log and says how far it is).
+    /// </summary>
+    public async Task<Result<long>> ReconcileAsync(IEventReader events, IndexSweep? sweep, Action<long>? onStored, CancellationToken cancellationToken = default)
     {
         var stored = new Collection<string>();
-        var reconciled = await ReconcileByAbsenceAsync(events, stored, sweep, cancellationToken).ConfigureAwait(false);
+        var reconciled = await ReconcileByAbsenceAsync(events, stored, sweep, onStored, cancellationToken).ConfigureAwait(false);
         return reconciled.Map(_ => (long)stored.Count);
+    }
+
+    /// <summary>
+    /// How many discussion posts of the log the index does not hold under the model: the work a reconcile would do, an upper bound where some are posts the model cannot place. Reads the log
+    /// and embeds nothing.
+    /// </summary>
+    public async Task<Result<long>> CountAbsentAsync(IEventReader events, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+
+        var held = await _index.IndexedDigestsAsync(Model, cancellationToken).ConfigureAwait(false);
+        if (!held.TryGetValue(out var digests, out var heldError))
+            return Result<long>.Fail(heldError!);
+
+        var present = new HashSet<string>(digests!, StringComparer.Ordinal);
+        if (!EventSequence.From(0).TryGetValue(out var from, out var fromError))
+            return Result<long>.Fail(fromError!);
+
+        var absent = 0L;
+        while (true)
+        {
+            var page = await events.ReadForwardAsync(from, EventReaderExtensions.PageSize, cancellationToken).ConfigureAwait(false);
+            if (!page.TryGetValue(out var batch, out var readError))
+                return Result<long>.Fail(readError!);
+
+            foreach (var appended in batch!)
+                if (SearchProjector.TryRead(appended) is { } post && present.Add(post.Digest))
+                    absent++;
+
+            if (batch.Count < EventReaderExtensions.PageSize)
+                return Result<long>.Ok(absent);
+
+            from = batch[^1].Seq;
+        }
     }
 
     /// <summary>
@@ -81,7 +122,12 @@ public sealed class EmbeddingIndexer
     /// what <see cref="FindAbsentAsync"/> finds, one post at a time as the scan meets it, and returns the first failure.
     /// </summary>
     public async Task<Result<bool>> ReconcileByAbsenceAsync(
-        IEventReader events, Collection<string> stored, IndexSweep? sweep = null, CancellationToken cancellationToken = default)
+        IEventReader events, Collection<string> stored, IndexSweep? sweep = null, CancellationToken cancellationToken = default) =>
+        await ReconcileByAbsenceAsync(events, stored, sweep, onStored: null, cancellationToken).ConfigureAwait(false);
+
+    /// <summary><see cref="ReconcileByAbsenceAsync(IEventReader, Collection{string}, IndexSweep, CancellationToken)"/>, reporting the running count of stored vectors to <paramref name="onStored"/>.</summary>
+    public async Task<Result<bool>> ReconcileByAbsenceAsync(
+        IEventReader events, Collection<string> stored, IndexSweep? sweep, Action<long>? onStored, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(stored);
@@ -93,7 +139,12 @@ public sealed class EmbeddingIndexer
             {
                 var result = await StoreAsync(post, embedding, token).ConfigureAwait(false);
                 if (!result.TryGetValue(out var vector, out var indexError)) return indexError;
-                if (vector is not null) stored.Add(post.Digest);
+                if (vector is not null)
+                {
+                    stored.Add(post.Digest);
+                    onStored?.Invoke(stored.Count);
+                }
+
                 return null;
             },
             skipKnown: null,

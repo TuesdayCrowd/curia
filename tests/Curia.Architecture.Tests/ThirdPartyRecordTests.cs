@@ -77,7 +77,7 @@ public sealed class ThirdPartyRecordTests
         Assert.True(unknown.Count == 0, "the record has a row for a package the props and the lock do not name: " + string.Join(", ", unknown));
 
         foreach (var id in expected)
-            Assert.Matches(@"\b(MIT|Apache-2\.0|BSD-3-Clause|BSD-2-Clause)\b", rows[id]);
+            Assert.Matches(@"\b(MIT|Apache-2\.0|BSD-3-Clause|BSD-2-Clause|PostgreSQL)\b", rows[id]);
 
         foreach (var word in new[] { "Eigen", "MPL-2.0", "Mbed TLS", "Apache-2.0", "Intel", "70 components", "ThirdPartyNotices" })
             Assert.Contains(word, document, StringComparison.Ordinal);

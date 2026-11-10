@@ -90,7 +90,7 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
         var prefix300 = await EmbedAsync(Words(300), EmbeddingRole.Passage);
         Assert.True(Probe.Cosine(head, prefix300) < 0.9999, $"a 300-token prefix has cosine {Probe.Describe(Probe.Cosine(head, prefix300))} with the head, expected below 0.9999");
 
-        var huge = string.Join(' ', Enumerable.Range(0, 60_000).Select(i => CommonWords[(i * 7 + i / 50) % CommonWords.Length]));
+        var huge = string.Join(' ', Enumerable.Range(0, 90_000).Select(i => CommonWords[(i * 7 + i / 50) % CommonWords.Length]));
         Assert.True(huge.Length > 256 * 1024, "NOT REACHED: the text is not 256 KiB");
         var read = model.Embedder.Tokenizer.Tokenize(huge, 510);
         var bound = first510.Length + 1;

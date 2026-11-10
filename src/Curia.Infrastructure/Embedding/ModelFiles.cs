@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Curia.Domain.Primitives;
 
 namespace Curia.Infrastructure.Embedder;
@@ -16,15 +17,50 @@ internal static class EmbedderRefusals
 internal sealed record VerifiedModelFiles(string ModelPath, string VocabularyPath);
 
 /// <summary>
-/// Checks the model directory against the manifest before any session is built (errata G65, R11.91). <b>Seam stub (D10a Task 1):</b> reads nothing and accepts
-/// any directory; Task 2 checks existence and both digests, in that order, and refuses with the types of <see cref="EmbedderRefusals"/>.
+/// Checks the model directory against the manifest before any session is built (errata G65, R11.91): the directory, then each file, then each file's size and sha256, the model first.
+/// A refusal is one of <see cref="EmbedderRefusals"/>'s fixed types; its text names the file and the cause and never the path.
 /// </summary>
 internal static class ModelFiles
 {
     internal static Result<VerifiedModelFiles> Verify(string? directory, EmbeddingManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        return Result<VerifiedModelFiles>.Ok(new VerifiedModelFiles(
-            Path.Combine(directory ?? string.Empty, manifest.Model.Name), Path.Combine(directory ?? string.Empty, manifest.Vocabulary.Name)));
+
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            return Refuse(EmbedderRefusals.DirectoryMissing, "The model directory does not exist");
+
+        var model = Path.Combine(directory, manifest.Model.Name);
+        var vocabulary = Path.Combine(directory, manifest.Vocabulary.Name);
+        if (!File.Exists(model))
+            return Refuse(EmbedderRefusals.ModelFileMissing, $"{manifest.Model.Name} is missing from the model directory");
+        if (!File.Exists(vocabulary))
+            return Refuse(EmbedderRefusals.VocabularyFileMissing, $"{manifest.Vocabulary.Name} is missing from the model directory");
+
+        if (!Matches(model, manifest.Model))
+            return Refuse(EmbedderRefusals.ModelDigestMismatch, $"{manifest.Model.Name} does not match the digest the build carries");
+        if (!Matches(vocabulary, manifest.Vocabulary))
+            return Refuse(EmbedderRefusals.VocabularyDigestMismatch, $"{manifest.Vocabulary.Name} does not match the digest the build carries");
+
+        return Result<VerifiedModelFiles>.Ok(new VerifiedModelFiles(model, vocabulary));
+    }
+
+    private static Result<VerifiedModelFiles> Refuse(string type, string title) => Result<VerifiedModelFiles>.Fail(new Error(type, title, null));
+
+    private static bool Matches(string path, ManifestFile expected)
+    {
+        try
+        {
+            if (new FileInfo(path).Length != expected.Bytes) return false;
+            using var stream = File.OpenRead(path);
+            return string.Equals(Convert.ToHexStringLower(SHA256.HashData(stream)), expected.Sha256, StringComparison.Ordinal);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 }

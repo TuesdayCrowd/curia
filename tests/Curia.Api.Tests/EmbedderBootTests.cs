@@ -194,8 +194,8 @@ public sealed class EmbedderBootTests(ProductionEmbedderFixture production, Foru
     /// <summary>
     /// SEM24. A registered embedder that answers <c>ModelFault</c> (the exception it caught had a message holding <c>/srv/secret-path/model.onnx</c>, which the adapter's contract keeps out of the
     /// <c>Error</c>): <c>GET /v1/search</c> is <c>503</c> with the fixed type and no text of the exception; a <c>POST</c> of a question is <c>503</c>, nothing stored; the same hosts with the hashed
-    /// embedder serve (the controls). The plan's "no detail" is read as: no detail member beyond the exception's type name. Expected on the seam: green, because the routes already map an embedder
-    /// failure to <c>503</c> before PERSIST; it holds the contract for Task 2's adapter.
+    /// embedder serve (the controls). The 503 carries no detail member (the controller's ruling on Task 1's open question: Error.Detail holds the exception's type name for the Forum's log and
+    /// the document serves none, R9.52). Green on the seam and after: the routes already map an embedder failure to <c>503</c> before PERSIST through ServerFault.
     /// </summary>
     [Fact]
     public async Task R11_92_SEM24_AModelFaultIsA503WithAFixedDocumentAndNothingStored()
@@ -214,12 +214,15 @@ public sealed class EmbedderBootTests(ProductionEmbedderFixture production, Foru
         Assert.Equal(HttpStatusCode.ServiceUnavailable, search.Status);
         Assert.Equal(EmbeddingErrors.ModelFault().Type, search.Json.GetProperty("type").GetString());
         Assert.DoesNotContain(Secret, search.Body, StringComparison.Ordinal);
-        if (search.Json.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String)
-            Assert.Equal(nameof(InvalidOperationException), detail.GetString());
+        // R9.52: a fault the Forum owns is served with its fixed title and type and no detail member; the exception's type name (the error's Detail) goes to the Forum's log.
+        // Every fault the Forum owns serves `"detail":null`, as the store faults do; "no detail" is that member absent or null.
+        Assert.True(!search.Json.TryGetProperty("detail", out var detail) || detail.ValueKind == JsonValueKind.Null, "the 503 document carries a detail: " + search.Body);
+        Assert.DoesNotContain(nameof(InvalidOperationException), search.Body, StringComparison.Ordinal);
 
         var sent = await SendViaAsync(hashed, client, actor, actor.Agent.SignQuestion(RevisionProbe.Board(), Unrelated(), "About " + Unrelated(), hashed.Now), null, Ct);
         Assert.Equal((503, EmbeddingErrors.ModelFault().Type), (sent.Status, sent.Type));
         Assert.DoesNotContain(Secret, sent.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain(nameof(InvalidOperationException), sent.Body, StringComparison.Ordinal);
         Assert.Equal(before, await EventCountAsync(hashed));
 
         // The served control: the host with the hashed embedder (this fixture's own) takes the same question and serves the same search.

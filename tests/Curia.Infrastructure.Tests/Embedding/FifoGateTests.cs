@@ -65,6 +65,16 @@ public sealed class FifoGateTests
                 await Task.Delay(5, Ct);
             Assert.True(Admitted(admitted, index), $"waiter {index} was never admitted");
             done[index].SetResult();
+
+            // One place is freed at a time: the place this frees goes to waiter index + 2 (two are inside), which is seen admitted before the next place is freed. Two places freed together
+            // admit two waiters at once, and the order they are recorded in then belongs to the thread pool and not to the gate.
+            if (index + 2 < 20)
+            {
+                var next = index + 2;
+                var seen = DateTime.UtcNow.AddSeconds(5);
+                while (!Admitted(admitted, next) && DateTime.UtcNow < seen)
+                    await Task.Delay(5, Ct);
+            }
         }
 
         await Task.WhenAll(waiters);

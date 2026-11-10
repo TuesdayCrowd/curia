@@ -86,12 +86,13 @@ public sealed class EmbedderBehaviourTests
     public async Task R11_92_SEM10_AnExceptionsMessageNeverReachesTheError()
     {
         using var rig = Checked();
+        var baseline = rig.Runner.Runs;
         const string secret = "/srv/secret-path/model.onnx";
         rig.Runner.Behaviour = (_, _) => throw new InvalidOperationException($"could not read {secret} while embedding 'hello world'");
 
         var result = await rig.Embedder.EmbedAsync("hello world", EmbeddingRole.Passage, Ct);
 
-        Assert.True(rig.Runner.Runs >= 1, "NOT REACHED: the runner was not asked to run");
+        Assert.True(rig.Runner.Runs > baseline, "NOT REACHED: the runner was not asked to run");
         var error = result.Match(_ => throw new InvalidOperationException("the embedder answered a vector from a runner that threw"), e => e);
         Assert.Equal(EmbeddingErrors.ModelFault().Type, error.Type);
         Assert.Equal(nameof(InvalidOperationException), error.Detail);
@@ -114,13 +115,14 @@ public sealed class EmbedderBehaviourTests
     public async Task R9_64_SEM12_ATextOfOnlyUnknownTokensHasNoFeaturesAndOneKnownTokenIsPlaced()
     {
         using var rig = Checked();
+        var baseline = rig.Runner.Runs;
         var emoji = Cp.Of(0x1F600);
 
         Assert.Equal(EmbeddingErrors.NoFeatures().Type, TypeOf(await rig.Embedder.EmbedAsync(emoji, EmbeddingRole.Passage, Ct)));
         Assert.Equal(EmbeddingErrors.NoFeatures().Type, TypeOf(await rig.Embedder.EmbedAsync(emoji + " " + Cp.Of(0x1F680), EmbeddingRole.Passage, Ct)));
         Assert.Equal(EmbeddingErrors.NoFeatures().Type, TypeOf(await rig.Embedder.EmbedAsync(string.Empty, EmbeddingRole.Passage, Ct)));
         Assert.Equal("(a vector)", TypeOf(await rig.Embedder.EmbedAsync("hello " + emoji, EmbeddingRole.Passage, Ct)));
-        Assert.True(rig.Runner.Runs >= 1, "NOT REACHED: no run happened, so the placed text was not embedded");
+        Assert.True(rig.Runner.Runs > baseline, "NOT REACHED: no run happened, so the placed text was not embedded");
     }
 
     // ---- SEM11: concurrency ----
@@ -133,6 +135,7 @@ public sealed class EmbedderBehaviourTests
     public async Task R11_92_SEM11_NoMoreThanTwoRunAtOnceAndACancelledWaiterRunsNothing()
     {
         using var rig = Checked();
+        var baseline = rig.Runner.Runs; // the start-up check has already run the canaries and the warm-up (SEM40)
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         rig.Runner.Behaviour = async (input, ct) =>
         {
@@ -141,7 +144,7 @@ public sealed class EmbedderBehaviourTests
         };
 
         var calls = Enumerable.Range(0, 8).Select(i => rig.Embedder.EmbedAsync("hello " + EmbedderRig.Words[i], EmbeddingRole.Passage, Ct)).ToArray();
-        await WaitUntilAsync(() => rig.Runner.Runs >= 2, "NOT REACHED: the runner was entered " + rig.Runner.Runs + " times, expected 2 before the release");
+        await WaitUntilAsync(() => rig.Runner.Runs - baseline >= 2, "NOT REACHED: the runner was entered " + (rig.Runner.Runs - baseline) + " times, expected 2 before the release");
         Assert.True(rig.Runner.MaxInside <= 2, $"expected at most 2 inside, saw {rig.Runner.MaxInside}");
 
         using var early = new CancellationTokenSource();
@@ -159,7 +162,7 @@ public sealed class EmbedderBehaviourTests
         var results = await Task.WhenAll(calls);
         Assert.All(results, r => Assert.Equal("(a vector)", TypeOf(r)));
         Assert.True(rig.Runner.MaxInside <= 2, $"expected at most 2 inside, saw {rig.Runner.MaxInside}");
-        Assert.Equal(8, rig.Runner.Runs);
+        Assert.Equal(8, rig.Runner.Runs - baseline);
     }
 
     /// <summary>
@@ -170,19 +173,20 @@ public sealed class EmbedderBehaviourTests
     public async Task R11_92_SEM11_CallersAreAdmittedInTheOrderTheyArrived()
     {
         using var rig = Checked();
+        var baseline = rig.Runner.Runs; // the start-up check has already run the canaries and the warm-up (SEM40)
         var holds = new List<TaskCompletionSource>();
         var arrivals = new List<string>();
         rig.Runner.Behaviour = async (input, ct) =>
         {
             var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (holds) holds.Add(hold);
             lock (arrivals) arrivals.Add(string.Join(',', input.InputIds));
+            lock (holds) holds.Add(hold); // after the arrival: a test that sees the hold has seen the arrival
             await hold.Task.WaitAsync(ct);
             return FakeRunner.HiddenStateFor(input);
         };
 
         var first = Enumerable.Range(0, 2).Select(i => rig.Embedder.EmbedAsync("hello " + Cp.Of('a' + i), EmbeddingRole.Passage, Ct)).ToList();
-        await WaitUntilAsync(() => rig.Runner.Runs >= 2, "NOT REACHED: the runner was entered " + rig.Runner.Runs + " times, expected 2 before the queue is built");
+        await WaitUntilAsync(() => rig.Runner.Runs - baseline >= 2, "NOT REACHED: the runner was entered " + (rig.Runner.Runs - baseline) + " times, expected 2 before the queue is built");
 
         var expected = new List<string>();
         var queued = new List<Task<Result<Embedding>>>();
@@ -197,7 +201,10 @@ public sealed class EmbedderBehaviourTests
 
         for (var released = 0; released < 22; released++)
         {
-            await WaitUntilAsync(() => { lock (holds) return holds.Count > released; }, $"NOT REACHED: {released} runs started, expected {released + 1}");
+            // One place is freed at a time: the next is not freed until the waiter the last one admitted has been seen inside (two places freed together admit two waiters at once,
+            // and the order they are recorded in then belongs to the thread pool and not to the gate).
+            var needed = Math.Min(released + 2, 22);
+            await WaitUntilAsync(() => { lock (holds) return holds.Count >= needed; }, $"NOT REACHED: {needed} runs started, expected {needed}");
             TaskCompletionSource hold;
             lock (holds) hold = holds[released];
             hold.SetResult();
