@@ -1,0 +1,119 @@
+using System.Diagnostics.CodeAnalysis;
+using Curia.Infrastructure.Embedder;
+using Xunit;
+
+namespace Curia.Infrastructure.Tests.Embedder;
+
+/// <summary>
+/// Errata G65 (D10a), SEM45: the gate around an inference run admits callers in the order they arrived (R11.92, Amendment 1 ruling 23). Task 0 M6 measured <c>SemaphoreSlim(2)</c>
+/// starving waiters (a 16-token p99 of 908 ms at 8 callers against 22.6 ms through a first-in-first-out gate).
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class FifoGateTests
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    /// <summary>
+    /// SEM45. A gate of two, both places held, twenty waiters queued one at a time (each seen queued before the next is added), the places released one at a time: the admission order equals the
+    /// arrival order, no more than two are ever inside, and after the last release the gate is empty. Predicted red on the seam (a gate that admits at once): <c>expected at most 2 inside, saw 3</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_92_SEM45_WaitersAreAdmittedInTheOrderTheyArrivedAndNeverMoreThanTwoAreInside()
+    {
+        var gate = new FifoGate(2);
+        var held = new List<IDisposable> { await gate.EnterAsync(Ct), await gate.EnterAsync(Ct) };
+        Assert.Equal(2, gate.Inside);
+
+        var admitted = new List<int>();
+        var mostInside = 0;
+        var done = Enumerable.Range(0, 20).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var waiters = new List<Task>();
+        for (var i = 0; i < 20; i++)
+        {
+            var index = i;
+            waiters.Add(Task.Run(
+                async () =>
+                {
+                    using var lease = await gate.EnterAsync(Ct);
+                    lock (admitted)
+                    {
+                        admitted.Add(index);
+                        mostInside = Math.Max(mostInside, gate.Inside);
+                    }
+
+                    await done[index].Task;
+                },
+                Ct));
+
+            var deadline = DateTime.UtcNow.AddSeconds(2);
+            while (gate.Queued < index + 1 && !Admitted(admitted, index) && DateTime.UtcNow < deadline)
+                await Task.Delay(5, Ct);
+
+            Assert.True(gate.Inside <= 2, $"expected at most 2 inside, saw {gate.Inside}");
+            Assert.True(gate.Queued == index + 1, $"waiter {index} was not seen queued: {gate.Queued} waiting");
+        }
+
+        foreach (var lease in held) lease.Dispose();
+        for (var i = 0; i < 20; i++)
+        {
+            var index = i;
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!Admitted(admitted, index) && DateTime.UtcNow < deadline)
+                await Task.Delay(5, Ct);
+            Assert.True(Admitted(admitted, index), $"waiter {index} was never admitted");
+            done[index].SetResult();
+        }
+
+        await Task.WhenAll(waiters);
+        Assert.Equal(Enumerable.Range(0, 20), admitted);
+        Assert.True(mostInside <= 2, $"expected at most 2 inside, saw {mostInside}");
+        Assert.Equal(0, gate.Inside);
+        Assert.Equal(0, gate.Queued);
+    }
+
+    private static bool Admitted(List<int> admitted, int index)
+    {
+        lock (admitted) return admitted.Contains(index);
+    }
+
+    /// <summary>
+    /// SEM45, cancellation. A waiter cancelled while queued is removed, runs nothing and does not shift the others; a token already cancelled enters nothing. Predicted red on the seam:
+    /// <c>waiter 1 was not seen queued</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_92_SEM45_ACancelledWaiterLeavesTheQueueAndShiftsNoOne()
+    {
+        var gate = new FifoGate(1);
+        var holder = await gate.EnterAsync(Ct);
+        var ran = new List<int>();
+
+        using var cancel = new CancellationTokenSource();
+        var first = Task.Run(async () => { using var _ = await gate.EnterAsync(Ct); lock (ran) ran.Add(0); }, Ct);
+        await WaitQueuedAsync(gate, 1, "waiter 0");
+        var second = Task.Run(async () => { using var _ = await gate.EnterAsync(cancel.Token); lock (ran) ran.Add(1); }, Ct);
+        await WaitQueuedAsync(gate, 2, "waiter 1");
+        var third = Task.Run(async () => { using var _ = await gate.EnterAsync(Ct); lock (ran) ran.Add(2); }, Ct);
+        await WaitQueuedAsync(gate, 3, "waiter 2");
+
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+        Assert.Equal(2, gate.Queued);
+
+        holder.Dispose();
+        await Task.WhenAll(first, third).WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Assert.Equal([0, 2], ran);
+        Assert.Equal(0, gate.Inside);
+        Assert.Equal(0, gate.Queued);
+    }
+
+    private static async Task WaitQueuedAsync(FifoGate gate, int count, string who)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (gate.Queued < count && DateTime.UtcNow < deadline)
+            await Task.Delay(5, Ct);
+        Assert.True(gate.Queued >= count, $"{who} was not seen queued: {gate.Queued} waiting");
+    }
+}
