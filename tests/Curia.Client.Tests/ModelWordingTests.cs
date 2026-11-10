@@ -50,6 +50,28 @@ public sealed partial class ModelWordingTests
     }
 
     /// <summary>
+    /// SEM60 (the clause, Amendment 4 ruling 60; the fact behind it is SEM59's). The sentence for <c>bge-small-en-v1.5@1</c> says that the model ranks the nearest posts however far they are and that a long list is no
+    /// evidence the Forum holds the topic; the sentence for <c>hashed-ngram@1</c> (whose floor does remove far posts) and the one for an id the definition does not know make no such claim (trap 185: a positive
+    /// word with no negative neighbour is tested with all three together). The words are asserted by hand, as Table 11's criteria structure is, because parsing prose into a predicate is a second implementation.
+    /// Predicted red on FSEM56: <c>the sentence for bge-small-en-v1.5@1 does not say however far</c>.
+    /// </summary>
+    [Fact]
+    public void R11_93_SEM60_TheBgeSentenceSaysALongListIsNoEvidenceAndNoOtherSentenceDoes()
+    {
+        var bge = ModelWording.Sentence(Bge);
+
+        Assert.True(bge.Contains("however far", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say however far");
+        Assert.True(bge.Contains("no evidence", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say a long list is no evidence");
+        Assert.True(bge.Contains("paraphrase or may be unrelated", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say a hit with no shared word may be either");
+
+        foreach (var other in new[] { ModelWording.Sentence(Hashed), ModelWording.Sentence(Unknown), ModelWording.Sentence(null) })
+        {
+            Assert.DoesNotContain("however far", other, StringComparison.Ordinal);
+            Assert.DoesNotContain("no evidence", other, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
     /// SEM42 (the banner). The banner above a result set is composed by <c>ModelWording</c> for the id the Forum served, and none of the three says "until an ONNX model is configured". Predicted red on the seam:
     /// <c>Assert.DoesNotContain() Failure: Sub-string found</c> (the seam's banner is the fixed text, which says "until an ONNX model is configured").
     /// </summary>

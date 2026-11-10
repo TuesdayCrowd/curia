@@ -179,6 +179,39 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
     }
 
     /// <summary>
+    /// SEM59 (the fact behind <c>ModelWording</c>'s clause that a long list is no evidence, Amendment 4 ruling 60; the clause is SEM60's). Under this model the vector channel's floor removes nothing: each of four queries
+    /// in the query role (three of made-up words and one on a topic the corpus does not hold) is at or above <c>HybridRanking.MinimumCosine</c> to every post of the ten-post corpus of
+    /// <c>conformance/retrieval/corpus.jsonl</c>, so the nearest posts come back however far they are and a page does not run short. This derives from the model and from the floor's constant, and not from the sentence
+    /// that says it, so a floor that D10b raises turns the sentence false and this red. The least cosine of each query is written to a file and printed. Predicted red on FSEM55 (the floor raised to 0.6):
+    /// <c>is below the floor</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_93_SEM59_NoPostOfTheCorpusIsBelowTheFloorForAQueryOfMadeUpWords()
+    {
+        var corpus = (await File.ReadAllLinesAsync(Path.Combine(ModelDirectory.RepositoryRoot(), "conformance", "retrieval", "corpus.jsonl"), Ct)).Where(l => l.Length > 0).Select(l =>
+        {
+            using var json = JsonDocument.Parse(l);
+            var r = json.RootElement;
+            return (r.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() + "\n" : string.Empty) + r.GetProperty("body").GetString();
+        }).ToList();
+        Assert.Equal(10, corpus.Count);
+
+        var posts = new List<Vector>();
+        foreach (var text in corpus) posts.Add(await EmbedAsync(text, EmbeddingRole.Passage));
+
+        var lines = new List<string>();
+        foreach (var query in new[] { "zorblax quimpt vrenkelflap", "xyzzyqwerty nonsense", "frumious bandersnatch gyre", "sourdough starter hydration discard" })
+        {
+            var vector = await EmbedAsync(query, EmbeddingRole.Query);
+            var least = posts.Min(p => Probe.Cosine(vector, p));
+            lines.Add($"{query,-40} least cosine {least:0.000} (floor {HybridRanking.MinimumCosine:0.000})");
+            Assert.True(least >= HybridRanking.MinimumCosine, $"'{query}': its least cosine over the corpus, {least:0.000}, is below the floor {HybridRanking.MinimumCosine:0.000}, so the channel no longer returns the nearest posts however far they are and ModelWording's sentence for this model says what is no longer true");
+        }
+
+        Record("sem59-floor.txt", lines);
+    }
+
+    /// <summary>
     /// SEM34. Latency is recorded and nothing is asserted (a ratio of two times on a shared runner measures the runner, ruling 13): the p50 and p99 of 20 calls at 16, 128 and 510 tokens, at concurrency 1, 2 and 8,
     /// written to a file. Each call must answer a vector, so the recording is of work done. Predicted red on the seam: <c>expected a vector, got curia/embedding/model-not-ready</c>.
     /// </summary>
