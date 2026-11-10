@@ -12,6 +12,8 @@ the Api test classes this branch changed. It then checks added lines for machine
 characters, and that the run left `conformance/` unchanged. It needs what the suites need: Postgres with
 pgvector (`CURIA_TEST_POSTGRES`, or the local server), `python3`, `cargo` and `node`.
 
+Steps that use an action (`uses:`) are neither run nor listed in the summary; with the PR that added the model fetch CI has 18, and the model cache is one of them.
+
 `--api "<filter>"` runs a chosen part of the Api suite. `--no-api` runs none of it. `--base <ref>` compares
 against something other than `origin/main`.
 

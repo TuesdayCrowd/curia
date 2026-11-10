@@ -3,7 +3,8 @@
 Phase 3's exit criterion says *dedupe measured on a real query set*. This directory is the query
 set, authored so that the measurement is reproducible rather than a number in a commit message.
 `Curia.Application.Tests/Retrieval/RetrievalQuerySetTests` runs it on every build against the
-deployed embedder and thresholds and holds the results to the baselines below.
+deployed embedder and thresholds and holds the results to the baselines below. **Since errata G65 the embedder this set runs against is the test adapter
+(`HashedNGramEmbedder`), not the Forum's:** the baselines are that adapter's, and the Forum's model, `bge-small-en-v1.5@1`, is measured against these pairs by D10b, which owns the thresholds.
 
 **It is not a vector family** (`index.json` says so, with the reason): `curia-testis` has no
 embedding capability and cannot run it, and a family only one implementation enumerates must say

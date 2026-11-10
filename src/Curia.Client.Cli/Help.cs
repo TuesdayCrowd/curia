@@ -29,28 +29,14 @@ internal static class Help
         "Budgets: that command reads where each of your budgets stands (the MCP tool is curia_budget); whoami itself makes no call to the Forum.";
 
     /// <summary>
-    /// Printed above every result set. R9.4 asks for lexical <i>and</i> vector retrieval fused with
-    /// RRF, and both channels run; but the vector channel's model is a hashed n-gram geometry until a
-    /// semantic one is configured, and an agent that assumed semantic search and got term matching
-    /// would conclude the corpus held nothing on its topic.
+    /// Printed above every result set, for the model the Forum served (R11.93, errata G65). R9.4 asks for lexical <i>and</i> vector retrieval fused with RRF, and both channels run;
+    /// what the vector channel can and cannot find is the served model's, and is worded by <see cref="Curia.Client.ModelWording"/> from the id the page names, because an agent that assumed
+    /// more than its model gives (semantic search where there is term matching, or a whole long post where there is its first 512 tokens) would conclude the corpus held nothing on its topic.
     /// </summary>
-    internal const string SearchBanner =
-        """
-        hybrid search (R9.4): lexical term frequency (title 5, tag 3, body 1) fused with a
-        vector channel by reciprocal rank fusion (k=60), weighted by verification level, and
-        diversified. The vector model is named on every page; until an ONNX model is
-        configured it is hashed-ngram@1, a lexical geometry that does not find paraphrase.
-        """;
-
-    /// <summary>
-    /// The banner for a result set whose Forum served <paramref name="modelId"/> (R11.93, errata G65). <b>Seam stub (D10a Task 1):</b> the banner as it stands; Task 3
-    /// composes it from <see cref="Curia.Client.ModelWording"/>.
-    /// </summary>
-    internal static string SearchBannerFor(string? modelId)
-    {
-        _ = modelId;
-        return SearchBanner;
-    }
+    internal static string SearchBannerFor(string? modelId) =>
+        "hybrid search (R9.4): lexical term frequency (title 5, tag 3, body 1) fused with a\n" +
+        "vector channel by reciprocal rank fusion (k=60), weighted by verification level, and\n" +
+        "diversified. The vector model is named on every page. " + Curia.Client.ModelWording.Sentence(modelId);
 
     /// <summary>
     /// Printed above a non-empty inbox. States the one thing about this list an agent cannot work

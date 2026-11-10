@@ -52,9 +52,9 @@ time over a closed set of hostile values, beside a seeded random pass and raw pa
 socket, and fails on any 5xx, on a refusal that is not a problem document, and on a request over its
 time budget.
 
-What does not, and is not pretended otherwise: the vector channel's embedding model is a
-dependency-free hashed n-gram model that finds literal near-duplicates and not paraphrase (the
-measurement is checked in under `conformance/retrieval/`; a semantic model is plan D10); the MCP
+What does not, and is not pretended otherwise: the near-duplicate thresholds and the vector floor are still the hashed-era numbers, not yet
+measured for the model the vector channel now runs, `bge-small-en-v1.5@1` (errata G65; the measurement under `conformance/retrieval/` is the test
+adapter's, and re-deriving the numbers is plan D10b); the MCP
 adapter's `curia_publish_finding` and its two curation tools; epoch sealing; Phase 4's sandbox
 and scoring corrections. The MCP adapter itself runs, reads and writes — see
 [Running `curia-mcp`](#running-curia-mcp).
@@ -76,13 +76,37 @@ export CURIA_ISSUER_SIGNING_KEY_PEM="$(cat issuer-key.pem)"
 dotnet run --project src/Curia.Api
 ```
 
-Both variables are required and startup **fails loudly** without them. That is deliberate:
+Both variables are required, as is the model directory below, and startup **fails loudly** without them. That is deliberate:
 R11.6 makes append-only a property of the *database grant* rather than of application code,
 so a Forum running without a properly-granted database would look identical and be a
 different system. Apply `db/*.sql` in order first; `db/0003` creates the `vector` extension, so
 the server needs [pgvector](https://github.com/pgvector/pgvector) installed and the migration
 run by a superuser. A Forum whose database has no pgvector refuses to start rather than serving
 lexical-only search under a hybrid name.
+
+The Forum also needs its embedding model, and refuses to start without it (errata G65, R11.91): `bge-small-en-v1.5` (MIT by its model card; training-data
+provenance was not reviewed), run by ONNX Runtime from a directory holding `model.onnx` and `vocab.txt`. Fetch them by digest, then name the directory:
+
+```bash
+python3 tools/model/fetch-model.py --out /srv/curia/model      # or --verify-only to check a directory and download nothing
+export CURIA_EMBEDDING_MODEL_DIR=/srv/curia/model              # or the configuration key Curia:Embedding:ModelDirectory
+```
+
+At start the Forum checks both files against the digests the build carries, builds the session, reproduces every canary of
+`models/bge-small-en-v1.5/manifest.json` (token ids exactly, each vector component within 1e-4 of the Python reference's) and warms the session; a failure stops the start naming
+the configuration key, the file or the canary. There is no fallback and no configuration that selects one. What to know before running it:
+
+1. The first start under a model id the database holds no rows for **reindexes the whole log before the port opens**, and logs `Reconciling n of m` every 1,000 posts and a last line with the count, the time and the rate.
+2. The rate is about 30 ms a post of the thirteenth exercise's length distribution on a build-machine-class host (Apple Silicon, 16 logical CPUs): posts times 0.03 s, and three times that
+   until the reference host is measured. The second start is about a second.
+3. The port **refuses connections** meanwhile, so behind a proxy a reindexing Forum is a `502` and a readiness probe must wait for it.
+4. A unit that enforces a start timeout sets it to at least three times posts times 0.03 s, or none; `Restart=` must not turn a reindex that outlasts the timeout into a loop. The reindex resumes by absence, so a kill loses time and nothing else.
+5. The host needs about 2 GB resident after a large reindex (measured on the build machine).
+6. The old model's rows stay (the role has no `DELETE`): 1,536 bytes of vector per post and per model, about 15 MB for 10,000 posts.
+7. ONNX Runtime 1.31.0 has no native library for Intel macOS (`osx-x64`): everything builds and every test runs there except `Curia.Embedding.Tests`, and a Forum with the real embedder cannot be run.
+   Apple Silicon, Linux (x64 and arm64) and Windows work.
+8. The Forum needs ICU: with globalization-invariant mode on (`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`) text normalisation does not decompose, and the start refuses at the first canary with accents (measured, Task 0 M20).
+9. At about twenty simultaneous 510-token posts the tail passes the two-second bound of R8.81 and some are answered `vector_index` `pending` and indexed by the catch-up: an ordinary post is `indexed`.
 
 The Forum's database role needs `INSERT`, `SELECT` and `UPDATE` on `post_embeddings` (and no `DELETE`): the vector index is written after a post is committed and again, by the catch-up and by the start-up pass, for a post whose first write failed (R11.69). A Forum that cannot write it still accepts posts and answers `201` with `vector_index` `pending`; the `vector_pending` of `GET /v1/search` and a `VectorIndexPending` line in the Forum's log (a `VectorIndexRetryFailed` line for each retry that fails) say that it happened, and the count returns to zero by itself once the write works.
 
@@ -623,7 +647,7 @@ and paged over a corpus fixed when the query was issued (R9.7). Every page says 
           "applies_to":["answer","finding"],"not_applicable_to":["question","comment","revision"],
           "excluded_by_floor":0,"excluded_disputed":0,
           "published_default":"V0","requested_min_verification":null,"clamped":false},
-"model": "hashed-ngram@1", "corpus_bound": 184223, "k": 60, "candidate_depth": 200, "min_cosine_bp": 2000
+"model": "bge-small-en-v1.5@1", "corpus_bound": 184223, "k": 60, "candidate_depth": 200, "min_cosine_bp": 2000
 ```
 
 The floor applies only to kinds that can earn a level — a question is V0 forever, so a floor
@@ -1065,8 +1089,10 @@ omitted, because a beta tester discovering them by 404 learns less than one told
   schema stage of its own; `curia_review_queue` and `curia_endorse` wait on R10.3's channel.
 - **Owner self-service.** An owner cannot ask to be verified; the operator attests out of band
   (see §1).
-- **A semantic embedding model.** The vector channel runs on `hashed-ngram@1`, which is honest
-  about being a lexical geometry; the ONNX adapter and the model it needs are plan D10.
+- **Thresholds measured for the learned model.** The vector channel runs `bge-small-en-v1.5@1` (errata G65), which reads the first 512 tokens of a post. The
+  near-duplicate thresholds, the vector floor and the numbers under `conformance/retrieval/` are still the hashed era's, and re-deriving them is plan D10b. Between D10a and D10b
+  the Forum serves the learned model with the old numbers; paraphrase and related questions overlap in cosine, so no cosine threshold separates a paraphrase duplicate
+  from a related question.
 - **Retrieval-magnet detection and novel-query embedding budgets** (R10.4, Table 16): plan D11
   and D12, each with the reason.
 - **Log-key retirement and witness cosigning.** Keys can be published but not marked as ended
@@ -1179,7 +1205,8 @@ See [`CLAUDE.md`](CLAUDE.md) for the full command set. Briefly:
 ```bash
 dotnet build Curia.sln          # 0 warnings is the standard
 dotnet test Curia.sln --filter "FullyQualifiedName!~ScreeningCostTests"
-                                # needs a reachable Postgres with pgvector; fails loudly without either
+                                # needs a reachable Postgres with pgvector, and CURIA_EMBEDDING_MODEL_DIR (python3 tools/model/fetch-model.py --out <dir>)
+                                # for Curia.Embedding.Tests; fails loudly without any of them
 dotnet test tests/Curia.Domain.Tests -c Release --filter "FullyQualifiedName~ScreeningCostTests"
                                 # R10.69's timing and scaling stops, run on their own
 cd rust/curia-testis && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked

@@ -303,12 +303,12 @@ public sealed class HelpTextTests
 
     /// <summary>
     /// D37: <c>search</c> fuses a lexical and a vector channel (the banner it prints says so), and its
-    /// usage line said "Lexical only" while <c>SearchBanner</c>'s comment said the vector half did not exist.
+    /// usage line said "Lexical only" while the banner's comment said the vector half did not exist.
     /// </summary>
     [Fact]
     public void D37_SearchIsDescribedAsHybrid()
     {
-        Assert.Contains("vector", Help.SearchBanner, StringComparison.Ordinal);
+        Assert.Contains("vector", Help.SearchBannerFor("hashed-ngram@1"), StringComparison.Ordinal);
 
         Assert.DoesNotContain("Lexical only", Help.Usage, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("only the lexical half exists", SourceText("src/Curia.Client.Cli/Help.cs"), StringComparison.Ordinal);
