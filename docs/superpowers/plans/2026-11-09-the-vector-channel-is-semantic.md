@@ -1211,6 +1211,1292 @@ sys.exit(1 if bad else 0)
 
 Before applying, every row of this amendment reads `old 1 new 0`. After, `new 1`, and the rows of Amendment 1 that this amendment supersedes (E23, E47, E48, E49 and E60 at the time of writing) read `superseded`. 76 rows are expected.
 
+## Amendment 3 (2026-11-09, Task 6)
+
+Written by `curia-architect` after reading `.superpowers/sdd/2026-11-09-d10a/task-6-report.md` and `task-6-brief.md` in full, every record of `fsem-results.jsonl` (67 records, 52 rows), `.superpowers/keep-tools/fsem_run.py` and `fsem_rows.py`, and then the code and the probes they point at, at the tree `52c39d9f` (`src/Curia.Application/Retrieval/EmbeddingIndexer.cs`, `src/Curia.Infrastructure/{PostgresVectorIndex,Embedding/OnnxTextEmbedder,Embedding/FifoGate,Embedding/BgeInput,Embedding/Tokenization/TextCleaner,Embedding/Tokenization/WordPieceTokenizer}.cs`, `db/0003_create_retrieval_index.sql`, `tests/Curia.Embedding.Tests/{RealModel,FilesAndTokenizerTests,BehaviourTests}.cs`, `tests/Curia.Infrastructure.Tests/Embedding/{EmbedderBehaviourTests,EmbedderRig,FifoGateTests,TokenizerMarkTests,TwoModelsTests}.cs`, `tests/Curia.Architecture.Tests/EmbedderFenceTests.cs`, `tests/Curia.Api.Tests/EmbedderBootTests.cs`, `tests/Curia.Application.Tests/Retrieval/{EmbedRoleTests,IndexRepairHarness}.cs` and `InMemory/InMemoryVectorIndex.cs`, `src/Curia.Application/Retrieval/CommittedPostIndexer.cs`). Rulings continue from 46 (Amendment 2's last is 45). **The errata is not edited.** **No repository file was edited and nothing was committed.** Every run named below was made on a **copy of the working tree** in the architect's scratchpad (`rsync` without `.git`, `bin`, `obj`, `rust`, `.superpowers`), built there, with the model directory of Task 0 and the local Postgres; those runs are the architect's evidence for the rulings and **are not Task 6b's record**: Task 6b runs everything again in the repository and records it. The plan body is **not yet edited**: the builder applies `### In-place edits` (30 pairs, each `Old` occurring exactly once in the body outside the three amendments, counted by script when this amendment was written: 30 of 30, 0 misses), applies `### Test files and edits` (T1 to T13, which are for the repository's tests and not for the plan), and runs the check at the end of this amendment, which covers 106 rows (Amendment 1's 67, Amendment 2's 9 and this one's 30).
+
+Nothing here needs the owner. Two things the controller should see are at the end of "What Task 6b must do"; neither is a ruling.
+
+### What was checked, and what it found
+
+**1. The counts, recounted from the records.** `fsem-results.jsonl` holds 67 records for 52 rows. Taking each row's first record as written: **46 red**, six not (FSEM17: a build failure, CS0162, no verdict; FSEM18: SEM11 hung and was killed by hand, the record is `error`; FSEM22: green; FSEM31: green; FSEM43: green; FSEM44: a build failure, CS0103). In some record: **50** (FSEM22 and FSEM43 are the two never red). The report's 49 counts FSEM17, FSEM18 and FSEM44 red on their first form because their corrected forms were; a patch that did not build and a test that was killed are not verdicts on the first form, and 49 is withdrawn (ruling 46). A third count the report did not make and the records allow: a row is red *by a named probe's own assertion* when some probe went red with a first failure that is neither a fixture constructor throw nor a timeout kill: **39** on the first record, **42** in some record. The ten rows with no such record are FSEM14, 18, 22, 29, 38, 39, 40, 41, 42 and 43.
+
+**2. The masking is real and is wider than the report says.** `RealModelFixture`'s constructor is `OnnxTextEmbedder.Open(directory)` then `Check()` (`tests/Curia.Embedding.Tests/RealModel.cs:47-52`); `Check` runs `ReproduceCanaries`, which throws `InvalidOperationException` at the first canary whose token ids or vector differ (`OnnxTextEmbedder.cs:94`). Both test classes of the assembly take it as `IClassFixture<RealModelFixture>`, so any patch that changes an id or a component turns every probe of the assembly red *before its first line*. Counting per probe, not per row: 14 rows have an Embedding probe whose first failure is `threw in its constructor` (FSEM8, 9, 10, 11, 12, 13, 14, 15, 29, 38, 39, 40, 41, 42); seven of them have no other red probe and so were never shown red at all: **FSEM14, 29, 38, 39, 40, 41, 42**. The other seven (8, 9, 10, 11, 12, 13, 15) were red by an Infrastructure probe, but their Embedding probes (SEM28, SEM29, SEM30, SEM31, SEM36, SEM38) were not seen. Measured on the copy: FSEM14's patch alone makes SEM28, SEM29 and SEM31 fail 3 of 3 with `Class fixture type 'Curia.Embedding.Tests.RealModelFixture' threw in its constructor`.
+
+**3. With the start-up canary comparison neutralised, the probes reach their own assertions** (ruling 47's isolation patch, measured on the copy, harm + isolation; the unmodified tree + the isolation patch is 14 of 14 green):
+
+| Row (+ isolation) | probe | result | first failure |
+|---|---|---|---|
+| FSEM8 | SEM30 | red | `the same text in the two roles has cosine 1.000000, expected below 0.999` |
+| FSEM9 | SEM30 | red | the same |
+| FSEM10 | SEM28 | red | `plain: a component differs by 2.34E-001; ...` |
+| FSEM11 | SEM28 | red | `plain: a component differs by 2.87E+000; ...` |
+| FSEM12 | SEM31 | red | `a 300-token prefix has cosine 1.000000 with the head, expected below 0.9999` |
+| FSEM13 | SEM31, SEM36 | red, red | `... expected a vector, got curia/embedding/model-fault` |
+| FSEM14 | SEM31 (and SEM28) | red | `a 3,000-token text differs from its first 510 tokens by 2.42E-002` |
+| FSEM15 | SEM36 red, **SEM38 green** | red | `emoji-only: expected curia/embedding/no-features, got (a vector)` |
+| FSEM38 | SEM29, SEM28 red, **SEM36 green** | red | `297 of 2600 strings differ` |
+| FSEM39 | SEM29, SEM28 | red | `21 of 2600 strings differ` |
+| FSEM40 | SEM29 | red | `131 of 2600 strings differ` |
+| FSEM41 | SEM29 | red | `118 of 2600 strings differ` |
+| FSEM42 | SEM29, SEM28 | red | `215 of 2600 strings differ` |
+
+Two probes the table names stay green on their row: SEM38 on FSEM15 and SEM36 on FSEM38 (ruling 55).
+
+**4. FSEM22 is a gap and the reason is in the tree.** `EmbeddingIndexer` reads the model's digests at `CountAbsentAsync` (line 94) and `FindAbsentAsync` (line 173) with `IndexedDigestsAsync(Model, ...)`. `TwoModelsTests` (SEM26) calls the *index* with `Old` and `New` directly and runs `EmbeddingIndexer` only through `IndexAsync` of one post; every probe that runs `ReconcileAsync` or `CountAbsentAsync` (`EmbedRoleTests`, `EmbeddingCatchUpTests`, `IndexRepairHarness`, `ReconcileProgressTests`) uses `HashedNGramEmbedder`, whose id is the one the mutant reads. So no probe runs a reconcile under one model over an index holding another's rows: the property R11.10 names ("a model change is a reindex") is unprobed at the one place it is implemented. Confirmed by writing SEM56 and mutating (ruling 50): green on the tree, red on all three forms.
+
+**5. FSEM24 is red for a reason that is not its property.** `db/0003_create_retrieval_index.sql:52` is `REVOKE DELETE ON post_embeddings FROM __CURIA_APP_ROLE__`, so the report's `DELETE` patch fails inside `UpsertAsync` as `42501` and SEM26 goes red on `curia/retrieval/index-unavailable`, not on the old model's count. The harm the row names is reachable with the grant the app role does hold (`UPDATE`): a relabel of the old row. Measured on the copy: `Assert.Equal() Failure: ... Expected: Tuple (3, 4) Actual: Tuple (2, 4)`.
+
+**6. FSEM31's first form is mis-aimed.** The compiler elides an assembly reference nothing uses, so a bare `PackageReference` leaves no type reference for SEM14's IL scan to see. The seven lock files that list `Microsoft.ML.OnnxRuntime` today are Infrastructure's, the Operator's and the Architecture tests' (both of those `Direct` with `ExcludeAssets`) and four that reach it through Infrastructure, so "only Infrastructure's lock lists it" is false; the rule that is true and derived from a different artifact is: *the projects `Curia.Infrastructure` stands on (its project references, followed to the end, read from the csproj files) list it in no lock file*. Measured on the copy with that leg added: the bare reference is red (`... lists Microsoft.ML.OnnxRuntime in its lock file: Curia.Application`) and the reference plus a type is red by the IL scan (`... is referenced by: Curia.Application, Curia.Infrastructure`).
+
+**7. FSEM43 and the streaming promise.** Ruling 22 of Amendment 1 and SEM31 both promise a streaming tokenizer (`WordPieceTokenizer`'s own summary: "stops on a word boundary after the `maxContentTokens`th content token and reads no further"), and FSEM43's harm is a cost: "a 256 KiB body costs every request its whole length". `Tokenize` returns `CharactersConsumed` from the scan's index, so a pre-pass that builds the cleaned, decomposed whole *before* the scan and then scans a string whose head is the same is invisible to it (both forms of the report's row: SEM31 green). Measured on a scratch copy of the two tokenizer files: tokenizing a 227,175-character text allocates **355,184 bytes** on the tree as it stands and exactly the same for its 2,487-character head; with the report's form (a) 7,194,800 against 437,184; with form (b) 7,182,304 against 430,144. In the finished SEM57 (model-free, Debug and Release): 8,237,536 against 437,184 for form (a) and 8,232,416 against 430,144 for form (b), the difference on the tree as it stands being inside the 16 KiB bound.
+
+**8. FSEM40's SEM50 stays green because the probe's cases cannot tell the forms apart; it is a gap.** `WordPieceTokenizer.Cleaned` flushes an ASCII character on its own (`if (rune.Value < 0x80) FlushCluster();`, line 186), so a mark after an ASCII base reaches `TextCleaner.AppendNormalised` as a cluster of the mark alone, which is removed after `FormD` and after `FormC` alike. All four of SEM50's bases (`cafe`, the start of a text, `[CLS]`, `x`) are ASCII. Task 6 recorded SEM50 green on FSEM40 (all four cases). Measured on a scratch copy of the tokenizer with `FormC`: the base-word case still equals its mark-free ids at 1, 8 and 2,000 marks, and two cases with a base outside ASCII (a precomposed `U+00E9` alone, and followed by marks) differ at all six counts (`[15]` became `[1]`); on the finished SEM50 FSEM40 is red: `1 marks after a precomposed letter changed the ids: [27] became [1]`.
+
+**9. FSEM18 hangs, and its second named probe is not aimed at the harm.** SEM11 awaits `cancelled` (`EmbedderBehaviourTests.cs:159`) with no bound, so a gate that ignores the token fails by a run that never returns. SEM3 (both halves) starts its run at once and queues no waiter, so it cannot see a waiter that ignores its token: green on FSEM18, as recorded. The harm is where a flood puts a committed post's step: queued behind a full gate. `CommittedPostIndexer.StepAsync` cancels a linked token at 2 seconds and relies on the waiter leaving; with the waiter ignoring it the step never answers `Pending`. Measured on the copy with SEM11 bounded and SEM58 added: FSEM18 is red in both by an assertion (`a caller whose token was cancelled while it was queued was still waiting 5 seconds later: the gate did not let it leave`; `the index step queued behind a full gate was still waiting 10 seconds after its bound expired: the waiter did not leave on its token`), 15 seconds in all, no hang; SEM3 stays green.
+
+**10. SEM45 and SEM49.** Unmodified tree: 15 runs of both, 15 green. FSEM51 form (a), 8 runs each on the copy: **SEM49 red 8 of 8, SEM45 red 7 of 8**. SEM45 is the weaker probe on that mutant and SEM49 is the one that carries it, as Amendment 2 ruling 41 says; no change to either. FSEM35's `SemaphoreSlim` form is green on both, so order and exclusion hold on it: nothing a unit probe asserts separates it from the gate.
+
+**11. Named probes that stayed green, read against the code** (ruling 55): FSEM1 (SEM23 asserts the *fixture's* door is hashed, which FSEM1 does not touch; run against the Api boot class on the copy, FSEM1 is red on SEM20, SEM21 and SEM22), FSEM6 (SEM28 on a CPU class no host has been run on), FSEM8 (SEM1 holds the role passed at the call sites; the patch is in the prefix), FSEM17 (SEM39 reads `Limit`, which the patch leaves), FSEM19 (SEM24's `FaultingEmbedder` builds its own `ModelFault`, so the line the patch changes is never reached), FSEM29 (SEM44 flips a byte of the vocabulary; on the copy SEM27 is red by its own assertion, `model.onnx hashes to ...cf35 but the manifest holds '...cf34'`, and SEM44 and the R14.13 control are green), FSEM37 (SEM10 reads the text of an error, not whether a client's abort is one), FSEM15's SEM38 and FSEM38's SEM36 (table above).
+
+**12. SEM15 is not built** and `EmbedderFenceTests.cs:11-13` says why; FSEM21 ran SEM20 and SEM21 and both were red (`the host started: the production composition registers the hashed embedder`).
+
+### Rulings
+
+46. **The count that is published, and the third count.** Both of PR 7's counts, as before, and a third that the masking makes necessary, **computed by the script below from `fsem-results.jsonl` and never by hand**: rows red on the first record as written; rows red on any record; rows red *by a named probe's own assertion* on the first record and on any record. Recounted today: **46 and 50** by the first two; **39 and 42** by the third, with FSEM14, 18, 22, 29, 38, 39, 40, 41, 42 and 43 the ten rows that have no record red by assertion. The report's **49 is withdrawn**: it counted FSEM17, FSEM18 and FSEM44 on their corrected forms. A record is red only when a named probe's failure is an assertion: a fixture constructor throw is `masked` and a timeout kill is `hung` (rulings 47, 49), and the report, the plan's "As run" and the PR body carry the script's three pairs, with the first-record verdict of every row beside them. The script (run it on the records of the Task 6 pass, which are those without a `pass` member, and again on the Task 6b records, which carry `"pass": "6b"`):
+
+```python
+import json
+rs = [json.loads(l) for l in open(".superpowers/sdd/2026-11-09-d10a/fsem-results.jsonl") if l.strip()]
+def by_assertion(p):  # a named probe red by its own assertion: not a constructor throw, not a timeout kill
+    f = p.get("first_failure") or ""
+    return p["verdict"] == "red" and "threw in its constructor" not in f and not f.startswith("HUNG")
+pass6 = [r for r in rs if r.get("pass", "6") == "6"]
+first = {}
+for r in pass6: first.setdefault(r["row"], r)
+print("rows", len(first))
+print("first record red", sum(r["verdict"] == "red" for r in first.values()), "| any record red", len({r["row"] for r in pass6 if r["verdict"] == "red"}))
+print("by assertion: first", sum(any(map(by_assertion, r["probes"])) for r in first.values()),
+      "| any", len({r["row"] for r in pass6 if any(map(by_assertion, r["probes"]))}))
+```
+
+47. **A shared fixture that throws is a masked verdict, and the rows it masks are run a second time with the start-up comparison neutralised.** `RealModelFixture` runs `Check()`, whose canary comparison refuses any build whose tokenizer, pooling or input differs from the reference, so a patch to those lines makes every probe of `Curia.Embedding.Tests` fail in a constructor and tells nothing about the probe (finding 2). Three changes. **(a) The runner's verdict.** A probe whose first failure holds `threw in its constructor` is recorded `masked`, not `red`; a row is `red` only when some named probe is `red`; a row with masked probes and no red one is `masked`. The harm-alone run is kept: it is the Forum's own second line shown working (the start refuses this build, R11.91) and the record says `refused at start`. **(b) The isolation patch (ISO).** For FSEM8 to FSEM15 and FSEM38 to FSEM42 the runner runs the row a second time with ISO applied beside the row's own edit, and the row's verdict is that run's. ISO is one edit, in the kept copy only and never committed: in `src/Curia.Infrastructure/Embedding/OnnxTextEmbedder.cs`
+
+```text
+Old:
+    private void ReproduceCanaries(WordPieceTokenizer tokenizer, IModelRunner runner)
+    {
+New:
+    private void ReproduceCanaries(WordPieceTokenizer tokenizer, IModelRunner runner)
+    {
+        if (_manifest.Canaries.Count >= 0) return;
+```
+
+(`runner is not null` fails the nullable analyzer, CS8604, and a constant `true` fails CS0162; the condition above builds at 0 warnings.) It leaves the digests, the session, the vocabulary, the tokenizer and the warm-up as they are, so the probe runs against the product up to the one comparison that would have refused it. **(c) The control.** The unmodified tree with ISO alone: `Curia.Embedding.Tests` 14 of 14 green (measured on the copy), recorded as the row `ISO` with its output before any isolated row is read. *Why not change the fixture so that it records the refusal and lets the probes run:* SEM28, SEM29, SEM30 and SEM31 need a *ready* embedder and a tokenizer that exists only after `Check` has passed; a fixture that served them from a build the start would refuse would be a test quietly running against what the Forum would not run. ISO is allowed in the kept copy because the question a row asks is whether the probe would have caught the harm *without* the other line of defence. *Honest limit:* a row red only under ISO is red against an embedder production would not start; it shows the probe is sound and says nothing of the boot check, which FSEM5 to FSEM7 and the `masked` record hold.
+
+48. **SEM27, SEM44 and the R14.13 control read no embedder and take no fixture.** They compute from the files, the manifest and the fetch script (`model.Directory` and the manifest only), so a build whose start-up check refuses (FSEM29's changed digest) masked them with the rest. They move, as written, to a new class `ModelFilesTests` in `Curia.Embedding.Tests` that reads `ModelDirectory.FromEnvironment()` and takes no `IClassFixture`; each still fails, naming the variable and the fetch command, when the directory is absent (R14.13), and the assembly's count stays 14. `FilesAndTokenizerTests` keeps SEM28 and SEM29, which read the embedder. Measured on the copy: FSEM29 is red on SEM27 by its own assertion and **SEM44 is green on it**, so SEM44 leaves FSEM29's list (ruling 55) and is held by FSEM32, which Task 6 recorded red on SEM44's own assertion. Tests: T1, T2 and `ModelFilesTests.cs` below.
+
+49. **A hang is not a red, SEM11 carries its own bound, and the harm FSEM18 names has a probe.** (a) The runner records a probe killed by its timeout as `hung`, not `red`. (b) Every await in SEM11's two facts that a gate which ignores a token would leave pending is bounded (5 seconds for the cancelled waiter, 10 for the two `WhenAll`s), by `Task.WhenAny` with a delay for the first so that the failure names the harm and by `WaitAsync` for the others; the failure is then an assertion and the run does not stop. (c) SEM3 (both halves) cannot see FSEM18's harm (a waiter that ignores its token) because its run starts at once and nothing is queued. **SEM58** is the probe that holds R8.81's bound where a flood puts the step: both places held by runs that wait for their callers, the post's step queued behind them and seen queued, the clock advanced by `CommittedPostIndexer.Bound`, the step answering `Pending` with `curia/retrieval/index-bound` within 10 seconds of real time, the gate holding no waiter and the step having run nothing. FSEM18's list becomes `SEM11, SEM58`. Tests: the four `EmbedderBehaviourTests` edits below (the SEM58 insertion is one of them); measured on the copy, both red on FSEM18 with the texts quoted in finding 9, and green on the tree (3 runs).
+
+50. **FSEM22 is a gap and SEM56 closes it; the two sites are given a row each.** SEM56 (`tests/Curia.Application.Tests/Retrieval/ReconcileUnderOtherModelTests.cs`, model-free, below) appends two discussion posts to a log, indexes them under the hashed embedder into one in-memory index, then runs a *second* embedder with another model id (`other-test-model@1`, four dimensions) through `EmbeddingIndexer` over the same index: `CountAbsentAsync` must say 2, `ReconcileAsync` must store 2, the digests held under the second model must be exactly the two the log's appends returned (the oracle is the log, not the indexer), the hashed model's two rows must be unchanged, and a second reconcile and a second count find nothing absent. Measured on the copy: green on the tree; red on **FSEM22** (both sites: `CountAbsentAsync under other-test-model@1 said 0, expected 2: the index holds both posts under hashed-ngram@1 and neither under other-test-model@1`), on **FSEM54** (line 94 only: the same text) and on **FSEM53** (line 173 only: `a reconcile under other-test-model@1 stored 0 vectors, expected 2`). FSEM22's list becomes `SEM56`; SEM26 stays where it is, the row of FSEM23 and FSEM24.
+
+51. **FSEM24 is re-aimed at the harm the grant allows.** The row's property is "a rollback to `@1` finds the hashed rows", i.e. the reindex keeps the old model's rows (R11.10, SEM26's `Assert.Equal((3L, 4L), ...)`). The app role holds `UPDATE` and not `DELETE` (`db/0003:51-52`), so the reachable harm is the relabel, and the first form is that: in `UpsertAsync`, before the `INSERT`, `UPDATE {_qualifiedTable} SET model = @model WHERE digest = @digest AND model <> @model;` (exact text below). Measured on the copy: red by the count, `Expected: Tuple (3, 4) Actual: Tuple (2, 4)`. The report's `DELETE` is kept as the second form and recorded for what it is: red by `42501`, which shows that the *grant*, not application code, is the guard (R11.6, invariant 3), and not by a count.
+
+52. **FSEM31's first form is the type reference, and SEM14 gains a leg for the bare one.** First form: the csproj reference and a type of the package named in `HashedNGramEmbedder` (the report's second form, red on the IL scan: `Microsoft.ML.OnnxRuntime is referenced by: Curia.Application, Curia.Infrastructure`). Second form: the bare `PackageReference`, which the compiler elides and the type scan cannot see; CI's `--locked-mode` restore (CS-3) would fail it, but a local run and the architecture tests would not. SEM14 gains a lock leg (T-edits below): the projects `Curia.Infrastructure` stands on, read from `Curia.Infrastructure.csproj`'s `ProjectReference`s followed to the end (a different artifact from the lock files they are held to), must not list `Microsoft.ML.OnnxRuntime` in their `packages.lock.json`; the leg first asserts the walk reached `Curia.Application`, `Curia.Domain`, `Curia.Domain.Primitives` and `Curia.Canon`, so a walk that found nothing cannot pass. Measured on the copy: the bare form is red, `a project Curia.Infrastructure stands on lists Microsoft.ML.OnnxRuntime in its lock file: Curia.Application`; Architecture 121 of 121 in Debug and Release on the finished tree. The rule is *not* "only Infrastructure's lock lists it": seven lock files do (finding 6).
+
+53. **Streaming is a promise, and the probe that sees a pre-pass counts allocation.** Ruling 22 of Amendment 1 says the tokenizer streams and SEM31's text says the cost does not grow with the body; FSEM43 names the cost. So the property is the plan's, and a probe that cannot see a whole-text pass leaves it unprobed. **SEM57** (`tests/Curia.Infrastructure.Tests/Embedding/TokenizerCostTests.cs`, model-free, below): a text of about 256 KiB (a repetition with a precomposed letter, so a pre-pass has normalisation to do), tokenized to 510 content tokens, must allocate within 16 KiB of what its own head (the characters the scan consumed) allocates, counted on the calling thread by `GC.GetAllocatedBytesForCurrentThread` after two warm calls. No time is read (ruling 13), so the runner's speed is out of it; allocation is exact on one thread. Measured on the copy: green on the tree in Debug and Release (3 runs), red on both forms of FSEM43 by about 7.8 MB (`tokenizing 262,119 characters allocated 8,237,536 bytes and its 2,551-character head 437,184: a difference of 7,800,352, expected at most 16,384`). *Rejected:* a bounded reader (the tokenizer takes a `string`, so there is no reader to bound), a ratio of times (trap 182), and the counter alone (SEM31, which stays and is now described as what it sees). *Honest limit, said in the probe's summary:* a pre-pass that allocates nothing (a scan of the whole text with no copy) costs time and not memory and is not seen; the time is recorded by SEM31 and asserted nowhere.
+
+54. **FSEM40 is a gap, and SEM50 is widened.** Finding 8: SEM50's four bases are all ASCII and the tokenizer flushes an ASCII character alone, so `FormD` and `FormC` cannot differ on them. SEM50 gains two cases whose base is a precomposed letter (`caf` + `U+00E9`, alone and followed by marks), whose oracle is the ASCII spelling `cafe` (the rule "a precomposed letter is its base and a non-spacing mark, and the mark is removed" is stated by the test, not read from the implementation), and an assertion that the mark-free `cafe` is exactly the id of the word `cafe` in the synthetic vocabulary, so that the equality is not between two `[UNK]`s. Measured on the copy: green on the tree; red on FSEM40, `1 marks after a precomposed letter changed the ids: [27] became [1]`. FSEM40's list is `SEM29, SEM50`; SEM29's share is run under ISO (ruling 47) and measured red, `131 of 2600 strings differ`.
+
+55. **A row lists the probes seen red on it.** A probe the plan names that has never been seen red on the row is removed from the row's list with its reason, and the harm is then held by the probes left or is a gap; the list is not what the plan expected. Dispositions, each read against the code (finding 11): **FSEM1** `SEM13, SEM20, SEM22` (SEM23 holds that the *fixture's* door is the hashed adapter, which the patch does not touch; run on the copy against the Api boot class FSEM1 is red on SEM20, SEM21 and SEM22 and SEM23 is green). **FSEM8** `SEM8, SEM30` (SEM1 holds the role passed at the call sites; the patch is in the prefix). **FSEM15** `SEM12, SEM36` (SEM38's pairs hold no text without features; the dedupe consequence is held by L4's live leg, an emoji-only question twice). **FSEM17** `SEM11` (SEM39 reads `Limit`, which the patch leaves). **FSEM19** `SEM10` (SEM24's `FaultingEmbedder` builds its own `ModelFault`, so `ex.Message` is never reached; SEM24 is held by FSEM27 and FSEM28). **FSEM29** `SEM27` (ruling 48). **FSEM37** `SEM46` (SEM10 reads an error's text, not whether an abort is one). **FSEM38** `SEM29, SEM28` (an emoji-only text without symbols is `NoFeatures` either way, so SEM36 stays green; measured). **FSEM6** keeps SEM28 as a conditional (a CPU class whose vectors differ from the reference by more than 1e-6; lead 238) and states so. The tables' *harm* cells are not edited, except by these lists; Task 6b reruns each corrected row so that the probes left are the ones recorded red.
+
+56. **FSEM35's `SemaphoreSlim(2)` form is recorded as not killed by a unit probe, and the live leg measures it.** Order and exclusion are what SEM45 and SEM49 assert, and both are green on that body (Task 6, 20 waiters, one place freed at a time); ruling 13 forbids asserting the timing that separates the two. So the form stays out of the unit probes, as Amendment 2 ruling 41 said. The pointer to L7 is confirmed, and L7's eight-at-once leg is made to carry it (E-edit below): the same rounds on the tip and on FSEM35's `SemaphoreSlim` binary, alternating in one directory (trap 182), the eight requests' wall times recorded beside M6's 22.6 ms and 908 ms, asserted nowhere. *What this leaves open, for the architect and not the owner:* Task 6 shows `SemaphoreSlim` keeping arrival order on the probes' scenario, so M6's 908 ms is not explained by order; if L7's two runs do not separate, ruling 23's premise (that the gate buys a measured tail) is not reproduced in the built system and ruling 23 returns to the architect with the numbers (lead 236). SEM45 is flaky on FSEM51 form (a) (7 of 8 red on the copy; Task 6: green, red, red) and SEM49 is not (8 of 8; Task 6: 3 of 3): FSEM51's list stays `SEM49 (and SEM45 where the window opens)`, no deterministic SEM45 is specified, and the property that must be deterministic is the other direction, **no red on the correct gate**, which is 15 of 15 here and is asserted at Task 6b by 15 runs of each on the tip (lead 239). FSEM51 form (b) stays recorded as an equivalent mutant (the inline continuation keeps the hand-off synchronous).
+
+57. **SEM15 stays unbuilt and FSEM21 stays `SEM20, SEM21`.** `IlCallSites` returns the set of calls in a body and not their order, so the order against the lifecycle gate cannot be read from IL here, and the plan's own rule allows the probe to be dropped with that recorded. What would be lost is the order of the check against the gate, which has no served effect (the gate refuses lifecycle appends; the check refuses a model). What matters, that a bad model is refused before the first request, is held by SEM20 and SEM21, both red on FSEM21 (`the host started: the production composition registers the hashed embedder`). SEM15 becomes an unused number (E-edits).
+
+### Probe and falsification rows added
+
+**SEM56** (ruling 50), **SEM57** (ruling 53) and **SEM58** (ruling 49) are new; SEM50 (ruling 54), SEM11 (ruling 49) and SEM14 (ruling 52) are changed; SEM27, SEM44 and the R14.13 control move (ruling 48). Where each lives: SEM56 `tests/Curia.Application.Tests/Retrieval/ReconcileUnderOtherModelTests.cs`; SEM57 `tests/Curia.Infrastructure.Tests/Embedding/TokenizerCostTests.cs`; SEM58 in `EmbedderBehaviourTests.cs`; the moved three in `tests/Curia.Embedding.Tests/ModelFilesTests.cs`. **SEM1 to SEM58**, SEM15, SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 unused.
+
+**FSEM53 and FSEM54** are new (exact text); **FSEM22, FSEM24, FSEM31 and FSEM43** each have the forms below, run in this order; the rows whose lists changed are in the plan body (E-edits).
+
+| # | Mutation | Red probes | The harm |
+|---|---|---|---|
+| FSEM22 | `EmbeddingIndexer.cs`: both `IndexedDigestsAsync(Model, cancellationToken)` (lines 94 and 173) become `IndexedDigestsAsync(HashedNGramEmbedding.Model, cancellationToken)` | SEM56 | the reconcile reads the old model's digests: nothing is embedded under the new id |
+| FSEM53 | `EmbeddingIndexer.cs`, `FindAbsentAsync` (line 173) only | SEM56 | a reconcile under a new model id finds every post present and embeds nothing: R11.10's reindex does not happen, and the count says there was work |
+| FSEM54 | `EmbeddingIndexer.cs`, `CountAbsentAsync` (line 94) only | SEM56 | the first start under a new model counts no work, so ruling 24's progress line says nothing for the whole of a reconcile that runs |
+
+Exact patch text, as the runner's row specs take it (file, old, new, count). Each Old is counted once in the file before the patch is applied.
+
+**FSEM22** `src/Curia.Application/Retrieval/EmbeddingIndexer.cs`
+
+Old (occurs twice; both are replaced):
+```text
+IndexedDigestsAsync(Model, cancellationToken)
+```
+New:
+```text
+IndexedDigestsAsync(HashedNGramEmbedding.Model, cancellationToken)
+```
+
+**FSEM53** `src/Curia.Application/Retrieval/EmbeddingIndexer.cs`
+
+Old:
+```text
+IndexedDigestsAsync(Model, cancellationToken).ConfigureAwait(false);
+        if (!held.TryGetValue(out var digests, out var heldError))
+            return heldError!;
+```
+New:
+```text
+IndexedDigestsAsync(HashedNGramEmbedding.Model, cancellationToken).ConfigureAwait(false);
+        if (!held.TryGetValue(out var digests, out var heldError))
+            return heldError!;
+```
+
+**FSEM54** `src/Curia.Application/Retrieval/EmbeddingIndexer.cs`
+
+Old:
+```text
+IndexedDigestsAsync(Model, cancellationToken).ConfigureAwait(false);
+        if (!held.TryGetValue(out var digests, out var heldError))
+            return Result<long>.Fail(heldError!);
+```
+New:
+```text
+IndexedDigestsAsync(HashedNGramEmbedding.Model, cancellationToken).ConfigureAwait(false);
+        if (!held.TryGetValue(out var digests, out var heldError))
+            return Result<long>.Fail(heldError!);
+```
+
+**FSEM24 form a** (the relabel; red by `Expected: Tuple (3, 4) Actual: Tuple (2, 4)`) `src/Curia.Infrastructure/PostgresVectorIndex.cs`
+
+Old:
+```text
+                INSERT INTO {_qualifiedTable} (digest, model, post_id, seq, embedding, indexed_at)
+```
+New:
+```text
+                UPDATE {_qualifiedTable} SET model = @model WHERE digest = @digest AND model <> @model;
+                INSERT INTO {_qualifiedTable} (digest, model, post_id, seq, embedding, indexed_at)
+```
+
+**FSEM24 form b** (the report's delete; red by `42501`, the grant) `src/Curia.Infrastructure/PostgresVectorIndex.cs`
+
+Old:
+```text
+                INSERT INTO {_qualifiedTable} (digest, model, post_id, seq, embedding, indexed_at)
+```
+New:
+```text
+                DELETE FROM {_qualifiedTable} WHERE model <> @model;
+                INSERT INTO {_qualifiedTable} (digest, model, post_id, seq, embedding, indexed_at)
+```
+
+**FSEM31 form a**, the csproj (red by the IL scan; the runner keeps and restores every `packages.lock.json`) `src/Curia.Application/Curia.Application.csproj`
+
+Old:
+```text
+    <ProjectReference Include="../Curia.Domain/Curia.Domain.csproj" />
+  </ItemGroup>
+```
+New:
+```text
+    <ProjectReference Include="../Curia.Domain/Curia.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+  </ItemGroup>
+```
+
+**FSEM31 form a**, the type, in the same run `src/Curia.Application/Retrieval/HashedNGramEmbedder.cs`
+
+Old:
+```text
+public sealed class HashedNGramEmbedder : ITextEmbedder
+{
+```
+New:
+```text
+public sealed class HashedNGramEmbedder : ITextEmbedder
+{
+    internal static readonly Type Fsem31 = typeof(Microsoft.ML.OnnxRuntime.SessionOptions);
+```
+
+**FSEM31 form b**: the csproj edit above alone (red by the lock leg).
+
+**FSEM43 form a** (the whole is cleaned and normalised before the scan; red by about 7.8 MB) `src/Curia.Infrastructure/Embedding/Tokenization/WordPieceTokenizer.cs`
+
+Old:
+```text
+        if (maxContentTokens <= 0) return new TokenizeResult([], 0, true);
+```
+New:
+```text
+        if (maxContentTokens <= 0) return new TokenizeResult([], 0, true);
+        var whole = new StringBuilder(text.Length);
+        foreach (var r in text.EnumerateRunes())
+            if (!TextCleaner.IsDropped(r)) whole.Append(r.ToString());
+        try
+        {
+            text = whole.ToString().Normalize(NormalizationForm.FormD);
+        }
+        catch (ArgumentException)
+        {
+            text = whole.ToString();
+        }
+```
+
+**FSEM43 form b** (the whole is cleaned, normalised and discarded; the text is unchanged) `src/Curia.Infrastructure/Embedding/Tokenization/WordPieceTokenizer.cs`
+
+Old:
+```text
+        if (maxContentTokens <= 0) return new TokenizeResult([], 0, true);
+```
+New:
+```text
+        if (maxContentTokens <= 0) return new TokenizeResult([], 0, true);
+        var whole = new StringBuilder(text.Length);
+        foreach (var r in text.EnumerateRunes())
+            if (!TextCleaner.IsDropped(r)) whole.Append(r.ToString());
+        try
+        {
+            GC.KeepAlive(whole.ToString().Normalize(NormalizationForm.FormD));
+        }
+        catch (ArgumentException)
+        {
+        }
+```
+
+**ISO**, the isolation patch (ruling 47), applied beside the row's own edit for FSEM8 to FSEM15 and FSEM38 to FSEM42, and alone as the control `src/Curia.Infrastructure/Embedding/OnnxTextEmbedder.cs`
+
+Old:
+```text
+    private void ReproduceCanaries(WordPieceTokenizer tokenizer, IModelRunner runner)
+    {
+```
+New:
+```text
+    private void ReproduceCanaries(WordPieceTokenizer tokenizer, IModelRunner runner)
+    {
+        if (_manifest.Canaries.Count >= 0) return;
+```
+
+Rows to run again at Task 6b and the forms, with what each must do (a row that stays green is reported with its patch and output, not edited into shape):
+
+| Row | Forms | Must be red by an assertion of |
+|---|---|---|
+| ISO (control) | alone, unmodified tree | none: `Curia.Embedding.Tests` 14 of 14 green |
+| FSEM8, 9 | harm alone (`masked`, recorded as `refused at start`), then harm + ISO | SEM8 and SEM30 |
+| FSEM10, 11 | the same | SEM7 and SEM28 |
+| FSEM12 | the same | SEM8 and SEM31 |
+| FSEM13 | the same | SEM8, SEM31, SEM36 |
+| FSEM14 | the same | SEM31 (SEM28 also, measured) |
+| FSEM15 | the same | SEM12 and SEM36 |
+| FSEM38, 39, 41, 42 | the same | SEM29 and SEM28 (FSEM41: SEM29) |
+| FSEM40 | harm + ISO; harm alone with SEM50 | SEM29 (under ISO) and SEM50 |
+| FSEM29 | a | SEM27 (in `ModelFilesTests`) |
+| FSEM18 | a | SEM11 and SEM58 |
+| FSEM22, 53, 54 | a | SEM56 |
+| FSEM24 | a, then b | SEM26 (a by the count, b by `42501`) |
+| FSEM31 | a, then b | SEM14 (a by the IL scan, b by the lock leg) |
+| FSEM43 | a, then b | SEM57 |
+| FSEM1 | a, probes SEM13, SEM20, SEM21, SEM22 | all four |
+| FSEM6, 17, 19, 21, 37 | a, with the corrected lists | the probes left |
+| FSEM35 | a; b3 (the `SemaphoreSlim` body, unchanged) | a: SEM45; b3: recorded not killed (ruling 56) |
+| FSEM51 | a, SEM49 and SEM45 8 times each | SEM49 every time; SEM45 as it falls |
+
+
+### Test files and edits
+
+For the repository's tests, for Task 6b (not for the plan body; their headings are `T`, so the check below does not read them). Each was applied to a copy of the tree at `52c39d9f` and built at 0 warnings: `Curia.Application.Tests` 692 of 692, `Curia.Embedding.Tests` 14 of 14 (with the model directory), `Curia.Architecture.Tests` 121 of 121 in Debug and in Release, the `Curia.Infrastructure.Tests` embedder classes 45 of 45 and the Api boot class 9 of 9, all green; the mutants named in the rulings were run on that copy. A using the build reports as unused is removed; nothing else is changed in these files.
+
+#### New file `tests/Curia.Application.Tests/Retrieval/ReconcileUnderOtherModelTests.cs`
+
+```csharp
+using System.Diagnostics.CodeAnalysis;
+using Curia.Application.Ports;
+using Curia.Application.Retrieval;
+using Curia.Application.Tests.InMemory;
+using Curia.Domain.Primitives;
+using Curia.Domain.Search;
+using Curia.Tests.Shared;
+using Xunit;
+using static Curia.Application.Tests.Retrieval.RetrievalTestLog;
+
+namespace Curia.Application.Tests.Retrieval;
+
+/// <summary>
+/// Errata G65 (D10a), Amendment 3 ruling 50 (SEM56), model-free: a reconcile under one model over an index that holds another model's rows reads the digests of its own model. Task 6's FSEM22 pointed
+/// <c>IndexedDigestsAsync</c> at the hashed model's id and every probe stayed green, because SEM26 asks the index for its digests directly and never runs a reconcile through
+/// <see cref="EmbeddingIndexer"/>, and every other reconcile probe runs the hashed embedder, whose id is the one the mutant reads.
+///
+/// <para><b>Oracle.</b> The digests the log holds are the ones <c>AcceptAsync</c> returns when it appends them, not the ones the indexer reports; the rows a model holds are read
+/// from the index per model, not from the indexer's return value.</para>
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class ReconcileUnderOtherModelTests
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private static readonly EmbeddingModel Other = new("other-test-model", "1", 4);
+
+    /// <summary>A model that is not the hashed one: its own id, four dimensions, a vector that is the same for every text.</summary>
+    private sealed class OtherModelEmbedder : ITextEmbedder
+    {
+        public EmbeddingModel Model => Other;
+
+        public Task<Result<Embedding>> EmbedAsync(string text, EmbeddingRole role, CancellationToken cancellationToken) =>
+            Task.FromResult(Result<Embedding>.Ok(new Embedding(Other, [1f, 0f, 0f, 0f])));
+    }
+
+    /// <summary>
+    /// SEM56. A log of two discussion posts, both indexed under <c>hashed-ngram@1</c> in one index. Under another model the index holds neither: <c>CountAbsentAsync</c> says 2, a reconcile
+    /// stores 2 vectors and the other model's rows are exactly the log's two digests; the hashed model's two rows are untouched (the old rows are kept, R11.10); a second reconcile and a second
+    /// count find nothing absent. Predicted red on FSEM22, FSEM53 and FSEM54: <c>CountAbsentAsync under other-test-model@1 said 0, expected 2</c> (FSEM22, FSEM54) and <c>a reconcile under
+    /// other-test-model@1 stored 0 vectors, expected 2</c> (FSEM22, FSEM53). Green on the tree as it stands.
+    /// </summary>
+    [Fact]
+    public async Task R11_10_SEM56_AReconcileUnderAnotherModelIndexesTheLogIntoItAndLeavesTheFirstModelsRows()
+    {
+        var store = new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate());
+        var index = new InMemoryVectorIndex();
+        var hashed = new EmbeddingIndexer(new HashedNGramEmbedder(), index);
+        var digests = new[]
+        {
+            await AcceptAsync(store, hashed, "reconcile-1", Ct, title: "About reconcile one", body: "the first post, about quokka marsupials"),
+            await AcceptAsync(store, hashed, "reconcile-2", Ct, title: "About reconcile two", body: "the second post, about a different animal altogether"),
+        };
+        Assert.Equal(2, digests.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(2L, Require(await index.CountAsync(HashedNGramEmbedding.Model, Ct)));
+
+        var other = new EmbeddingIndexer(new OtherModelEmbedder(), index);
+        Assert.Equal(0L, Require(await index.CountAsync(Other, Ct)));
+        var log = await LogAsync(store, Ct);
+
+        var absent = Require(await other.CountAbsentAsync(store, Ct));
+        Assert.True(absent == 2, $"CountAbsentAsync under {Other.Id} said {absent}, expected 2: the index holds both posts under {HashedNGramEmbedding.Model.Id} and neither under {Other.Id}");
+
+        var stored = Require(await other.ReconcileAsync(store, Ct));
+        Assert.True(stored == 2, $"a reconcile under {Other.Id} stored {stored} vectors, expected 2");
+
+        var underOther = Require(await index.IndexedDigestsAsync(Other, Ct));
+        Assert.True(digests.ToHashSet(StringComparer.Ordinal).SetEquals(underOther), $"the digests held under {Other.Id} are not the log's two");
+        var underHashed = Require(await index.IndexedDigestsAsync(HashedNGramEmbedding.Model, Ct));
+        Assert.True(digests.ToHashSet(StringComparer.Ordinal).SetEquals(underHashed), $"the digests held under {HashedNGramEmbedding.Model.Id} changed");
+        Assert.Equal((2L, 2L), (Require(await index.CountAsync(HashedNGramEmbedding.Model, Ct)), Require(await index.CountAsync(Other, Ct))));
+
+        Assert.Equal(0L, Require(await other.ReconcileAsync(store, Ct)));
+        Assert.Equal(0L, Require(await other.CountAbsentAsync(store, Ct)));
+        Assert.Equal(0L, Require(await hashed.CountAbsentAsync(store, Ct)));
+        Assert.Equal(2, log.Count);
+    }
+}
+```
+
+#### New file `tests/Curia.Infrastructure.Tests/Embedding/TokenizerCostTests.cs`
+
+```csharp
+using System.Diagnostics.CodeAnalysis;
+using Curia.Infrastructure.Embedder.Tokenization;
+using Xunit;
+
+namespace Curia.Infrastructure.Tests.Embedder;
+
+/// <summary>
+/// Errata G65 (D10a), Amendment 3 ruling 53 (SEM57), model-free: the tokenizer is streaming (Amendment 1 ruling 22), so the memory it allocates for a 256 KiB body is what it allocates for the head it reads
+/// and not for the length of the text. SEM31 holds the characters the scan consumed; a pre-pass that cleans and normalises the whole text before the scan leaves that counter unchanged, so only the bytes
+/// the call allocates can see it. Allocation is counted on the calling thread, which no other test shares, and no time is read (ruling 13 of the plan).
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class TokenizerCostTests
+{
+    /// <summary>The most the call may allocate over the head's own allocation: the mutants allocate megabytes, a streaming scan allocates the same bytes for both texts.</summary>
+    private const long Slack = 16 * 1024;
+
+    private static long Allocated(WordPieceTokenizer tokenizer, string text)
+    {
+        // Two calls first: the JIT, the static tables and the first use of the lookup are paid before the count.
+        tokenizer.Tokenize(text, 510);
+        tokenizer.Tokenize(text, 510);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var result = tokenizer.Tokenize(text, 510);
+        var after = GC.GetAllocatedBytesForCurrentThread();
+        GC.KeepAlive(result);
+        return after - before;
+    }
+
+    /// <summary>
+    /// SEM57. A text of about 256 KiB whose head is 510 content tokens, with a non-ASCII letter in every repetition (so that a pre-pass has normalisation to do): the bytes allocated to tokenize it are within
+    /// 16 KiB of the bytes allocated to tokenize its own head. Red on FSEM43, both forms (measured on a copy of the tree): <c>tokenizing 262,119 characters allocated 8,237,536 bytes and its
+    /// 2,551-character head 437,184: a difference of 7,800,352, expected at most 16,384</c>. The sizes depend on the host; the difference does not fall below a megabyte, and on the tree as it stands it is inside the bound. Green on the tree as it stands.
+    /// </summary>
+    [Fact]
+    public void R9_63_SEM57_AnEnormousTextAllocatesWhatItsHeadAllocates()
+    {
+        var tokenizer = new WordPieceTokenizer(EmbedderRig.Vocabulary);
+        var unit = "the quick caf" + Cp.Of(0x00E9) + " jumps over the lazy dog ";
+        var text = string.Concat(Enumerable.Repeat(unit, 256 * 1024 / unit.Length));
+        Assert.True(text.Length > 200_000, "NOT REACHED: the text is not about 256 KiB");
+
+        var read = tokenizer.Tokenize(text, 510);
+        Assert.True(read.StoppedAtCap && read.ContentIds.Count == 510, $"NOT REACHED: the scan did not stop at 510 tokens ({read.ContentIds.Count}, stopped at the cap: {read.StoppedAtCap})");
+        Assert.True(read.CharactersConsumed < 10_000, $"the scan consumed {read.CharactersConsumed} characters of a text whose head is a few thousand");
+        var head = text[..read.CharactersConsumed];
+
+        var whole = Allocated(tokenizer, text);
+        var headOnly = Allocated(tokenizer, head);
+        Assert.True(
+            whole - headOnly <= Slack,
+            $"tokenizing {text.Length:N0} characters allocated {whole:N0} bytes and its {head.Length:N0}-character head {headOnly:N0}: a difference of {whole - headOnly:N0}, expected at most {Slack:N0}");
+    }
+}
+```
+
+#### New file `tests/Curia.Embedding.Tests/ModelFilesTests.cs`
+
+```csharp
+using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
+using Curia.Infrastructure.Embedder;
+using Xunit;
+
+namespace Curia.Embedding.Tests;
+
+/// <summary>
+/// Errata G65 (D10a), SEM27, SEM44 and the directory's own control, which take no <see cref="RealModelFixture"/>: the real files hash to the manifest, the fetch script says so and refuses a changed
+/// byte, and the suite's directory check fails loudly. They read the files and the manifest and not the embedder, so a build whose start-up check refuses (a changed tokenizer, a changed manifest
+/// digest) cannot make them red through the fixture's constructor instead of through their own assertions (Task 6, Amendment 3 ruling 48). Each still fails, naming the variable, when the directory is absent.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class ModelFilesTests
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private static string ModelDir => ModelDirectory.FromEnvironment();
+
+    /// <summary>
+    /// R14.13 (control, no SEM number). The suite's fixture refuses, naming the variable and the fetch command, when the variable is unset, names no directory, or names one without both files.
+    /// Green on the seam: it is the fixture's own logic.
+    /// </summary>
+    [Fact]
+    public void R14_13_TheFixtureFailsWithTheVariableAndTheFetchCommandAndNeverSkips()
+    {
+        var empty = Path.Combine(Path.GetTempPath(), "curia-embedding-empty-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(empty);
+        try
+        {
+            foreach (var value in new string?[] { null, string.Empty, Path.Combine(empty, "absent"), empty })
+            {
+                var failure = Assert.ThrowsAny<Exception>(() => ModelDirectory.Resolve(value));
+                Assert.Contains(ModelDirectory.Variable, failure.Message, StringComparison.Ordinal);
+                Assert.Contains("python3 tools/model/fetch-model.py", failure.Message, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(empty);
+        }
+
+        Assert.Equal(ModelDir, ModelDirectory.Resolve(ModelDir));
+    }
+
+    private static string FetchScript() => Path.Combine(ModelDirectory.RepositoryRoot(), "tools", "model", "fetch-model.py");
+
+    /// <summary>
+    /// SEM27. Both files hash, by this test's own SHA-256 over their bytes, to the digests the manifest holds, and <c>fetch-model.py --verify-only</c> agrees (exit 0). Predicted red on the seam:
+    /// <c>model.onnx hashes to 828e14... but the manifest holds ''</c> (the seam's manifest is empty).
+    /// </summary>
+    [Fact]
+    public async Task R11_91_SEM27_BothFilesHashToTheManifestsDigestsAndTheFetchScriptAgrees()
+    {
+        var manifest = EmbeddingManifest.Embedded();
+
+        foreach (var (name, expected) in new[] { ("model.onnx", manifest.Model.Sha256), ("vocab.txt", manifest.Vocabulary.Sha256) })
+        {
+            await using var stream = File.OpenRead(Path.Combine(ModelDir, name));
+            var actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, Ct));
+            Assert.True(actual == expected, $"{name} hashes to {actual} but the manifest holds '{expected}'");
+        }
+
+        var (exit, output, error) = await Probe.RunAsync("python3", [FetchScript(), "--verify-only", "--out", ModelDir], Ct);
+        Assert.True(exit == 0, $"fetch-model.py --verify-only exited {exit}; stderr: {error.Trim()}; stdout: {output.Trim()}");
+    }
+
+    /// <summary>
+    /// SEM44. The negative side of SEM27: a copy of the directory with one byte of <c>vocab.txt</c> flipped makes the script exit non-zero, naming the file and the digest mismatch on its error stream
+    /// (a script that always fails would pass the first half alone, so the words are required). Predicted red on the seam: <c>stderr does not name vocab.txt and a digest mismatch: fetch-model.py is a seam
+    /// stub: not implemented</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_91_SEM44_AChangedByteMakesTheFetchScriptRefuseAndNameTheFile()
+    {
+        var copy = Path.Combine(Path.GetTempPath(), "curia-sem44-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(copy);
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(copy, "model.onnx"), Path.Combine(ModelDir, "model.onnx"));
+            var vocab = await File.ReadAllBytesAsync(Path.Combine(ModelDir, "vocab.txt"), Ct);
+            vocab[vocab.Length / 2] ^= 0x01;
+            await File.WriteAllBytesAsync(Path.Combine(copy, "vocab.txt"), vocab, Ct);
+
+            var (exit, _, error) = await Probe.RunAsync("python3", [FetchScript(), "--verify-only", "--out", copy], Ct);
+
+            Assert.NotEqual(0, exit);
+            Assert.True(
+                error.Contains("vocab.txt", StringComparison.Ordinal) && error.Contains("digest", StringComparison.OrdinalIgnoreCase),
+                $"stderr does not name vocab.txt and a digest mismatch: {error.Trim()}");
+        }
+        finally
+        {
+            Directory.Delete(copy, recursive: true);
+        }
+    }
+}
+```
+
+#### T1 — FilesAndTokenizerTests: the three members that read no embedder leave (ruling 48); SEM27, SEM44 and the R14.13 control move to ModelFilesTests
+File: `tests/Curia.Embedding.Tests/FilesAndTokenizerTests.cs`
+Old:
+```text
+    /// <summary>
+    /// R14.13 (control, no SEM number). The suite's fixture refuses, naming the variable and the fetch command, when the variable is unset, names no directory, or names one without both files.
+    /// Green on the seam: it is the fixture's own logic.
+    /// </summary>
+    [Fact]
+    public void R14_13_TheFixtureFailsWithTheVariableAndTheFetchCommandAndNeverSkips()
+    {
+        var empty = Path.Combine(Path.GetTempPath(), "curia-embedding-empty-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(empty);
+        try
+        {
+            foreach (var value in new string?[] { null, string.Empty, Path.Combine(empty, "absent"), empty })
+            {
+                var failure = Assert.ThrowsAny<Exception>(() => ModelDirectory.Resolve(value));
+                Assert.Contains(ModelDirectory.Variable, failure.Message, StringComparison.Ordinal);
+                Assert.Contains("python3 tools/model/fetch-model.py", failure.Message, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(empty);
+        }
+
+        Assert.Equal(model.Directory, ModelDirectory.Resolve(model.Directory));
+    }
+
+    private static string FetchScript() => Path.Combine(ModelDirectory.RepositoryRoot(), "tools", "model", "fetch-model.py");
+
+    /// <summary>
+    /// SEM27. Both files hash, by this test's own SHA-256 over their bytes, to the digests the manifest holds, and <c>fetch-model.py --verify-only</c> agrees (exit 0). Predicted red on the seam:
+    /// <c>model.onnx hashes to 828e14... but the manifest holds ''</c> (the seam's manifest is empty).
+    /// </summary>
+    [Fact]
+    public async Task R11_91_SEM27_BothFilesHashToTheManifestsDigestsAndTheFetchScriptAgrees()
+    {
+        var manifest = EmbeddingManifest.Embedded();
+
+        foreach (var (name, expected) in new[] { ("model.onnx", manifest.Model.Sha256), ("vocab.txt", manifest.Vocabulary.Sha256) })
+        {
+            await using var stream = File.OpenRead(Path.Combine(model.Directory, name));
+            var actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, Ct));
+            Assert.True(actual == expected, $"{name} hashes to {actual} but the manifest holds '{expected}'");
+        }
+
+        var (exit, output, error) = await Probe.RunAsync("python3", [FetchScript(), "--verify-only", "--out", model.Directory], Ct);
+        Assert.True(exit == 0, $"fetch-model.py --verify-only exited {exit}; stderr: {error.Trim()}; stdout: {output.Trim()}");
+    }
+
+    /// <summary>
+    /// SEM44. The negative side of SEM27: a copy of the directory with one byte of <c>vocab.txt</c> flipped makes the script exit non-zero, naming the file and the digest mismatch on its error stream
+    /// (a script that always fails would pass the first half alone, so the words are required). Predicted red on the seam: <c>stderr does not name vocab.txt and a digest mismatch: fetch-model.py is a seam
+    /// stub: not implemented</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_91_SEM44_AChangedByteMakesTheFetchScriptRefuseAndNameTheFile()
+    {
+        var copy = Path.Combine(Path.GetTempPath(), "curia-sem44-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(copy);
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(copy, "model.onnx"), Path.Combine(model.Directory, "model.onnx"));
+            var vocab = await File.ReadAllBytesAsync(Path.Combine(model.Directory, "vocab.txt"), Ct);
+            vocab[vocab.Length / 2] ^= 0x01;
+            await File.WriteAllBytesAsync(Path.Combine(copy, "vocab.txt"), vocab, Ct);
+
+            var (exit, _, error) = await Probe.RunAsync("python3", [FetchScript(), "--verify-only", "--out", copy], Ct);
+
+            Assert.NotEqual(0, exit);
+            Assert.True(
+                error.Contains("vocab.txt", StringComparison.Ordinal) && error.Contains("digest", StringComparison.OrdinalIgnoreCase),
+                $"stderr does not name vocab.txt and a digest mismatch: {error.Trim()}");
+        }
+        finally
+        {
+            Directory.Delete(copy, recursive: true);
+        }
+    }
+```
+New:
+```text
+(deleted: the text above is removed, nothing replaces it)
+```
+
+#### T2 — FilesAndTokenizerTests: its summary says what stays
+File: `tests/Curia.Embedding.Tests/FilesAndTokenizerTests.cs`
+Old:
+```text
+/// Errata G65 (D10a), SEM27 to SEM29, SEM44 and the fixture's own control: the real files hash to the manifest, the fetch script says so and refuses a changed byte, the canaries reproduce the Python
+/// reference, and the tokenizer reproduces the reference's ids on the committed parity file.
+```
+New:
+```text
+/// Errata G65 (D10a), SEM28 and SEM29: the canaries reproduce the Python reference and the tokenizer reproduces the reference's ids on the committed parity file.
+```
+
+#### T3 — TokenizerMarkTests: SEM50 widened to a base outside ASCII (ruling 54), edit 1 of 4
+File: `tests/Curia.Infrastructure.Tests/Embedding/TokenizerMarkTests.cs`
+Old:
+```text
+        var softHyphen = Cp.Of(0x00AD);
+        var cases
+```
+New:
+```text
+        var softHyphen = Cp.Of(0x00AD);
+        var precomposed = Cp.Of(0x00E9);
+        var cases
+```
+
+#### T4 — TokenizerMarkTests: SEM50 widened to a base outside ASCII (ruling 54), edit 2 of 4
+File: `tests/Curia.Infrastructure.Tests/Embedding/TokenizerMarkTests.cs`
+Old:
+```text
+            ("a base word", m => "cafe" + m, "cafe"),
+```
+New:
+```text
+            ("a base word", m => "cafe" + m, "cafe"),
+            ("a precomposed letter", _ => "caf" + precomposed, "cafe"),
+            ("a precomposed letter and marks after it", m => "caf" + precomposed + m, "cafe"),
+```
+
+#### T5 — TokenizerMarkTests: SEM50 widened to a base outside ASCII (ruling 54), edit 3 of 4
+File: `tests/Curia.Infrastructure.Tests/Embedding/TokenizerMarkTests.cs`
+Old:
+```text
+            Assert.NotEmpty(expected);
+```
+New:
+```text
+            Assert.NotEmpty(expected);
+            if (without == "cafe") Assert.Equal([EmbedderRig.IdOf("cafe")], expected);
+```
+
+#### T6 — TokenizerMarkTests: SEM50 widened to a base outside ASCII (ruling 54), edit 4 of 4
+File: `tests/Curia.Infrastructure.Tests/Embedding/TokenizerMarkTests.cs`
+Old:
+```text
+    /// SEM50. For a base word, the start of a text, a special token and a soft hyphen (a dropped format character), a run of 1, 8 and 2,000 marks (past the 1,024 a cluster is cut at) leaves
+    /// the ids of the mark-free text; and the mark-free ids are not empty, so the equality is not between two empty lists.
+```
+New:
+```text
+    /// SEM50. For a base word, a precomposed letter (alone and with marks after it), the start of a text, a special token and a soft hyphen (a dropped format character), a run of 1, 8 and 2,000 marks
+    /// (past the 1,024 a cluster is cut at) leaves the ids of the mark-free text; a precomposed letter is the mark-free word's own letter (the oracle for it is the ASCII spelling, not the tokenizer); and the
+    /// mark-free ids are not empty, so the equality is not between two empty lists. Why the precomposed cases: the tokenizer flushes an ASCII character on its own, so an ASCII base never meets its marks
+    /// in normalisation and <c>FormD</c> and <c>FormC</c> cannot differ on it; only a base outside ASCII does (Task 6's FSEM40 left this probe green for that reason; Amendment 3 ruling 54).
+```
+
+#### T7 — EmbedderBehaviourTests: SEM11 bounded and SEM58 added (rulings 49), edit 1 of 4
+File: `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`
+Old:
+```text
+        await queuedThenCancelled.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+```
+New:
+```text
+        await queuedThenCancelled.CancelAsync();
+        var left = await Task.WhenAny(cancelled, Task.Delay(TimeSpan.FromSeconds(5), Ct));
+        Assert.True(left == cancelled, "a caller whose token was cancelled while it was queued was still waiting 5 seconds later: the gate did not let it leave");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+```
+
+#### T8 — EmbedderBehaviourTests: SEM11 bounded and SEM58 added (rulings 49), edit 2 of 4
+File: `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`
+Old:
+```text
+        var results = await Task.WhenAll(calls);
+```
+New:
+```text
+        var results = await Task.WhenAll(calls).WaitAsync(TimeSpan.FromSeconds(10), Ct);
+```
+
+#### T9 — EmbedderBehaviourTests: SEM11 bounded and SEM58 added (rulings 49), edit 3 of 4
+File: `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`
+Old:
+```text
+        await Task.WhenAll(first.Concat(queued));
+```
+New:
+```text
+        await Task.WhenAll(first.Concat(queued)).WaitAsync(TimeSpan.FromSeconds(10), Ct);
+```
+
+#### T10 — EmbedderBehaviourTests: SEM11 bounded and SEM58 added (rulings 49), edit 4 of 4
+File: `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`
+Old:
+```text
+    // ---- SEM39, SEM40: the shape and the warm-up ----
+```
+New:
+```text
+    /// <summary>
+    /// SEM58 (Amendment 3 ruling 49). The bound of R8.81 holds for an index step that is queued behind a full gate, which is where a flood puts it: both places held by runs that wait for their callers, the
+    /// post's step queued behind them and seen queued, a clock advanced 2 seconds: the step answers <c>Pending</c> with <c>curia/retrieval/index-bound</c> within 10 seconds of real time, the gate holds no
+    /// waiter, and the step ran nothing. SEM3 (runner half) starts its run at once and so cannot see a waiter that ignores its token (Task 6: FSEM18 left it green). Predicted red on FSEM18: <c>the index
+    /// step queued behind a full gate was still waiting 10 seconds after its bound expired: the waiter did not leave on its token</c>. Green on the tree as it stands.
+    /// </summary>
+    [Fact]
+    public async Task R11_92_SEM58_TheBoundExpiresOnAStepQueuedBehindAFullGate()
+    {
+        using var rig = Checked();
+        var running = 0;
+        rig.Runner.Behaviour = async (input, ct) =>
+        {
+            Interlocked.Increment(ref running);
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return FakeRunner.HiddenStateFor(input);
+        };
+
+        using var holders = new CancellationTokenSource();
+        var held = Enumerable.Range(0, 2).Select(i => rig.Embedder.EmbedAsync("hello " + EmbedderRig.Words[i], EmbeddingRole.Passage, holders.Token)).ToArray();
+        try
+        {
+            await WaitUntilAsync(() => Volatile.Read(ref running) == 2 && rig.Embedder.Gate.Inside == 2, "NOT REACHED: the two places were not both taken by running calls");
+            var runsWithBothPlacesHeld = rig.Runner.Runs;
+
+            var start = new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero);
+            var clock = new TimerManualTimeProvider(start);
+            var post = new SearchablePost(
+                "post-1", "sha256:" + new string('a', 64), "postgres", Curia.Domain.Content.PostKind.Question, "hello", "hello world", [], "https://agents.example/a", 1);
+            var backlog = new IndexBacklog();
+            var committed = new CommittedPostIndexer(new EmbeddingIndexer(rig.Embedder, new AcceptingIndex()), backlog, clock, new IndexSweep(start));
+
+            var step = committed.IndexAsync(post, Ct);
+            await WaitUntilAsync(() => rig.Embedder.Gate.Queued == 1, "NOT REACHED: the step was not queued behind the two places");
+            clock.Advance(CommittedPostIndexer.Bound);
+
+            var finished = await Task.WhenAny(step, Task.Delay(TimeSpan.FromSeconds(10), Ct));
+            Assert.True(finished == step, "the index step queued behind a full gate was still waiting 10 seconds after its bound expired: the waiter did not leave on its token");
+            var outcome = await step;
+            Assert.Equal(CommittedIndexState.Pending, outcome.State);
+            Assert.Equal("curia/retrieval/index-bound", outcome.FaultType);
+            Assert.Equal(0, rig.Embedder.Gate.Queued);
+            Assert.Equal(runsWithBothPlacesHeld, rig.Runner.Runs);
+        }
+        finally
+        {
+            await holders.CancelAsync();
+            foreach (var call in held)
+            {
+                try
+                {
+                    await call.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    // the holders were cancelled on purpose
+                }
+                catch (TimeoutException)
+                {
+                    // a run that does not stop is reported by the assertions above
+                }
+            }
+        }
+    }
+
+    // ---- SEM39, SEM40: the shape and the warm-up ----
+```
+
+#### T11 — EmbedderFenceTests: SEM14's lock leg (ruling 52), edit 1 of 3
+File: `tests/Curia.Architecture.Tests/EmbedderFenceTests.cs`
+Old:
+```text
+using System.Text.Json;
+using Xunit;
+```
+New:
+```text
+using System.Text.Json;
+using System.Xml.Linq;
+using Xunit;
+```
+
+#### T12 — EmbedderFenceTests: SEM14's lock leg (ruling 52), edit 2 of 3
+File: `tests/Curia.Architecture.Tests/EmbedderFenceTests.cs`
+Old:
+```text
+        Assert.True(listing.Count == 0, "a lock file lists the dropped dependency: " + string.Join(", ", listing));
+    }
+```
+New:
+```text
+        Assert.True(listing.Count == 0, "a lock file lists the dropped dependency: " + string.Join(", ", listing));
+
+        // The projects Curia.Infrastructure stands on, read from the csproj files (a different artifact from the lock files they are held to): none lists the native package, direct or reached through
+        // another. A bare PackageReference in one of them is elided from the IL, because the compiler drops an assembly reference nothing uses, so the type scan above cannot see it (Task 6, FSEM31).
+        var below = ProjectsBelow(Path.Combine(root, "src", "Curia.Infrastructure", "Curia.Infrastructure.csproj"));
+        foreach (var layer in new[] { "Curia.Application", "Curia.Domain", "Curia.Domain.Primitives", "Curia.Canon" })
+            Assert.True(below.Contains(layer, StringComparer.Ordinal), $"NOT REACHED: Curia.Infrastructure's project references do not reach {layer}; they reach {string.Join(", ", below)}");
+        var holding = below
+            .Where(name => File.Exists(LockOf(root, name)) && File.ReadAllText(LockOf(root, name)).Contains("\"Microsoft.ML.OnnxRuntime\"", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(holding.Count == 0, "a project Curia.Infrastructure stands on lists Microsoft.ML.OnnxRuntime in its lock file: " + string.Join(", ", holding));
+    }
+
+    private static string LockOf(string root, string project) => Path.Combine(root, "src", project, "packages.lock.json");
+
+    /// <summary>The names of the projects <paramref name="csproj"/> references, followed to the end (the project itself is not among them).</summary>
+    private static List<string> ProjectsBelow(string csproj)
+    {
+        var found = new List<string>();
+        var pending = new Stack<string>([csproj]);
+        var seen = new HashSet<string>(StringComparer.Ordinal) { csproj };
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            foreach (var include in XDocument.Load(current).Descendants("ProjectReference").Select(e => (string?)e.Attribute("Include")).OfType<string>())
+            {
+                var path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(current)!, include.Replace('\\', '/')));
+                if (!seen.Add(path)) continue;
+                found.Add(Path.GetFileNameWithoutExtension(path));
+                pending.Push(path);
+            }
+        }
+
+        return found;
+    }
+```
+
+#### T13 — EmbedderFenceTests: SEM14's lock leg (ruling 52), edit 3 of 3
+File: `tests/Curia.Architecture.Tests/EmbedderFenceTests.cs`
+Old:
+```text
+    /// Amendment 1 ruling 22). Predicted red on the seam:
+```
+New:
+```text
+    /// Amendment 1 ruling 22); and none of the projects Curia.Infrastructure stands on (its project references, followed to the end) lists the native package in its lock file (Amendment 3 ruling 52: a bare
+    /// reference is elided from the IL, so the type scan cannot see it). Predicted red on the seam:
+```
+
+
+### The runner and the records (tooling, kept outside the repository)
+
+`.superpowers/keep-tools/fsem_run.py` and `fsem_rows.py` change as follows (a diff-shaped description; the tool is not in the allowlist and was not edited here):
+
+1. `parse(out)`: after `first` is read, `if v == "red" and "threw in its constructor" in first: v = "masked"`.
+2. `run_row`: the `rc == 124` branch records `v = "hung"` (and `first_failure` beginning `HUNG:`), not `"red"`; the row's verdict is `red` if some probe is `red`, else `masked` if some probe is `masked`, else `hung` if some probe is `hung`, else `green` if all are, else `error`.
+3. A row spec takes `companion=[(file, old, new, count)]`; the runner runs the row's edits alone and then with the companion edits added, records both (`"companion": "ISO"` on the second), and restores every file by plain copy and `touch`. The ISO text is the pair in "Probe and falsification rows added"; the runner counts its anchor once before it patches.
+4. Every record Task 6b writes carries `"pass": "6b"`; records without the member are the Task 6 pass.
+5. `fsem_rows.py` takes the amended lists of the plan's table, FSEM53 and FSEM54, the forms above, and `ISO` as a row of its own (control).
+6. After the last row: the counting script of ruling 46 on both passes; `shasum -c --quiet fsem-before.sha`; `git status --porcelain` empty; an unpatched run after `--no-incremental` of every named probe, all green.
+
+
+### In-place edits
+
+Each `Old` is exact text of the plan body (extracted by script, not retyped). Apply in order.
+
+#### E77 — Task 6 heading (FSEM1 to FSEM54)
+Old:
+```text
+### Task 6: Falsification FSEM1 to FSEM52
+```
+New:
+```text
+### Task 6: Falsification FSEM1 to FSEM54
+```
+
+#### E78 — Task 6: a constructor throw is not a verdict (ruling 47)
+Old:
+```text
+restored by **plain copy** (mtime bumped), and run once unpatched. The first form is the harm.
+```
+New:
+```text
+restored by **plain copy** (mtime bumped), and run once unpatched. The first form is the harm. **A probe that fails in `RealModelFixture`'s constructor has not reached its assertion**: the runner records it `masked`, and a row is red only when a named probe is red by its own assertion (Amendment 3 ruling 47); a probe killed by a timeout is `hung`, not red (ruling 49). Rows on the tokenizer, the pooling and the input build run a second time with the isolation patch of ruling 47. The counts published are the three of ruling 46, computed by script.
+```
+
+#### E79 — Task 6b, after Task 6 (Amendment 3)
+Old:
+```text
+### Task 7: Operate it (the live run) and the cold read
+```
+New:
+```text
+### Task 6b: The falsification fix round (Amendment 3)
+
+Rulings 46 to 57 of Amendment 3 answer Task 6: the probes and code of "What Task 6b must do" first (green on the unmodified tree, each recorded), then the runner, then the rows it lists run again with the amended lists, one commit of the tests, and a report whose counts are the script's. The tooling stays outside the repository.
+
+### Task 7: Operate it (the live run) and the cold read
+```
+
+#### E80 — SEM11: every await a broken gate could leave pending is bounded (ruling 49)
+Old:
+```text
+no waiter is passed over, which `SemaphoreSlim` does not guarantee, ruling 23). Red.
+```
+New:
+```text
+no waiter is passed over, which `SemaphoreSlim` does not guarantee, ruling 23). Every await that a broken gate could leave pending carries a bound of its own (5 or 10 seconds of real time), so that a gate that ignores a token fails an assertion and does not hang the run (Amendment 3 ruling 49). Red.
+```
+
+#### E81 — SEM14: a lock leg (ruling 52)
+Old:
+```text
+(the dropped dependency stays dropped, ruling 22).
+```
+New:
+```text
+(the dropped dependency stays dropped, ruling 22); and none of the projects `Curia.Infrastructure` stands on (its project references, followed to the end and read from the csproj files) lists `Microsoft.ML.OnnxRuntime` in its `packages.lock.json`, because the compiler drops an assembly reference nothing uses and the type scan cannot see a bare `PackageReference` (Amendment 3 ruling 52).
+```
+
+#### E82 — SEM15: not built (ruling 57)
+Old:
+```text
+otherwise SEM20 and SEM21 carry it and this probe is dropped with that recorded).
+```
+New:
+```text
+otherwise SEM20 and SEM21 carry it and this probe is dropped with that recorded). **Not built** (Task 1: `IlCallSites` returns the set of calls in a body and not their order). SEM20 and SEM21 carry the property that matters, that a bad model is refused before the first request; the order of the check against the lifecycle gate is held by nothing and has no served effect (Amendment 3 ruling 57).
+```
+
+#### E83 — SEM31: what its counter cannot see (ruling 53)
+Old:
+```text
+(an internal counter of characters consumed, asserted; the time is recorded, ruling 13, because a ratio of two times on a shared runner measures the runner).
+```
+New:
+```text
+(an internal counter of characters consumed, asserted; the time is recorded, ruling 13, because a ratio of two times on a shared runner measures the runner). The counter sees a scan that reads too far and not a pre-pass that cleans and normalises the whole text before the scan and then reads only the head: that is SEM57's (Amendment 3 ruling 53).
+```
+
+#### E84 — SEM56 after SEM3 (ruling 50)
+Old:
+```text
+and its slot is free for the next caller (the real stop is SEM46).
+```
+New:
+```text
+and its slot is free for the next caller (the real stop is SEM46).
+- **SEM56** (Amendment 3 ruling 50) a reconcile under another model: a log of two discussion posts both indexed under `hashed-ngram@1` in one index; under a second model id the index holds neither, so `CountAbsentAsync` says 2, `ReconcileAsync` stores 2, the second model's rows are exactly the log's two digests (taken from the digests the log's appends returned, not from the indexer), the hashed model's two rows are untouched, and a second reconcile and a second count find nothing. Green on the tree as it stands; red on FSEM22, FSEM53 and FSEM54.
+```
+
+#### E85 — SEM57 and SEM58 after SEM40 (rulings 53, 49)
+Old:
+```text
+- **SEM40** warm-up: the startup runs at least three inferences on a text of 510 content tokens through the counting runner before returning. Red.
+```
+New:
+```text
+- **SEM40** warm-up: the startup runs at least three inferences on a text of 510 content tokens through the counting runner before returning. Red.
+- **SEM57** (Amendment 3 ruling 53) the tokenizer allocates what the head allocates: a text of about 256 KiB with a non-ASCII letter in every repetition, tokenized to 510 content tokens, allocates within 16 KiB of what its own head (the characters the scan consumed) allocates, counted on the calling thread after two warm calls; no time is read (ruling 13). Green on the tree as it stands; red on FSEM43 in both forms.
+- **SEM58** (Amendment 3 ruling 49) the bound of R8.81 for a step queued behind a full gate: both places held by runs that wait for their callers, the post's step queued behind them and seen queued, the clock advanced 2 seconds: the step answers `Pending` with `curia/retrieval/index-bound` within 10 seconds of real time, the gate holds no waiter and the step ran nothing. Green on the tree as it stands; red on FSEM18.
+```
+
+#### E86 — FSEM1: its list of probes read from what went red (rulings 55)
+Old:
+```text
+| FSEM1 | `Program.cs:169`: after the new embedder registration add `builder.Services.AddSingleton<ITextEmbedder, HashedNGramEmbedder>();` | SEM13, SEM23 | the Forum serves `hashed-ngram@1` under a README that says bge |
+```
+New:
+```text
+| FSEM1 | `Program.cs:169`: after the new embedder registration add `builder.Services.AddSingleton<ITextEmbedder, HashedNGramEmbedder>();` | SEM13, SEM20, SEM22 | the Forum serves `hashed-ngram@1` under a README that says bge |
+```
+
+#### E87 — FSEM6: its list of probes read from what went red (rulings 55)
+Old:
+```text
+| FSEM6 | canary tolerance `1e-4` to `1e-6` | SEM6 (+5e-5 refused), SEM28 on a second CPU class | a legitimate host refuses to start |
+```
+New:
+```text
+| FSEM6 | canary tolerance `1e-4` to `1e-6` | SEM6 (+5e-5 refused); SEM28 only on a CPU class whose vectors differ from the reference by more than 1e-6, which no host has been run on (lead 238) | a legitimate host refuses to start |
+```
+
+#### E88 — FSEM8: its list of probes read from what went red (rulings 55)
+Old:
+```text
+| FSEM8 | `BgeInput`: the prefix on both roles | SEM1, SEM8, SEM30 | stored passages carry the instruction: every cosine shifts and the dedupe compares like with unlike |
+```
+New:
+```text
+| FSEM8 | `BgeInput`: the prefix on both roles | SEM8, SEM30 | stored passages carry the instruction: every cosine shifts and the dedupe compares like with unlike |
+```
+
+#### E89 — FSEM15: its list of probes read from what went red (rulings 55)
+Old:
+```text
+| FSEM15 | the all-unknown rule removed | SEM12, SEM36, SEM38 | an emoji-only question is refused as a duplicate of the last one |
+```
+New:
+```text
+| FSEM15 | the all-unknown rule removed | SEM12, SEM36 | an emoji-only question is refused as a duplicate of the last one |
+```
+
+#### E90 — FSEM17: its list of probes read from what went red (rulings 55)
+Old:
+```text
+| FSEM17 | `FifoGate`: the limit removed (every caller is admitted at once) | SEM11, SEM39 | a flood runs unbounded inferences on the thread pool |
+```
+New:
+```text
+| FSEM17 | `FifoGate`: the limit removed (every caller is admitted at once) | SEM11 | a flood runs unbounded inferences on the thread pool |
+```
+
+#### E91 — FSEM18: its list of probes read from what went red (rulings 49, 55)
+Old:
+```text
+| FSEM18 | the waiter ignores its token | SEM3, SEM11 | R8.81's bound is not a bound |
+```
+New:
+```text
+| FSEM18 | the waiter ignores its token | SEM11, SEM58 | R8.81's bound is not a bound |
+```
+
+#### E92 — FSEM19: its list of probes read from what went red (rulings 55)
+Old:
+```text
+| FSEM19 | `ModelFault`'s detail = `ex.Message` | SEM10, SEM24 | a path or an author's text is served to a caller (D25) |
+```
+New:
+```text
+| FSEM19 | `ModelFault`'s detail = `ex.Message` | SEM10 | a path or an author's text is served to a caller (D25) |
+```
+
+#### E93 — FSEM21: its list of probes read from what went red (rulings 57)
+Old:
+```text
+| FSEM21 | `Program.Build`: the startup-check call removed | SEM20, SEM21, SEM15 | a bad model loads lazily at the first request, after the listener is open |
+```
+New:
+```text
+| FSEM21 | `Program.Build`: the startup-check call removed | SEM20, SEM21 | a bad model loads lazily at the first request, after the listener is open |
+```
+
+#### E94 — FSEM22: its list of probes read from what went red (rulings 50)
+Old:
+```text
+| FSEM22 | `EmbeddingIndexer`: `IndexedDigestsAsync(HashedNGramEmbedding.Model)` | SEM26 | the reconcile reads the old model's digests: nothing is embedded under the new id |
+```
+New:
+```text
+| FSEM22 | `EmbeddingIndexer`: `IndexedDigestsAsync(HashedNGramEmbedding.Model)` at both sites (lines 94 and 173; FSEM53 and FSEM54 patch one each) | SEM56 | the reconcile reads the old model's digests: nothing is embedded under the new id |
+```
+
+#### E95 — FSEM24: its list of probes read from what went red (rulings 51)
+Old:
+```text
+| FSEM24 | the reindex deletes the old model's rows | SEM26 | a rollback to `@1` of the hashed model finds nothing; the append-only story is false |
+```
+New:
+```text
+| FSEM24 | `PostgresVectorIndex.UpsertAsync`: the reindex relabels the old model's row before the insert (`UPDATE ... SET model = @model WHERE digest = @digest AND model <> @model;`); second form, `DELETE ... WHERE model <> @model;`, which the grant refuses (42501) | SEM26 (the old model's count; the second form is red by the refusal and not by a count) | a rollback to `@1` of the hashed model finds nothing; the append-only story is false |
+```
+
+#### E96 — FSEM29: its list of probes read from what went red (rulings 48, 55)
+Old:
+```text
+| FSEM29 | the manifest's model digest changed by one hex digit | SEM27, SEM44 | the committed digest and the file part company; the fetch fails in CI |
+```
+New:
+```text
+| FSEM29 | the manifest's model digest changed by one hex digit | SEM27 | the committed digest and the file part company; the fetch fails in CI |
+```
+
+#### E97 — FSEM31: its list of probes read from what went red (rulings 52)
+Old:
+```text
+| FSEM31 | `Curia.Application.csproj` references `Microsoft.ML.OnnxRuntime` | SEM14 | CS-7 broken in the layer the domain depends on |
+```
+New:
+```text
+| FSEM31 | `Curia.Application.csproj` references `Microsoft.ML.OnnxRuntime` and `HashedNGramEmbedder` names a type of it; second form, the bare `PackageReference` | SEM14 (the IL scan for the first form, the lock leg for the second) | CS-7 broken in the layer the domain depends on |
+```
+
+#### E98 — FSEM35: its list of probes read from what went red (rulings 56)
+Old:
+```text
+| FSEM35 | `FifoGate`: admit the newest waiter first, or `SemaphoreSlim(2)` in its place | SEM45 | a few callers wait out a whole burst while others run (the measured 908 ms against 22.6 ms) |
+```
+New:
+```text
+| FSEM35 | `FifoGate`: admit the newest waiter first, or `SemaphoreSlim(2)` in its place | SEM45 (the `SemaphoreSlim(2)` form is recorded as not killed by a unit probe, ruling 56) | a few callers wait out a whole burst while others run (the measured 908 ms against 22.6 ms) |
+```
+
+#### E99 — FSEM37: its list of probes read from what went red (rulings 55)
+Old:
+```text
+| FSEM37 | `OnnxTextEmbedder`: the exception of a terminated run is mapped to `ModelFault` | SEM46, SEM10 | a client's own abort is logged and served as a model fault |
+```
+New:
+```text
+| FSEM37 | `OnnxTextEmbedder`: the exception of a terminated run is mapped to `ModelFault` | SEM46 | a client's own abort is logged and served as a model fault |
+```
+
+#### E100 — FSEM38: its list of probes read from what went red (rulings 55)
+Old:
+```text
+| FSEM38 | `WordPieceTokenizer`/`TextCleaner`: drop every character of category S* | SEM29, SEM28, SEM36 | code, URLs with `=` and emoji lose tokens and an emoji-only text becomes two special tokens (the package's behaviour) |
+```
+New:
+```text
+| FSEM38 | `WordPieceTokenizer`/`TextCleaner`: drop every character of category S* | SEM29, SEM28 | code, URLs with `=` and emoji lose tokens and an emoji-only text becomes two special tokens (the package's behaviour) |
+```
+
+#### E101 — FSEM40: its list of probes read from what went red (rulings 54)
+Old:
+```text
+| FSEM40 | `TextCleaner`: normalise to NFC instead of NFD before WordPiece | SEM29 | Korean is a run of unknown tokens |
+```
+New:
+```text
+| FSEM40 | `TextCleaner`: normalise to NFC instead of NFD before WordPiece | SEM29, SEM50 (widened, ruling 54) | Korean is a run of unknown tokens |
+```
+
+#### E102 — FSEM43: its list of probes read from what went red (rulings 53)
+Old:
+```text
+| FSEM43 | `WordPieceTokenizer`: clean and normalise the whole text before taking the head | SEM31 | a 256 KiB body costs every request its whole length (about 14 times a 600-word text in the prototype) |
+```
+New:
+```text
+| FSEM43 | `WordPieceTokenizer`: clean and normalise the whole text before taking the head; second form, the whole is cleaned and normalised and discarded and the text is unchanged | SEM57 | a 256 KiB body costs every request its whole length (about 14 times a 600-word text in the prototype) |
+```
+
+#### E103 — As run: the totals
+Old:
+```text
+the probes SEM1 to SEM55 with any retired, the falsification FSEM1 to FSEM52,
+```
+New:
+```text
+the probes SEM1 to SEM58 with any retired, the falsification FSEM1 to FSEM54,
+```
+
+#### E104 — As run: the probe heading
+Old:
+```text
+### Probes SEM1 to SEM55 (SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+```
+New:
+```text
+### Probes SEM1 to SEM58 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+```
+
+#### E105 — As run: the falsification heading
+Old:
+```text
+### Falsification FSEM1 to FSEM52
+```
+New:
+```text
+### Falsification FSEM1 to FSEM54
+```
+
+#### E106 — L7: the eight-at-once leg on the SemaphoreSlim binary (ruling 56)
+Old:
+```text
+the eight-at-once row recorded, `pending` there is the honest outcome and its rate is a number).
+```
+New:
+```text
+the eight-at-once row recorded, `pending` there is the honest outcome and its rate is a number). The eight-at-once leg is run in rounds (at least 25) twice, alternating, in one process directory and on one machine (trap 182): on the tip, and on the binary of FSEM35's `SemaphoreSlim(2)` form; the wall times of the eight requests of each round are recorded (p50 and the longest), beside M6's 22.6 ms and 908 ms, and asserted nowhere (ruling 13; Amendment 3 ruling 56).
+```
+
+
+### Leads (D61 items, text for Task 8 to paste; none is fixed here)
+
+- **236.** FSEM35's `SemaphoreSlim(2)` body keeps arrival order under SEM45 and SEM49 (Task 6, form b3), so Task 0 M6's 908 ms p99 at 8 callers is not explained by order. Ruling 23's premise is a measurement that no unit probe reproduces; L7's pair of runs (ruling 56) is the first time it is taken on the built system.
+- **237.** The start-up check names the first canary that differs and stops: a build that breaks six canaries reports one, and an operator fixes them one start at a time. `RealModelFixture` carries the same message into every probe of the assembly.
+- **238.** The canary tolerance of 1e-4 has been run on one CPU class. FSEM6's second probe (SEM28 at 1e-6) can be red only on a class whose vectors differ from the reference by more than 1e-6; until one is run, the tolerance is shown neither too tight for a legitimate host nor too loose.
+- **239.** SEM11, SEM45, SEM49 and SEM58 wait with real-time deadlines of 2, 5 and 10 seconds. On the correct gate they are green 15 of 15 here; on a starved runner a slow thread pool is a red. Not by construction.
+
+
+### Allocations
+
+Computed on 2026-11-09 against the plan at sha256 prefix `b7f8272efc624345` (Amendment 2 applied), `IMPLEMENTATION_PLAN.md` and the errata at `52c39d9f` and `origin/main` `2708d826` (errata highest entry G63, G64 reserved to PR 8, G65 this PR's; register highest D119, D120 this plan's; traps filed to 206), and against Amendment 2's reservations (rulings to 45, probes to SEM55, falsification to FSEM52, D61 items to 235, traps to 217). Re-grepped by script (`git grep -nE` over `HEAD` and `origin/main`, then over the plan with the three amendments' own text left out): none of the identifiers below occurs outside this amendment. Task 8 re-greps and renumbers by hand if another PR landed first.
+- **Probes SEM56 to SEM58.** SEM1 to SEM58 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 stay unused).
+- **Falsification FSEM53 and FSEM54.** FSEM1 to FSEM54.
+- **Rulings 46 to 57.**
+- **Plan-body edits E77 to E106; test edits T1 to T13.**
+- **D61 items 236 to 239** (the leads above). Items 215 to 235 stand as Amendments 1 and 2 list them.
+- **Traps 218 to 224:** (218) a falsification row that is red because a shared fixture's constructor throws, so that the probes it names never ran, found by reading the first-failure text of every record and not its colour; (219) a patch the layer below refuses for a reason other than the property (a `DELETE` refused by the grant), red with the count never read; (220) a probe whose cases are all drawn from the input class the mutation leaves alone (SEM50's ASCII bases under `FormC`), found by asking which characters reach the changed line; (221) a probe that counts the work and not the cost (SEM31's characters consumed beside a pre-pass), found by asking what else a mutant could do that the counter does not see; (222) a test whose failure is a hang, a red that only a timeout reports (SEM11 under FSEM18); (223) a row that lists probes the plan expected to go red and nobody saw red on (FSEM1's SEM23, FSEM8's SEM1, FSEM17's SEM39, FSEM19's SEM24, FSEM29's SEM44, FSEM37's SEM10, FSEM18's SEM3, FSEM15's SEM38, FSEM38's SEM36); (224) a reconcile probe that runs only the embedder whose id the mutation reads (SEM26 beside FSEM22).
+- **Requirement text:** none; no R number, no non-property, no errata entry beyond G65. **No `curia-mcp` version change.**
+
+
+### What Task 6b must do
+
+A fix round before the report is accepted, in this order, one commit of the tests, then a re-read of the changed lines only. It edits no file under `.github/`, `db/`, `conformance/`, `rust/`, `src/` or `models/`; the isolation patch and every mutation live in kept copies and are restored.
+
+1. **Tests first, on the unmodified tree.** Apply T1 to T13 and the three new files. Run and record green: SEM56, SEM57, SEM58, SEM50, SEM11 (both facts), SEM14 in Debug and in Release, `ModelFilesTests` (model directory set) 3 of 3, `Curia.Embedding.Tests` 14 of 14, the `Curia.Infrastructure.Tests` embedder classes, `Curia.Application.Tests`, the Api boot class 9 of 9. Run SEM45 and SEM49 15 times each on the tip: zero red is the requirement (ruling 56, lead 239). The probes are green on the tree by construction; their value is the rows below, which is why this step records them green and does not call them done.
+2. **The runner and the specs** as in "The runner and the records". `fsem-before.sha` is written again after the tests of step 1 are applied and committed and before the first patch, because it lists the tree the rows run on; `fsem-keep/` is emptied. `--check` counts every anchor once, including FSEM53, FSEM54 and the forms of FSEM22, 24, 31 and 43; it must also count ISO's anchor once.
+3. **Run the rows of the table above**, foreground, one row at a time, each restored by plain copy. For a row that stays green: do not edit the tests; report the patch and the output.
+4. **The counts** by ruling 46's script on both passes, in the report beside a table with `row | form | pass | companion | probes (r, g, masked, hung) | first failing line`. The report's prose repeats the script's lines and no hand count.
+5. **After the last row:** `shasum -c --quiet fsem-before.sha`; `git status --porcelain` empty; `--no-incremental` rebuild of every probe project; every named probe green; the `curia_e2e_*` databases and roles dropped; no leftover test apphost.
+6. **Gates, narrower than a full run because nothing in `src/` moved:** `dotnet build Curia.sln` at 0 warnings; `Curia.Application.Tests`, `Curia.Infrastructure.Tests`, `Curia.Embedding.Tests` (variable set), `Curia.Architecture.Tests` in Debug and in Release; `Curia.Api.Tests` for `EmbedderBootTests` only; `python3 tools/preflight/preflight.py --no-api`; `check-spec.py`. The whole Api suite is not re-run: no file under `src/` or `tests/Curia.Api.Tests` changes. Say so in the report.
+7. **The plan.** Apply `### In-place edits` and run the check at the end of this amendment; every row of the three amendments reads `old 1 new 0` before and `new 1` (or superseded) after.
+8. **Task 8** pastes leads 236 to 239 and traps 218 to 224 with the other allocations.
+
+**For the controller (nothing here is a ruling):**
+- ISO is a mutation of the product's start-up check, applied only in the kept copy. The runner must prove it is gone: the `shasum` list covers `src/`, and a row spec that forgets to restore it would leave 14 probes green on a tree that no longer checks its canaries. The control row (ISO alone, unmodified tree) is run **first** and its output read before any isolated row.
+- The architect did not run the closed fuzz, the whole Api suite, the live legs or the Rust job; the copy runs prove what the rulings name and nothing more. Findings 3 and 6 to 9 rest on runs of a copy at `52c39d9f`; Task 6b is where they are repeated in the repository.
+
+
+### The check (run it on the plan before and after applying the edits)
+
+The check of Amendments 1 and 2, extended by one rule: a row whose `New` is overwritten by a later row's `Old` is **superseded**, and now also when that later row is itself superseded (this amendment renames headings that Amendment 2 had renamed, so the chain is E23 to E70 to E77, and a check that looked one hop would call E23 wrong). It reads the `E` pairs of all three amendments; the `T` pairs are for the tests and carry another heading.
+
+```python
+import re, sys
+p = "docs/superpowers/plans/2026-11-09-the-vector-channel-is-semantic.md"
+t = open(p, encoding="utf-8").read()
+a = t.index("\n## Amendment 1 (2026-11-09, Task 0)")
+b = t.index("\n## Tasks\n", a)
+amend, body = t[a:b], t[:a] + t[b:]
+pairs = re.findall(r"#### (E\d+) .*?\nOld:\n```text\n(.*?)\n```\nNew:\n```text\n(.*?)\n```", amend, re.S)
+state = {}
+for i in reversed(range(len(pairs))):
+    eid, old, new = pairs[i]
+    n_old, n_new = body.count(old), body.count(new)
+    later = [j for j in range(i + 1, len(pairs)) if pairs[j][1] in new and (body.count(pairs[j][2]) == 1 or state[j][0] == "superseded")]
+    if n_old == 1 and n_new == 0: state[i] = ("before", n_old, n_new)
+    elif n_new == 1 and (n_old == 0 or old in new): state[i] = ("after", n_old, n_new)
+    elif n_old == 0 and n_new == 0 and later: state[i] = ("superseded", n_old, n_new)
+    else: state[i] = ("WRONG", n_old, n_new)
+bad = 0
+for i, (eid, old, new) in enumerate(pairs):
+    kind, n_old, n_new = state[i]
+    print(eid, "old", n_old, "new", n_new, kind)
+    bad += kind == "WRONG"
+print(len(pairs), "edits,", bad, "wrong")
+sys.exit(1 if bad else 0)
+```
+
+Before applying, every row of this amendment reads `old 1 new 0`. After, `new 1`, and the rows of the earlier amendments that a later row overwrites read `superseded` (E23, E26, E28, E34, E47, E48, E49, E60, E70, E71, E72, E73). 106 rows are expected.
+
 ## Tasks
 
 ### Task 0: Re-read, operate the unmodified tree, write the rules first
@@ -1262,9 +2548,13 @@ Four lenses, each told the premises above: (1) spec compliance against G65 line 
 
 Rulings 35 to 45 of Amendment 2 answer Task 5's review: tests first (red where ruling 45 says), then the code, the docs and the narrower gates of "What the fix round must do", one commit, then a re-read of the changed lines only.
 
-### Task 6: Falsification FSEM1 to FSEM52
+### Task 6: Falsification FSEM1 to FSEM54
 
-Each row is a patch to a **kept copy**, built `--no-incremental`, the named probes run, restored by **plain copy** (mtime bumped), and run once unpatched. The first form is the harm. Rows on existing code give exact text below; rows on new files give the exact line shape and the builder records the verbatim in "As run" before running it (the file does not exist yet, so no text is exact today).
+Each row is a patch to a **kept copy**, built `--no-incremental`, the named probes run, restored by **plain copy** (mtime bumped), and run once unpatched. The first form is the harm. **A probe that fails in `RealModelFixture`'s constructor has not reached its assertion**: the runner records it `masked`, and a row is red only when a named probe is red by its own assertion (Amendment 3 ruling 47); a probe killed by a timeout is `hung`, not red (ruling 49). Rows on the tokenizer, the pooling and the input build run a second time with the isolation patch of ruling 47. The counts published are the three of ruling 46, computed by script. Rows on existing code give exact text below; rows on new files give the exact line shape and the builder records the verbatim in "As run" before running it (the file does not exist yet, so no text is exact today).
+
+### Task 6b: The falsification fix round (Amendment 3)
+
+Rulings 46 to 57 of Amendment 3 answer Task 6: the probes and code of "What Task 6b must do" first (green on the unmodified tree, each recorded), then the runner, then the rows it lists run again with the amended lists, one commit of the tests, and a report whose counts are the script's. The tooling stays outside the repository.
 
 ### Task 7: Operate it (the live run) and the cold read
 
@@ -1292,6 +2582,7 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 - **SEM1** roles: a recording embedder: `HybridSearch` embeds the query with `Query`; `DuplicateCheck` embeds the incoming question with `Passage`; `EmbeddingIndexer` embeds with `Passage` at both sites (`IndexAsync`, `FindAbsentAsync`). Red on the seam: the search call records `Passage`.
 - **SEM2** `NoFeatures` is still "nothing to compare" at all three sites, with a role. Control.
 - **SEM3** the bound is real: an embedder that waits on a gate until cancelled and a fake clock advanced 2 seconds: `CommittedPostIndexer.IndexAsync` returns `Pending` with `curia/retrieval/index-bound`, the caller's shutdown token not cancelled, the entry in the backlog; on the seam (synchronous completion) the control is green with a blocking-then-released embedder and **red with a cancellable one**, which is the point. A runner double that records a stop request is asked to stop when the bound expires, and its slot is free for the next caller (the real stop is SEM46).
+- **SEM56** (Amendment 3 ruling 50) a reconcile under another model: a log of two discussion posts both indexed under `hashed-ngram@1` in one index; under a second model id the index holds neither, so `CountAbsentAsync` says 2, `ReconcileAsync` stores 2, the second model's rows are exactly the log's two digests (taken from the digests the log's appends returned, not from the indexer), the hashed model's two rows are untouched, and a second reconcile and a second count find nothing. Green on the tree as it stands; red on FSEM22, FSEM53 and FSEM54.
 
 **Infrastructure (model-free, fake runner and a synthetic 50-word vocabulary)**
 - **SEM4** the embedded manifest parses; `id` is `bge-small-en-v1.5@1`; 384 dimensions; both digests are 64 lowercase hex; at least fourteen canaries covering plain, mixed case, accents composed and decomposed, CJK, Hangul, emoji, an emoji-only text, a URL, code with symbols (`=`, `$`, `<`), a zero-width space and a soft hyphen inside a word, an unassigned code point (U+0378) between letters, and a text over 512 tokens (Amendment 1, ruling 22); each reference vector has 384 finite floats of L2 norm 1 within 1e-5; the manifest names its reference tools. Red: no manifest.
@@ -1301,16 +2592,18 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 - **SEM8** input: with the synthetic vocabulary, `Query` puts the prefix first and `Passage` does not; a 700-word text yields exactly 512 ids, `[CLS]` first, `[SEP]` last, the 510 between them the text's first 510 tokens; with the prefix, the prefix tokens count against the 510. Red.
 - **SEM9** totality: U+FFFE, a lone high and a lone low surrogate, U+0000, the empty string, white space, 1 MiB: none throws; each is a vector, `NoFeatures` or `ModelFault`. Red.
 - **SEM10** error text: a runner that throws an exception whose message holds a file path and the input: the `Error` holds neither, only the exception's type name; and through the HTTP layer (Api probe SEM24) the problem document holds neither. Red.
-- **SEM11** concurrency: eight callers, a counting runner: at most two inside at once; a waiter cancelled before it enters runs nothing and the counter shows it; a waiter cancelled after enqueue frees its place; callers are admitted in the order they arrived (the test holds both slots, queues twenty waiters one at a time and releases one slot at a time, recording admissions: no waiter is passed over, which `SemaphoreSlim` does not guarantee, ruling 23). Red.
+- **SEM11** concurrency: eight callers, a counting runner: at most two inside at once; a waiter cancelled before it enters runs nothing and the counter shows it; a waiter cancelled after enqueue frees its place; callers are admitted in the order they arrived (the test holds both slots, queues twenty waiters one at a time and releases one slot at a time, recording admissions: no waiter is passed over, which `SemaphoreSlim` does not guarantee, ruling 23). Every await that a broken gate could leave pending carries a bound of its own (5 or 10 seconds of real time), so that a gate that ignores a token fails an assertion and does not hang the run (Amendment 3 ruling 49). Red.
 - **SEM12** placeable: a text of only unknown tokens (synthetic vocabulary, an emoji) is `NoFeatures`; one known token among unknowns is placed; the empty string is `NoFeatures`. Red. Measured red text on the seam with the real model and no rule (Task 0 M16): two different emoji-only questions by one agent on one board, the second `409 curia/posts/duplicate-question`, `cosine=1.000 lexical_overlap=1.000 model=bge-small-en-v1.5@1`, exit 3 (ruling 31).
 - **SEM26** (Postgres) two models, two dimensions: 256-dimension rows under `hashed-ngram@1`, 384 under the new id: `NearestAsync` under either returns only that model's rows with no error; `IndexedDigestsAsync` and `CountAsync` per model; a reconcile under the new id leaves the old model's count unchanged (**the old rows are kept**) and the app role's `DELETE` is refused (the existing grant, asserted here by attempt). Red until M13's outcome is built; control for the grant.
 - **SEM39** options: the internal options of the embedder read `IntraOpNumThreads == 2`, `InterOpNumThreads == 1`, the gate size 2. Red.
 - **SEM40** warm-up: the startup runs at least three inferences on a text of 510 content tokens through the counting runner before returning. Red.
+- **SEM57** (Amendment 3 ruling 53) the tokenizer allocates what the head allocates: a text of about 256 KiB with a non-ASCII letter in every repetition, tokenized to 510 content tokens, allocates within 16 KiB of what its own head (the characters the scan consumed) allocates, counted on the calling thread after two warm calls; no time is read (ruling 13). Green on the tree as it stands; red on FSEM43 in both forms.
+- **SEM58** (Amendment 3 ruling 49) the bound of R8.81 for a step queued behind a full gate: both places held by runs that wait for their callers, the post's step queued behind them and seen queued, the clock advanced 2 seconds: the step answers `Pending` with `curia/retrieval/index-bound` within 10 seconds of real time, the gate holds no waiter and the step ran nothing. Green on the tree as it stands; red on FSEM18.
 
 **Architecture (both configurations)**
 - **SEM13** no assembly built from `src/` other than `Curia.Application` and `Curia.Domain` references `HashedNGramEmbedder` or `HashedNGramEmbedding` (type references and member references, by the IL scan the lifecycle fence uses); the assemblies it scanned are asserted by name so that a fence that found nothing cannot pass. Red when a reference is added.
-- **SEM14** no type of `Microsoft.ML.OnnxRuntime` is referenced by any `src/` assembly but `Curia.Infrastructure` (CS-7), and `Curia.Infrastructure` does reference it (so the scan is not empty); no assembly of the solution references a type of `Microsoft.ML.Tokenizers`, and no `packages.lock.json` lists `Microsoft.ML.Tokenizers` or `Google.Protobuf` (the dropped dependency stays dropped, ruling 22).
-- **SEM15** `Program.Build` resolves `ITextEmbedder` and calls the startup check after the lifecycle gate and before it returns (call-site order read from IL, if `IlCallSites` can order calls `[unverified]`; otherwise SEM20 and SEM21 carry it and this probe is dropped with that recorded).
+- **SEM14** no type of `Microsoft.ML.OnnxRuntime` is referenced by any `src/` assembly but `Curia.Infrastructure` (CS-7), and `Curia.Infrastructure` does reference it (so the scan is not empty); no assembly of the solution references a type of `Microsoft.ML.Tokenizers`, and no `packages.lock.json` lists `Microsoft.ML.Tokenizers` or `Google.Protobuf` (the dropped dependency stays dropped, ruling 22); and none of the projects `Curia.Infrastructure` stands on (its project references, followed to the end and read from the csproj files) lists `Microsoft.ML.OnnxRuntime` in its `packages.lock.json`, because the compiler drops an assembly reference nothing uses and the type scan cannot see a bare `PackageReference` (Amendment 3 ruling 52).
+- **SEM15** `Program.Build` resolves `ITextEmbedder` and calls the startup check after the lifecycle gate and before it returns (call-site order read from IL, if `IlCallSites` can order calls `[unverified]`; otherwise SEM20 and SEM21 carry it and this probe is dropped with that recorded). **Not built** (Task 1: `IlCallSites` returns the set of calls in a body and not their order). SEM20 and SEM21 carry the property that matters, that a bad model is refused before the first request; the order of the check against the lifecycle gate is held by nothing and has no served effect (Amendment 3 ruling 57).
 - **SEM17** the port string fence has the `EmbedAsync` row with its reason and no row for `Embed`.
 - **SEM18** `docs/third-party.md` holds one row per `PackageVersion` id of `Directory.Packages.props` (parsed from the props) and one per package in the closure of `Microsoft.ML.OnnxRuntime` in `src/Curia.Infrastructure/packages.lock.json` (parsed from the lock), each with a licence cell, the native library's notices as ruling 27 words them, and the model with `MIT` and "training-data provenance was not reviewed"; the ids are compared in both directions. Red: no file.
 
@@ -1330,7 +2623,7 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 - **SEM28** the canary set: token ids equal the reference's, every vector component within 1e-4, for all canaries, through the adapter's public path.
 - **SEM29** tokenizer parity: all 200 corpus strings, and every generated string of `tokenizer-parity.jsonl` (at least 2,000, drawn by `reference.py` from a seeded sampler over the code points assigned in Unicode 15.0 plus U+0378 and the noncharacters, with special-token spellings, runs of combining marks, bracketed words and long words; none of them chosen by whoever writes the tokenizer), give the reference ids through the adapter's public tokenizer. The prototype matched 200 of 200 and nothing larger has been shown. `reference.py` also runs the slow and the fast Hugging Face tokenizers and lists every string on which they disagree; the fast one is the authority (it is what `AutoTokenizer` and the model card's usage load), and a disagreement is reported in "As run", not hidden.
 - **SEM30** roles: the query vector of a sentence is not its passage vector (cosine below 0.999), and each equals its reference.
-- **SEM31** truncation: a 3,000-token text and its own first 510 content tokens give the same vector within 1e-6; a 300-token prefix gives a different one (cosine below 0.9999); a 256 KiB text is tokenized by reading no more than the characters of its first 510 content tokens and the word that ends the 510th (an internal counter of characters consumed, asserted; the time is recorded, ruling 13, because a ratio of two times on a shared runner measures the runner).
+- **SEM31** truncation: a 3,000-token text and its own first 510 content tokens give the same vector within 1e-6; a 300-token prefix gives a different one (cosine below 0.9999); a 256 KiB text is tokenized by reading no more than the characters of its first 510 content tokens and the word that ends the 510th (an internal counter of characters consumed, asserted; the time is recorded, ruling 13, because a ratio of two times on a shared runner measures the runner). The counter sees a scan that reads too far and not a pre-pass that cleans and normalises the whole text before the scan and then reads only the head: that is SEM57's (Amendment 3 ruling 53).
 - **SEM32** determinism: the same 50 texts, sequentially and from 8 threads at once: equal within 1e-6.
 - **SEM33** separation, by rank and with no threshold: each of the four `paraphrase` pairs' cosine exceeds the greatest cosine over the three `distinct` pairs; each paraphrase, as a query in the query role over the ten-post corpus, finds its post in the vector top 3. The 16-pair table and the thirteenth fixture's needle cosines are **written to a file, printed, and asserted nowhere** (D10b gates them).
 - **SEM34** latency is recorded (a file, per length and concurrency); nothing asserted.
@@ -1342,49 +2635,49 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 
 | # | Patch | Must go red | First form |
 |---|---|---|---|
-| FSEM1 | `Program.cs:169`: after the new embedder registration add `builder.Services.AddSingleton<ITextEmbedder, HashedNGramEmbedder>();` | SEM13, SEM23 | the Forum serves `hashed-ngram@1` under a README that says bge |
+| FSEM1 | `Program.cs:169`: after the new embedder registration add `builder.Services.AddSingleton<ITextEmbedder, HashedNGramEmbedder>();` | SEM13, SEM20, SEM22 | the Forum serves `hashed-ngram@1` under a README that says bge |
 | FSEM2 | the registration extension: `if (config["Curia:Embedding:Provider"] == "hashed") return services.AddSingleton<ITextEmbedder, HashedNGramEmbedder>();` before the real one | SEM13, SEM22 | a hosted misconfiguration selects the lexical geometry |
 | FSEM3 | `ModelFiles.Verify`: return success without hashing | SEM5, SEM21 | a swapped weights file boots |
 | FSEM4 | `ModelFiles.Verify`: hash `model.onnx` only | SEM5 (vocab swapped) | a right model with another vocabulary boots; the canary then catches or does not |
 | FSEM5 | canary tolerance `1e-4` to `1e-2` | SEM6 (+2e-4 accepted) | a perturbed vector is accepted |
-| FSEM6 | canary tolerance `1e-4` to `1e-6` | SEM6 (+5e-5 refused), SEM28 on a second CPU class | a legitimate host refuses to start |
+| FSEM6 | canary tolerance `1e-4` to `1e-6` | SEM6 (+5e-5 refused); SEM28 only on a CPU class whose vectors differ from the reference by more than 1e-6, which no host has been run on (lead 238) | a legitimate host refuses to start |
 | FSEM7 | canary compared by cosine only, token ids ignored | SEM6 (id differs) | a tokenizer drift that preserves direction passes |
-| FSEM8 | `BgeInput`: the prefix on both roles | SEM1, SEM8, SEM30 | stored passages carry the instruction: every cosine shifts and the dedupe compares like with unlike |
+| FSEM8 | `BgeInput`: the prefix on both roles | SEM8, SEM30 | stored passages carry the instruction: every cosine shifts and the dedupe compares like with unlike |
 | FSEM9 | `BgeInput`: the prefix on neither | SEM8, SEM30 | queries lose the retrieval instruction: recall falls with no error |
 | FSEM10 | `BgePooling`: mean over tokens instead of `[CLS]` | SEM7, SEM28 | every vector is a different model's |
 | FSEM11 | `BgePooling`: skip the L2 normalisation | SEM7, SEM28 | `<=>` is no longer cosine distance as `db/0003` documents |
 | FSEM12 | truncation 512 to 256 | SEM8, SEM31 | a long post is represented by half its opening |
 | FSEM13 | truncation removed | SEM8, SEM31, SEM36 | a long post makes the model fault (`ModelFault`) or the position-embedding bound is exceeded |
 | FSEM14 | the head replaced by the tail | SEM31 | the opening of a post is not in its vector |
-| FSEM15 | the all-unknown rule removed | SEM12, SEM36, SEM38 | an emoji-only question is refused as a duplicate of the last one |
+| FSEM15 | the all-unknown rule removed | SEM12, SEM36 | an emoji-only question is refused as a duplicate of the last one |
 | FSEM16 | `IntraOpNumThreads = 2` to `0` | SEM39 | one flood of queries takes every core from ingest |
-| FSEM17 | `FifoGate`: the limit removed (every caller is admitted at once) | SEM11, SEM39 | a flood runs unbounded inferences on the thread pool |
-| FSEM18 | the waiter ignores its token | SEM3, SEM11 | R8.81's bound is not a bound |
-| FSEM19 | `ModelFault`'s detail = `ex.Message` | SEM10, SEM24 | a path or an author's text is served to a caller (D25) |
+| FSEM17 | `FifoGate`: the limit removed (every caller is admitted at once) | SEM11 | a flood runs unbounded inferences on the thread pool |
+| FSEM18 | the waiter ignores its token | SEM11, SEM58 | R8.81's bound is not a bound |
+| FSEM19 | `ModelFault`'s detail = `ex.Message` | SEM10 | a path or an author's text is served to a caller (D25) |
 | FSEM20 | the warm-up pass removed | SEM40 | the first question after boot takes the cold-start cost inside the hold |
-| FSEM21 | `Program.Build`: the startup-check call removed | SEM20, SEM21, SEM15 | a bad model loads lazily at the first request, after the listener is open |
-| FSEM22 | `EmbeddingIndexer`: `IndexedDigestsAsync(HashedNGramEmbedding.Model)` | SEM26 | the reconcile reads the old model's digests: nothing is embedded under the new id |
+| FSEM21 | `Program.Build`: the startup-check call removed | SEM20, SEM21 | a bad model loads lazily at the first request, after the listener is open |
+| FSEM22 | `EmbeddingIndexer`: `IndexedDigestsAsync(HashedNGramEmbedding.Model)` at both sites (lines 94 and 173; FSEM53 and FSEM54 patch one each) | SEM56 | the reconcile reads the old model's digests: nothing is embedded under the new id |
 | FSEM23 | `PostgresVectorIndex.NearestAsync`: drop `WHERE model = @model` | SEM26 | a 384-dimension query meets a 256-dimension row: a database error served as `503` |
-| FSEM24 | the reindex deletes the old model's rows | SEM26 | a rollback to `@1` of the hashed model finds nothing; the append-only story is false |
+| FSEM24 | `PostgresVectorIndex.UpsertAsync`: the reindex relabels the old model's row before the insert (`UPDATE ... SET model = @model WHERE digest = @digest AND model <> @model;`); second form, `DELETE ... WHERE model <> @model;`, which the grant refuses (42501) | SEM26 (the old model's count; the second form is red by the refusal and not by a count) | a rollback to `@1` of the hashed model finds nothing; the append-only story is false |
 | FSEM25 | `ForumFixture`: the override removed, `CURIA_EMBEDDING_MODEL_DIR` set | SEM23 | the Api suite runs the real model: an hour becomes many |
 | FSEM26 | `DuplicateCheck`: `Query` instead of `Passage` | SEM1 | a question is compared with passages through the retrieval instruction |
 | FSEM27 | a `ModelFault` in search returns `200` with the vector channel empty | SEM24 | the response says nothing of a channel that did not run |
 | FSEM28 | a `ModelFault` in the dedupe lets the post through | SEM24 | a write is accepted that could not be compared (principle P6) |
-| FSEM29 | the manifest's model digest changed by one hex digit | SEM27, SEM44 | the committed digest and the file part company; the fetch fails in CI |
+| FSEM29 | the manifest's model digest changed by one hex digit | SEM27 | the committed digest and the file part company; the fetch fails in CI |
 | FSEM30 | `docs/third-party.md`: one row removed | SEM18 | a linked package has no recorded licence |
-| FSEM31 | `Curia.Application.csproj` references `Microsoft.ML.OnnxRuntime` | SEM14 | CS-7 broken in the layer the domain depends on |
+| FSEM31 | `Curia.Application.csproj` references `Microsoft.ML.OnnxRuntime` and `HashedNGramEmbedder` names a type of it; second form, the bare `PackageReference` | SEM14 (the IL scan for the first form, the lock leg for the second) | CS-7 broken in the layer the domain depends on |
 | FSEM32 | `fetch-model.py`: the digest comparison removed | SEM44 | a corrupt download is installed |
 | FSEM33 | `Help.cs` banner restored to "until an ONNX model is configured it is hashed-ngram@1" | SEM42 | the next reader is told a learned model cannot find paraphrase |
 | FSEM34 | `ModelWording`: the `bge-small-en-v1.5@1` row says nothing of the 512 tokens | SEM42 | an agent searches for the end of a long post and concludes the Forum lacks it |
-| FSEM35 | `FifoGate`: admit the newest waiter first, or `SemaphoreSlim(2)` in its place | SEM45 | a few callers wait out a whole burst while others run (the measured 908 ms against 22.6 ms) |
+| FSEM35 | `FifoGate`: admit the newest waiter first, or `SemaphoreSlim(2)` in its place | SEM45 (the `SemaphoreSlim(2)` form is recorded as not killed by a unit probe, ruling 56) | a few callers wait out a whole burst while others run (the measured 908 ms against 22.6 ms) |
 | FSEM36 | `OnnxTextEmbedder`: the caller's token is checked before `Run` and `RunOptions.Terminate` is never set | SEM46 | R8.81's two seconds frees the caller and not the CPU: a post answered `pending` keeps its slot |
-| FSEM37 | `OnnxTextEmbedder`: the exception of a terminated run is mapped to `ModelFault` | SEM46, SEM10 | a client's own abort is logged and served as a model fault |
-| FSEM38 | `WordPieceTokenizer`/`TextCleaner`: drop every character of category S* | SEM29, SEM28, SEM36 | code, URLs with `=` and emoji lose tokens and an emoji-only text becomes two special tokens (the package's behaviour) |
+| FSEM37 | `OnnxTextEmbedder`: the exception of a terminated run is mapped to `ModelFault` | SEM46 | a client's own abort is logged and served as a model fault |
+| FSEM38 | `WordPieceTokenizer`/`TextCleaner`: drop every character of category S* | SEM29, SEM28 | code, URLs with `=` and emoji lose tokens and an emoji-only text becomes two special tokens (the package's behaviour) |
 | FSEM39 | `TextCleaner`: treat a Cf character as a word break | SEM29, SEM28 | a zero-width space (U+200B) inside "zerowidth" makes two words, and a soft hyphen splits a word |
-| FSEM40 | `TextCleaner`: normalise to NFC instead of NFD before WordPiece | SEM29 | Korean is a run of unknown tokens |
+| FSEM40 | `TextCleaner`: normalise to NFC instead of NFD before WordPiece | SEM29, SEM50 (widened, ruling 54) | Korean is a run of unknown tokens |
 | FSEM41 | `WordPieceTokenizer`: match the special tokens after lower-casing | SEM29 | the text "[unk]" is read as the special token |
 | FSEM42 | `TextCleaner`: drop unassigned characters as Cf are dropped | SEM29, SEM28 (U+0378) | an unassigned code point vanishes where the reference gives the unknown token |
-| FSEM43 | `WordPieceTokenizer`: clean and normalise the whole text before taking the head | SEM31 | a 256 KiB body costs every request its whole length (about 14 times a 600-word text in the prototype) |
+| FSEM43 | `WordPieceTokenizer`: clean and normalise the whole text before taking the head; second form, the whole is cleaned and normalised and discarded and the text is unchanged | SEM57 | a 256 KiB body costs every request its whole length (about 14 times a 600-word text in the prototype) |
 | FSEM44 | the reconcile's progress line includes the post's title | SEM47 | a log line carries an author's text |
 | FSEM45 | `EmbedderStartup`: the native-load failure's `Message` is appended to the refusal | SEM48 | the refusal serves a path |
 
@@ -1398,7 +2691,7 @@ The thirteenth fixture (`.superpowers/keep-2026-11-05-ex13/`: the two dumps, `ct
 - **L4 (the dedupe, live).** On a populated board: the four conformance paraphrases as questions (**neither refused nor annotated is expected**: their reference cosines are 0.689 to 0.776 against annotation at 0.85, ruling 30; recorded with the raw cosine from the receipt), the five literal pairs (all five are refused by the reference cosines and overlaps, ruling 30; recorded with the thread), the four `related` and three `distinct` (none refused: the ceiling), an emoji-only question twice (both accepted), and four paraphrases written by the cold readers, not by the implementer.
 - **L5 (cost and the flood; D11's number).** M11's flood on the reference box (loopback, bounded to 64): the write p99 beside a quiet baseline, the count of `pending` receipts, the process CPU, `vector_pending` back to 0 by itself.
 - **L6 (the cold start inside the hold).** The first question write after boot against the steady-state median, built and falsified (FSEM20): the warm-up's effect seen, not assumed.
-- **L7 (receipts at ordinary use).** 40 posts one at a time then eight at once with 510-token bodies: `vector_index` per receipt (all `indexed` at ordinary use; the eight-at-once row recorded, `pending` there is the honest outcome and its rate is a number).
+- **L7 (receipts at ordinary use).** 40 posts one at a time then eight at once with 510-token bodies: `vector_index` per receipt (all `indexed` at ordinary use; the eight-at-once row recorded, `pending` there is the honest outcome and its rate is a number). The eight-at-once leg is run in rounds (at least 25) twice, alternating, in one process directory and on one machine (trap 182): on the tip, and on the binary of FSEM35's `SemaphoreSlim(2)` form; the wall times of the eight requests of each round are recorded (p50 and the longest), beside M6's 22.6 ms and 908 ms, and asserted nowhere (ruling 13; Amendment 3 ruling 56).
 - **L8 (the harness).** `tools/fault-harness/burst.sh` (loopback, at most 64) against the built Forum with the model: no `5xx` that is not a problem document, the request log equal to the database.
 
 **The cold read** is scaled to what an agent reading search results would notice, and has two halves. *Words:* four Sonnet readers (the project's rule for sub-agents; the controller dispatches them with prompts it writes from the files, not from this plan) each get, in a fresh directory with nothing else, six `curia search` outputs under bge (an exact term, a paraphrase found, a paraphrase not found, a long-post tail, nonsense, a board filter) with the new banner; two further readers get the same pages with the **old** banner as the control. Questions, answered in their own words: (a) which hits did meaning find that words did not, and how do you know; (b) does the page tell you whether a paraphrase of your query would have been found; (c) if the last paragraph of a long post is what you need, will search find it, and what does the page say; (d) does an empty or weak page mean the Forum holds nothing on the topic. *Gate:* no reader in the bge group says search finds paraphrase reliably, says the end of a long post is searchable, or reads absence as proof of absence; all four answer (c) from the banner; the control group's answers are recorded as the control and are expected to fail (c), which is what shows the question carries information. A failure writes a numbered amendment to the banner and a second pass (the names PR's pass is the precedent). *Results:* a pass over the 20 queries' bge output by a reader who does not know the needles, asked to name the three best hits for each natural-language query, scored against the needles by the controller afterwards; reported beside `baseline.out`, not gated.
@@ -1469,11 +2762,11 @@ Task 4's whole run as CI runs it with the model fetched; the closed fuzz; prefli
 
 ## As run
 
-*(Empty. Written by the builder at Task 8 from the run: the commits oldest first, the probes SEM1 to SEM55 with any retired, the falsification FSEM1 to FSEM52, the measurements M1 to M20 beside their rules, the gates, the live run L1 to L8, the cold read, deviations from this plan with their reasons, concerns left.)*
+*(Empty. Written by the builder at Task 8 from the run: the commits oldest first, the probes SEM1 to SEM58 with any retired, the falsification FSEM1 to FSEM54, the measurements M1 to M20 beside their rules, the gates, the live run L1 to L8, the cold read, deviations from this plan with their reasons, concerns left.)*
 
 ### The commits, oldest first
-### Probes SEM1 to SEM55 (SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
-### Falsification FSEM1 to FSEM52
+### Probes SEM1 to SEM58 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+### Falsification FSEM1 to FSEM54
 ### The measurements (M1 to M20) beside their rules
 ### Gates
 ### The live run
