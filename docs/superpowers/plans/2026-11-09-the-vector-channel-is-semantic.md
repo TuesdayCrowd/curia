@@ -36,7 +36,7 @@ Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `93a99
 
 ## The design in one paragraph
 
-`bge-small-en-v1.5` fp32, 384 dimensions, loaded from a directory (`Curia:Embedding:ModelDirectory`, env `CURIA_EMBEDDING_MODEL_DIR`) holding `model.onnx` and `vocab.txt`; their sha256, the identity's other members and a set of canary texts with **reference** token ids and vectors are committed in `models/bge-small-en-v1.5/manifest.json`, which is both an embedded resource of `Curia.Infrastructure` (as `db/*.sql` and `lifecycle-approval.json` are) and the input of `tools/model/fetch-model.py` (so the committed digest the fetch checks and the digest the Forum checks are one string in one file, while the canary vectors come from a **third** artifact, a Python reference run). `OnnxTextEmbedder` in `Curia.Infrastructure` runs one shared `InferenceSession` (CPU, `IntraOpNumThreads` 2, at most two runs at once, served in arrival order, a started run stopped when its caller's token is cancelled) and a tokenizer of its own (BCL only, held to the reference by committed vectors) behind the port's new async, role-taking method; the query role prefixes the instruction, the passage role does not; the head 512 tokens are kept; the CLS vector is L2-normalised. `Program.Build` verifies the files, runs the canary set and warms the session **before it returns the app**, as the lifecycle gate already fails the start there; a failure is a thrown exception naming the file or the canary, never a fallback. Production registers no hashed adapter and no configuration selects one; `ForumFixture` replaces the embedder explicitly; a fence reads every production assembly's IL. A new test assembly runs the real model (canaries, tokenizer parity, roles, truncation, separation) and fails loudly without it. The Forum keeps old rows and indexes the new id by absence. The thresholds, the floor and `RESULTS.md`'s numbers are D10b's. The CLI banner and the MCP description say what the served model can and cannot do from one definition. D11 is measured, not bounded.
+`bge-small-en-v1.5` fp32, 384 dimensions, loaded from a directory (`Curia:Embedding:ModelDirectory`, env `CURIA_EMBEDDING_MODEL_DIR`) holding `model.onnx` and `vocab.txt`; their sha256, the identity's other members and a set of canary texts with **reference** token ids and vectors are committed in `models/bge-small-en-v1.5/manifest.json`, which is both an embedded resource of `Curia.Infrastructure` (as `db/*.sql` and `lifecycle-approval.json` are) and the input of `tools/model/fetch-model.py` (so the committed digest the fetch checks and the digest the Forum checks are one string in one file, while the canary vectors come from a **third** artifact, a Python reference run). `OnnxTextEmbedder` in `Curia.Infrastructure` runs one shared `InferenceSession` (CPU, `IntraOpNumThreads` 2, at most two runs at once, served in arrival order, a started run stopped when its caller's token is cancelled) and a tokenizer of its own (BCL only, held to the reference by committed vectors) behind the port's new async, role-taking method; the query role prefixes the instruction, the passage role does not; the head 512 tokens are kept; the CLS vector is L2-normalised. `Program.Build` verifies the files and runs the canary set (one canary is as long as the model reads, so the session has run its longest input) **before it returns the app**, as the lifecycle gate already fails the start there; a failure is a thrown exception naming the file or the canary, never a fallback. Production registers no hashed adapter and no configuration selects one; `ForumFixture` replaces the embedder explicitly; a fence reads every production assembly's IL. A new test assembly runs the real model (canaries, tokenizer parity, roles, truncation, separation) and fails loudly without it. The Forum keeps old rows and indexes the new id by absence. The thresholds, the floor and `RESULTS.md`'s numbers are D10b's. The CLI banner and the MCP description say what the served model can and cannot do from one definition. D11 is measured, not bounded.
 
 ## Scope (exact file set; Task 0 M1 re-reads it, and a file added to the list is recorded in "As run")
 
@@ -46,7 +46,7 @@ Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `93a99
 - `src/Curia.Infrastructure/Embedding/`: `EmbeddingManifest.cs`, `ModelFiles.cs`, `BgeInput.cs`, `BgePooling.cs`, `OnnxTextEmbedder.cs`, `EmbedderStartup.cs`, `OnnxEmbedderOptions.cs`, `EmbeddingServiceCollectionExtensions.cs`, `FifoGate.cs`, and under `Tokenization/` the tokenizer (`WordPieceTokenizer.cs`, `TextCleaner.cs`; one namespace, `Curia.Infrastructure.Embedding.Tokenization`).
 - `src/Curia.Domain/Search/EmbeddingRole.cs`; `EmbeddingErrors.ModelFault()` and `ModelNotReady()` beside `NoFeatures()`.
 - `tests/Curia.Embedding.Tests/` (new assembly: the real-model suite, `packages.lock.json`, in `Curia.sln`).
-- Model-free tests: `tests/Curia.Infrastructure.Tests/Embedding/*` (SEM4 to SEM12, SEM26, SEM39, SEM40, SEM45, SEM48 to SEM52), `tests/Curia.Architecture.Tests/EmbedderFenceTests.cs` (SEM13 to SEM17), `tests/Curia.Api.Tests/EmbedderBootTests.cs` (SEM20 to SEM24), `tests/Curia.Client.Tests/ModelWordingTests.cs` (SEM42), `tests/Curia.Client.Tests/ModelWordingHostileTests.cs` (SEM53, SEM54), `tests/Curia.Mcp.Tests/ModelIdToolTests.cs` (SEM55), `tests/Curia.Application.Tests/Retrieval/EmbedRoleTests.cs` (SEM1 to SEM3), `tests/Curia.Architecture.Tests/ThirdPartyRecordTests.cs` (SEM18).
+- Model-free tests: `tests/Curia.Infrastructure.Tests/Embedding/*` (SEM4 to SEM12, SEM26, SEM39, SEM45, SEM48 to SEM52; SEM40 is retired, Amendment 4 ruling 58), `tests/Curia.Architecture.Tests/EmbedderFenceTests.cs` (SEM13 to SEM17), `tests/Curia.Api.Tests/EmbedderBootTests.cs` (SEM20 to SEM24), `tests/Curia.Client.Tests/ModelWordingTests.cs` (SEM42, SEM60; Amendment 4 ruling 60), `tests/Curia.Client.Tests/ModelWordingHostileTests.cs` (SEM53, SEM54), `tests/Curia.Mcp.Tests/ModelIdToolTests.cs` (SEM55), `tests/Curia.Application.Tests/Retrieval/EmbedRoleTests.cs` (SEM1 to SEM3), `tests/Curia.Architecture.Tests/ThirdPartyRecordTests.cs` (SEM18).
 - `docs/third-party.md` (Ruling 17).
 
 **Edited**
@@ -74,9 +74,9 @@ Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `93a99
 2. **The port.** `Task<Result<Embedding>> EmbedAsync(string text, EmbeddingRole role, CancellationToken cancellationToken)` replaces `Embed`; `EmbeddingRole { Query, Passage }` in `Curia.Domain.Search`. `HybridSearch` passes `Query`; `DuplicateCheck` passes `Passage` (a question is compared with stored passages: symmetric); `EmbeddingIndexer` passes `Passage` at both sites. `HashedNGramEmbedder` ignores the role and completes synchronously. The port fence's row changes name and keeps its reason.
 3. **Where the manifest lives and who checks what.** One committed file, three readers: the fetch script (digests), the Forum (digests, identity, canaries) and the real-model suite. The **canary ids and vectors are produced by `tools/model/reference.py`** with the Hugging Face tokenizer and `onnxruntime` for Python (and compared with `transformers`/`torch` for the same texts, Task 0 M4), never by the C# adapter, and the manifest records the reference tools' versions. A canary generated by the code it guards is a restatement; this one derives from a different tokenizer and a different runtime.
 4. **Fetch by digest.** `tools/model/fetch-model.py --out <dir>` downloads each file from the manifest's first reachable source, writes to a temporary name, checks sha256 against the manifest and renames only on equality; a mismatch deletes the temporary, exits non-zero and leaves any previous file alone. Sources, in order: the repository's release asset (the owner uploads the exact bytes Task 0 hashes) and the pinned Hugging Face revision URL (revision recorded in the manifest). **Both are checked by the same digest**, so the fallback is not a weaker path and the owner's upload is not on the critical path. A local cache (`$XDG_CACHE_HOME` or the home cache directory, derived at run time) saves the download; the digest is checked on every use. `--verify-only` checks a directory and downloads nothing.
-5. **Boot refuses, never degrades, and does so where the lifecycle gate already does.** `Program.Build` gains, directly after `_ = app.Services.GetRequiredService<ILifecycleAppendGate>()` (`:362`), a call that resolves the registered `ITextEmbedder` and, if it implements `IStartupChecked`, runs its check synchronously (this is the composition root; the call is not on a request path): (a) options shape, (b) both digests, (c) the session (a native library that cannot load on this platform is a refusal naming the package and the operating system and architecture, never an exception message or a path, Amendment 1 ruling 26), (d) every committed canary (token ids exactly; each vector component within 1e-4), (e) warm-up (three passes of a 510-token text), then returns. A failure throws `InvalidOperationException` naming the configuration key, the file or the canary id, never a path, so the host does not start. A test host that replaced the embedder with a hashed one has nothing to check and no model is needed. `ValidateOnStart` (CS-17) is used for the options' shape only; the content check is not an options validation, because an options validation would run in a host that replaced the embedder and demand a model it does not use.
+5. **Boot refuses, never degrades, and does so where the lifecycle gate already does.** `Program.Build` gains, directly after `_ = app.Services.GetRequiredService<ILifecycleAppendGate>()` (`:362`), a call that resolves the registered `ITextEmbedder` and, if it implements `IStartupChecked`, runs its check synchronously (this is the composition root; the call is not on a request path): (a) options shape, (b) both digests, (c) the session (a native library that cannot load on this platform is a refusal naming the package and the operating system and architecture, never an exception message or a path, Amendment 1 ruling 26), (d) every committed canary (token ids exactly; each vector component within 1e-4; one canary is 512 ids long, so the session has run its longest input before the check returns, and a separate warm-up pass is dropped, Amendment 4 ruling 58), then returns. A failure throws `InvalidOperationException` naming the configuration key, the file or the canary id, never a path, so the host does not start. A test host that replaced the embedder with a hashed one has nothing to check and no model is needed. `ValidateOnStart` (CS-17) is used for the options' shape only; the content check is not an options validation, because an options validation would run in a host that replaced the embedder and demand a model it does not use.
 6. **No fallback, by construction and by fence.** Production composition registers `OnnxTextEmbedder` through one extension method. No configuration key selects another embedder (a key like `Curia:Embedding:Provider` is read by nothing; SEM22 proves a host given it still refuses). `HashedNGramEmbedder` stays a public Application type (11 test files use it, Task 0 M1); a fence reads the IL of every assembly built from `src/` other than `Curia.Application` and `Curia.Domain` and fails on a reference to `HashedNGramEmbedder` or `HashedNGramEmbedding`, in Debug and Release (D16).
-7. **Runtime.** One `InferenceSession`; `IntraOpNumThreads` 2, `InterOpNumThreads` 1, sequential execution (an internal property exposes the options so a probe can read them, SEM39); a first-in-first-out gate of two around `Run`, not `SemaphoreSlim` (Task 0 M6 measured it starving waiters: a 16-token p99 of 908 ms at 8 callers and 1,379 ms at 20, against 22.6 ms and 56.4 ms through a FIFO gate; Amendment 1 ruling 23); a caller waiting on the gate honours its token, and a cancelled waiter runs nothing and frees its place; a `Run` already started for a caller whose token is then cancelled is stopped with `RunOptions.Terminate` (measured: a 510-token run stopped 2 to 3 ms after the request and the session ran the next call in 149 ms), and the adapter reports that stop as the caller's own `OperationCanceledException`, never as `ModelFault`. Output tensor read as `last_hidden_state` row 0 of batch 0 (Task 0 M6 read it: inputs `input_ids`, `attention_mask` and `token_type_ids`, all `Int64 [batch, seq]` and all required; output `last_hidden_state Float [batch, seq, 384]`; committed in the manifest, ruling 33). Batch size 1 (a batch of one is the identity's definition; padding changes nothing for batch 1).
+7. **Runtime.** One `InferenceSession`; `IntraOpNumThreads` 2, `InterOpNumThreads` 1, sequential execution (an internal property exposes the options so a probe can read them, SEM39); a first-in-first-out gate of two around `Run`, not `SemaphoreSlim` (Task 0 M6 measured `SemaphoreSlim(2).Wait()` from dedicated threads starving waiters: a 16-token p99 of 908 ms at 8 callers and 1,379 ms at 20, against 22.6 ms and 56.4 ms through a FIFO gate; the adapter's path is `WaitAsync`, which keeps arrival order, so the gate is kept for R11.92's order by construction and not for a measured tail; Amendment 1 ruling 23, Amendment 4 ruling 59); a caller waiting on the gate honours its token, and a cancelled waiter runs nothing and frees its place; a `Run` already started for a caller whose token is then cancelled is stopped with `RunOptions.Terminate` (measured: a 510-token run stopped 2 to 3 ms after the request and the session ran the next call in 149 ms), and the adapter reports that stop as the caller's own `OperationCanceledException`, never as `ModelFault`. Output tensor read as `last_hidden_state` row 0 of batch 0 (Task 0 M6 read it: inputs `input_ids`, `attention_mask` and `token_type_ids`, all `Int64 [batch, seq]` and all required; output `last_hidden_state Float [batch, seq, 384]`; committed in the manifest, ruling 33). Batch size 1 (a batch of one is the identity's definition; padding changes nothing for batch 1).
 8. **Total, and nothing served from an exception.** `EmbedAsync` never throws except `OperationCanceledException` for the caller's own token. A tokenizer exception, an ORT exception, a non-finite output or a zero norm is `Result.Fail(EmbeddingErrors.ModelFault())`, a fixed `Error` whose `Detail` is the exception's **type name** only (the shape of `RetryFault`), never `Message`, a path or the input. Any input (U+FFFE, lone surrogates, NUL, empty, 1 MiB) answers a vector, `NoFeatures` or `ModelFault`. A runtime fault is `503` through the existing `Problem(503, ...)`; **a write that cannot be compared is not made** (principle P6: fail closed on the write path), and a search that cannot embed its query is `503`, as it is today for an index fault. A lexical-only fallback for reads would be a degradation the response did not state; it is not built (item 6 below).
 9. **Placeable.** After tokenization and truncation, a text **all** of whose content tokens are the unknown token, and a text with no content tokens, is `NoFeatures`; one known token among unknowns is placed. The three call sites already treat `NoFeatures` as "nothing to compare" (`EmbeddingIndexer.cs:45-50`, `DuplicateCheck.cs:76-79`, `HybridSearch.cs:181`), so the emoji-only question is accepted and indexed as nothing.
 10. **Bounded work on an unbounded body.** Tokenization stops after the head: the adapter's own tokenizer reads the text as a stream and stops after the 510th content token (Amendment 1, ruling 22). Every step of the algorithm is local to a character or to a word, and the tokenizer reads whole words only, so the tokens of a prefix are a prefix of the tokens of the text and the 510th token never comes from a word cut by the end of the read: that is the proof this ruling asked for. The work is held by a counter of characters consumed, not by a time (SEM31). SEM31 and SEM36 hold a 256 KiB body: same vector as its own first 510 tokens, time within a stated multiple of a 512-token text.
@@ -143,9 +143,9 @@ Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `93a99
 
 **R11.91** The Forum SHALL NOT accept a request before it has verified each model file against the digest committed in the build, embedded the committed canary texts, and found their token ids equal to the committed reference and every component of their vectors within 1e-4 of it; a failed check SHALL stop the start, naming the configuration key, the file or the canary and never serving a path. The production composition SHALL register no other embedder and no configuration SHALL select one; a test host replaces the embedder explicitly. A right file with a wrong tokenizer is a Forum whose every vector is wrong in a way no request shows, and a fallback is the same Forum that says nothing.
 
-**R11.92** The embedding step SHALL run at most two inferences at once and SHALL admit callers in the order they arrived; a caller waiting for one SHALL honour its own cancellation, and an inference already started for a caller whose cancellation has been signalled SHALL be stopped; a text of any length and any code points SHALL answer a vector, no features or a failure whose text is fixed and carries no exception message, path or input; and the session SHALL be warmed with texts of the longest length before the first request. R8.81's two seconds bound only what can be cancelled, and an exception message that quotes a path or an author's text is D25 in a new place.
+**R11.92** The embedding step SHALL run at most two inferences at once and SHALL admit callers in the order they arrived; a caller waiting for one SHALL honour its own cancellation, and an inference already started for a caller whose cancellation has been signalled SHALL be stopped; and a text of any length and any code points SHALL answer a vector, no features or a failure whose text is fixed and carries no exception message, path or input. R8.81's two seconds bound only what can be cancelled, and an exception message that quotes a path or an author's text is D25 in a new place.
 
-**R11.93** A client that states what the vector model cannot do SHALL state it from the model id the Forum served, from one definition, and for an id it does not know SHALL state the id as a display literal (R10.64) and that its limits are not stated, and for a Forum that served no id or an empty one SHALL state that no model was named and that its limits are not stated. A banner that says "hashed" over a Forum serving a learned model, or the reverse, is a word the next reader acts on.
+**R11.93** A client that states what the vector model cannot do SHALL state it from the model id the Forum served, from one definition, and for an id it does not know SHALL state the id as a display literal (R10.64) and that its limits are not stated, and for a Forum that served no id or an empty one SHALL state that no model was named and that its limits are not stated. A banner that says "hashed" over a Forum serving a learned model, or the reverse, is a word the next reader acts on. For a model whose floor removes no post, so that every query is answered with its nearest posts however far they are, the statement SHALL also say that a long list of results is no evidence that the Forum holds the topic and that a hit sharing no word with the query may be a paraphrase or may be unrelated. Under `bge-small-en-v1.5@1` a query of made-up words has every post of the corpus above the floor (SEM59), and a reader who takes a full page for a yes has been told the Forum holds a topic it does not.
 
 **R14.13** A test that needs the deployed model's files SHALL fail, naming the variable and the command that fetches them, when they are absent, and SHALL NOT skip; the fetch SHALL check the committed digest on every use. A green suite that ran nothing is the failure R11.9 exists to prevent, and a model suite is the likeliest place for it.
 
@@ -2497,6 +2497,678 @@ sys.exit(1 if bad else 0)
 
 Before applying, every row of this amendment reads `old 1 new 0`. After, `new 1`, and the rows of the earlier amendments that a later row overwrites read `superseded` (E23, E26, E28, E34, E47, E48, E49, E60, E70, E71, E72, E73). 106 rows are expected.
 
+## Amendment 4 (2026-11-10, Task 7)
+
+Written by `curia-architect` after reading `.superpowers/sdd/2026-11-09-d10a/task-7-live-report.md` and `d10a-task7-after.txt` in full (135 lines), then the raw files the report names (`rec/l6.txt`, `rec/l6b.txt`, `rec/l3-ranks.txt`, `rec/l4-log.json`, the harnesses `bin/l6.py`, `bin/l6b.py`, `bin/l5.py`, `bin/l7.py`, `bin/forum.sh`, and `coldtext/new-1` to `new-6` and `old-1`) and the code and probes they point at, at the branch head `fafaeba8` (`src/Curia.Infrastructure/Embedding/{OnnxTextEmbedder,FifoGate}.cs`, `models/bge-small-en-v1.5/manifest.json`, `src/Curia.Application/Retrieval/{HybridSearch,DuplicateCheck}.cs`, `src/Curia.Domain/Search/HybridRanking.cs`, `src/Curia.Client/ModelWording.cs`, `src/Curia.Api/Program.cs`, `tests/Curia.Client.Tests/ModelWordingTests.cs`, `tests/Curia.Embedding.Tests/BehaviourTests.cs`, `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`, Task 0's `m6/Program.cs` and `raw/m6-*`). Rulings continue from 58 (Amendment 3's last is 57). **The errata is not edited.** **No repository file was edited and nothing was committed.** The architect made four runs of its own, on a **copy of the working tree** at `fafaeba8` and on the builder's two built trees (`src` and `nw` under the Task 7 scratch directory), with a throwaway database that is dropped: they are **the architect's evidence for the rulings and are not Task 7a's record**; Task 7a runs what it needs again in the repository. The plan body is **not yet edited**: the builder applies `### In-place edits` (24 pairs, E107 to E130, each `Old` occurring exactly once in the body outside the four amendments, counted by script when this amendment was written: 24 of 24, 0 misses), applies `### Code and test edits` (CE1 to CE16, each `Old` occurring exactly once in its file at `fafaeba8`, 0 misses, and applied to a copy that builds at 0 warnings), and runs the check at the end.
+
+**The decisions, in one paragraph.** Seven of eight legs held and the eighth was aimed wrong. **L6** did not show the warm-up's effect because the warm-up has none: the start's own canaries had already run the 512-id shape through the same session, and the leg's first write was 40 words and not the longest input; the warm-up is **removed**, with its probe SEM40 and its row FSEM20 (ruling 58). **L7** did not separate the FIFO gate from `SemaphoreSlim(2)` because M6's starvation was a *synchronous* `Wait()` and the adapter's path is `WaitAsync`, which keeps arrival order; the gate is **kept for R11.92's order** and the premise of ruling 23 is restated (ruling 59). **Finding 4** is the one that changes what an agent reads: under bge a made-up query returns 199 posts, so a page is never short, and the banner says only that a paraphrase may be missed; the **banner gains one clause** and two probes and two falsification rows hold it (ruling 60). **The cold read** is given its final form, with a question (d) aimed the right way round, the default form of the page, and a gate that can fail (ruling 61). The other findings are words corrected and leads filed (ruling 62), and the numbers go to D10b (ruling 63). **Code changes are needed before the cold read: one** (the banner clause, CE10, with SEM59 and SEM60); the warm-up's removal and the gate's comment travel in the same round and are not on the cold read's path.
+
+
+### What was checked, and what it found
+
+Each fact below is the architect's own check of an artifact, not the report's claim. Where the report was right it is said.
+
+- **The plan's state.** The plan at sha256 prefix `45e7688a95adeef0` is the file at `fafaeba8` (identical by `git show`); `git status` shows only ` M CLAUDE.md` outside it. The check of Amendment 3, run on it, reads 106 pairs: 93 `after`, 12 `superseded`, and **E35 as `before`** (old 1, new 0): E35's `Old` is a prefix of its `New`, and E98 later rewrote the FSEM35 line inside that `New`, so the row can never read `new 1` again. It is harmless (that check does not call it wrong), and it is the check's blind spot and not the plan's: a row applied and then rewritten reads `before`. This amendment's check closes it with one rule (below), under which E35 reads `superseded` (13 and not 12), and so will E106 once E124 rewrites its tail.
+- **L6, the report was right about the numbers and the leg was aimed at the wrong input.** `rec/l6.txt` has the twelve rounds the report summarises (tip first writes 220, 201, 210, 219, 214, 215; no warm-up 229, 223, 214, 209, 225, 210), and it shows what the report does not mention: **ready after 1,280 to 1,441 ms with the warm-up against 880 to 918 ms without**, so the warm-up costs the start about 0.4 to 0.55 s. `bin/l6.py` makes its first write with `b = " ".join(... for _ in range(40))`: **40 words, not 510 tokens**. The warm-up's stated purpose (`OnnxTextEmbedder.cs:175`, "the longest input it will be given, so the first request does not pay for the allocations") was therefore not exercised by L6's first write. `bin/l6b.py` is a search of five words.
+- **The warm-up is redundant by construction.** `Check` calls `ReproduceCanaries` and then `WarmUp` on one session (`OnnxTextEmbedder.cs:93-95`); `models/bge-small-en-v1.5/manifest.json` holds fifteen canaries, and the fifteenth, `over-512-tokens`, has **512** token ids (read from the file: the canaries' id counts are 18, 26, 14, 21, 21, 37, 46, 17, 3, 56, 50, 12, 5, 28, 512). The longest shape has run once before the warm-up starts.
+- **The architect's rerun of L6 with a 510-token first write** (a fresh database, the builder's `src` and `nw` trees, six alternating rounds, 430 words per body, the posting budget cleared as the builder did): first write **402 ms with the warm-up (382 to 421) against 398 without (391 to 409)**, steady medians 265 against 263, ready 1,173 to 1,334 ms against 758 to 921. The first write costs about 135 ms more than the steady write in **both** builds. The warm-up has no effect on the first long write either.
+- **L7 and ruling 23: Task 0's M6 harness gates with `SemaphoreSlim(2).Wait()`.** `m6/Program.cs:116` is `sealed class SemGate : IGate { readonly SemaphoreSlim _s = new(2); public void Wait() => _s.Wait(); ... }`, called from dedicated `Thread`s. Its table has the 16-token cells at p50 5.5 ms and p99 908 and 1,379 ms (8 and 20 callers), and the **510-token cells at p99 within 1 percent of p50** (8 callers: 820.9 against 826.0; 20 callers: 2,051.8 against 2,063.3): no starvation at the length L7 uses. The adapter's gate is `FifoGate.EnterAsync` and FSEM35's form b3 is `WaitAsync`.
+- **The architect's loop, `gate/Program.cs`** (8 and 20 callers each re-entering a 5 ms spin through `SemaphoreSlim(2)`, 500 calls): `Wait()` from threads gives **p50 5.0 ms, p99 320 and 905 ms, max 936 and 1,110 ms**, which is M6's shape reproduced; `WaitAsync` gives **p50 20.0 and p99 20.1 ms at 8 callers, p50 50.1 and p99 50.2 ms at 20** (threads or tasks), which is perfect arrival order. The starvation is a property of the synchronous primitive.
+- **The architect's flood with writes alongside** (`l5c.py`: 64 threads of five-word searches for 10 s, one agent writing 40-word posts through the CLI, a fresh Forum per round, tip and `SemaphoreSlim(2)` alternating, 15 rounds each): median of each round's longest write **2,139 ms (tip) against 2,212 ms (`SemaphoreSlim`)**, rounds with a write over 2,000 ms 8 against 11, write p50 483 against 505. The first five rounds showed a gap (1,623 against 2,098) that the next ten did not keep. It does not separate. Caveat, stated because it bears on D11: each round boots a Forum and starts the flood at once, so the maxima include a cold process and are **not** L5's number (L5's valid run was a warm Forum, longest write 581 ms); the two forms ran from different directories (trap 182); whether any of those writes was `pending` was not recorded.
+- **Finding 4 is real and was already the register's D114, sharper.** `HybridSearch.cs:201` is `if (cosine < MinimumCosine) break;` over the index's nearest 200 with `HybridRanking.MinimumCosine = 0.2`; `ModelWording.cs` says only that a paraphrase may be missed. `coldtext/new-5.txt` shows the nonsense page: eight hits, each `lexical absent; vector rank n (cosine 5502 bp` falling to 5123). The architect's SEM59 measures the least cosine of four such queries over the ten-post conformance corpus at **0.381 to 0.425**, so a floor of 0.2 removes nothing. D114's rule (`IMPLEMENTATION_PLAN.md`, "D114") already says what the page must carry (a mark per hit, the counts, the count line) and is PR 8's; **its numbers are the hashed era's** (nonsense returns 6), which is what ruling 60 amends.
+- **Finding 1 holds.** `Check` writes no log line. **Finding 2 holds:** no file under `src/Curia.Client`, `src/Curia.Client.Cli` or `src/Curia.Mcp` mentions `possible_duplicate`, so the annotation is stored (`IngestPipeline.cs:252`) and served as `possible_duplicate_of` and no reader prints it; the report's L4 "held" is therefore **complete for the refusals** (every refusal in `rec/l4-log.json` has its cosine, overlap and thread) **and unchecked for the annotation**. **Finding 5 holds:** `HybridSearch.cs:95` sets the bound to the newest event's sequence. **Finding 6 holds:** `Program.Main` has no `catch`, so a refusal of the start is an unhandled exception, the same shape as the lifecycle gate's refusal at `Program.cs:371`. **Finding 7 is a count of lines and the report is right:** `.superpowers/keep-2026-11-05-ex13/ctl/queries.txt` has 20 lines, the first a `#` header, so 19 queries; the plan's "20 queries" is wrong in two places.
+- **L4 detail the report summarises.** `related-nonce-lifetime:a` was refused at cosine 0.966 and overlap 0.842 against `literal-cased:a`; the two have the same title and a near-identical body, not "the same text" as the report says, and a refusal of a near-copy is the dedupe working. Reader paraphrase 1 was refused at 9403 bp against 9400 and overlap 5385 against 5000: both conjuncts barely.
+- **What the L1 to L8 record held and what it did not:** L1, L2, L5 and L8 are as the report says (read in the record; **not re-run**). L3's rank table is as the record has it (read from `rec/l3-ranks.txt`; the exact-term rows hold at the top 5). 
+- **The code edits compile and the new probes go red where they should.** On the copy at `fafaeba8` with CE1 to CE16 applied: `dotnet build` of `Curia.Client.Tests`, `Curia.Infrastructure.Tests` and `Curia.Embedding.Tests` at 0 warnings and 0 errors; `Curia.Embedding.Tests` **15 of 15** (14 plus SEM59), the real model, the model directory of Task 0; `Curia.Client.Tests` `ModelWording*` 8 of 9, the one red being SEM42b, **red until Task 8 pastes G65 into the errata, as its own comment says**; `Curia.Infrastructure.Tests` filtered to the embedder, tokenizer, gate and two-model classes 44 of 44; SEM60 alone 1 of 1. **FSEM55** (the floor 0.2 to 0.6): SEM59 red by its own assertion, `'zorblax quimpt vrenkelflap': its least cosine over the corpus, 0.391, is below the floor 0.600`. **FSEM56 (a)** (the clause removed): SEM60 red, `the sentence for bge-small-en-v1.5@1 does not say however far`. **FSEM56 (b)** (the clause appended to the hashed sentence): SEM60 red on `DoesNotContain`, `Found: "however far"`. SEM60 is red on the unmodified `ModelWording` for the same reason as (a), so it is red before CE10 and green after.
+
+
+### Rulings
+
+**Rulings 58 to 64. The numbering continues Amendment 3's.**
+
+58. **The warm-up is dropped: it was redundant by construction and L6 and the rerun show it buys nothing.** (a) By construction: the manifest's fifteenth canary has 512 ids and `Check` runs the canaries before `WarmUp`, through the same session and the same `Run`, so the longest input has run once before the warm-up's three runs begin. (b) By L6: 214 ms against 219 ms for the first write and 162 against 160 for the first search, with the caveat that L6's first write was 40 words and so did not exercise the claim. (c) By the rerun that does exercise it (a 510-token first write): 402 against 398 ms, steady 265 against 263. (d) It costs the start about 0.4 to 0.55 s on every boot (1,173 to 1,334 ms against 758 to 921 on an empty database; 1,280 to 1,441 against 880 to 918 in L6). **Ruling:** `WarmUp`, `WarmUpRuns`, SEM40 and FSEM20 are removed (CE1 to CE8, CE11 to CE14); R11.92 loses its clause (E109); SEM40 and FSEM20 stay unused numbers so that references to them in the three amendments stay stable. The canary set is what runs the longest input before the first request, and **no new probe says so, because nothing claims it**. L6 is kept as a record with one check after the fix round (E123): the tip against the build of `fafaeba8`, six alternating rounds, a 510-token first write; ready about 0.4 s sooner and a first write not more than 20 ms slower, and a first write slower than that **restores** the warm-up and reopens this ruling. *The first write costs about four times the steady write in both builds* (L6: 214 against 55 to 70 ms; the rerun: about 400 against 265 at 510 tokens), so whatever that cost is, it is not the model's first inference: lead 240. *Why not keep the warm-up as harmless:* SEM40 asserted three runs of 512 ids and FSEM20 turned it red, both as designed, and together they proved only that the call exists: the requirement was specified, implemented, discharged and falsified at the unit and bought nothing in the system (trap 225). A rule whose stated purpose is false is removed and not left to be believed.
+
+59. **L7 and ruling 23: `FifoGate` is kept, for the order R11.92 asks for, and the premise that it buys a measured tail is withdrawn.** *Evidence for.* M6's starvation is real and belongs to a synchronous `Wait()` from dedicated threads that re-enter in a loop (16 tokens: p99 908 and 1,379 ms at p50 5.5; reproduced by the architect's loop at p99 320 and 905 ms); the same harness shows no tail at 128 and 510 tokens (p99 within 1 percent of p50 at 510). *Evidence against the premise on the built path.* `WaitAsync`, which is what the adapter would call, keeps perfect arrival order in the same loop (p99 equal to p50: 20.1 against 20.0 ms at 8 callers, 50.2 against 50.1 at 20); L7's 26 alternating rounds on the tip and on FSEM35's `SemaphoreSlim(2)` form read per-round p50 medians of 1,156 and 1,154 ms and longest medians of 1,419 and 1,413 ms; and the architect's 15 alternating flood rounds read 2,139 and 2,212 ms (median of each round's longest write). **L7 could not have separated the forms by its design:** eight one-shot arrivals per round are all queued at once and nothing re-enters, so no gate can pass a waiter over; its null was predicted, and the leg's value is that the FIFO gate costs nothing over `SemaphoreSlim` for whole writes (1,156 against 1,154 ms), which is the second thing the plan wanted to know. M6's 16-token numbers and L7's whole writes do not compare, as the report says, and now for a reason: they are different primitives. **Ruling:** `FifoGate` stays. R11.92 says callers are admitted in the order they arrived, and the gate guarantees it by construction while `SemaphoreSlim` keeps it today by an implementation behaviour that the architect measured and did not find documented (not read; stated as unverified below). Replacing it would cost a falsification round (FSEM17, FSEM35, FSEM36, FSEM51 and SEM11, SEM45, SEM49, SEM58 re-aimed) and buy nothing measured; keeping it costs nothing measured. **FSEM35's `SemaphoreSlim(2)` form is an equivalent mutant of the order property**, which is why SEM45 and SEM49 stay green on it (ruling 56) and why neither L7 nor a flood separates it: ruling 56's "not killed" is explained and is not a gap in a probe. The sentence that M6 measured a starving `SemaphoreSlim` is corrected where it stands in the body (E111, E118, E124) and in the gate's own comment (CE9); ruling 23's cost sentence (p99 2,063 ms at twenty 510-token posts) stands, because it is queueing and equal under both gates; lead 236 is closed by this ruling. **Reopen only if** a probe or a live run finds the BCL's `WaitAsync` passing a waiter over; then the gate is the guard.
+
+60. **Finding 4: the bge banner gains one clause, held by two probes and two falsification rows; the count line and the per-hit mark stay PR 8's (D114).** Under bge the floor removes nothing, so every query is answered with its nearest 200 posts however far they are: nonsense returned 199 hits, 25 of 25 on the first page vector-only; `SKIP LOCKED`, an exact term, returned 203, 186 of them with the lexical channel absent. The banner said only that a paraphrase may be missed, which is true and is not what a reader most needs: that **a full page proves nothing** and an absent hit proves nothing either. The cold read's question (d), "does an empty or weak page mean the Forum holds nothing", was aimed the wrong way for this Forum, because no page is ever weak. **The clause (CE10), appended to the bge sentence of `ModelWording`:** "It ranks the nearest posts it holds however far they are, so a long list of results is no evidence that the Forum holds anything on the topic, and a hit that shares no word with the query may be a paraphrase or may be unrelated: its rank does not say which." It is true of this model only (the hashed model's floor does remove far posts) and the sentences for `hashed-ngram@1`, an unknown id and no id do not carry it (SEM60 asserts all three together, trap 185). **SEM59** (CE15, `Curia.Embedding.Tests`, the real model) holds the **fact** from a different artifact than the sentence: four queries in the query role over the conformance corpus are at or above `HybridRanking.MinimumCosine`, so a floor that D10b raises turns the sentence false and SEM59 red (FSEM55, red by its own assertion on the copy). **SEM60** (CE16) holds the **words** by hand (FSEM56 forms a and b, both red). R11.93 gains one sentence (E110), so the clause has a requirement and not only a string. *Why a clause now and not at PR 8:* PR 8's count line and per-hit mark are page members, need D10b's floor, and are a larger change; the banner is one definition that the cold read is about to test, and a cold read that tests a banner known to omit this is a cold read of a prediction. *Why not a count line now:* the count needs the by-channel counts PR 8 builds. *What `curia_search` says:* nothing of the model's limits (Amendment 1 ruling 25), so the MCP reader has no clause until PR 8's first block: lead 245. D114's text is amended with the bge numbers (E127) and PR 8 states its floor words from D10b.
+
+61. **The cold read, final form.** It is replaced in the body (E125) and is, in short: **sixteen pages (eight new, eight old) from one Forum on one day after Task 7a** (the tip's client and the client of `main` at `2708d826`): six `--why --limit 8` pages as before, and **the default form** (`--limit 5`, no `--why`) of the paraphrase-not-found query and of the nonsense query, because the default is what an agent types and it carries no channel mark (D114): four readers on the new banner, two on the old as the control; (a), (b), (c) as before, **(d) rewritten** to ask, of a query of made-up words and of a full first page, what a reader concludes about whether the Forum holds the topic and what on the page leads there; a gate that adds "reads a full page as evidence that the Forum holds the topic" and that **can fail**: if both control readers pass (c) and (d) with the old banner, the questions did not discriminate, the clause is kept as true and not claimed as needed, and two more readers see the new pages with the clause deleted before the run is called a pass; a failure writes an amendment and a second pass with fresh readers, and a second failure goes to the owner. *Why the old pages are regenerated:* the banner line changes, and a control whose pages come from a different Forum state than the test pages compares two things. *Why the default form:* L3's finding is about what the default output cannot say. *Results:* 19 queries, regenerated with the new banner, not gated. **The old-banner control stays**, as the plan wanted: it shows (c) carries information, and its first page already shows the false pairing (the old banner's "until an ONNX model is configured it is hashed-ngram@1" beside `model "bge-small-en-v1.5@1"`), which is the control's purpose and not a defect.
+
+62. **Findings 1, 2, 5, 6 and 7 are not fixed in code; the plan's words are corrected and the facts are filed as leads.** (1) The check logs nothing, and the plan's "verify, canaries, warm-up" in L1 is wrong: the listener's presence is the success and its absence the failure (E120); an operator-facing "embedding model verified" line is lead 241 (low; operations, PR O). (2) An accepted question's receipt prints neither a cosine nor an annotation and no client prints `possible_duplicate_of`; L4's rule "from the receipt" is corrected (E122) and L4's "held" is recorded as **held for the refusals and not checked for the annotation**; the annotation's invisibility to agents is lead 242. (5) `corpus_bound 510` on the model line is the newest event's sequence (`HybridSearch.cs:95`) and coincides with the banner's 510 of text on this fixture; the label is a wire member's name and the line is PR 8's page head: lead 244; the cold read records a reader who takes it for a text bound and does not gate on it. (6) A refused start is an unhandled exception with a stack trace that carries source-file paths; it is the same shape as the lifecycle gate's refusal, the Forum serves nothing, the owner's journal is the only reader: lead 243 (PR O). (7) The plan's "20 queries" is 19 (E121 and the cold read's results pass, E125). *Why not fix 5 and 6 now:* neither changes what an agent reads, each touches a surface another PR owns, and the cold read does not depend on them.
+
+63. **Finding 3 and the L3 numbers go to D10b; the thresholds do not change here.** D10b's input, as measured: reader paraphrase 1 refused at **cosine 9403 bp, overlap 5385 bp** against the 9400 and 5000 lines (the other three readers' paraphrases accepted, their cosines unrecorded: the receipt does not print them); the five literal pairs refused at cosines **0.985 to 1.000** and overlaps 0.722 to 1.000; a near-copy (`related-nonce-lifetime:a` against `literal-cased:a`) refused at 0.966 and 0.842; the four conformance paraphrases, the four related and three distinct pairs accepted; the annotate line at 8500 bp was not read on any accepted post. L3, for the floor and for PR 8's count words: the nearest cosine of the nonsense query is **5502 bp**, of a query whose only match lies past the model's window 6526 bp (`sourdough...`), of an on-topic paraphrase 7512 bp and of a board-filtered phrase 7923 bp, and the least cosine of four such queries over the conformance corpus is 0.381 to 0.425: **the first dense numbers the floor has had**, which D14 said no cosine could supply under the hashed model. The vector-only counts: nonsense 199, `gradient accumulation` 198 (24 of 25 on the first page), `SKIP LOCKED` 186, `CancellationToken` 198; N4b (`pgcrypto` on `postgres`) **not found**, 0 hits under hashed and 42 under bge, none the needle. L5, for D11: writes grow from about 40 ms to about 0.5 s under a 64-thread flood on this machine (valid run, longest 581 ms, 0 pending); the architect's cold-process floods saw 1.2 to 3.8 s on both gate forms, `pending` not recorded. M8's first-start rule stays not held at 10,000 posts (35 posts per second here, about 285 to 305 s) under the owner's choice (a) of Amendment 1 ruling 24.
+
+64. **Task order and what the As-run says.** Task 7a (the fix round of this amendment) precedes Task 7b (the cold read), and Task 7's own record is the report and `d10a-task7-after.txt` (E126). The As-run's "live run" entry writes **L6 as "not held as written; explained and the warm-up removed (ruling 58)"** and **L7 as "recorded; the forms do not separate; explained (ruling 59)"**, lists the superseded runs the report names (L5 run 1, runs 2 and 3, L6b's first attempts, L6 run 1) with their reasons, and states that the host slept about 04:13 to 04:26 and earlier; the architect's four runs are not part of that record.
+
+
+### Probe and falsification rows added
+
+**Probes SEM59 and SEM60 are new; SEM40 is retired.** SEM1 to SEM60 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM40, SEM41 and SEM43 stay unused). **Falsification FSEM55 and FSEM56 are new; FSEM20 is retired.** FSEM1 to FSEM56 (FSEM20 unused). The tests are CE15 and CE16 below, compiled and run on a copy; the patches of the rows are exact:
+
+| # | Patch | Must go red | Seen red on the copy | First form |
+|---|---|---|---|---|
+| FSEM55 | `src/Curia.Domain/Search/HybridRanking.cs:62`: `public const double MinimumCosine = 0.2;` becomes `public const double MinimumCosine = 0.6;` | SEM59 (`Curia.Embedding.Tests`; the model directory set) | yes: `'zorblax quimpt vrenkelflap': its least cosine over the corpus, 0.391, is below the floor 0.600, so the channel no longer returns the nearest posts however far they are and ModelWording's sentence for this model says what is no longer true` | the sentence says every query is answered with its nearest posts however far, while a floor now removes the far ones |
+| FSEM56 (a) | `src/Curia.Client/ModelWording.cs`: the clause of CE10 removed, leaving the sentence of `fafaeba8` (CE10's `New` replaced by its `Old`) | SEM60 | yes: `the sentence for bge-small-en-v1.5@1 does not say however far` | an agent sees a full page for a query of made-up words and reads it as the Forum holding the topic |
+| FSEM56 (b) | `ModelWording.cs`: with CE10 applied, `" It ranks the nearest posts it holds however far they are, so a long list of results is no evidence that the Forum holds anything on the topic."` appended inside the `hashed-ngram@1` sentence, after `or not at all.` | SEM60 | yes: `Assert.DoesNotContain() Failure: Sub-string found ... "however far"` | a model whose floor removes far posts is described as one that does not (trap 185: a positive word with no negative neighbour) |
+
+Each row is a patch to a kept copy, built `--no-incremental`, the named probe run, restored by **plain copy** (mtime bumped), and run once unpatched. **FSEM55 touches `Curia.Domain` and so rebuilds every project that references it; the row names SEM59 only and the runner records the other reds as companions and does not count them as the row's.** SEM42b stays red in every run until Task 8 pastes G65 (it names a table the errata does not yet hold) and is not a verdict on any row.
+
+
+### Code and test edits
+
+**CE1 to CE16.** The `Old` of each is exact text of the file at `fafaeba8` (extracted by script, each occurring once in its file), and the `New` is what the copy at `fafaeba8` was built and run with. CE1 to CE9 and CE11 to CE14 remove the warm-up and correct two comments; **CE10 is the one change the cold read waits for**; CE15 and CE16 are the new probes. Apply CE15 and CE16 first and run SEM60 **red** (the unmodified `ModelWording` does not say `however far`) before CE10.
+
+#### CE1 — OnnxTextEmbedder: the class summary no longer says the session is warmed (ruling 58)
+File: `src/Curia.Infrastructure/Embedding/OnnxTextEmbedder.cs`
+Old:
+```text
+reproduces every canary and warms the session; until it
+```
+New:
+```text
+reproduces every canary (one of them as long as the model reads, so the session has run its longest input before the first request); until it
+```
+
+#### CE2 — OnnxTextEmbedder: the warm-up's count goes
+File: `src/Curia.Infrastructure/Embedding/OnnxTextEmbedder.cs`
+Old:
+```text
+    private const double CanaryTolerance = 1e-4;
+    private const int WarmUpRuns = 3;
+```
+New:
+```text
+    private const double CanaryTolerance = 1e-4;
+```
+
+#### CE3 — OnnxTextEmbedder: the Check summary
+File: `src/Curia.Infrastructure/Embedding/OnnxTextEmbedder.cs`
+Old:
+```text
+every committed canary (token ids exactly, each component within 1e-4) and the warm-up. A failure is an
+```
+New:
+```text
+and every committed canary (token ids exactly, each component within 1e-4). A failure is an
+```
+
+#### CE4 — OnnxTextEmbedder: Check no longer calls the warm-up
+File: `src/Curia.Infrastructure/Embedding/OnnxTextEmbedder.cs`
+Old:
+```text
+                ReproduceCanaries(tokenizer, runner);
+                WarmUp(tokenizer, runner);
+```
+New:
+```text
+                ReproduceCanaries(tokenizer, runner);
+```
+
+#### CE5 — OnnxTextEmbedder: the warm-up method is removed
+File: `src/Curia.Infrastructure/Embedding/OnnxTextEmbedder.cs`
+Old:
+```text
+    /// <summary>Runs the session on the longest input it will be given, so the first request does not pay for the allocations (Ruling 5).</summary>
+    private void WarmUp(WordPieceTokenizer tokenizer, IModelRunner runner)
+    {
+        var length = _manifest.MaxSequenceLength;
+        var ids = new long[length];
+        Array.Fill(ids, (long)Math.Min(tokenizer.Vocabulary.Count - 1, 1000));
+        ids[0] = tokenizer.ClsId;
+        ids[^1] = tokenizer.SepId;
+        var mask = new long[length];
+        Array.Fill(mask, 1L);
+        var input = new BgeInput(ids, mask, new long[length], true);
+        for (var i = 0; i < WarmUpRuns; i++)
+        {
+            var pooled = Run(runner, input);
+            if (!pooled.IsOk) throw new InvalidOperationException("The embedding model's warm-up run produced no usable vector.");
+        }
+    }
+```
+New:
+```text
+(deleted: the text above is removed, nothing replaces it)
+```
+
+#### CE6 — Program.Build: the comment
+File: `src/Curia.Api/Program.cs`
+Old:
+```text
+both digests, the session, every committed canary and a warm-up.
+```
+New:
+```text
+both digests, the session and every committed canary.
+```
+
+#### CE7 — README: the start-up check, the list
+File: `README.md`
+Old:
+```text
+carries, builds the session, reproduces every canary of
+```
+New:
+```text
+carries, builds the session and reproduces every canary of
+```
+
+#### CE8 — README: the start-up check, no warm-up
+File: `README.md`
+Old:
+```text
+of the Python reference's) and warms the session; a failure stops
+```
+New:
+```text
+of the Python reference's); a failure stops
+```
+
+#### CE9 — FifoGate: the summary says what was measured and what it does not claim (ruling 59)
+File: `src/Curia.Infrastructure/Embedding/FifoGate.cs`
+Old:
+```text
+<c>SemaphoreSlim</c> does not promise an order, and Task 0 M6 measured it passing waiters over: a 16-token p99 of 908 ms
+/// at 8 callers against 22.6 ms through this gate. A place freed is handed to the waiter at the head of the queue and not released for whoever arrives first.
+```
+New:
+```text
+The order is this gate's promise by construction and not a behaviour of the BCL today: <c>SemaphoreSlim</c> documents no order. Task 0 M6's starvation (a 16-token p99 of 908 ms at 8 callers) was
+/// measured on a synchronous <c>Wait()</c> from dedicated threads that re-enter in a loop; <c>WaitAsync</c>, the path this adapter would use, kept arrival order in the same shape of loop, and neither the live run's
+/// eight-at-once leg nor a 64-thread query flood with writes alongside separated the two forms (Amendment 4 ruling 59). A place freed is handed to the waiter at the head of the queue and not released for
+/// whoever arrives first.
+```
+
+#### CE10 — ModelWording: the bge sentence says a long list is no evidence (ruling 60)
+File: `src/Curia.Client/ModelWording.cs`
+Old:
+```text
+it can place a paraphrase near the post it paraphrases, and it can miss one.",
+```
+New:
+```text
+it can place a paraphrase near the post it paraphrases, and it can miss one. " +
+            "It ranks the nearest posts it holds however far they are, so a long list of results is no evidence that the Forum holds anything on the topic, and a hit that shares no word with the query may be a paraphrase or may be unrelated: its rank does not say which.",
+```
+
+#### CE11 — EmbedderBehaviourTests: SEM40 is retired (ruling 58)
+File: `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`
+Old:
+```text
+    /// <summary>
+    /// SEM40. The start runs at least three inferences on a text of 510 content tokens (512 ids) through the runner before it returns. Predicted red on the seam: <c>expected at least 3 warm-up
+    /// runs of 512 ids, saw 0</c>.
+    /// </summary>
+    [Fact]
+    public void R11_92_SEM40_TheSessionIsWarmedWithThreeLongestTextsBeforeTheFirstRequest()
+    {
+        using var rig = Checked();
+
+        var longest = rig.Runner.SequenceLengths.Count(n => n == 512);
+        Assert.True(longest >= 3, $"expected at least 3 warm-up runs of 512 ids, saw {longest}");
+    }
+```
+New:
+```text
+(deleted: the text above is removed, nothing replaces it)
+```
+
+#### CE12 — EmbedderBehaviourTests: the section heading
+File: `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`
+Old:
+```text
+    // ---- SEM39, SEM40: the shape and the warm-up ----
+```
+New:
+```text
+    // ---- SEM39: the shape (SEM40, the warm-up, is retired: Amendment 4 ruling 58) ----
+```
+
+#### CE13 — EmbedderBehaviourTests: the class summary
+File: `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`
+Old:
+```text
+SEM3 (runner half), SEM9 to SEM12, SEM39, SEM40 and SEM48, model-free
+```
+New:
+```text
+SEM3 (runner half), SEM9 to SEM12, SEM39 and SEM48, model-free
+```
+
+#### CE14 — EmbedderBehaviourTests: SEM11's baseline comment
+File: `tests/Curia.Infrastructure.Tests/Embedding/EmbedderBehaviourTests.cs`
+Old:
+```text
+        var baseline = rig.Runner.Runs; // the start-up check has already run the canaries and the warm-up (SEM40)
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Runner.Behaviour = async (input, ct) =>
+```
+New:
+```text
+        var baseline = rig.Runner.Runs; // the start-up check has already run the canaries
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Runner.Behaviour = async (input, ct) =>
+```
+
+#### CE15 — BehaviourTests: SEM59 (the floor removes nothing under this model)
+File: `tests/Curia.Embedding.Tests/BehaviourTests.cs`
+Old:
+```text
+    /// <summary>
+    /// SEM34. Latency is recorded and nothing is asserted
+```
+New:
+```text
+    /// <summary>
+    /// SEM59 (the fact behind <c>ModelWording</c>'s clause that a long list is no evidence, Amendment 4 ruling 60; the clause is SEM60's). Under this model the vector channel's floor removes nothing: each of four queries
+    /// in the query role (three of made-up words and one on a topic the corpus does not hold) is at or above <c>HybridRanking.MinimumCosine</c> to every post of the ten-post corpus of
+    /// <c>conformance/retrieval/corpus.jsonl</c>, so the nearest posts come back however far they are and a page does not run short. This derives from the model and from the floor's constant, and not from the sentence
+    /// that says it, so a floor that D10b raises turns the sentence false and this red. The least cosine of each query is written to a file and printed. Predicted red on FSEM55 (the floor raised to 0.6):
+    /// <c>is below the floor</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_93_SEM59_NoPostOfTheCorpusIsBelowTheFloorForAQueryOfMadeUpWords()
+    {
+        var corpus = (await File.ReadAllLinesAsync(Path.Combine(ModelDirectory.RepositoryRoot(), "conformance", "retrieval", "corpus.jsonl"), Ct)).Where(l => l.Length > 0).Select(l =>
+        {
+            using var json = JsonDocument.Parse(l);
+            var r = json.RootElement;
+            return (r.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() + "\n" : string.Empty) + r.GetProperty("body").GetString();
+        }).ToList();
+        Assert.Equal(10, corpus.Count);
+
+        var posts = new List<Vector>();
+        foreach (var text in corpus) posts.Add(await EmbedAsync(text, EmbeddingRole.Passage));
+
+        var lines = new List<string>();
+        foreach (var query in new[] { "zorblax quimpt vrenkelflap", "xyzzyqwerty nonsense", "frumious bandersnatch gyre", "sourdough starter hydration discard" })
+        {
+            var vector = await EmbedAsync(query, EmbeddingRole.Query);
+            var least = posts.Min(p => Probe.Cosine(vector, p));
+            lines.Add($"{query,-40} least cosine {least:0.000} (floor {HybridRanking.MinimumCosine:0.000})");
+            Assert.True(least >= HybridRanking.MinimumCosine, $"'{query}': its least cosine over the corpus, {least:0.000}, is below the floor {HybridRanking.MinimumCosine:0.000}, so the channel no longer returns the nearest posts however far they are and ModelWording's sentence for this model says what is no longer true");
+        }
+
+        Record("sem59-floor.txt", lines);
+    }
+
+    /// <summary>
+    /// SEM34. Latency is recorded and nothing is asserted
+```
+
+#### CE16 — ModelWordingTests: SEM60 (the clause, and no other sentence makes it)
+File: `tests/Curia.Client.Tests/ModelWordingTests.cs`
+Old:
+```text
+    /// <summary>
+    /// SEM42 (the banner).
+```
+New:
+```text
+    /// <summary>
+    /// SEM60 (the clause, Amendment 4 ruling 60; the fact behind it is SEM59's). The sentence for <c>bge-small-en-v1.5@1</c> says that the model ranks the nearest posts however far they are and that a long list is no
+    /// evidence the Forum holds the topic; the sentence for <c>hashed-ngram@1</c> (whose floor does remove far posts) and the one for an id the definition does not know make no such claim (trap 185: a positive
+    /// word with no negative neighbour is tested with all three together). The words are asserted by hand, as Table 11's criteria structure is, because parsing prose into a predicate is a second implementation.
+    /// Predicted red on FSEM56: <c>the sentence for bge-small-en-v1.5@1 does not say however far</c>.
+    /// </summary>
+    [Fact]
+    public void R11_93_SEM60_TheBgeSentenceSaysALongListIsNoEvidenceAndNoOtherSentenceDoes()
+    {
+        var bge = ModelWording.Sentence(Bge);
+
+        Assert.True(bge.Contains("however far", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say however far");
+        Assert.True(bge.Contains("no evidence", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say a long list is no evidence");
+        Assert.True(bge.Contains("paraphrase or may be unrelated", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say a hit with no shared word may be either");
+
+        foreach (var other in new[] { ModelWording.Sentence(Hashed), ModelWording.Sentence(Unknown), ModelWording.Sentence(null) })
+        {
+            Assert.DoesNotContain("however far", other, StringComparison.Ordinal);
+            Assert.DoesNotContain("no evidence", other, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// SEM42 (the banner).
+```
+
+
+### In-place edits
+
+Each `Old` is exact text of the plan body (extracted by script, not retyped). Apply in order.
+
+#### E107 — Design paragraph: the check runs the canaries, and no warm-up (ruling 58)
+Old:
+```text
+verifies the files, runs the canary set and warms the session **before it returns the app**
+```
+New:
+```text
+verifies the files and runs the canary set (one canary is as long as the model reads, so the session has run its longest input) **before it returns the app**
+```
+
+#### E108 — Ruling 5: no warm-up pass (ruling 58)
+Old:
+```text
+each vector component within 1e-4), (e) warm-up (three passes of a 510-token text), then returns.
+```
+New:
+```text
+each vector component within 1e-4; one canary is 512 ids long, so the session has run its longest input before the check returns, and a separate warm-up pass is dropped, Amendment 4 ruling 58), then returns.
+```
+
+#### E109 — R11.92: the warm-up clause is removed (ruling 58)
+Old:
+```text
+; a text of any length and any code points SHALL answer a vector, no features or a failure whose text is fixed and carries no exception message, path or input; and the session SHALL be warmed with texts of the longest length before the first request. R8.81's
+```
+New:
+```text
+; and a text of any length and any code points SHALL answer a vector, no features or a failure whose text is fixed and carries no exception message, path or input. R8.81's
+```
+
+#### E110 — R11.93: a long list is no evidence (ruling 60)
+Old:
+```text
+A banner that says "hashed" over a Forum serving a learned model, or the reverse, is a word the next reader acts on.
+```
+New:
+```text
+A banner that says "hashed" over a Forum serving a learned model, or the reverse, is a word the next reader acts on. For a model whose floor removes no post, so that every query is answered with its nearest posts however far they are, the statement SHALL also say that a long list of results is no evidence that the Forum holds the topic and that a hit sharing no word with the query may be a paraphrase or may be unrelated. Under `bge-small-en-v1.5@1` a query of made-up words has every post of the corpus above the floor (SEM59), and a reader who takes a full page for a yes has been told the Forum holds a topic it does not.
+```
+
+#### E111 — Ruling 7: the gate is kept for order, and the starvation was a synchronous wait (ruling 59)
+Old:
+```text
+a first-in-first-out gate of two around `Run`, not `SemaphoreSlim` (Task 0 M6 measured it starving waiters: a 16-token p99 of 908 ms at 8 callers and 1,379 ms at 20, against 22.6 ms and 56.4 ms through a FIFO gate; Amendment 1 ruling 23)
+```
+New:
+```text
+a first-in-first-out gate of two around `Run`, not `SemaphoreSlim` (Task 0 M6 measured `SemaphoreSlim(2).Wait()` from dedicated threads starving waiters: a 16-token p99 of 908 ms at 8 callers and 1,379 ms at 20, against 22.6 ms and 56.4 ms through a FIFO gate; the adapter's path is `WaitAsync`, which keeps arrival order, so the gate is kept for R11.92's order by construction and not for a measured tail; Amendment 1 ruling 23, Amendment 4 ruling 59)
+```
+
+#### E112 — Scope: the Infrastructure probes lose SEM40
+Old:
+```text
+SEM39, SEM40, SEM45, SEM48 to SEM52)
+```
+New:
+```text
+SEM39, SEM45, SEM48 to SEM52; SEM40 is retired, Amendment 4 ruling 58)
+```
+
+#### E113 — Scope: the Client probes gain SEM60
+Old:
+```text
+`tests/Curia.Client.Tests/ModelWordingTests.cs` (SEM42)
+```
+New:
+```text
+`tests/Curia.Client.Tests/ModelWordingTests.cs` (SEM42, SEM60; Amendment 4 ruling 60)
+```
+
+#### E114 — SEM40: retired (ruling 58)
+Old:
+```text
+- **SEM40** warm-up: the startup runs at least three inferences on a text of 510 content tokens through the counting runner before returning. Red.
+```
+New:
+```text
+- **SEM40** retired (Amendment 4 ruling 58): it asserted three runs of 512 ids at the start, and the start's own canaries had run that shape before them, so it held the existence of a call and not an effect. Its number stays unused.
+```
+
+#### E115 — SEM60: the clause, after SEM42 (ruling 60)
+Old:
+```text
+- **SEM42** the banner (and the titled index's header, if it names the model) is composed by `ModelWording`; the ids it knows are parsed from the errata's identity table and the register's `hashed-ngram@1` row (a different artifact), so a model added to the errata without a sentence fails; an unknown id prints the id and `limits NOT STATED`; none of the strings holds "until an ONNX model is configured"; the sentence for `bge-small-en-v1.5@1` states the head length read from `models/bge-small-en-v1.5/manifest.json`'s `max_sequence_length` (512; a different artifact from the definition), says that two of them are the model's markers and that a query carries an instruction as well, and does not say 512 of a post; for `hashed-ngram@1` the paraphrase limit and no such number. Red.
+```
+New:
+```text
+- **SEM42** the banner (and the titled index's header, if it names the model) is composed by `ModelWording`; the ids it knows are parsed from the errata's identity table and the register's `hashed-ngram@1` row (a different artifact), so a model added to the errata without a sentence fails; an unknown id prints the id and `limits NOT STATED`; none of the strings holds "until an ONNX model is configured"; the sentence for `bge-small-en-v1.5@1` states the head length read from `models/bge-small-en-v1.5/manifest.json`'s `max_sequence_length` (512; a different artifact from the definition), says that two of them are the model's markers and that a query carries an instruction as well, and does not say 512 of a post; for `hashed-ngram@1` the paraphrase limit and no such number. Red.
+- **SEM60** (Amendment 4 ruling 60) the sentence for `bge-small-en-v1.5@1` says that the model ranks the nearest posts however far they are, that a long list of results is no evidence that the Forum holds the topic, and that a hit with no shared word may be a paraphrase or may be unrelated; the sentences for `hashed-ngram@1` (whose floor removes far posts), for an unknown id and for none make no such claim. The words are asserted by hand, as Table 11's criteria structure is. `Curia.Client.Tests/ModelWordingTests.cs`. Red on FSEM56 in both forms.
+```
+
+#### E116 — SEM59: the floor removes nothing, after SEM38 (ruling 60)
+Old:
+```text
+- **SEM38** the dedupe reads the model: the five `literal` and four `paraphrase` conformance pairs through `DuplicateCheck` with thresholds **unchanged**: no `related` or `distinct` pair is refused (the ceiling), and the verdicts are printed. The literal-pairs' refusal is not asserted (D10b).
+```
+New:
+```text
+- **SEM38** the dedupe reads the model: the five `literal` and four `paraphrase` conformance pairs through `DuplicateCheck` with thresholds **unchanged**: no `related` or `distinct` pair is refused (the ceiling), and the verdicts are printed. The literal-pairs' refusal is not asserted (D10b).
+- **SEM59** (Amendment 4 ruling 60) the floor removes nothing under this model: three queries of made-up words and one on a topic the corpus does not hold, in the query role, are at or above `HybridRanking.MinimumCosine` to every post of the ten-post corpus (the least cosine per query is written to a file and printed). It derives from the model and the floor's constant and not from the sentence that says it, so a floor D10b raises turns the sentence false and this red. Red on FSEM55.
+```
+
+#### E117 — FSEM20: retired (ruling 58)
+Old:
+```text
+| FSEM20 | the warm-up pass removed | SEM40 | the first question after boot takes the cold-start cost inside the hold |
+```
+New:
+```text
+| FSEM20 | retired (Amendment 4 ruling 58): the warm-up is removed from the build and not only from a copy; L6 and the architect's rerun show a first request that costs the same without it | SEM40 (retired) | the number stays unused |
+```
+
+#### E118 — FSEM35: the harm is M6's, and the SemaphoreSlim form is equivalent for order (ruling 59)
+Old:
+```text
+| FSEM35 | `FifoGate`: admit the newest waiter first, or `SemaphoreSlim(2)` in its place | SEM45 (the `SemaphoreSlim(2)` form is recorded as not killed by a unit probe, ruling 56) | a few callers wait out a whole burst while others run (the measured 908 ms against 22.6 ms) |
+```
+New:
+```text
+| FSEM35 | `FifoGate`: admit the newest waiter first, or `SemaphoreSlim(2)` in its place | SEM45 (the `SemaphoreSlim(2)` form, `WaitAsync`, keeps arrival order: it is an equivalent mutant of the order property, and neither a unit probe, L7 nor a flood separates it, rulings 56 and 59) | a few callers wait out a whole burst while others run (M6's 908 ms against 22.6 ms at 16 tokens, measured on a synchronous `Wait()`; not reproduced on the built path) |
+```
+
+#### E119 — FSEM55 and FSEM56 after FSEM45 (ruling 60)
+Old:
+```text
+| FSEM45 | `EmbedderStartup`: the native-load failure's `Message` is appended to the refusal | SEM48 | the refusal serves a path |
+```
+New:
+```text
+| FSEM45 | `EmbedderStartup`: the native-load failure's `Message` is appended to the refusal | SEM48 | the refusal serves a path |
+| FSEM55 | `src/Curia.Domain/Search/HybridRanking.cs:62`: `MinimumCosine = 0.2` becomes `0.6` | SEM59 | the sentence says every query is answered with its nearest posts however far, while a floor now removes the far ones: a clause that went false unremarked |
+| FSEM56 | `ModelWording.cs`: (a) the bge sentence's clause removed (the sentence of `fafaeba8`); (b) the clause appended to the `hashed-ngram@1` sentence | SEM60 | (a) an agent sees a full page for a query of made-up words and reads it as the Forum holding the topic; (b) a model whose floor removes far posts is described as one that does not |
+```
+
+#### E120 — L1: what the log holds (ruling 62)
+Old:
+```text
+the log's sequence (verify, canaries, warm-up, reconcile progress), the time to the listener,
+```
+New:
+```text
+the log's lines (the reconcile's summary and, from 1,000 posts, its progress; the check itself logs nothing, a start that passes is the listener's presence and one that fails its absence, lead 241), the time to the listener,
+```
+
+#### E121 — L3: nineteen queries (ruling 62)
+Old:
+```text
+The 20 queries of `queries.txt` through anonymous `curia search`
+```
+New:
+```text
+The 19 queries of `queries.txt` (its first line is a header; the run adds NONS, three made-up words, and GRAD, `gradient accumulation`) through anonymous `curia search`
+```
+
+#### E122 — L4: the receipt prints neither a cosine nor an annotation (ruling 62)
+Old:
+```text
+ruling 30; recorded with the raw cosine from the receipt), the five literal pairs
+```
+New:
+```text
+ruling 30; an accepted question's receipt prints neither a cosine nor an annotation and no client prints `possible_duplicate_of`, so "not annotated" is read from `GET /v1/posts/<id>` and the cosine is not read at all, D10b's runner measures it, lead 242), the five literal pairs
+```
+
+#### E123 — L6: recorded, and the warm-up is dropped (ruling 58)
+Old:
+```text
+- **L6 (the cold start inside the hold).** The first question write after boot against the steady-state median, built and falsified (FSEM20): the warm-up's effect seen, not assumed.
+```
+New:
+```text
+- **L6 (the first request after boot).** Run in Task 7: first write 214 ms with the warm-up against 219 ms without it, steady 70 and 55, first search 162 against 160; the warm-up's effect was not seen, and Amendment 4 ruling 58 removes the warm-up. What remains is a record and not a rule: the boot time, the first write and the first search after boot against their steady medians. After the fix round the tip is run once against the build of `fafaeba8`, six alternating rounds, with a first write of 510 tokens: ready about 0.4 s sooner, and a first write not more than 20 ms slower (a first write slower than that restores the warm-up and reopens ruling 58).
+```
+
+#### E124 — L7: run, not separating, not repeated (ruling 59)
+Old:
+```text
+The eight-at-once leg is run in rounds (at least 25) twice, alternating, in one process directory and on one machine (trap 182): on the tip, and on the binary of FSEM35's `SemaphoreSlim(2)` form; the wall times of the eight requests of each round are recorded (p50 and the longest), beside M6's 22.6 ms and 908 ms, and asserted nowhere (ruling 13; Amendment 3 ruling 56).
+```
+New:
+```text
+The eight-at-once leg was run in 26 rounds on the tip and on FSEM35's `SemaphoreSlim(2)` form, alternating (Task 7), and the two did not separate (per-round p50 median 1,156 ms against 1,154, longest 1,419 against 1,413); it is not repeated, because eight one-shot arrivals have no order to show and M6's starvation was a synchronous `Wait()` (Amendment 4 ruling 59). The eight-at-once row and the 40 receipts stay as recorded, asserted nowhere (ruling 13).
+```
+
+#### E125 — The cold read: the final form (ruling 61)
+Old:
+```text
+**The cold read** is scaled to what an agent reading search results would notice, and has two halves. *Words:* four Sonnet readers (the project's rule for sub-agents; the controller dispatches them with prompts it writes from the files, not from this plan) each get, in a fresh directory with nothing else, six `curia search` outputs under bge (an exact term, a paraphrase found, a paraphrase not found, a long-post tail, nonsense, a board filter) with the new banner; two further readers get the same pages with the **old** banner as the control. Questions, answered in their own words: (a) which hits did meaning find that words did not, and how do you know; (b) does the page tell you whether a paraphrase of your query would have been found; (c) if the last paragraph of a long post is what you need, will search find it, and what does the page say; (d) does an empty or weak page mean the Forum holds nothing on the topic. *Gate:* no reader in the bge group says search finds paraphrase reliably, says the end of a long post is searchable, or reads absence as proof of absence; all four answer (c) from the banner; the control group's answers are recorded as the control and are expected to fail (c), which is what shows the question carries information. A failure writes a numbered amendment to the banner and a second pass (the names PR's pass is the precedent). *Results:* a pass over the 20 queries' bge output by a reader who does not know the needles, asked to name the three best hits for each natural-language query, scored against the needles by the controller afterwards; reported beside `baseline.out`, not gated.
+```
+New:
+```text
+**The cold read** (final form: Amendment 4 ruling 61) is scaled to what an agent reading search results would notice, and has two halves. *Words:* four Sonnet readers (the project's rule for sub-agents; the controller dispatches them with prompts it writes from the files, not from this plan) each get, in a fresh directory with nothing else, **eight** pages under bge with the new banner; two further readers get the same eight pages with the **old** banner as the control. All sixteen pages (eight new, eight old) are captured on **one Forum, on one day**, after the fix round (Task 7a): the tip's client for the new pages and the client of `main` at `2708d826` for the old, the same fixture and the same seeded long post as Task 7. The eight pages: (1) an exact term, (2) a paraphrase found, (3) a paraphrase not found, (4) the tail of a long post, (5) nonsense, (6) a board filter, each `curia search --why --limit 8 <query>`; and the **default form**, which is what an agent types and which carries no channel mark, of (7) the query of page 3 and (8) the query of page 5, each `curia search --limit 5 <query>`. Identifiers are replaced by same-shape placeholders and nothing else is changed; the folder holds no absolute path, user name or temporary-directory string, and the banner sentence in each new page equals `ModelWording`'s literal byte for byte (checked by program). Questions, answered in the readers' own words: (a) which hits did meaning find that words did not, and how do you know; (b) does the page tell you whether a paraphrase of your query would have been found; (c) if the last paragraph of a long post is what you need, will search find it, and what does the page say; (d) **pages 5 and 8 are one search, a query of three made-up words, and pages 3 and 7 are another: from pages 5 and 8 alone, would you conclude that the Forum holds something on that topic or nothing, and what on the page leads you to it; and, the first page of 3 and 7 being full, what does a full page tell you about whether the Forum holds what you were looking for, and what would you do next.** *Gate:* no reader in the bge group says search finds paraphrase reliably, says the end of a long post is searchable, reads a **full page as evidence that the Forum holds the topic**, or reads an absent hit as proof of absence; all four answer (c) from the banner; all four answer (d) without concluding that the Forum holds something on the made-up query's topic (they may cite the banner's clause, a `lexical absent` mark or a cosine; which they cite is recorded). The control group's answers are recorded as the control and are expected to fail (c) and the full-page half of (d), which is what shows the questions carry information. **If both control readers pass (c) and (d) with the old banner, the questions did not discriminate:** the clause is kept because it is true, no claim is made that it was needed, and two further readers are given the new pages with the clause deleted and nothing else changed before the run is called a pass. A failure writes a numbered amendment to the banner and a second pass with **fresh** readers (never the same readers; the names PR's pass is the precedent); a second failure is reported to the owner and the banner is not tuned by a third. A reader who takes `corpus_bound` for a bound on text is recorded and not gated (lead 244). *Results:* a pass over the 19 queries' bge output (`--titles`, first page, regenerated with the new banner on the same Forum) by a reader who does not know the needles, asked to name the three best hits for each natural-language query, scored against the needles by the controller afterwards; reported beside `baseline.out`, not gated.
+```
+
+#### E126 — Task 7a and Task 7b after Task 7 (ruling 64)
+Old:
+```text
+### Task 7: Operate it (the live run) and the cold read
+
+See "The live run and the cold read" below.
+```
+New:
+```text
+### Task 7: Operate it (the live run) and the cold read
+
+See "The live run and the cold read" below. The live run (L1 to L8) was made on 2026-11-10 at `fafaeba8` and is recorded in `.superpowers/sdd/2026-11-09-d10a/task-7-live-report.md` and `d10a-task7-after.txt`; Amendment 4 rules on it. The cold read has not been run.
+
+### Task 7a: The live run's fix round (Amendment 4)
+
+Rulings 58 to 64 of Amendment 4 answer Task 7: the probes of "What Task 7a must do" first (SEM60 red on the unmodified tree, SEM59 green), then the code, then FSEM55 and FSEM56 run, one commit of the tests and one of the code, and the L6 check. It edits no file under `.github/`, `db/`, `conformance/`, `rust/` or `models/`.
+
+### Task 7b: The cold read (Amendment 4 ruling 61)
+
+After Task 7a, on the tip it builds: the sixteen pages, the readers, the gate and the second pass as "The live run and the cold read" now states them.
+```
+
+#### E127 — Register text: D114 under bge (ruling 60, 63)
+Old:
+```text
+**D14 (pointer amended):** "the whole table is re-derived" is D10b.
+```
+New:
+```text
+**D14 (pointer amended):** "the whole table is re-derived" is D10b.
+**D114 (amended by Amendment 4 ruling 60):** under `bge-small-en-v1.5@1` the cosine floor of 0.2 removes nothing, so the page of D114 is fuller than under the hashed model: a query of three made-up words returns 199 posts, 25 of 25 on its first page vector-only, with a nearest cosine of 5502 bp (the hashed model returned 6, and `gradient accumulation` 24 of 25 under both); the least cosine of four such queries over the conformance corpus is 0.38 to 0.43 (SEM59). The rule of D114 (a mark per hit, the counts, the count line) stands and PR 8 states its floor words from D10b's numbers; until then the bge banner carries one clause saying that a long list is no evidence the Forum holds the topic (R11.93, SEM60).
+```
+
+#### E128 — As run: the counts (ruling 58, 60)
+Old:
+```text
+the probes SEM1 to SEM58 with any retired, the falsification FSEM1 to FSEM54,
+```
+New:
+```text
+the probes SEM1 to SEM60 with any retired (SEM40 is), the falsification FSEM1 to FSEM56 (FSEM20 is retired),
+```
+
+#### E129 — As run: the probe heading
+Old:
+```text
+### Probes SEM1 to SEM58 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+```
+New:
+```text
+### Probes SEM1 to SEM60 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM40, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+```
+
+#### E130 — As run: the falsification heading
+Old:
+```text
+### Falsification FSEM1 to FSEM54
+```
+New:
+```text
+### Falsification FSEM1 to FSEM56 (FSEM20 is retired)
+```
+
+
+### Leads (D61 items, text for Task 8 to paste; none is fixed here)
+
+- **240.** The first write after boot costs about four times the steady write (L6: 214 ms against 55 to 70; the rerun at 510 tokens: about 400 against 265) and the first search about twice, in both builds, and not because of the model, whose first inference is in the start's canaries. The cost is the write path's first use (code, connections, the dedupe and the index step); unmeasured, about 135 to 150 ms, far from R8.81's 2 s.
+- **241.** The start-up check logs nothing: a Forum that passed its digests and canaries and one that did not differ in the log only by the presence of the listener lines. A single "embedding model verified: bge-small-en-v1.5@1, fifteen canaries" line, holding no path, would give an operator evidence of what ran. Low; PR O's neighbour.
+- **242.** R8.18's annotation is invisible to agents: `possible_duplicate_of` is stored and served on a post and no client (`curia`, `curia-mcp`, `curia-testis`) prints it, and an accepted question's receipt prints neither a cosine nor an annotation line. The refusal is fully worded and the annotation is not, so "annotated" and "not annotated" read the same.
+- **243.** A start that the Forum refuses (a missing or wrong model, the lifecycle gate) ends as an unhandled-exception trace whose frames carry source-file paths. The refusal is the right behaviour and nothing is served; an operator's journal gets a trace and the build machine's paths where one line and a nonzero exit would do. PR O.
+- **244.** The model line's `corpus_bound N` is the newest event's sequence and reads as a bound on text beside the banner's "512 tokens"; on the fixture of Task 7 the two were 510 and 512 (513 after three events). The label names a wire member and cannot be renamed lightly; PR 8's page head is where it is reworded.
+- **245.** `curia_search` (the MCP) says nothing of the model's limits (Amendment 1 ruling 25), so the clause of R11.93 reaches the CLI reader and not the MCP reader until PR 8's first block carries the counts.
+- **246.** D11: writes alongside a 64-thread query flood on a just-booted Forum reached 1.2 to 3.8 s (the architect's rounds, both gate forms), beyond R8.81's 2 s in about half of the rounds; whether any receipt was `pending` was not recorded. L5's valid run (a warm Forum) reads 485 to 581 ms and 0 pending. The cold-process case is a start under load, which a proxy's readiness check is meant to prevent.
+
+
+### Allocations
+
+Computed on 2026-11-10 against the plan at sha256 prefix `45e7688a95adeef0` (Amendment 3 applied), the branch `the-vector-channel-is-semantic` at `fafaeba8`, `origin/main` at `2708d826`, and the register and errata as they stand on them (errata highest entry G63, G64 reserved to PR 8, G65 this PR's; register highest D119, D120 this plan's), and against Amendment 3's reservations (rulings to 57, probes to SEM58, falsification to FSEM54, plan-body edits to E106, test edits T1 to T13, D61 items to 239, traps to 224). Re-grepped by script (`git grep -nE` over `HEAD`, the branch and `origin/main` with the plan itself left out, then over the plan with the four amendments' own text left out): none of the identifiers below occurs outside this amendment. Task 8 re-greps and renumbers by hand if another PR landed first.
+- **Rulings 58 to 64.**
+- **Probes SEM59 and SEM60;** SEM40 retired and stays unused. SEM1 to SEM60 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM40, SEM41 and SEM43 unused).
+- **Falsification FSEM55 and FSEM56;** FSEM20 retired and stays unused. FSEM1 to FSEM56.
+- **Plan-body edits E107 to E130; code and test edits CE1 to CE16** (`CE`, not `T` or `S`, so that Amendment 3's T1 to T13 keep their meaning).
+- **D61 items 240 to 246** (the leads above). Items 215 to 239 stand as Amendments 1 to 3 list them.
+- **Traps 225 to 229:** (225) a probe and a falsification row that agree and prove only that a call exists (SEM40 and FSEM20: three runs of 512 ids asserted, the row turning it red, and the start's own canaries having run that shape before them), found by L6 and by asking what else on the path had already done the work; (226) a measurement taken on a primitive the product does not use (M6's synchronous `Wait()` against the adapter's `WaitAsync`), found when two live legs did not reproduce it and the harness was read; (227) a leg whose design cannot separate the forms it compares (L7: eight one-shot arrivals, no re-entry, nothing to pass over), found by asking, before the run, whether the leg could tell them apart; (228) a leg aimed at a claim it does not exercise (L6's first write of 40 words against a warm-up for the longest input), found by reading the harness's body size and not its summary; (229) a banner that states what a model can miss and not what its output always does (a full page for a query of made-up words), and an acceptance question aimed the wrong way for the system it tests ((d): "does an empty page mean nothing" where no page is empty), found by reading the nonsense page.
+- **Requirement text:** one sentence appended to R11.93 (E110) and one clause removed from R11.92 (E109); **no new R number**, no non-property, no errata entry beyond G65. **No `curia-mcp` version change.** `curia`'s banner changes by one sentence of `ModelWording`; no version number moves.
+
+
+### What Task 7a must do
+
+A fix round before the cold read, in this order. It edits no file under `.github/`, `db/`, `conformance/`, `rust/` or `models/`, and the mutations live in kept copies and are restored.
+
+1. **The probes first, on the unmodified tree.** Apply CE15 (SEM59) and CE16 (SEM60). Run and record: **SEM59 green** (the real model, the model directory set; the file `sem59-floor.txt` is read and quoted), **SEM60 red** with the text `the sentence for bge-small-en-v1.5@1 does not say however far`. A SEM60 that is green here has not been shown to work.
+2. **CE10 (the clause), then SEM60 green and SEM42 green.** `Curia.Client.Tests`' `ModelWording*` classes: SEM42b stays red until Task 8 and is recorded as the known red, not as a result.
+3. **CE1 to CE9 and CE11 to CE14** (the warm-up, its probe, the comments). Run `Curia.Infrastructure.Tests`' embedder, gate, tokenizer and two-model classes, `Curia.Embedding.Tests` (15 of 15) and the Api boot class (`EmbedderBootTests`); record the counts. SEM11, SEM45 and SEM49 are run 15 times each on the tip (zero red is the requirement; lead 239).
+4. **FSEM55 and FSEM56 (a) and (b),** as "Probe and falsification rows added" lists them, one at a time, restored by plain copy and run once unpatched; **remove FSEM20 from the runner's spec and its results**, and compute the counts by ruling 46's script (FSEM1 to FSEM56 with FSEM20 unused). Rows that stay green: do not edit the tests; report the patch and the output.
+5. **The L6 check (E123):** `bin/l6c.py`'s shape (the architect's script is under the amendment's scratch directory; the builder may write its own): the build of `fafaeba8` (`d10a-t7/src`) against the new tip, six alternating rounds, a 430-word first write, an empty database, the posting budget cleared as before. Expected: ready about 0.4 s sooner; first write within 20 ms. Record both tables.
+6. **Gates, narrower than a full run:** `dotnet build Curia.sln` at 0 warnings; `Curia.Application.Tests`, `Curia.Infrastructure.Tests`, `Curia.Client.Tests`, `Curia.Embedding.Tests` (variable set), `Curia.Architecture.Tests` **in Debug and in Release** (the architect did not run them; CE5 removes a private method and CE10 edits `Curia.Client`, which the fences read); `Curia.Api.Tests` for `EmbedderBootTests`; `python3 tools/preflight/preflight.py --no-api`; `check-spec.py`. The whole Api suite is not re-run: nothing under `src/Curia.Api` moves except a comment.
+7. **Two commits at least:** the probes (CE15, CE16, the red SEM60 recorded) and then the code (CE1 to CE14), as Task 1 did; `git status --porcelain` empty before each push.
+8. **The plan.** Apply `### In-place edits` and run the check at the end of this amendment: every row of this amendment reads `old 1 new 0` before and `new 1` (or superseded) after.
+9. **Then the controller** captures the sixteen pages on one Forum and runs Task 7b.
+
+**For the controller (nothing here is a ruling):**
+- CE10 changes the banner every new page carries, so **no page of the cold read exists before Task 7a**: the pages of Task 7 (`coldtext/new-*`) are superseded for the new group, and the old ones are regenerated beside them.
+- The clause says "however far", and what makes it true is a floor of 0.2: if PR D10b raises the floor, SEM59 goes red and the sentence is revised in that PR, which is the point of SEM59.
+- The architect did **not** read the BCL's documentation or source for `SemaphoreSlim.WaitAsync`'s ordering: its order is measured, in one loop, on one machine, and the gate stays because the order is promised by construction, not because the BCL's is known to be.
+
+
+### The check (run it on the plan before and after applying the edits)
+
+The check of Amendments 1 to 3, now over four amendments, with **one rule added**: a row whose `Old` is still present but only as the prefix of text that a later row has rewritten (`new 0`, a later row's `Old` inside its `New`) is **superseded** and no longer reads `before`; without it, E35 (and E106 after E124) read `before` after they were applied, which looked like a row not yet applied. It reads the `E` pairs of all four (the `CE` pairs carry another heading and the `Old` of each is text of a repository file, not of the plan). A row whose `New` is overwritten by a later row's `Old` is **superseded**, also when that later row is itself superseded.
+
+```python
+import re, sys
+p = "docs/superpowers/plans/2026-11-09-the-vector-channel-is-semantic.md"
+t = open(p, encoding="utf-8").read()
+a = t.index("\n## Amendment 1 (2026-11-09, Task 0)")
+b = t.index("\n## Tasks\n", a)
+amend, body = t[a:b], t[:a] + t[b:]
+pairs = re.findall(r"#### (E\d+) .*?\nOld:\n```text\n(.*?)\n```\nNew:\n```text\n(.*?)\n```", amend, re.S)
+state = {}
+for i in reversed(range(len(pairs))):
+    eid, old, new = pairs[i]
+    n_old, n_new = body.count(old), body.count(new)
+    later = [j for j in range(i + 1, len(pairs)) if pairs[j][1] in new and (body.count(pairs[j][2]) == 1 or state[j][0] == "superseded")]
+    if n_new == 1 and (n_old == 0 or old in new): state[i] = ("after", n_old, n_new)
+    elif n_new == 0 and n_old <= 1 and later: state[i] = ("superseded", n_old, n_new)
+    elif n_old == 1 and n_new == 0: state[i] = ("before", n_old, n_new)
+    else: state[i] = ("WRONG", n_old, n_new)
+bad = 0
+for i, (eid, old, new) in enumerate(pairs):
+    kind, n_old, n_new = state[i]
+    print(eid, "old", n_old, "new", n_new, kind)
+    bad += kind == "WRONG"
+print(len(pairs), "edits,", bad, "wrong")
+sys.exit(1 if bad else 0)
+```
+
+Before applying, every row of this amendment (E107 to E130) reads `old 1 new 0`, and the 106 rows of the earlier amendments read 93 `after` and 13 `superseded` (E35 among them, by the added rule). After applying, 130 rows are expected, **every one `after` or `superseded`, none `before` and none `WRONG`** (superseded: E8, E23, E26, E28, E34, E35, E36, E47, E48, E49, E60, E70, E71, E72, E73, E74, E75, E85, E98, E103, E104, E105, E106).
+
 ## Tasks
 
 ### Task 0: Re-read, operate the unmodified tree, write the rules first
@@ -2558,7 +3230,15 @@ Rulings 46 to 57 of Amendment 3 answer Task 6: the probes and code of "What Task
 
 ### Task 7: Operate it (the live run) and the cold read
 
-See "The live run and the cold read" below.
+See "The live run and the cold read" below. The live run (L1 to L8) was made on 2026-11-10 at `fafaeba8` and is recorded in `.superpowers/sdd/2026-11-09-d10a/task-7-live-report.md` and `d10a-task7-after.txt`; Amendment 4 rules on it. The cold read has not been run.
+
+### Task 7a: The live run's fix round (Amendment 4)
+
+Rulings 58 to 64 of Amendment 4 answer Task 7: the probes of "What Task 7a must do" first (SEM60 red on the unmodified tree, SEM59 green), then the code, then FSEM55 and FSEM56 run, one commit of the tests and one of the code, and the L6 check. It edits no file under `.github/`, `db/`, `conformance/`, `rust/` or `models/`.
+
+### Task 7b: The cold read (Amendment 4 ruling 61)
+
+After Task 7a, on the tip it builds: the sixteen pages, the readers, the gate and the second pass as "The live run and the cold read" now states them.
 
 ### Task 8: Register and docs
 
@@ -2596,7 +3276,7 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 - **SEM12** placeable: a text of only unknown tokens (synthetic vocabulary, an emoji) is `NoFeatures`; one known token among unknowns is placed; the empty string is `NoFeatures`. Red. Measured red text on the seam with the real model and no rule (Task 0 M16): two different emoji-only questions by one agent on one board, the second `409 curia/posts/duplicate-question`, `cosine=1.000 lexical_overlap=1.000 model=bge-small-en-v1.5@1`, exit 3 (ruling 31).
 - **SEM26** (Postgres) two models, two dimensions: 256-dimension rows under `hashed-ngram@1`, 384 under the new id: `NearestAsync` under either returns only that model's rows with no error; `IndexedDigestsAsync` and `CountAsync` per model; a reconcile under the new id leaves the old model's count unchanged (**the old rows are kept**) and the app role's `DELETE` is refused (the existing grant, asserted here by attempt). Red until M13's outcome is built; control for the grant.
 - **SEM39** options: the internal options of the embedder read `IntraOpNumThreads == 2`, `InterOpNumThreads == 1`, the gate size 2. Red.
-- **SEM40** warm-up: the startup runs at least three inferences on a text of 510 content tokens through the counting runner before returning. Red.
+- **SEM40** retired (Amendment 4 ruling 58): it asserted three runs of 512 ids at the start, and the start's own canaries had run that shape before them, so it held the existence of a call and not an effect. Its number stays unused.
 - **SEM57** (Amendment 3 ruling 53) the tokenizer allocates what the head allocates: a text of about 256 KiB with a non-ASCII letter in every repetition, tokenized to 510 content tokens, allocates within 16 KiB of what its own head (the characters the scan consumed) allocates, counted on the calling thread after two warm calls; no time is read (ruling 13). Green on the tree as it stands; red on FSEM43 in both forms.
 - **SEM58** (Amendment 3 ruling 49) the bound of R8.81 for a step queued behind a full gate: both places held by runs that wait for their callers, the post's step queued behind them and seen queued, the clock advanced 2 seconds: the step answers `Pending` with `curia/retrieval/index-bound` within 10 seconds of real time, the gate holds no waiter and the step ran nothing. Green on the tree as it stands; red on FSEM18.
 
@@ -2617,6 +3297,7 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 
 **Client**
 - **SEM42** the banner (and the titled index's header, if it names the model) is composed by `ModelWording`; the ids it knows are parsed from the errata's identity table and the register's `hashed-ngram@1` row (a different artifact), so a model added to the errata without a sentence fails; an unknown id prints the id and `limits NOT STATED`; none of the strings holds "until an ONNX model is configured"; the sentence for `bge-small-en-v1.5@1` states the head length read from `models/bge-small-en-v1.5/manifest.json`'s `max_sequence_length` (512; a different artifact from the definition), says that two of them are the model's markers and that a query carries an instruction as well, and does not say 512 of a post; for `hashed-ngram@1` the paraphrase limit and no such number. Red.
+- **SEM60** (Amendment 4 ruling 60) the sentence for `bge-small-en-v1.5@1` says that the model ranks the nearest posts however far they are, that a long list of results is no evidence that the Forum holds the topic, and that a hit with no shared word may be a paraphrase or may be unrelated; the sentences for `hashed-ngram@1` (whose floor removes far posts), for an unknown id and for none make no such claim. The words are asserted by hand, as Table 11's criteria structure is. `Curia.Client.Tests/ModelWordingTests.cs`. Red on FSEM56 in both forms.
 
 **Real model (`Curia.Embedding.Tests`; fail loudly without `CURIA_EMBEDDING_MODEL_DIR`)**
 - **SEM27** both files hash to the manifest's digests (computed in the test from the bytes, not by calling the adapter's check), and `fetch-model.py --verify-only` agrees; a copy with one byte flipped makes the script exit non-zero (**SEM44**, the negative side).
@@ -2630,6 +3311,7 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 - **SEM36** the real tokenizer and totality: emoji-only is `NoFeatures`; U+FFFE, lone surrogates and NUL answer without throwing; the 256 KiB body completes.
 - **SEM37** composed and decomposed `café` (and a CJK and a combining-mark case) give vectors equal within 1e-6, as the reference does.
 - **SEM38** the dedupe reads the model: the five `literal` and four `paraphrase` conformance pairs through `DuplicateCheck` with thresholds **unchanged**: no `related` or `distinct` pair is refused (the ceiling), and the verdicts are printed. The literal-pairs' refusal is not asserted (D10b).
+- **SEM59** (Amendment 4 ruling 60) the floor removes nothing under this model: three queries of made-up words and one on a topic the corpus does not hold, in the query role, are at or above `HybridRanking.MinimumCosine` to every post of the ten-post corpus (the least cosine per query is written to a file and printed). It derives from the model and the floor's constant and not from the sentence that says it, so a floor D10b raises turns the sentence false and this red. Red on FSEM55.
 
 ## Falsification rows (the first form is the harm)
 
@@ -2654,7 +3336,7 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 | FSEM17 | `FifoGate`: the limit removed (every caller is admitted at once) | SEM11 | a flood runs unbounded inferences on the thread pool |
 | FSEM18 | the waiter ignores its token | SEM11, SEM58 | R8.81's bound is not a bound |
 | FSEM19 | `ModelFault`'s detail = `ex.Message` | SEM10 | a path or an author's text is served to a caller (D25) |
-| FSEM20 | the warm-up pass removed | SEM40 | the first question after boot takes the cold-start cost inside the hold |
+| FSEM20 | retired (Amendment 4 ruling 58): the warm-up is removed from the build and not only from a copy; L6 and the architect's rerun show a first request that costs the same without it | SEM40 (retired) | the number stays unused |
 | FSEM21 | `Program.Build`: the startup-check call removed | SEM20, SEM21 | a bad model loads lazily at the first request, after the listener is open |
 | FSEM22 | `EmbeddingIndexer`: `IndexedDigestsAsync(HashedNGramEmbedding.Model)` at both sites (lines 94 and 173; FSEM53 and FSEM54 patch one each) | SEM56 | the reconcile reads the old model's digests: nothing is embedded under the new id |
 | FSEM23 | `PostgresVectorIndex.NearestAsync`: drop `WHERE model = @model` | SEM26 | a 384-dimension query meets a 256-dimension row: a database error served as `503` |
@@ -2669,7 +3351,7 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 | FSEM32 | `fetch-model.py`: the digest comparison removed | SEM44 | a corrupt download is installed |
 | FSEM33 | `Help.cs` banner restored to "until an ONNX model is configured it is hashed-ngram@1" | SEM42 | the next reader is told a learned model cannot find paraphrase |
 | FSEM34 | `ModelWording`: the `bge-small-en-v1.5@1` row says nothing of the 512 tokens | SEM42 | an agent searches for the end of a long post and concludes the Forum lacks it |
-| FSEM35 | `FifoGate`: admit the newest waiter first, or `SemaphoreSlim(2)` in its place | SEM45 (the `SemaphoreSlim(2)` form is recorded as not killed by a unit probe, ruling 56) | a few callers wait out a whole burst while others run (the measured 908 ms against 22.6 ms) |
+| FSEM35 | `FifoGate`: admit the newest waiter first, or `SemaphoreSlim(2)` in its place | SEM45 (the `SemaphoreSlim(2)` form, `WaitAsync`, keeps arrival order: it is an equivalent mutant of the order property, and neither a unit probe, L7 nor a flood separates it, rulings 56 and 59) | a few callers wait out a whole burst while others run (M6's 908 ms against 22.6 ms at 16 tokens, measured on a synchronous `Wait()`; not reproduced on the built path) |
 | FSEM36 | `OnnxTextEmbedder`: the caller's token is checked before `Run` and `RunOptions.Terminate` is never set | SEM46 | R8.81's two seconds frees the caller and not the CPU: a post answered `pending` keeps its slot |
 | FSEM37 | `OnnxTextEmbedder`: the exception of a terminated run is mapped to `ModelFault` | SEM46 | a client's own abort is logged and served as a model fault |
 | FSEM38 | `WordPieceTokenizer`/`TextCleaner`: drop every character of category S* | SEM29, SEM28 | code, URLs with `=` and emoji lose tokens and an emoji-only text becomes two special tokens (the package's behaviour) |
@@ -2680,21 +3362,23 @@ See "Docs owed" and "Register text to paste". Errata G65's status line is writte
 | FSEM43 | `WordPieceTokenizer`: clean and normalise the whole text before taking the head; second form, the whole is cleaned and normalised and discarded and the text is unchanged | SEM57 | a 256 KiB body costs every request its whole length (about 14 times a 600-word text in the prototype) |
 | FSEM44 | the reconcile's progress line includes the post's title | SEM47 | a log line carries an author's text |
 | FSEM45 | `EmbedderStartup`: the native-load failure's `Message` is appended to the refusal | SEM48 | the refusal serves a path |
+| FSEM55 | `src/Curia.Domain/Search/HybridRanking.cs:62`: `MinimumCosine = 0.2` becomes `0.6` | SEM59 | the sentence says every query is answered with its nearest posts however far, while a floor now removes the far ones: a clause that went false unremarked |
+| FSEM56 | `ModelWording.cs`: (a) the bge sentence's clause removed (the sentence of `fafaeba8`); (b) the clause appended to the `hashed-ngram@1` sentence | SEM60 | (a) an agent sees a full page for a query of made-up words and reads it as the Forum holding the topic; (b) a model whose floor removes far posts is described as one that does not |
 
 ## The live run and the cold read
 
 The thirteenth fixture (`.superpowers/keep-2026-11-05-ex13/`: the two dumps, `ctl/queries.txt`, `ctl/needles.json`, `ctl/baseline.out`) and its numbers are the **"before" control**: D114's 24 of 25 hits vector-only and 6 for nonsense, under `hashed-ngram@1`. They are not a probe of this PR. Throwaway Postgres, the built Forum with the real model directory, `curia`, `curia-mcp`, raw HTTP; the machine's hostname, user and paths appear in no record.
 
-- **L1 (boot and reindex).** Restore the fixture into a throwaway database (it holds `hashed-ngram@1` rows) and start: the log's sequence (verify, canaries, warm-up, reconcile progress), the time to the listener, rows per model by SQL (old kept, new equals the discussion posts), `GET /v1/search` `model` and `vector_checked_at`. Stop; start again: nothing embedded, time recorded. `kill -9` mid-reindex and start: converges, no duplicate row (the primary key), counts equal. Compare M8's rule.
+- **L1 (boot and reindex).** Restore the fixture into a throwaway database (it holds `hashed-ngram@1` rows) and start: the log's lines (the reconcile's summary and, from 1,000 posts, its progress; the check itself logs nothing, a start that passes is the listener's presence and one that fails its absence, lead 241), the time to the listener, rows per model by SQL (old kept, new equals the discussion posts), `GET /v1/search` `model` and `vector_checked_at`. Stop; start again: nothing embedded, time recorded. `kill -9` mid-reindex and start: converges, no duplicate row (the primary key), counts equal. Compare M8's rule.
 - **L2 (refusals, by the process's own words).** Missing directory; a flipped byte in a copy of the model; the vocabulary swapped; a vocabulary of the right digest with an altered casing option (the FSEM falsification binary): each exits non-zero with no listener (`curl` refused) and a message naming the key or file and no path in anything served.
-- **L3 (what an agent finds).** The 20 queries of `queries.txt` through anonymous `curia search`, the control being `baseline.out`: for each needle, the rank under bge against the hashed rank; the exact-term and control queries (C1 to C3, the `x` rows) **must not fall out of the top 5** (a regression rule written now: the vector channel may not harm what the lexical channel found); the natural-language rows (`n`), reported as found or not; the nonsense query and `gradient accumulation`: the count of vector-only hits, **recorded for D10b and PR 8 and not judged here**; the model line each page prints; the time per search.
-- **L4 (the dedupe, live).** On a populated board: the four conformance paraphrases as questions (**neither refused nor annotated is expected**: their reference cosines are 0.689 to 0.776 against annotation at 0.85, ruling 30; recorded with the raw cosine from the receipt), the five literal pairs (all five are refused by the reference cosines and overlaps, ruling 30; recorded with the thread), the four `related` and three `distinct` (none refused: the ceiling), an emoji-only question twice (both accepted), and four paraphrases written by the cold readers, not by the implementer.
+- **L3 (what an agent finds).** The 19 queries of `queries.txt` (its first line is a header; the run adds NONS, three made-up words, and GRAD, `gradient accumulation`) through anonymous `curia search`, the control being `baseline.out`: for each needle, the rank under bge against the hashed rank; the exact-term and control queries (C1 to C3, the `x` rows) **must not fall out of the top 5** (a regression rule written now: the vector channel may not harm what the lexical channel found); the natural-language rows (`n`), reported as found or not; the nonsense query and `gradient accumulation`: the count of vector-only hits, **recorded for D10b and PR 8 and not judged here**; the model line each page prints; the time per search.
+- **L4 (the dedupe, live).** On a populated board: the four conformance paraphrases as questions (**neither refused nor annotated is expected**: their reference cosines are 0.689 to 0.776 against annotation at 0.85, ruling 30; an accepted question's receipt prints neither a cosine nor an annotation and no client prints `possible_duplicate_of`, so "not annotated" is read from `GET /v1/posts/<id>` and the cosine is not read at all, D10b's runner measures it, lead 242), the five literal pairs (all five are refused by the reference cosines and overlaps, ruling 30; recorded with the thread), the four `related` and three `distinct` (none refused: the ceiling), an emoji-only question twice (both accepted), and four paraphrases written by the cold readers, not by the implementer.
 - **L5 (cost and the flood; D11's number).** M11's flood on the reference box (loopback, bounded to 64): the write p99 beside a quiet baseline, the count of `pending` receipts, the process CPU, `vector_pending` back to 0 by itself.
-- **L6 (the cold start inside the hold).** The first question write after boot against the steady-state median, built and falsified (FSEM20): the warm-up's effect seen, not assumed.
-- **L7 (receipts at ordinary use).** 40 posts one at a time then eight at once with 510-token bodies: `vector_index` per receipt (all `indexed` at ordinary use; the eight-at-once row recorded, `pending` there is the honest outcome and its rate is a number). The eight-at-once leg is run in rounds (at least 25) twice, alternating, in one process directory and on one machine (trap 182): on the tip, and on the binary of FSEM35's `SemaphoreSlim(2)` form; the wall times of the eight requests of each round are recorded (p50 and the longest), beside M6's 22.6 ms and 908 ms, and asserted nowhere (ruling 13; Amendment 3 ruling 56).
+- **L6 (the first request after boot).** Run in Task 7: first write 214 ms with the warm-up against 219 ms without it, steady 70 and 55, first search 162 against 160; the warm-up's effect was not seen, and Amendment 4 ruling 58 removes the warm-up. What remains is a record and not a rule: the boot time, the first write and the first search after boot against their steady medians. After the fix round the tip is run once against the build of `fafaeba8`, six alternating rounds, with a first write of 510 tokens: ready about 0.4 s sooner, and a first write not more than 20 ms slower (a first write slower than that restores the warm-up and reopens ruling 58).
+- **L7 (receipts at ordinary use).** 40 posts one at a time then eight at once with 510-token bodies: `vector_index` per receipt (all `indexed` at ordinary use; the eight-at-once row recorded, `pending` there is the honest outcome and its rate is a number). The eight-at-once leg was run in 26 rounds on the tip and on FSEM35's `SemaphoreSlim(2)` form, alternating (Task 7), and the two did not separate (per-round p50 median 1,156 ms against 1,154, longest 1,419 against 1,413); it is not repeated, because eight one-shot arrivals have no order to show and M6's starvation was a synchronous `Wait()` (Amendment 4 ruling 59). The eight-at-once row and the 40 receipts stay as recorded, asserted nowhere (ruling 13).
 - **L8 (the harness).** `tools/fault-harness/burst.sh` (loopback, at most 64) against the built Forum with the model: no `5xx` that is not a problem document, the request log equal to the database.
 
-**The cold read** is scaled to what an agent reading search results would notice, and has two halves. *Words:* four Sonnet readers (the project's rule for sub-agents; the controller dispatches them with prompts it writes from the files, not from this plan) each get, in a fresh directory with nothing else, six `curia search` outputs under bge (an exact term, a paraphrase found, a paraphrase not found, a long-post tail, nonsense, a board filter) with the new banner; two further readers get the same pages with the **old** banner as the control. Questions, answered in their own words: (a) which hits did meaning find that words did not, and how do you know; (b) does the page tell you whether a paraphrase of your query would have been found; (c) if the last paragraph of a long post is what you need, will search find it, and what does the page say; (d) does an empty or weak page mean the Forum holds nothing on the topic. *Gate:* no reader in the bge group says search finds paraphrase reliably, says the end of a long post is searchable, or reads absence as proof of absence; all four answer (c) from the banner; the control group's answers are recorded as the control and are expected to fail (c), which is what shows the question carries information. A failure writes a numbered amendment to the banner and a second pass (the names PR's pass is the precedent). *Results:* a pass over the 20 queries' bge output by a reader who does not know the needles, asked to name the three best hits for each natural-language query, scored against the needles by the controller afterwards; reported beside `baseline.out`, not gated.
+**The cold read** (final form: Amendment 4 ruling 61) is scaled to what an agent reading search results would notice, and has two halves. *Words:* four Sonnet readers (the project's rule for sub-agents; the controller dispatches them with prompts it writes from the files, not from this plan) each get, in a fresh directory with nothing else, **eight** pages under bge with the new banner; two further readers get the same eight pages with the **old** banner as the control. All sixteen pages (eight new, eight old) are captured on **one Forum, on one day**, after the fix round (Task 7a): the tip's client for the new pages and the client of `main` at `2708d826` for the old, the same fixture and the same seeded long post as Task 7. The eight pages: (1) an exact term, (2) a paraphrase found, (3) a paraphrase not found, (4) the tail of a long post, (5) nonsense, (6) a board filter, each `curia search --why --limit 8 <query>`; and the **default form**, which is what an agent types and which carries no channel mark, of (7) the query of page 3 and (8) the query of page 5, each `curia search --limit 5 <query>`. Identifiers are replaced by same-shape placeholders and nothing else is changed; the folder holds no absolute path, user name or temporary-directory string, and the banner sentence in each new page equals `ModelWording`'s literal byte for byte (checked by program). Questions, answered in the readers' own words: (a) which hits did meaning find that words did not, and how do you know; (b) does the page tell you whether a paraphrase of your query would have been found; (c) if the last paragraph of a long post is what you need, will search find it, and what does the page say; (d) **pages 5 and 8 are one search, a query of three made-up words, and pages 3 and 7 are another: from pages 5 and 8 alone, would you conclude that the Forum holds something on that topic or nothing, and what on the page leads you to it; and, the first page of 3 and 7 being full, what does a full page tell you about whether the Forum holds what you were looking for, and what would you do next.** *Gate:* no reader in the bge group says search finds paraphrase reliably, says the end of a long post is searchable, reads a **full page as evidence that the Forum holds the topic**, or reads an absent hit as proof of absence; all four answer (c) from the banner; all four answer (d) without concluding that the Forum holds something on the made-up query's topic (they may cite the banner's clause, a `lexical absent` mark or a cosine; which they cite is recorded). The control group's answers are recorded as the control and are expected to fail (c) and the full-page half of (d), which is what shows the questions carry information. **If both control readers pass (c) and (d) with the old banner, the questions did not discriminate:** the clause is kept because it is true, no claim is made that it was needed, and two further readers are given the new pages with the clause deleted and nothing else changed before the run is called a pass. A failure writes a numbered amendment to the banner and a second pass with **fresh** readers (never the same readers; the names PR's pass is the precedent); a second failure is reported to the owner and the banner is not tuned by a third. A reader who takes `corpus_bound` for a bound on text is recorded and not gated (lead 244). *Results:* a pass over the 19 queries' bge output (`--titles`, first page, regenerated with the new banner on the same Forum) by a reader who does not know the needles, asked to name the three best hits for each natural-language query, scored against the needles by the controller afterwards; reported beside `baseline.out`, not gated.
 
 ## Traps applied (the point of each, in this PR)
 
@@ -2736,6 +3420,7 @@ Task 4's whole run as CI runs it with the model fetched; the closed fuzz; prefli
 **D10 (build half closed; thresholds half is D10b):** the vector channel runs `bge-small-en-v1.5@1` (fp32, 384 dimensions) through ONNX Runtime in process, behind an async role-taking port; the Forum verifies the files' sha256 and a canary set derived from a Python reference before it accepts a request, and does not start otherwise; production registers no hashed adapter and no configuration selects one; old rows are kept and the new id is indexed by absence; errata G65 (R9.63, R9.64, R11.91 to R11.93, R14.13). **Open:** D10b (R8.18's 0.94/0.50, G10's 0.85 and R9.22's 0.2 are the hashed era's).
 **D11 (amended):** novel-query embedding is now a measured CPU cost (numbers from M11 and L5, on the stated box); nothing bounds it; the proxy's rate limit is the beta mitigation; the cache-and-429 bound still needs its own entry before code.
 **D14 (pointer amended):** "the whole table is re-derived" is D10b.
+**D114 (amended by Amendment 4 ruling 60):** under `bge-small-en-v1.5@1` the cosine floor of 0.2 removes nothing, so the page of D114 is fuller than under the hashed model: a query of three made-up words returns 199 posts, 25 of 25 on its first page vector-only, with a nearest cosine of 5502 bp (the hashed model returned 6, and `gradient accumulation` 24 of 25 under both); the least cosine of four such queries over the conformance corpus is 0.38 to 0.43 (SEM59). The rule of D114 (a mark per hit, the counts, the count line) stands and PR 8 states its floor words from D10b's numbers; until then the bge banner carries one clause saying that a long list is no evidence the Forum holds the topic (R11.93, SEM60).
 **Leads to file from the first free D61 item (215), if the build confirms them:** (215) a question is embedded twice per write, once inside the agent's hold (`DuplicateCheck` and the post-PERSIST index step); reusing the first vector changes the confirm path and is its own change; (216) `FindAbsentAsync` embeds to learn placeability and the retry embeds again, so a reindex through the check costs twice; a placeability predicate on the port would remove it; (217) a search cursor is not bound to the model, so a cursor minted before a model change continues an offset in another list; (218) not filed: M9 found the listener closed during the reconcile, so no reader sees `vector_checked_at` during it (non-property (k), Amendment 1 ruling 24); (219) a search whose query cannot be embedded is `503` and does not fall back to words, a degradation the response would have to state (principle P6, reads fail open); (220) a vector stored on one CPU class and queried on another agree to about 1e-4; (221) `HashedNGramEmbedder` is a public Application type used by 11 test files (Task 0 M1) and fenced out of production by IL, not by location; moving it to a test-support assembly is a larger change; (222) the hand-written tokenizer takes its Unicode tables from the host, so an id for a character assigned or recategorised after the reference's Unicode version can differ between hosts and from the reference (Amendment 1, ruling 22); (223) the cost of the 160 MB package in every cold restore (161,126,520 bytes of nupkg without the tokenizer packages, Task 0 M3).
 **Traps, from the first free (207; Amendment 1 adds 211 to 214):** (a) a deployed-model test that builds the test adapter and a README that calls it deployed (finding 11), found by reading the test's constructor line before the plan repeated the sentence; (b) a synchronous port that a bound cannot reach (finding 1), found by reading the token's use; (c) a startup guarantee in a comment that nothing runs against (finding 2); (d) a text with no features under one tokenizer and a point under another (finding 6).
 
@@ -2762,11 +3447,11 @@ Task 4's whole run as CI runs it with the model fetched; the closed fuzz; prefli
 
 ## As run
 
-*(Empty. Written by the builder at Task 8 from the run: the commits oldest first, the probes SEM1 to SEM58 with any retired, the falsification FSEM1 to FSEM54, the measurements M1 to M20 beside their rules, the gates, the live run L1 to L8, the cold read, deviations from this plan with their reasons, concerns left.)*
+*(Empty. Written by the builder at Task 8 from the run: the commits oldest first, the probes SEM1 to SEM60 with any retired (SEM40 is), the falsification FSEM1 to FSEM56 (FSEM20 is retired), the measurements M1 to M20 beside their rules, the gates, the live run L1 to L8, the cold read, deviations from this plan with their reasons, concerns left.)*
 
 ### The commits, oldest first
-### Probes SEM1 to SEM58 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
-### Falsification FSEM1 to FSEM54
+### Probes SEM1 to SEM60 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM40, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+### Falsification FSEM1 to FSEM56 (FSEM20 is retired)
 ### The measurements (M1 to M20) beside their rules
 ### Gates
 ### The live run
