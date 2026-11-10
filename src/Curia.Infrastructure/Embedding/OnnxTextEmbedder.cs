@@ -18,6 +18,9 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
     private const double CanaryTolerance = 1e-4;
     private const int WarmUpRuns = 3;
 
+    /// <summary>The fewest canaries a manifest may hold (SEM4's published floor; the manifest holds fifteen). A check over fewer proves little, so the start refuses it.</summary>
+    internal const int MinimumCanaries = 14;
+
     /// <summary>The identity every vector of this embedder carries.</summary>
     internal static EmbeddingModel BgeModel { get; } = new("bge-small-en-v1.5", "1", 384);
 
@@ -65,6 +68,8 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
         {
             if (_ready) return;
 
+            RequireManifestIsThisBuildsIdentity();
+
             var verified = ModelFiles.Verify(Options.ModelDirectory, _manifest);
             if (!verified.TryGetValue(out var files, out var refusal))
                 throw new InvalidOperationException($"{refusal!.Title} named by {ConfigurationKey} (environment {EnvironmentVariable}); {refusal.Type}.");
@@ -105,6 +110,21 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
             _runner = runner;
             _ready = true;
         }
+    }
+
+    /// <summary>
+    /// Ruling 39: before a file is read, the manifest must name the identity the code stamps on every vector (<see cref="BgeModel"/>) and hold at least <see cref="MinimumCanaries"/> canaries.
+    /// A refusal names the member and the build, and holds no path, no value of the manifest and no exception message (R11.91). The manifest is embedded in the assembly, so this guards against
+    /// an edit of the manifest that the tests did not see and not against a hostile build; the floor restates SEM4's number, so the start and the test agree by construction.
+    /// </summary>
+    private void RequireManifestIsThisBuildsIdentity()
+    {
+        if (!string.Equals(_manifest.Id, BgeModel.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException("The embedding manifest's 'id' member is not the model this build stamps on its vectors. The Forum does not start without its embedding model.");
+        if (_manifest.Dimensions != BgeModel.Dimensions)
+            throw new InvalidOperationException("The embedding manifest's 'dimensions' member is not the width of the vectors this build stamps. The Forum does not start without its embedding model.");
+        if (_manifest.Canaries.Count < MinimumCanaries)
+            throw new InvalidOperationException("The embedding manifest's 'canaries' member holds fewer canaries than the start-up check requires. The Forum does not start without its embedding model.");
     }
 
     private IModelRunner LoadRunner(string modelPath)

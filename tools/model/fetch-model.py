@@ -14,6 +14,7 @@ The cache is $XDG_CACHE_HOME/curia-model, or ~/.cache/curia-model; --no-cache sk
 """
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -67,7 +68,7 @@ def download(url, target, expected, name):
         os.replace(temporary, target)
         temporary = None
         return None
-    except (urllib.error.URLError, OSError, TimeoutError) as error:
+    except (urllib.error.URLError, http.client.HTTPException, OSError, TimeoutError) as error:
         return f"{name}: could not fetch {url} ({type(error).__name__})"
     finally:
         if temporary is not None and os.path.exists(temporary):

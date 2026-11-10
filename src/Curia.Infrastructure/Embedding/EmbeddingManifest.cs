@@ -36,11 +36,6 @@ internal sealed record EmbeddingManifest(
 
     private static readonly Lazy<EmbeddingManifest> EmbeddedManifest = new(() => ReadEmbedded(), LazyThreadSafetyMode.ExecutionAndPublication);
 
-    /// <summary>What a manifest that was not read says: no identity, no files, no canaries.</summary>
-    internal static EmbeddingManifest Empty { get; } = new(
-        string.Empty, 0, new ManifestFile(string.Empty, 0, string.Empty), new ManifestFile(string.Empty, 0, string.Empty),
-        string.Empty, 0, [], new Dictionary<string, string>());
-
     /// <summary>The manifest embedded in this assembly.</summary>
     internal static EmbeddingManifest Embedded() => EmbeddedManifest.Value;
 

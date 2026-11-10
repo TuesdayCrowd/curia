@@ -172,6 +172,8 @@ public sealed class Program
         // first start under a model id the database has no rows for reindexes the whole log first, with the
         // port closed (about 30 ms a post on the build machine, Task 0 M8): it logs how far it is.
         // TryAdd: a caller of Build that has registered an embedder in code (a test that never reaches the model) keeps it; nothing in configuration can.
+        // This door is for an in-process caller of Build and is outside SEM13's fence, which reads the shipped assemblies' IL for a construction of the real embedder and not for who registered first;
+        // no configuration value reaches it, and the check below runs only for an embedder that implements IStartupChecked.
         builder.Services.TryAddSingleton(_ => EmbeddingComposition.Create(builder.Configuration[EmbeddingComposition.ConfigurationKey]));
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().VectorIndex);
         builder.Services.AddSingleton(sp => new EmbeddingIndexer(
