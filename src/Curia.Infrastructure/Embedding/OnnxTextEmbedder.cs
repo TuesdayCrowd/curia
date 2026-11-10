@@ -8,7 +8,7 @@ namespace Curia.Infrastructure.Embedder;
 
 /// <summary>
 /// The Forum's embedder (errata G65): <c>bge-small-en-v1.5@1</c> run by ONNX Runtime behind the port. Total, bounded by a first-in-first-out gate, stopped when its caller is gone,
-/// and checked before the Forum accepts a request (R11.91, R11.92). <see cref="Check"/> verifies the files, builds the session, reproduces every canary and warms the session; until it
+/// and checked before the Forum accepts a request (R11.91, R11.92). <see cref="Check"/> verifies the files, builds the session, reproduces every canary (one of them as long as the model reads, so the session has run its longest input before the first request); until it
 /// has passed, every text is answered <see cref="EmbeddingErrors.ModelNotReady"/>.
 /// </summary>
 internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDisposable
@@ -16,7 +16,6 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
     private const string ConfigurationKey = EmbeddingComposition.ConfigurationKey;
     private const string EnvironmentVariable = EmbeddingComposition.EnvironmentVariable;
     private const double CanaryTolerance = 1e-4;
-    private const int WarmUpRuns = 3;
 
     /// <summary>The fewest canaries a manifest may hold (SEM4's published floor; the manifest holds fifteen). A check over fewer proves little, so the start refuses it.</summary>
     internal const int MinimumCanaries = 14;
@@ -59,7 +58,7 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
         _tokenizer ?? throw new InvalidOperationException("The embedder has not been checked: its vocabulary is not read.");
 
     /// <summary>
-    /// The start-up check (R11.91): the options, both digests, the session, every committed canary (token ids exactly, each component within 1e-4) and the warm-up. A failure is an
+    /// The start-up check (R11.91): the options, both digests, the session, and every committed canary (token ids exactly, each component within 1e-4). A failure is an
     /// <see cref="InvalidOperationException"/> naming the configuration key, the file or the canary, never a path, an exception message or an input.
     /// </summary>
     public void Check()
@@ -92,7 +91,6 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
             try
             {
                 ReproduceCanaries(tokenizer, runner);
-                WarmUp(tokenizer, runner);
             }
             catch (InvalidOperationException)
             {
@@ -169,24 +167,6 @@ internal sealed class OnnxTextEmbedder : ITextEmbedder, IStartupChecked, IDispos
             for (var j = 0; j < vector.Length; j++)
                 if (Math.Abs(vector[j] - canary.Vector[j]) > CanaryTolerance)
                     throw new InvalidOperationException($"Canary '{canary.Id}': component {j} differs from the reference by more than {CanaryTolerance:E0}.");
-        }
-    }
-
-    /// <summary>Runs the session on the longest input it will be given, so the first request does not pay for the allocations (Ruling 5).</summary>
-    private void WarmUp(WordPieceTokenizer tokenizer, IModelRunner runner)
-    {
-        var length = _manifest.MaxSequenceLength;
-        var ids = new long[length];
-        Array.Fill(ids, (long)Math.Min(tokenizer.Vocabulary.Count - 1, 1000));
-        ids[0] = tokenizer.ClsId;
-        ids[^1] = tokenizer.SepId;
-        var mask = new long[length];
-        Array.Fill(mask, 1L);
-        var input = new BgeInput(ids, mask, new long[length], true);
-        for (var i = 0; i < WarmUpRuns; i++)
-        {
-            var pooled = Run(runner, input);
-            if (!pooled.IsOk) throw new InvalidOperationException("The embedding model's warm-up run produced no usable vector.");
         }
     }
 

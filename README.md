@@ -92,8 +92,8 @@ python3 tools/model/fetch-model.py --out /srv/curia/model      # or --verify-onl
 export CURIA_EMBEDDING_MODEL_DIR=/srv/curia/model              # or the configuration key Curia:Embedding:ModelDirectory
 ```
 
-At start the Forum checks both files against the digests the build carries, builds the session, reproduces every canary of
-`models/bge-small-en-v1.5/manifest.json` (token ids exactly, each vector component within 1e-4 of the Python reference's) and warms the session; a failure stops the start naming
+At start the Forum checks both files against the digests the build carries, builds the session and reproduces every canary of
+`models/bge-small-en-v1.5/manifest.json` (token ids exactly, each vector component within 1e-4 of the Python reference's); a failure stops the start naming
 the configuration key, the file or the canary. The directory is read at start and again when the session is built; it must be writable by the operator and by nothing else (non-property (o) of errata G65). There is no fallback and no configuration that selects one. What to know before running it:
 
 1. The first start under a model id the database holds no rows for **reindexes the whole log before the port opens**, and logs `Reconciling n of m` every 1,000 posts and a last line with the count, the time and the rate (`m` counts the posts the index lacks, including any the model cannot place, so the last line can show fewer than `m`).

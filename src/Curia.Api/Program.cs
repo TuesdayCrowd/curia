@@ -370,7 +370,7 @@ public sealed class Program
         // first append.
         _ = app.Services.GetRequiredService<ILifecycleAppendGate>();
 
-        // R11.91 (errata G65): the embedding model is verified before the host is returned and so before it listens: both digests, the session, every committed canary and a warm-up.
+        // R11.91 (errata G65): the embedding model is verified before the host is returned and so before it listens: both digests, the session and every committed canary.
         // A failure throws, naming the configuration key, the file or the canary; there is no fallback. A host that replaced the embedder (the test fixture's one explicit door) has
         // nothing to check.
         if (app.Services.GetRequiredService<ITextEmbedder>() is IStartupChecked startupChecked)

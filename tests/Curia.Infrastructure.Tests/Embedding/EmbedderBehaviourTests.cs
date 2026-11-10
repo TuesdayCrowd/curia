@@ -11,7 +11,7 @@ using Xunit;
 namespace Curia.Infrastructure.Tests.Embedder;
 
 /// <summary>
-/// Errata G65 (D10a), SEM3 (runner half), SEM9 to SEM12, SEM39, SEM40 and SEM48, model-free: the adapter over a fake runner and the synthetic vocabulary. Every probe first asserts that the
+/// Errata G65 (D10a), SEM3 (runner half), SEM9 to SEM12, SEM39 and SEM48, model-free: the adapter over a fake runner and the synthetic vocabulary. Every probe first asserts that the
 /// fake runner was reached where it should be, so an embedder that answers without running anything cannot pass for one that runs.
 /// </summary>
 [SuppressMessage(
@@ -135,7 +135,7 @@ public sealed class EmbedderBehaviourTests
     public async Task R11_92_SEM11_NoMoreThanTwoRunAtOnceAndACancelledWaiterRunsNothing()
     {
         using var rig = Checked();
-        var baseline = rig.Runner.Runs; // the start-up check has already run the canaries and the warm-up (SEM40)
+        var baseline = rig.Runner.Runs; // the start-up check has already run the canaries
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         rig.Runner.Behaviour = async (input, ct) =>
         {
@@ -335,7 +335,7 @@ public sealed class EmbedderBehaviourTests
         }
     }
 
-    // ---- SEM39, SEM40: the shape and the warm-up ----
+    // ---- SEM39: the shape (SEM40, the warm-up, is retired: Amendment 4 ruling 58) ----
 
     /// <summary>
     /// SEM39. The session is asked for two intra-op threads and one inter-op thread, and the gate admits two. Predicted red on the seam: <c>the loader was never asked to load</c>.
@@ -349,19 +349,6 @@ public sealed class EmbedderBehaviourTests
         Assert.Equal(2, rig.Loader.LastOptions!.IntraOpNumThreads);
         Assert.Equal(1, rig.Loader.LastOptions.InterOpNumThreads);
         Assert.Equal(2, rig.Embedder.Gate.Limit);
-    }
-
-    /// <summary>
-    /// SEM40. The start runs at least three inferences on a text of 510 content tokens (512 ids) through the runner before it returns. Predicted red on the seam: <c>expected at least 3 warm-up
-    /// runs of 512 ids, saw 0</c>.
-    /// </summary>
-    [Fact]
-    public void R11_92_SEM40_TheSessionIsWarmedWithThreeLongestTextsBeforeTheFirstRequest()
-    {
-        using var rig = Checked();
-
-        var longest = rig.Runner.SequenceLengths.Count(n => n == 512);
-        Assert.True(longest >= 3, $"expected at least 3 warm-up runs of 512 ids, saw {longest}");
     }
 
     // ---- SEM48: a native library that cannot load ----

@@ -2,8 +2,10 @@ namespace Curia.Infrastructure.Embedder;
 
 /// <summary>
 /// The gate around an inference run (errata G65, R11.92, Amendment 1 ruling 23): at most <see cref="Limit"/> callers inside, admitted in the order they arrived, a waiter
-/// that is cancelled leaving the queue and running nothing. <c>SemaphoreSlim</c> does not promise an order, and Task 0 M6 measured it passing waiters over: a 16-token p99 of 908 ms
-/// at 8 callers against 22.6 ms through this gate. A place freed is handed to the waiter at the head of the queue and not released for whoever arrives first.
+/// that is cancelled leaving the queue and running nothing. The order is this gate's promise by construction and not a behaviour of the BCL today: <c>SemaphoreSlim</c> documents no order. Task 0 M6's starvation (a 16-token p99 of 908 ms at 8 callers) was
+/// measured on a synchronous <c>Wait()</c> from dedicated threads that re-enter in a loop; <c>WaitAsync</c>, the path this adapter would use, kept arrival order in the same shape of loop, and neither the live run's
+/// eight-at-once leg nor a 64-thread query flood with writes alongside separated the two forms (Amendment 4 ruling 59). A place freed is handed to the waiter at the head of the queue and not released for
+/// whoever arrives first.
 /// </summary>
 internal sealed class FifoGate(int limit)
 {

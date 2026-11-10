@@ -21,7 +21,8 @@ public static class ModelWording
         HashedId =>
             "The vector channel's model is hashed-ngram@1: it matches shared words and spellings, and it does not find paraphrase, so a post that says the same thing in other words is found by its terms or not at all.",
         BgeId =>
-            "The vector channel's model is bge-small-en-v1.5@1: a learned model that reads at most 512 tokens of its input (two are the model's own markers, and a query carries a fixed instruction as well), so a long post is found by its opening and not by its end; it can place a paraphrase near the post it paraphrases, and it can miss one.",
+            "The vector channel's model is bge-small-en-v1.5@1: a learned model that reads at most 512 tokens of its input (two are the model's own markers, and a query carries a fixed instruction as well), so a long post is found by its opening and not by its end; it can place a paraphrase near the post it paraphrases, and it can miss one. " +
+            "It ranks the nearest posts it holds however far they are, so a long list of results is no evidence that the Forum holds anything on the topic, and a hit that shares no word with the query may be a paraphrase or may be unrelated: its rank does not say which.",
         null or "" =>
             "The vector channel's model was not stated by the Forum: limits NOT STATED.",
         _ =>
