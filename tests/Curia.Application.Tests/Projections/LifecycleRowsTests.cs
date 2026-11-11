@@ -55,4 +55,37 @@ public sealed class LifecycleRowsTests
             ],
             got);
     }
+
+    private static string Tail(Func<ActaLog, SignedHead?> anchor, params Entry[] log)
+    {
+        var acta = ActaLog.Fold(LogOf(log)).Match(a => a, e => throw new InvalidOperationException(e.Type));
+        return string.Join("; ", acta.LifecycleRowsPast(anchor(acta)).Select(r => $"{r.LogIndex} {r.Type.Value}"));
+    }
+
+    /// <summary>
+    /// HSU39's tail table (Amendment 3 ruling 35): <see cref="ActaLog.LifecycleRowsPast"/> measures from the anchor's signed <c>tree_size</c> and never from its log index. No anchor: every
+    /// row. An anchor with <c>tree_size</c> 1 at log index 3 over <c>[post, retirement, retirement, head]</c>: the two rows at 1 and 2. An anchor covering everything: none. And a head of
+    /// <c>tree_size</c> 3 at index 4, which a row appended between its fold and its append precedes: that row, at 3, is in the tail (red on FHSU37, a tail from the head's log index).
+    /// </summary>
+    [Fact]
+    public void R6_63_HSU39_TheTailIsMeasuredFromTheAnchorsSignedTreeSize()
+    {
+        var retired = LifecycleAppendGuard.KeyRetiredType;
+        var got = new List<string>
+        {
+            "no anchor: " + Tail(_ => null, Post(), Of("a", retired), Of("a", retired), Head(1)),
+            "an anchor of tree_size 1 at log index 3: " + Tail(a => a.Heads[0], Post(), Of("a", retired), Of("a", retired), Head(1)),
+            "an anchor covering everything: " + Tail(a => a.Heads[0], Post(), Of("a", retired), Head(2)),
+            "a head of tree_size 3 at log index 4, a row between: " + Tail(a => a.Heads[0], Post(), Of("a", retired), Of("a", retired), Of("a", retired), Head(3)),
+        };
+
+        Assert.Equal(
+            [
+                "no anchor: 1 agent.key-retired; 2 agent.key-retired",
+                "an anchor of tree_size 1 at log index 3: 1 agent.key-retired; 2 agent.key-retired",
+                "an anchor covering everything: ",
+                "a head of tree_size 3 at log index 4, a row between: 3 agent.key-retired",
+            ],
+            got);
+    }
 }

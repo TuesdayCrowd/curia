@@ -134,12 +134,14 @@ public static class OperatorCommands
               if the log has not seen it. R6.24: run this on a schedule of at most 60 minutes.
               Refused, exit 3, in an environment that also holds the declaration key (R12.18).
               --if-grown (R6.63) signs only when an entry other than log.head and log.key
-              follows the latest head; otherwise it publishes no key, signs no head, appends
-              nothing, prints "unchanged" and exits 0, so a timer does not grow the log by its own
-              output. It also withholds the head, exit 6 and nothing written, when a lifecycle
-              row (a retirement, a compromise declaration or a key binding beyond an enrolment)
-              follows the latest head: this tool does not check such a row's signature, and a head
-              over a forged row cannot be taken back. A person reads the rows named on stderr, and
+              follows the latest head this tool signed (the latest head that verifies under the
+              key it holds; a head it cannot verify as its own moves nothing); otherwise it
+              publishes no key, signs no head, appends nothing, prints "unchanged" and exits 0, so
+              a timer does not grow the log by its own output. It also withholds the head, exit 6
+              and nothing written, when a lifecycle row (a retirement, a compromise declaration or
+              a key binding beyond an enrolment) follows that head: this tool does not check such
+              a row's signature, and a head over a forged row cannot be taken back. A first run
+              after a log-key rotation has no such head and measures from the start of the log. A person reads the rows named on stderr, and
               signs by hand without --if-grown (which prints "covers" for each row). Run a log-key
               rotation without --if-grown: it publishes a key on a log that may be quiet.
 
@@ -212,7 +214,7 @@ public static class OperatorCommands
           5  the Forum's store could not complete the verb (curia/store/unavailable) -- what it
              appended, if anything, is not known: read the log before running it again; sign-head
              re-reads and re-signs, so it is safe to run again
-          6  sign-head --if-grown withheld the head: a lifecycle row follows the latest head --
+          6  sign-head --if-grown withheld the head: a lifecycle row follows the latest head this tool signed --
              nothing was written; stderr names the log indices and types
         """;
 
@@ -424,7 +426,7 @@ public static class OperatorCommands
             return ExitCode.Usage;
         }
 
-        // Errata G67, R12.18: before either key is read. The host that signs heads holds the log key and no declaration key.
+        // Errata G67, R12.18: before either key is parsed or used. The host that signs heads holds the log key and no declaration key.
         if (!string.IsNullOrWhiteSpace(readDeclarationSigningKeyPem?.Invoke()))
             return await SharedEnvironmentAsync(stderr, "sign-head", "CURIA_DECLARATION_SIGNING_KEY_PEM").ConfigureAwait(false);
 
@@ -456,24 +458,24 @@ public static class OperatorCommands
                 if (!folded.TryGetValue(out var acta, out var foldError))
                     return await RefuseAsync(stderr, foldError!).ConfigureAwait(false);
 
-                // The lifecycle rows the latest head does not cover, by the one predicate the start-up scan counts with (Amendment 2 ruling 28): at or past its
-                // tree_size, or the whole log where there is no head.
-                var tailFrom = acta!.LatestHead?.TreeSize ?? 0;
-                var tail = LifecycleRows.Find(acta.Events).Where(r => r.LogIndex >= tailFrom).ToImmutableArray();
+                // The anchor is the latest head this tool can verify as its own, under the key it holds and no key the log lists; the growth test, the stop and the covers lines read it and
+                // nothing else (Amendment 3 ruling 34). `log.key` is unsigned, so a head by shape is not one.
+                var signer = SignerOf(key);
+                var measured = Measure(acta!, signer);
 
                 if (ifGrown)
                 {
                     // R6.63: the growth test runs before the key is published, so that a first run on a quiet log publishes no key it never uses.
-                    if (!acta.GrownPastLatestHead())
+                    if (!measured.Grown)
                     {
-                        var latest = acta.LatestHead is { } head0 ? $"latest_head_log_index={head0.LogIndex.ToString(CultureInfo.InvariantCulture)}" : "latest_head none";
-                        await stdout.WriteLineAsync($"unchanged  tree_size={acta.TreeSize.ToString(CultureInfo.InvariantCulture)}  {latest}").ConfigureAwait(false);
+                        var latest = measured.Anchor is { } head0 ? $"latest_head_log_index={head0.LogIndex.ToString(CultureInfo.InvariantCulture)}" : "latest_head none";
+                        await stdout.WriteLineAsync($"unchanged  tree_size={acta!.TreeSize.ToString(CultureInfo.InvariantCulture)}  {latest}").ConfigureAwait(false);
                         return ExitCode.Ok;
                     }
 
                     // The stop: this tool does not check a lifecycle row's signature, and a head signed over a forged row cannot be taken back. Nothing is written.
-                    if (!tail.IsEmpty)
-                        return await WithheldAsync(stderr, tail).ConfigureAwait(false);
+                    if (!measured.Tail.IsEmpty)
+                        return await WithheldAsync(stderr, measured.Tail).ConfigureAwait(false);
                 }
 
                 // First use of this key: publish it before anything is signed with it, so the key
@@ -497,6 +499,12 @@ public static class OperatorCommands
                     folded = await FoldAsync(store, cancellationToken).ConfigureAwait(false);
                     if (!folded.TryGetValue(out acta, out foldError))
                         return await RefuseAsync(stderr, foldError!).ConfigureAwait(false);
+
+                    // The race (Amendment 3 ruling 40): a row may have been appended between the two folds, and the head is built from this one, so the stop is applied to what this one
+                    // holds. No head was signed; the one log.key just published stays (it is not a head and not growth, and the next run finds it published).
+                    measured = Measure(acta!, signer);
+                    if (ifGrown && !measured.Tail.IsEmpty)
+                        return await WithheldAsync(stderr, measured.Tail).ConfigureAwait(false);
                 }
 
                 var timestamp = LogLeaf.RenderServerTimestamp(ServerTimestamp.At(clock.GetUtcNow()));
@@ -532,12 +540,41 @@ public static class OperatorCommands
                 await stdout.WriteLineAsync($"at             {timestamp}").ConfigureAwait(false);
 
                 // The resume path (Amendment 2 ruling 28 (c)): a head signed by hand over lifecycle rows says which, so that the run leaves a record.
-                foreach (var covered in tail)
+                foreach (var covered in measured.Tail)
                     await stdout.WriteLineAsync($"covers  log_index={covered.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(covered.Type.Value)}").ConfigureAwait(false);
 
                 return ExitCode.Ok;
             }
         }
+    }
+
+    /// <summary>What one fold says about where the signer stands: the anchor, whether the log grew past it, and the lifecycle rows it does not cover (Amendment 3 ruling 40).</summary>
+    private readonly record struct HeadMeasure(SignedHead? Anchor, bool Grown, ImmutableArray<LifecycleRow> Tail);
+
+    /// <summary>The three answers from one fold, so that the stop and the head built from that fold cannot disagree about which rows the head covers.</summary>
+    private static HeadMeasure Measure(ActaLog acta, Func<SignedHead, bool> signedByTheSigner)
+    {
+        var anchor = acta.LatestHeadWhere(signedByTheSigner);
+        return new HeadMeasure(anchor, acta.GrownPast(anchor), acta.LifecycleRowsPast(anchor));
+    }
+
+    /// <summary>
+    /// Whether a head is this tool's own: it names the <c>kid</c> of the key the tool holds and verifies, over its signed document's canonical form and under a head's header
+    /// <c>typ</c>, under that key's public half derived from the PEM the tool loaded (Amendment 3 ruling 34: no key the log lists is asked).
+    /// </summary>
+    private static Func<SignedHead, bool> SignerOf(LogSigningKey key)
+    {
+        if (!key.PublicMaterial().TryGetValue(out var material, out _))
+            return _ => false;
+
+        var es256 = new Es256Adapter();
+        var jws = new DetachedJws(
+            new Dictionary<string, IContentSigner>(StringComparer.Ordinal),
+            new Dictionary<string, IContentVerifier>(StringComparer.Ordinal) { ["ES256"] = es256 },
+            DetachedJws.HeadTyp);
+        return head => string.Equals(head.Kid, key.Kid, StringComparison.Ordinal)
+            && LogEntries.HeadCanonical(head.Document).TryGetValue(out var canonical, out _)
+            && jws.Verify(canonical, new JwsSignature(head.Signature), material!).Match(_ => true, _ => false);
     }
 
     /// <summary>How many withheld rows the refusal lists before it says how many more there are.</summary>
@@ -594,7 +631,7 @@ public static class OperatorCommands
         if (!ActorId.Create(actorValue).TryGetValue(out var actor, out _))
             return await UsageErrorAsync(stderr, "--by <role> is required.").ConfigureAwait(false);
 
-        // Errata G67, R12.18: before either key is read. A declaration key is never published or used in an environment that holds the log key.
+        // Errata G67, R12.18: before either key is parsed or used. A declaration key is never published or used in an environment that holds the log key.
         if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
             return await SharedEnvironmentAsync(stderr, "publish-declaration-key", "CURIA_LOG_SIGNING_KEY_PEM").ConfigureAwait(false);
 
@@ -710,7 +747,7 @@ public static class OperatorCommands
             return ExitCode.LifecycleNotEnabled;
         }
 
-        // Errata G67, R12.18: after the gate, before either key is read.
+        // Errata G67, R12.18: after the gate, before either key is parsed or used.
         if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
             return await SharedEnvironmentAsync(stderr, "compromise", "CURIA_LOG_SIGNING_KEY_PEM").ConfigureAwait(false);
 
@@ -919,14 +956,15 @@ public static class OperatorCommands
 
     /// <summary>
     /// Errata G67, R12.18: the refusal of an environment that holds both keys. It names the variable to unset and the verb, never a value, and is made before
-    /// either key is read (two keys in one environment are one key to whatever reads that environment). Nothing was written.
+    /// either key is parsed or used (two keys in one environment are one key to whatever reads that environment); the other side's variable is tested for emptiness and held by nothing after.
+    /// Nothing was written.
     /// </summary>
     private static async Task<int> SharedEnvironmentAsync(TextWriter stderr, string verb, string variable)
     {
         await stderr.WriteLineAsync(
             $"error: {variable} is set in this environment, and {verb} does not run in an environment that holds both the log key and the declaration key (R12.18): " +
             $"the host that signs heads holds the log key and no declaration key, and the declaration key is held where no unattended process can read it. " +
-            $"Unset {variable} and run {verb} again. Nothing was read, signed or written.")
+            $"Unset {variable} and run {verb} again. No key was parsed or used, and nothing was signed or written.")
             .ConfigureAwait(false);
         return ExitCode.Environment;
     }

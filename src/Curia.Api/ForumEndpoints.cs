@@ -3621,8 +3621,9 @@ public static class ForumEndpoints
     /// <summary>
     /// The status a key act's refusal reports (spec section 4.7). Matched on the condition's published
     /// slug; a refusal the table does not list is the Forum's, 500, never a 4xx that tells an agent its
-    /// request was at fault. Errata G67: <c>declaration-key-is-log-key</c> and <c>declaration-key-already-published</c> are the operator tool's
-    /// refusals, no route reaches them, and they are not listed.
+    /// request was at fault. Errata G67: the three declaration-key refusals (<c>declaration-key-not-published</c>, <c>declaration-key-is-log-key</c> and
+    /// <c>declaration-key-already-published</c>) are the operator tool's, and no route reaches them; they are listed at 409 because
+    /// <c>R4_18_EveryRefusalTheUseCasesReturnIsMappedByTheRoutes</c> holds every <c>KeyActErrors</c> type to a status other than 500 (Amendment 3 ruling 42).
     /// </summary>
     private static int StatusForKeyAct(Error error) => error.Type switch
     {

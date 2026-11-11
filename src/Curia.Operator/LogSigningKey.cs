@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Curia.AuthN.Dpop;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
+using Curia.Domain.Primitives;
 
 namespace Curia.OperatorTool;
 
@@ -91,6 +92,16 @@ public sealed class LogSigningKey : IDisposable
             new("x", new JsonValue.String(Base64Url.EncodeToString(parameters.Q.X!))),
             new("y", new JsonValue.String(Base64Url.EncodeToString(parameters.Q.Y!))),
         ]);
+    }
+
+    /// <summary>
+    /// The public half of the key this tool holds, as a verifier takes it, derived from the PEM the tool loaded and from nothing the log says (errata G67, R6.63; Amendment 3
+    /// ruling 34): the signer knows a head to be its own only when it verifies under this, since <c>log.key</c> is an entry any holder of the Forum's credential can append.
+    /// </summary>
+    public Result<PublicKeyMaterial> PublicMaterial()
+    {
+        var parameters = _key.ExportParameters(includePrivateParameters: false);
+        return new Jwk.EcP256(parameters.Q.X!, parameters.Q.Y!).ToPublicKeyMaterial(Kid);
     }
 
     public void Dispose() => _key.Dispose();

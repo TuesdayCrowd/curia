@@ -56,4 +56,49 @@ public sealed partial class HeadSignedWordsToolTests : IDisposable
         if (!InclusionClause().IsMatch(text)) problems.Add("the inclusion line does not state when the head was signed");
         Assert.True(problems.Count == 0, string.Join("; ", problems) + " :: " + text);
     }
+
+    private static string Hostile() => string.Concat(Enumerable.Range(0, 72).Select(i => (char)(0x0391 + (i * 5 % 17))));
+
+    /// <summary>
+    /// HSU27 (MCP half; Amendment 3 ruling 43 (c)). A head whose signed timestamp is a hostile string (Greek capitals, which the published words do not contain): <c>curia_verify</c> says NOT
+    /// STATED in the closing and the inclusion line and no 8-character window of the signed string occurs in its text. Red under FHSU42.
+    /// </summary>
+    [Fact]
+    public async Task R11_94_HSU27_CuriaVerifyEchoesNoWindowOfAHostileSignedString()
+    {
+        var signed = Hostile();
+        _log.HeadTreeSize = 6;
+        _log.HeadTimestamp = signed;
+        var tools = new ForumTools(_log.Client(), MarkingMode.None, new HeadStore(_home));
+
+        var text = Flatten(await tools.VerifyAsync(StubLog.PostId, null, TestContext.Current.CancellationToken));
+
+        var echoed = Enumerable.Range(0, signed.Length - 7).Select(i => signed.Substring(i, 8)).FirstOrDefault(w => text.Contains(w, StringComparison.Ordinal));
+        var problems = new List<string>();
+        if (echoed is not null) problems.Add($"the text holds the window of the signed string that starts \"{echoed}\"");
+        if (!text.Contains("signed at NOT STATED", StringComparison.Ordinal)) problems.Add("the text does not say NOT STATED");
+        Assert.True(problems.Count == 0, string.Join("; ", problems) + " :: " + text);
+    }
+
+    /// <summary>
+    /// HSU43 (MCP half; Amendment 3 ruling 43 (d)). The text of <c>curia_verify</c> past the head, for the stub's readable timestamp and for an unreadable one, holds no cadence phrase.
+    /// The controls are the matcher's own: three sentences it must catch.
+    /// </summary>
+    [Fact]
+    public async Task R11_94_HSU43_CuriaVerifyStatesNoCadence()
+    {
+        Assert.Equal([true, true, true], NoCadence.Controls.Select(NoCadence.Says).ToArray());
+
+        var problems = new List<string>();
+        foreach (var stamp in new[] { "1970-01-01T00:00:00Z", "yesterday" })
+        {
+            _log.HeadTreeSize = 6;
+            _log.HeadTimestamp = stamp;
+            var tools = new ForumTools(_log.Client(), MarkingMode.None, new HeadStore(_home));
+            var text = Flatten(await tools.VerifyAsync(StubLog.PostId, null, TestContext.Current.CancellationToken));
+            if (NoCadence.Says(text)) problems.Add($"{stamp}: the text states a cadence :: {text}");
+        }
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
 }

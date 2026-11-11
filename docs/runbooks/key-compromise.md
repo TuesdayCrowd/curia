@@ -45,7 +45,7 @@ and signed with the operator's name (a role, never a person).
    key (errata G67, R6.62): a P-256 key held by a person, generated like the log key
    (`openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`) and never held by an
    unattended process. **`CURIA_LOG_SIGNING_KEY_PEM` is not set in this environment**: the tool
-   refuses to run with both (R12.18), exit 3, before it reads either. The key must already be
+   refuses to run with both (R12.18), exit 3, before it parses or uses either key. The key must already be
    published in the log, by `curia-operator publish-declaration-key --by <role>`, which the
    owner runs once, before the hosted instance is announced, and which is not behind the
    lifecycle guard; the tool refuses a declaration key the log has not published, and

@@ -62,8 +62,93 @@ public sealed class HeadSignedWordsTests
             var actual = HeadSignedWords.Signed(timestamp, began);
             var problem = Row(name, expected, actual);
             if (problem.Length > 0) failures.Add(problem);
-            if (!string.IsNullOrEmpty(timestamp) && timestamp.Length > 8 && expected == NotStated && actual.Contains(timestamp[..8], StringComparison.Ordinal))
-                failures.Add($"{name}: the words echo the signed string");
+        }
+
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
+    }
+
+    /// <summary>A signed string built from characters the published words do not contain (Greek capitals), so that any window of it in an output is an echo and nothing else.</summary>
+    private static string Hostile() => string.Concat(Enumerable.Range(0, 72).Select(i => (char)(0x0391 + (i * 5 % 17))));
+
+    private static string FirstWindowOf(string signed, string output)
+    {
+        for (var i = 0; i + 8 <= signed.Length; i++)
+        {
+            var window = signed.Substring(i, 8);
+            if (output.Contains(window, StringComparison.Ordinal)) return window;
+        }
+
+        return string.Empty;
+    }
+
+    private static PostVerification PastTheHead(string? signed, string inclusionLine) => new(
+        "post-1",
+        Check.Verified("signature"),
+        Check.CouldNotCheck(inclusionLine),
+        Check.Verified("consistency"),
+        Check.CouldNotCheck("needs the inclusion"),
+        Check.CouldNotCheck("needs the inclusion"),
+        "sha256:00",
+        LogIndex: 9,
+        AnchorTreeSize: 6,
+        PastHeadTreeSize: 6,
+        PastHeadTimestamp: signed,
+        CheckBegan: Began);
+
+    /// <summary>
+    /// HSU27 (the echo guard, at the rendering where a leak can occur; Amendment 3 ruling 43 (c)). A hostile signed string goes through the rendering a past-head verification uses (the
+    /// closing and the inclusion line, by <see cref="PostVerification.Render"/>) and no 8-character window of it occurs in the output. The string is built from characters the published
+    /// words do not contain, and the control is that the search finds a window where one is there. Red under FHSU42, where the raw timestamp is appended to the inclusion line.
+    /// </summary>
+    [Fact]
+    public void R11_94_HSU27_NoWindowOfTheSignedStringReachesTheRendering()
+    {
+        var plain = Hostile();
+        var withControls = plain[..30] + (char)0 + "\n" + plain[30..];
+        Assert.NotEqual(string.Empty, FirstWindowOf(plain, "the output echoes " + plain + " whole"));
+
+        var failures = new List<string>();
+        foreach (var (name, signed) in new[] { ("a hostile run of Greek capitals", plain), ("the same with a NUL and a line feed", withControls) })
+        {
+            var inclusion = "leaf 9 is not covered by the signed head at tree size 6. " + HeadSignedWords.InclusionSentence(signed, Began)
+                + " The Forum served this post at that leaf and no published head commits to it yet.";
+            var output = PastTheHead(signed, inclusion).Render();
+
+            if (FirstWindowOf(signed, output) is { Length: > 0 } window) failures.Add($"{name}: the rendering holds the window of the signed string that starts \"{window}\"");
+            if (!output.Contains(NotStated, StringComparison.Ordinal)) failures.Add($"{name}: the rendering does not say NOT STATED");
+        }
+
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
+    }
+
+    /// <summary>
+    /// HSU43, no cadence (Amendment 3 ruling 43 (d); R11.94: "The words SHALL NOT state a cadence"). Over each clause string (<c>Signed</c>, <c>InclusionSentence</c> and both endings of
+    /// <c>Closing</c>) for each form of the signed clause, after the instant, the age and the tree size are removed no digit remains; over the whole rendering no cadence phrase matches. The
+    /// controls are three sentences the matcher must catch, so a matcher that matches nothing is red. Green on the tip; red under FHSU41.
+    /// </summary>
+    [Fact]
+    public void R11_94_HSU43_TheWordsStateNoCadence()
+    {
+        Assert.Equal([true, true, true], NoCadence.Controls.Select(NoCadence.Says).ToArray());
+
+        var failures = new List<string>();
+        foreach (var stamp in new[] { "2026-11-11T09:25:43.000000Z", "2026-11-11T09:30:59.600000Z", "2026-11-11T09:31:02.000000Z", "yesterday" })
+        {
+            var clauses = new[]
+            {
+                HeadSignedWords.Signed(stamp, Began),
+                HeadSignedWords.InclusionSentence(stamp, Began),
+                HeadSignedWords.Closing(6, stamp, Began, anotherCheckCouldNotBeMade: false),
+                HeadSignedWords.Closing(6, stamp, Began, anotherCheckCouldNotBeMade: true),
+            };
+            foreach (var clause in clauses)
+            {
+                if (NoCadence.DigitsAfterTheClause(clause) is { Length: > 0 } digits) failures.Add($"{stamp}: digits {digits} remain in [{clause}]");
+                if (NoCadence.Says(clause)) failures.Add($"{stamp}: [{clause}] states a cadence");
+            }
+
+            var rendering = PastTheHead(stamp, "leaf 9 is not covered by the signed head at tree size 6. " + HeadSignedWords.InclusionSentence(stamp, Began) + " The Forum served this post at that leaf and no published head commits to it yet.").Render();
+            if (NoCadence.Says(rendering)) failures.Add($"{stamp}: the whole rendering states a cadence");
         }
 
         Assert.True(failures.Count == 0, string.Join("; ", failures));

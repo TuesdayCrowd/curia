@@ -13,7 +13,7 @@ namespace Curia.Architecture.Tests;
 /// <summary>
 /// PR H (errata G67, R6.62, R12.18): the two fences that keep the declaration key a key of its own. HSU1: no log key is a statement signer. HSU6: every
 /// <c>LogEntries</c> event-type constant is either classified by the lifecycle guard or listed here with its reason, so that a new <c>log.&lt;anything&gt;</c>
-/// is a build failure until someone decides. Both read the types as built; the assemblies scanned are asserted by name so that a fence over nothing is red.
+/// is a build failure until someone decides. Both read the types as built; the assemblies HSU1 scans are asserted against the listing of what is built from <c>src/</c> so that a fence over nothing is red.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -21,21 +21,40 @@ namespace Curia.Architecture.Tests;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class DeclarationKeyFenceTests
 {
+    /// <summary>The types an assembly declares, those that cannot load left out: a fence over the loadable types of every assembly, and the set of assemblies asserted beside it.</summary>
+    private static IEnumerable<Type> TypesOf(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException e)
+        {
+            return e.Types.OfType<Type>();
+        }
+    }
+
     /// <summary>
-    /// HSU1. The log key signs heads and is what an unattended timer holds, so it must not also be a signer of compromise statements; the declaration key is the
-    /// only <see cref="ILifecycleStatementSigner"/> in the two assemblies that could hold one. Red on the seam, where <c>LogSigningKey</c> still implements the interface.
+    /// HSU1. The log key signs heads and is what an unattended timer holds, so it must not also be a signer of compromise statements; the declaration key is the only
+    /// <see cref="ILifecycleStatementSigner"/> in <b>every assembly built from <c>src/</c></b> (<see cref="Shipped.ShippedAssemblies"/>, which reads the project directories and so is a different
+    /// artifact from the type list: each is loaded and the set scanned is asserted against that listing; Amendment 3 ruling 43). Red on the seam, where <c>LogSigningKey</c> still implements the
+    /// interface; the two-assembly scan this replaced was green on an implementer added to <c>Curia.Api</c> (FHSU40).
     /// </summary>
     [Fact]
     public void R6_62_HSU1_NoLogKeyIsAStatementSigner()
     {
-        var scanned = new[] { typeof(LogSigningKey).Assembly, typeof(ILifecycleStatementSigner).Assembly };
-        Assert.Equal(["curia-operator", "Curia.Application"], scanned.Select(a => a.GetName().Name!).ToArray());
+        var listed = Shipped.ShippedAssemblies().Select(path => Path.GetFileNameWithoutExtension(path)).Order(StringComparer.Ordinal).ToArray();
+        var scanned = Shipped.ShippedAssemblies().Select(Assembly.LoadFrom).ToArray();
+        Assert.Equal(listed, scanned.Select(a => a.GetName().Name!).Order(StringComparer.Ordinal).ToArray());
+        Assert.Contains("curia-operator", listed);
+        Assert.Contains("Curia.Application", listed);
+        Assert.Contains("Curia.Api", listed);
 
         Assert.DoesNotContain(typeof(ILifecycleStatementSigner), typeof(LogSigningKey).GetInterfaces());
         Assert.Null(typeof(LogSigningKey).GetMethod("SignStatement"));
 
         var implementers = scanned
-            .SelectMany(a => a.GetTypes())
+            .SelectMany(TypesOf)
             .Where(t => !t.IsInterface && typeof(ILifecycleStatementSigner).IsAssignableFrom(t))
             .Select(t => t.FullName!)
             .Order(StringComparer.Ordinal)
@@ -57,14 +76,15 @@ public sealed class DeclarationKeyFenceTests
 
     /// <summary>
     /// HSU6. Control on the seam (the seam declares the constant and classifies nothing); red under FHSU6, where <c>Classify</c> is made to return a kind for a
-    /// <c>log.*</c> type or a fourth constant is added with no decision.
+    /// <c>log.*</c> type or a fourth constant is added with no decision. The constants are selected by value (every <c>public const string</c> whose value begins <c>log.</c>), not by a name
+    /// ending in <c>Type</c>: a constant named otherwise is still an event type (Amendment 3 ruling 43; FHSU39 adds <c>ExampleKind = "log.example"</c>).
     /// </summary>
     [Fact]
     public void R4_38_HSU6_EveryLogEntryTypeIsClassifiedOrListedWithAReason()
     {
         var types = typeof(LogEntries)
             .GetFields(BindingFlags.Public | BindingFlags.Static)
-            .Where(f => f.IsLiteral && f.FieldType == typeof(string) && f.Name.EndsWith("Type", StringComparison.Ordinal))
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string) && ((string)f.GetRawConstantValue()!).StartsWith("log.", StringComparison.Ordinal))
             .ToDictionary(f => f.Name, f => (string)f.GetRawConstantValue()!, StringComparer.Ordinal);
 
         Assert.Contains(nameof(LogEntries.HeadType), types.Keys);

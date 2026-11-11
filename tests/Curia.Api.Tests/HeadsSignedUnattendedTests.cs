@@ -74,14 +74,15 @@ public sealed partial class HeadsSignedUnattendedTests
         Func<string?>? logKey = null,
         Func<string?>? declarationKey = null,
         ILifecycleAppendGate? gate = null,
-        string? connection = null)
+        string? connection = null,
+        TimeProvider? clock = null)
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         try
         {
             var exit = await OperatorCommands.RunAsync(
-                args, connection ?? forum.ConnectionString, forum.Clock, gate ?? forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+                args, connection ?? forum.ConnectionString, clock ?? forum.Clock, gate ?? forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
                 readLogSigningKeyPem: logKey, readDeclarationSigningKeyPem: declarationKey);
             return new Run(exit, stdout.ToString(), stderr.ToString());
         }
@@ -294,9 +295,10 @@ public sealed partial class HeadsSignedUnattendedTests
     // ---------------------------------------------------------------------------------------------------------------------- the two keys, one tool
 
     /// <summary>
-    /// HSU12. The environment rule: <c>sign-head</c> with a declaration key in its environment is exit 3, naming the variable and saying to unset it, holding no part of the value, and the log-key
-    /// reader never called; <c>publish-declaration-key</c> and <c>compromise</c> with a log key in theirs are exit 3 the same way; each succeeds with only its own variable (the control).
-    /// Red on the seam: <c>Expected: 3  Actual: 0</c> for the first.
+    /// HSU12. The environment rule (R12.18, Amendment 3 ruling 41): <c>sign-head</c> with a declaration key in its environment is exit 3, naming the variable, saying to unset it, holding no part of
+    /// the value, and saying <c>No key was parsed or used, and nothing was signed or written.</c>; <c>publish-declaration-key</c> and <c>compromise</c> with a log key in theirs are exit 3 the same way;
+    /// each succeeds with only its own variable (the control). With both variables holding an invalid PEM the refusal is still the environment rule's and never <c>not a usable P-256 key</c>: no key is
+    /// parsed in an environment that holds both. The sentence is written here, a restatement of the words. Red on the tip: the sentence says <c>Nothing was read, signed or written.</c>
     /// </summary>
     [Fact]
     public async Task R12_18_HSU12_NoVerbRunsWithBothKeysInItsEnvironment()
@@ -304,36 +306,39 @@ public sealed partial class HeadsSignedUnattendedTests
         var ct = TestContext.Current.CancellationToken;
         await using var forum = await NewAsync<ForumFixture>();
         const string Secret = "NOT-A-PEM-SECRET-qzx81";
+        const string Sentence = "No key was parsed or used, and nothing was signed or written.";
         var logPem = LogSigningKey.GeneratePem();
         var declarationPem = DeclarationSigningKey.GeneratePem();
         await GrowAsync(forum, ct);
         var before = await CountAsync(forum, null, ct);
 
-        var logReads = 0;
-        var declarationReads = 0;
-        Func<string?> LogReader(string? value) => () => { logReads++; return value; };
-        Func<string?> DeclarationReader(string? value) => () => { declarationReads++; return value; };
+        var signWithBoth = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: Pem(logPem), declarationKey: Pem(Secret));
+        var publishWithBoth = await OperatorAsync(forum, ct, ["publish-declaration-key", "--by", "ops"], logKey: Pem(Secret), declarationKey: Pem(declarationPem));
+        string[] compromise = ["compromise", "--agent", "https://agents.example/nobody", "--kid", "k", "--from-index", "1", "--reason", "owner-reported", "--operator", "ops"];
+        var compromiseWithBoth = await OperatorAsync(forum, ct, compromise, logKey: Pem(Secret), declarationKey: Pem(declarationPem));
 
-        var signWithBoth = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: LogReader(logPem), declarationKey: Pem(Secret));
-        var publishWithBoth = await OperatorAsync(forum, ct, ["publish-declaration-key", "--by", "ops"], logKey: Pem(Secret), declarationKey: DeclarationReader(declarationPem));
-        var compromiseWithBoth = await OperatorAsync(
-            forum, ct,
-            ["compromise", "--agent", "https://agents.example/nobody", "--kid", "k", "--from-index", "1", "--reason", "owner-reported", "--operator", "ops"],
-            logKey: Pem(Secret), declarationKey: DeclarationReader(declarationPem));
+        // Both variables hold an invalid PEM: the environment rule decides, and no key is parsed.
+        var signInvalid = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: Pem(Secret), declarationKey: Pem(Secret));
+        var publishInvalid = await OperatorAsync(forum, ct, ["publish-declaration-key", "--by", "ops"], logKey: Pem(Secret), declarationKey: Pem(Secret));
+        var compromiseInvalid = await OperatorAsync(forum, ct, compromise, logKey: Pem(Secret), declarationKey: Pem(Secret));
         var after = await CountAsync(forum, null, ct);
 
         string Refusal(Run run, string variable) =>
-            $"{run.Exit} {(run.Err.Contains(variable, StringComparison.Ordinal) ? "names " + variable : "silent")} {(run.Err.Contains("unset", StringComparison.OrdinalIgnoreCase) ? "unset" : "no-unset")} {(run.Err.Contains(Secret, StringComparison.Ordinal) ? "LEAKS" : "no-value")}";
+            $"{run.Exit} {(run.Err.Contains(variable, StringComparison.Ordinal) ? "names " + variable : "silent")} {(run.Err.Contains("unset", StringComparison.OrdinalIgnoreCase) ? "unset" : "no-unset")} "
+            + $"{(run.Err.Contains(Secret, StringComparison.Ordinal) ? "LEAKS" : "no-value")} {(run.Err.Contains(Sentence, StringComparison.Ordinal) ? "sentence" : "no-sentence")} "
+            + (run.Err.Contains("not a usable", StringComparison.OrdinalIgnoreCase) ? "PARSED" : "not-parsed");
 
         // The controls: each verb succeeds with only its own variable.
         var signAlone = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: Pem(logPem));
         var publishAlone = await OperatorAsync(forum, ct, ["publish-declaration-key", "--by", "ops"], declarationKey: Pem(declarationPem));
 
+        const string Of = " unset no-value sentence not-parsed";
         Same(
-            "3 names CURIA_DECLARATION_SIGNING_KEY_PEM unset no-value; 3 names CURIA_LOG_SIGNING_KEY_PEM unset no-value; 3 names CURIA_LOG_SIGNING_KEY_PEM unset no-value; "
-            + "0 rows, log key read 0 times, declaration key read 0 times | controls 0 0",
+            $"3 names CURIA_DECLARATION_SIGNING_KEY_PEM{Of}; 3 names CURIA_LOG_SIGNING_KEY_PEM{Of}; 3 names CURIA_LOG_SIGNING_KEY_PEM{Of}; "
+            + $"invalid: 3 names CURIA_DECLARATION_SIGNING_KEY_PEM{Of}; 3 names CURIA_LOG_SIGNING_KEY_PEM{Of}; 3 names CURIA_LOG_SIGNING_KEY_PEM{Of}; 0 rows | controls 0 0",
             $"{Refusal(signWithBoth, "CURIA_DECLARATION_SIGNING_KEY_PEM")}; {Refusal(publishWithBoth, "CURIA_LOG_SIGNING_KEY_PEM")}; {Refusal(compromiseWithBoth, "CURIA_LOG_SIGNING_KEY_PEM")}; "
-            + $"{after - before} rows, log key read {logReads} times, declaration key read {declarationReads} times | controls {signAlone.Exit} {publishAlone.Exit}");
+            + $"invalid: {Refusal(signInvalid, "CURIA_DECLARATION_SIGNING_KEY_PEM")}; {Refusal(publishInvalid, "CURIA_LOG_SIGNING_KEY_PEM")}; {Refusal(compromiseInvalid, "CURIA_LOG_SIGNING_KEY_PEM")}; "
+            + $"{after - before} rows | controls {signAlone.Exit} {publishAlone.Exit}");
     }
 
     /// <summary>
@@ -961,5 +966,193 @@ public sealed partial class HeadsSignedUnattendedTests
             "first 0 signed | second 0 unchanged | covering 0 | later 0 signed",
             $"first {first.Exit} {(first.Out.Contains("signed head", StringComparison.Ordinal) ? "signed" : "no head")} | second {second.Exit} {(second.Out.StartsWith("unchanged", StringComparison.Ordinal) ? "unchanged" : "signed")}"
             + $" | covering {covering.Exit} | later {later.Exit} {(later.Out.Contains("signed head", StringComparison.Ordinal) ? "signed" : "no head")}");
+    }
+
+    private enum ForgedHead { GarbageSignature, AttackersOwnKey, AttackersKeyUnderTheToolsKid }
+
+    /// <summary>
+    /// What a holder of the Forum's credential can append and the signer must not take for its own: a head at its own index, claiming the log's true root at that size,
+    /// differing from the signer's in nothing the log can show but the signature. The second and third forms first append a <c>log.key</c> (an unsigned entry) that
+    /// publishes the attacker's key, under the attacker's own kid or under the signer's, and sign the head with it.
+    /// </summary>
+    private static async Task ForgeHeadAsync(ForumFixture forum, ForgedHead form, string toolPem, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) => result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        var acta = Require(ActaLog.Fold(await ReadLogAsync(forum, ct)));
+        using var tool = LogSigningKey.FromPem(toolPem);
+        var attackerPem = LogSigningKey.GeneratePem();
+        using var attacker = LogSigningKey.FromPem(attackerPem);
+        using var attackerEcdsa = System.Security.Cryptography.ECDsa.Create();
+        attackerEcdsa.ImportFromPem(attackerPem);
+        var kid = form == ForgedHead.AttackersOwnKey ? attacker.Kid : tool.Kid;
+
+        var adapters = new PostgresAdapters(forum.ConnectionString, forum.Clock, forum.PermissiveGate());
+        await using (adapters.ConfigureAwait(false))
+        {
+            var ids = new UlidGenerator(forum.Clock);
+            if (form != ForgedHead.GarbageSignature)
+            {
+                var jwk = new JsonValue.Object([.. attacker.PublicJwk().Members.Select(m => m.Key == "kid" ? new(m.Key, new JsonValue.String(kid)) : m)]);
+                await AppendEntryAsync(adapters, ids, LogEntries.KeysAggregate, acta.Keys.Length, LogEntries.KeyType, new JsonValue.Object(
+                [
+                    new(LogEntries.KidMember, new JsonValue.String(kid)),
+                    new(LogEntries.JwkMember, jwk),
+                    new(LogEntries.ValidFromMember, new JsonValue.String(LogLeaf.RenderServerTimestamp(ServerTimestamp.At(forum.Now)))),
+                ]), ct);
+                acta = Require(ActaLog.Fold(await ReadLogAsync(forum, ct)));
+            }
+
+            var head = LogEntries.HeadDocument(acta.Root, LogLeaf.RenderServerTimestamp(ServerTimestamp.At(forum.Now)), acta.TreeSize);
+            var signature = "garbage-not-a-signature";
+            if (form != ForgedHead.GarbageSignature)
+            {
+                var es256 = new Curia.Canon.Sodium.Es256Adapter();
+                var jws = new Curia.Canon.Jws.DetachedJws(
+                    new Dictionary<string, Curia.Canon.Jws.IContentSigner>(StringComparer.Ordinal) { ["ES256"] = es256 },
+                    new Dictionary<string, Curia.Canon.Jws.IContentVerifier>(StringComparer.Ordinal) { ["ES256"] = es256 },
+                    Curia.Canon.Jws.DetachedJws.HeadTyp);
+                signature = Require(jws.Sign(Require(LogEntries.HeadCanonical(head)), new Curia.Canon.Jws.SigningKey("ES256", kid, attackerEcdsa.ExportECPrivateKey()))).Compact;
+            }
+
+            await AppendEntryAsync(adapters, ids, LogEntries.HeadsAggregate, acta.Heads.Length, LogEntries.HeadType, new JsonValue.Object(
+            [
+                new(LogEntries.HeadMember, head),
+                new(LogEntries.KidMember, new JsonValue.String(kid)),
+                new(LogEntries.SignatureMember, new JsonValue.String(signature)),
+            ]), ct);
+        }
+    }
+
+    /// <summary>HSU16's append through the event store adapter, as a helper: one entry, one aggregate, the version the caller names.</summary>
+    private static async Task AppendEntryAsync(PostgresAdapters adapters, UlidGenerator ids, string aggregate, int version, string type, JsonValue.Object payload, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) => result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+        Require(await adapters.EventStore.AppendAsync(
+            Require(AggregateId.Create(aggregate)),
+            Require(AggregateVersion.From(version)),
+            [new DomainEvent(Require(EventId.Create(Require(ids.Next()).ToString())), Require(EventType.Create(type)), Require(ActorId.Create("operator:ops")), payload)],
+            ct));
+    }
+
+    /// <summary>
+    /// HSU40 (Amendment 3 ruling 35; errata G67, R6.63). A head the signer cannot verify as its own moves neither the stop nor the growth test. A forged lifecycle row, then a
+    /// forged head over it (three forms: a garbage signature under the signer's kid; a signature under a key the attacker published under the attacker's own kid; a signature
+    /// under a key the attacker published under the signer's kid), then one ordinary entry: <c>sign-head --if-grown</c> exits 6, writes nothing, and names the row. The control
+    /// in each iteration is the person's resume (the plain run covers the row and its head is the new anchor), then growth, then <c>--if-grown</c>, which signs. Two more rows: a
+    /// forged head after a genuine head and one ordinary entry suppresses nothing (the run signs); a forged head with nothing after the signer's own head leaves <c>unchanged</c>
+    /// naming the signer's head. Red on the tip (69f001bc, the shape-keyed tail): each form reads <c>0 STDOUT no-row 1 rows</c>, the quiet-log row reads <c>0 unchanged</c>, the
+    /// no-growth row names the forgery's index.
+    /// </summary>
+    [Fact]
+    public async Task R6_63_HSU40_AHeadTheSignerCannotVerifyAsItsOwnMovesNeitherTheStopNorTheGrowthTest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var forum = await NewAsync<ForumFixture>();
+        var pem = LogSigningKey.GeneratePem();
+        var (v, _, _) = await EnrolAsync(forum, "hsu40v", ct);
+        var (w, dpopW, tokenW) = await EnrolAsync(forum, "hsu40w", ct);
+        await AskAsync(forum, w, dpopW, tokenW, "board-" + Suffix(), Words(), Words(), ct);
+        Assert.Equal(0, (await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: Pem(pem))).Exit); // a head the tool signed: the anchor
+
+        var observed = new List<string>();
+        foreach (var form in new[] { ForgedHead.GarbageSignature, ForgedHead.AttackersOwnKey, ForgedHead.AttackersKeyUnderTheToolsKid })
+        {
+            var rowIndex = (await ReadLogAsync(forum, ct)).Count;
+            await InsertRowAsync(forum, LifecycleAppendGuard.KeyRetiredType, v.AgentId, ForgedRetirement(v.AgentId, v.Kid), ct);
+            await ForgeHeadAsync(forum, form, pem, ct);
+            await GrowAsync(forum, ct);
+
+            var before = await CountAsync(forum, null, ct);
+            var run = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops", "--if-grown"], logKey: Pem(pem));
+            var written = await CountAsync(forum, null, ct) - before;
+            var names = run.Err.Contains($"withheld  log_index={rowIndex}  type={LifecycleAppendGuard.KeyRetiredType}", StringComparison.Ordinal) ? "names-row" : "no-row";
+
+            Assert.Equal(0, (await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: Pem(pem))).Exit); // the person's resume: covers the row, and its head is the new anchor
+            await GrowAsync(forum, ct);
+            var resumed = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops", "--if-grown"], logKey: Pem(pem));
+            observed.Add($"{form}: {run.Exit} {(run.Out.Length == 0 ? "no-stdout" : "STDOUT")} {names} {written} rows | resumed {resumed.Exit} {(resumed.Out.Contains("signed head", StringComparison.Ordinal) ? "signed" : "no head")}");
+        }
+
+        // A forged head after the signer's own head and one ordinary entry suppresses nothing.
+        await GrowAsync(forum, ct);
+        await ForgeHeadAsync(forum, ForgedHead.GarbageSignature, pem, ct);
+        var grown = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops", "--if-grown"], logKey: Pem(pem));
+        var signedAt = Regex.Match(grown.Out, @"^log_index\s+(\d+)$", RegexOptions.Multiline, TimeSpan.FromSeconds(5)).Groups[1].Value;
+
+        // With nothing after the signer's own head, a forged head is not growth and the line names the signer's head, not the forgery's.
+        await ForgeHeadAsync(forum, ForgedHead.GarbageSignature, pem, ct);
+        var quiet = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops", "--if-grown"], logKey: Pem(pem));
+
+        var one = "6 no-stdout names-row 0 rows | resumed 0 signed";
+        Same(
+            string.Join("\n", $"GarbageSignature: {one}", $"AttackersOwnKey: {one}", $"AttackersKeyUnderTheToolsKid: {one}", "quiet log, forged head: 0 signed", "no growth, forged head: 0 unchanged names-the-signers-head"),
+            string.Join("\n", observed
+                .Append($"quiet log, forged head: {grown.Exit} {(grown.Out.Contains("signed head", StringComparison.Ordinal) ? "signed" : "unchanged")}")
+                .Append($"no growth, forged head: {quiet.Exit} {(quiet.Out.StartsWith("unchanged", StringComparison.Ordinal) ? "unchanged" : "signed")} "
+                    + (signedAt.Length > 0 && quiet.Out.TrimEnd().EndsWith($"latest_head_log_index={signedAt}", StringComparison.Ordinal) ? "names-the-signers-head" : "names-another-head"))));
+    }
+
+    /// <summary>
+    /// HSU40, the first run: with no head the tool signed, the anchor is none and the tail is the whole log. A log of two enrolments, a forged retirement, a forged head over it
+    /// (garbage signature) and one ordinary entry: <c>--if-grown</c> exits 6 and appends nothing. Red on the tip: the forged head is the latest head, the tail holds the
+    /// ordinary entry only, the run signs (exit 0).
+    /// </summary>
+    [Fact]
+    public async Task R6_63_HSU40_WithNoHeadTheSignerSignedTheTailIsTheWholeLog()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var forum = await NewAsync<ForumFixture>();
+        var pem = LogSigningKey.GeneratePem();
+        var (v, _, _) = await EnrolAsync(forum, "hsu40a", ct);
+        await EnrolAsync(forum, "hsu40b", ct);
+        await InsertRowAsync(forum, LifecycleAppendGuard.KeyRetiredType, v.AgentId, ForgedRetirement(v.AgentId, v.Kid), ct);
+        await ForgeHeadAsync(forum, ForgedHead.GarbageSignature, pem, ct);
+        await GrowAsync(forum, ct);
+
+        var before = await CountAsync(forum, null, ct);
+        var run = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops", "--if-grown"], logKey: Pem(pem));
+        Same("6 0 rows", $"{run.Exit} {await CountAsync(forum, null, ct) - before} rows");
+    }
+
+    /// <summary>A clock that runs one action at its first reading and is the fixture's clock otherwise: the way a probe puts a write between two points of one run.</summary>
+    private sealed class FirstReadingClock(TimeProvider inner, Action onFirstReading) : TimeProvider
+    {
+        private int _reads;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            if (Interlocked.Increment(ref _reads) == 1) onFirstReading();
+            return inner.GetUtcNow();
+        }
+    }
+
+    /// <summary>
+    /// HSU42 (Amendment 3 ruling 40). The stop is re-evaluated on the fold the head is built from: a grown log with no log key and a clock whose first reading appends a forged
+    /// <c>agent.key-retired</c> row by SQL (the first reading after the first fold is the key's <c>valid_from</c>, between the two folds). <c>sign-head --if-grown</c> exits 6, the events
+    /// table holds one <c>log.key</c> and no <c>log.head</c>, and stderr names the row. The probe asserts a <c>log.key</c> exists, so that a reading before the first fold (which stops on
+    /// the first fold's own tail and publishes nothing) reads as the probe not reaching its window and not as green. Red on the tip: exit 0, one <c>log.head</c> covering the row.
+    /// </summary>
+    [Fact]
+    [SuppressMessage("Reliability", "CA2025:Ensure tasks using 'IDisposable' instances complete before the instances are disposed", Justification = "The insert is awaited synchronously inside the clock's first reading, which runs inside the awaited operator run, before the fixture is disposed.")]
+    public async Task R6_63_HSU42_TheStopIsEvaluatedOnTheFoldTheHeadIsBuiltFrom()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var forum = await NewAsync<ForumFixture>();
+        var pem = LogSigningKey.GeneratePem();
+        var (v, _, _) = await EnrolAsync(forum, "hsu42v", ct);
+        var (w, dpopW, tokenW) = await EnrolAsync(forum, "hsu42w", ct);
+        await AskAsync(forum, w, dpopW, tokenW, "board-" + Suffix(), Words(), Words(), ct);
+
+        var rowIndex = (await ReadLogAsync(forum, ct)).Count;
+        var clock = new FirstReadingClock(forum.Clock, () => InsertRowAsync(forum, LifecycleAppendGuard.KeyRetiredType, v.AgentId, ForgedRetirement(v.AgentId, v.Kid), ct).GetAwaiter().GetResult());
+        var run = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops", "--if-grown"], logKey: Pem(pem), clock: clock);
+
+        var keys = await CountAsync(forum, LogEntries.KeyType, ct);
+        var heads = await CountAsync(forum, LogEntries.HeadType, ct);
+        var forged = await CountAsync(forum, LifecycleAppendGuard.KeyRetiredType, ct);
+        var names = run.Err.Contains($"withheld  log_index={rowIndex}  type={LifecycleAppendGuard.KeyRetiredType}", StringComparison.Ordinal) ? "names-row" : "no-row";
+
+        Same("1 forged row reached; exit 6, 1 log.key, 0 log.head, names-row", $"{forged} forged row reached; exit {run.Exit}, {keys} log.key, {heads} log.head, {names}");
     }
 }

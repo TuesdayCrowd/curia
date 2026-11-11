@@ -7,9 +7,9 @@ using static Curia.Application.Tests.Acta.LogBuilder;
 namespace Curia.Application.Tests.Acta;
 
 /// <summary>
-/// PR H (errata G67, R6.63): <see cref="ActaLog.GrownPastLatestHead"/>, the one test a timer's <c>--if-grown</c> asks. Grown means an entry at or past the latest
-/// head's tree size, other than <c>log.head</c> and <c>log.key</c> (or any such entry, with no head). Both sides in one table, so a predicate that is always true
-/// and one that is always false both fail it.
+/// PR H (errata G67, R6.63): <see cref="ActaLog.GrownPast"/>, the one test a timer's <c>--if-grown</c> asks. Grown means an entry at or past the anchor's tree size,
+/// other than <c>log.head</c> and <c>log.key</c> (or any such entry, with no anchor). The anchor here is the last head of the log: whether a head is the signer's own
+/// is HSU40's question and not this table's (Amendment 3 ruling 34). Both sides in one table, so a predicate that is always true and one that is always false both fail it.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -22,7 +22,7 @@ public sealed class GrownPastLatestHeadTests
     /// <c>Expected: False  Actual: True</c>.
     /// </summary>
     [Fact]
-    public void R6_63_HSU7_GrowthIsAnEntryOtherThanAHeadOrAKeyPastTheLatestHead()
+    public void R6_63_HSU7_GrowthIsAnEntryOtherThanAHeadOrAKeyPastTheAnchor()
     {
         var rows = new (string Name, Entry[] Log, bool Grown)[]
         {
@@ -40,7 +40,8 @@ public sealed class GrownPastLatestHeadTests
         foreach (var (name, log, grown) in rows)
         {
             var acta = ActaLog.Fold(LogOf(log)).Match(a => a, e => throw new InvalidOperationException(e.Type));
-            var got = acta.GrownPastLatestHead();
+            SignedHead? anchor = acta.Heads.IsEmpty ? null : acta.Heads[^1];
+            var got = acta.GrownPast(anchor);
             if (got != grown) failures.Add($"{name}: expected {grown}, got {got}");
         }
 

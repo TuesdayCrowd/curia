@@ -116,16 +116,18 @@ CURIA_EVENTS_POSTGRES=... curia-operator sign-head --by ops --if-grown
 ```
 
 The first run that signs publishes the key to the log; every run that signs appends a signed head. With `--if-grown`
-(errata G67, R6.63) a run signs only when the log has grown past the latest head by an entry that is neither `log.head` nor
-`log.key`, and otherwise prints `unchanged`, appends nothing and exits 0, so a timer does not grow the log by its own output;
-it withholds the head and exits 6, naming the log indices, when a lifecycle row follows the latest head, which a person reads and
-covers by hand. Run it without the flag for a log-key rotation, which publishes a key on a log that may be quiet.
+(errata G67, R6.63) a run signs only when the log has grown past the latest head this tool signed (the latest head that verifies
+under the key it holds; a head it cannot verify as its own, whatever keys the log lists, moves nothing) by an entry that is neither
+`log.head` nor `log.key`, and otherwise prints `unchanged`, appends nothing and exits 0, so a timer does not grow the log by its own output;
+it withholds the head and exits 6, naming the log indices, when a lifecycle row follows that head, which a person reads and
+covers by hand. Run it without the flag for a log-key rotation, which publishes a key on a log that may be quiet; the first run
+after a rotation has no head signed under the new key and measures from the start of the log.
 `GET /v1/log/head` shows the latest head and how far the log has grown past it.
 
 The key that signs a **compromise declaration** is a different one (errata G67, R6.62): the declaration key,
 `CURIA_DECLARATION_SIGNING_KEY_PEM`, generated the same way and held by a person, never by the host that signs heads. The log key and
 the declaration key are never in one environment: `sign-head` refuses one that holds the declaration key, and `publish-declaration-key`
-and `compromise` refuse one that holds the log key, each with exit 3 before it reads either (R12.18). The owner publishes the
+and `compromise` refuse one that holds the log key, each with exit 3 before it parses or uses either key (R12.18). The owner publishes the
 declaration key once, before the hosted instance is announced (`curia-operator publish-declaration-key --by ops`; it is not behind
 the lifecycle guard, and the first key published is the one), and the Forum serves it in `declaration_keys` beside `keys` in
 `GET /v1/log/jwks`.

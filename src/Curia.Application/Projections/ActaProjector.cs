@@ -107,15 +107,30 @@ public sealed class ActaLog
     public ImmutableArray<DeclarationKey> DeclarationKeys { get; }
 
     /// <summary>
-    /// Errata G67, R6.63: whether an entry other than <c>log.head</c> and <c>log.key</c> follows the latest head (any entry, with no head). The test is over
-    /// the log's own order: a head covers the first <c>tree_size</c> leaves and is itself appended at an index no lower than that, so the entries that
-    /// follow it are those at an index at or past its <c>tree_size</c>. An empty log is not grown. A head is a leaf, so a signer that counted its own output
-    /// would find every log grown (register trap 232).
+    /// The latest head for which <paramref name="signedByTheSigner"/> holds, or <see langword="null"/> when none does (errata G67, R6.63; Amendment 3 ruling 34). <see cref="LatestHead"/>
+    /// is the latest by shape, which a holder of the Forum's database credential can write; the signer's growth test and its stop start from the latest head it can verify as its own
+    /// (the <b>anchor</b>) and read no other, so the caller names how a head is verified and this fold does not decide it.
     /// </summary>
-    public bool GrownPastLatestHead()
+    public SignedHead? LatestHeadWhere(Func<SignedHead, bool> signedByTheSigner)
     {
-        var from = LatestHead?.TreeSize ?? 0;
-        for (var i = from; i < Events.Count; i++)
+        ArgumentNullException.ThrowIfNull(signedByTheSigner);
+
+        for (var i = Heads.Length - 1; i >= 0; i--)
+            if (signedByTheSigner(Heads[i]))
+                return Heads[i];
+
+        return null;
+    }
+
+    /// <summary>
+    /// Errata G67, R6.63: whether an entry other than <c>log.head</c> and <c>log.key</c> follows <paramref name="anchor"/> (any entry, with none). The test is over the log's own
+    /// order and measured from the anchor's signed <c>tree_size</c>, never from its log index: a head covers the first <c>tree_size</c> leaves and is itself appended at an index no
+    /// lower than that, so the entries it did not cover are those at an index at or past its <c>tree_size</c>, including any between the two numbers. An empty log is not grown.
+    /// A head is a leaf, so a signer that counted its own output would find every log grown (register trap 232).
+    /// </summary>
+    public bool GrownPast(SignedHead? anchor)
+    {
+        for (var i = anchor?.TreeSize ?? 0; i < Events.Count; i++)
         {
             var type = Events[(int)i].Event.Type.Value;
             if (!string.Equals(type, LogEntries.HeadType, StringComparison.Ordinal)
@@ -124,6 +139,16 @@ public sealed class ActaLog
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The lifecycle rows <paramref name="anchor"/> does not cover, by the one predicate (<see cref="LifecycleRows"/>), at or past its signed <c>tree_size</c> or all of them with no
+    /// anchor: what the signer's stop looks at (Amendment 3 ruling 34).
+    /// </summary>
+    public ImmutableArray<LifecycleRow> LifecycleRowsPast(SignedHead? anchor)
+    {
+        var from = anchor?.TreeSize ?? 0;
+        return [.. LifecycleRows.Find(Events).Where(r => r.LogIndex >= from)];
     }
 
     /// <summary>The leaf index of the event with a given <c>event_id</c>, for R6.18's per-item <c>log_index</c>.</summary>
