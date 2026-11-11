@@ -40,7 +40,10 @@ and signed with the operator's name (a role, never a person).
 
 1. The guard is lifted for compromise: `Curia__Lifecycle__Enabled` includes `compromise`, for
    `curia-operator` and for the Forum alike. If it is not, the tool exits 4 before it reads the
-   declaration key; stop. Only the owner lifts it.
+   declaration key; stop. Only the owner lifts it. A `Curia__Lifecycle__Enabled` that names a kind
+   the build's approval record does not approve is refused before any verb runs, `sign-head` and
+   `publish-declaration-key` included (exit 3, `curia/lifecycle/kind-not-approved`), because the
+   tool and the Forum read the one setting; while the guard is on, leave it unset.
 2. `CURIA_EVENTS_POSTGRES` is set, and `CURIA_DECLARATION_SIGNING_KEY_PEM` holds the declaration
    key (errata G67, R6.62): a P-256 key held by a person, generated like the log key
    (`openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`) and never held by an
@@ -129,7 +132,12 @@ R12.18; D43 is closed by it). A timer that signs heads runs `curia-operator sign
 --by <role>` and finds the declaration's row new: with a lifecycle row in the tail it withholds
 the head and exits 6, so this step is the person's, by hand and without `--if-grown`, after the
 rows have been read. A log-key rotation is also run without `--if-grown`, since it publishes a
-key on a log that may be quiet.
+key on a log that may be quiet. After the guard is lifted the same holds for every genuine
+lifecycle act: a retirement, a rotation or a declaration of an agent's own key stops the timer's
+head too (exit 6, `withheld  log_index=<i>  type=<t>`) until a person has read the row and signed a
+head by hand, because the tool does not check a row's signature; while the guard is on none can
+exist and the stop never fires on one. The lift waits for the Forum's own check of such rows
+(register D121), which turns the stop into a verdict.
 
 ## 6. Verify after
 
