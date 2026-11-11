@@ -81,9 +81,10 @@ internal static partial class LifecycleCases
 
     /// <summary>
     /// A log key the case's key set lists beside the head key; a null <paramref name="LogIndex"/> gives no position (KF2). <paramref name="OmitKid"/> and <paramref name="OmitAlg"/> write
-    /// the entry without that member, an entry no reader can read as a key (Amendment 4 rulings 47 and 48, R6.62).
+    /// the entry without that member, an entry no reader can read as a key (Amendment 4 rulings 47 and 48, R6.62). <paramref name="OmitY"/>, <paramref name="StarX"/> and <paramref name="Rsa"/> write an entry
+    /// outside the closed form that carries the four strings (without <c>y</c>; an <c>x</c> that begins with an asterisk; a <c>kty</c> of RSA: Amendment 5 ruling 52).
     /// </summary>
-    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex, bool OmitKid = false, bool OmitAlg = false);
+    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex, bool OmitKid = false, bool OmitAlg = false, bool OmitY = false, bool StarX = false, bool Rsa = false);
 
     public static int Run(string repoRoot)
     {

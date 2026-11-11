@@ -98,7 +98,7 @@ public sealed class LifecycleConformanceTests
     }
 
     /// <summary>
-    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain, the seven PR H adds under the declaration key, the six of Amendment 3 and the six of Amendment 4: errata G67) are all present and reach
+    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain, the seven PR H adds under the declaration key, the six of Amendment 3, the six of Amendment 4 and the four of Amendment 5: errata G67) are all present and reach
     /// the verdict and predicate the vocabulary names, one string at a time. They are named here so that a case dropped from the family is a red fact and not a smaller count.
     /// </summary>
     [Fact]
@@ -140,9 +140,13 @@ public sealed class LifecycleConformanceTests
             ["compromise-declaration-keys-share-position"] = ("failed", "declaration-key-not-first"),
             ["compromise-declaration-keys-entry-not-an-object"] = ("could-not-check", "declaration-key-set-not-supplied"),
             ["compromise-declaration-keys-entry-without-alg"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-key-without-y"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-key-x-not-base64url"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-log-key-kty-rsa"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-kid-twice-at-one-position"] = ("could-not-check", "declaration-key-position-unknown"),
         };
 
-        Assert.Equal(34, expected.Count);
+        Assert.Equal(38, expected.Count);
         foreach (var (name, want) in expected)
         {
             Assert.Equal(want, Expected(name));
@@ -163,7 +167,7 @@ public sealed class LifecycleConformanceTests
             .GetProperty("count").GetInt32();
 
         Assert.Equal(declared, CaseNames().Count);
-        Assert.Equal(71, declared);
+        Assert.Equal(75, declared);
     }
 
     [Fact]

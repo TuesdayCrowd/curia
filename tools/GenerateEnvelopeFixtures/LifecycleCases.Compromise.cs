@@ -87,6 +87,10 @@ internal static partial class LifecycleCases
             DeclarationKeysSharePosition(root, k1),
             DeclarationKeysEntryNotAnObject(root, k1),
             DeclarationKeysEntryWithoutAlg(root, k1),
+            DeclarationKeyWithoutY(root, k1),
+            DeclarationKeyXNotBase64Url(root, k1),
+            LogKeyKtyRsa(root, k1),
+            DeclarationKidTwiceAtOnePosition(root, k1),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -619,6 +623,84 @@ internal static partial class LifecycleCases
         };
     }
 
+    /// <summary>
+    /// A second declaration key listed without its <c>y</c> (Amendment 5 ruling 52, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the first key's publication, 4 the declaration under it.
+    /// The second entry is at <c>log_index</c> 5, after the declaration: an EC entry with no <c>y</c> is outside the closed form, so the key set supplies no usable member.
+    /// </summary>
+    private static Case DeclarationKeyWithoutY(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "75");
+        AddDeclaration(log, decl, root, "compromise-declaration-key-without-y");
+        return new Case("compromise-declaration-key-without-y", "R6.62",
+            "The key set lists the declaration key at 3 and a second EC key with no y at log_index 5, and the declaration at 4 is valid under the first. An entry that carries a string kid, kty, alg and x and is no key (R6.62(a)'s closed form) cannot be shown not to be an earlier declaration key, so the key set supplies no usable declaration_keys member and the verdict is could not be checked; a reader that compares the entry's strings disputes, one that refuses the document reports an error and no verdict.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-set-not-supplied")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(ConformanceLogKeys.Unpublished, LogKeyValidFrom, LogIndex: 5, OmitY: true),
+            ],
+        };
+    }
+
+    /// <summary>
+    /// A second declaration key whose <c>x</c> is not base64url (Amendment 5 ruling 52, R6.62): the layout of <see cref="DeclarationKeyWithoutY"/>, with the first character of the second
+    /// key's <c>x</c> replaced by an asterisk.
+    /// </summary>
+    private static Case DeclarationKeyXNotBase64Url(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "76");
+        AddDeclaration(log, decl, root, "compromise-declaration-key-x-not-base64url");
+        return new Case("compromise-declaration-key-x-not-base64url", "R6.62",
+            "The key set lists the declaration key at 3 and a second EC key at log_index 5 whose x begins with an asterisk, and the declaration at 4 is valid under the first. A coordinate that is not 43 base64url characters is outside the closed form (R6.62(a)), so the key set supplies no usable declaration_keys member and the verdict is could not be checked; a reader that compares the strings disputes, one that refuses the document reports an error and no verdict.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-set-not-supplied")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(ConformanceLogKeys.Unpublished, LogKeyValidFrom, LogIndex: 5, StarX: true),
+            ],
+        };
+    }
+
+    /// <summary>
+    /// A log key of a type no reader here uses (Amendment 5 ruling 52, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the declaration key's publication, 4 the declaration under it. The
+    /// <c>keys</c> member lists, beside the head key, an entry of <c>kty</c> RSA with the second test key's <c>x</c>; <c>declaration_keys</c> lists the declaration key at 3.
+    /// </summary>
+    private static Case LogKeyKtyRsa(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "77");
+        AddDeclaration(log, decl, root, "compromise-log-key-kty-rsa");
+        return new Case("compromise-log-key-kty-rsa", "R6.62",
+            "The keys member lists, beside the head key, an entry of kty RSA, alg RS256 and a kid and x, and declaration_keys lists the declaration key at 3; the declaration at 4 is valid under it. An entry outside the closed form cannot be compared with the declaring key as a log key (R6.62(a), (d)), so the key set supplies no usable member and the verdict is could not be checked; a reader that counts it as a log key by its strings disputes, one that refuses the document reports an error and no verdict.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-set-not-supplied")
+        {
+            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Unpublished, LogKeyValidFrom, LogIndex: 1, Rsa: true)],
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex)],
+        };
+    }
+
+    /// <summary>
+    /// One kid listed twice at one position with keys that differ (Amendment 5 ruling 53, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the declaration key's publication, 4 the declaration
+    /// under the first key. The key set lists the kid at 3 with the first key and at 3 again with another key: the earliest listing cannot be said, a position not given.
+    /// </summary>
+    private static Case DeclarationKidTwiceAtOnePosition(string root, Key k1)
+    {
+        var second = Renamed(ConformanceLogKeys.Unpublished, ConformanceLogKeys.Declaration.Kid);
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "78");
+        AddDeclaration(log, decl, root, "compromise-declaration-kid-twice-at-one-position");
+        return new Case("compromise-declaration-kid-twice-at-one-position", "R6.62",
+            "The declaration key's kid is listed at 3 with the first key and again at 3 with another key, and the declaration at 4 is valid under the first. Two listings of a kid at one position with keys that differ give no earliest (R6.62(c)), so the verdict is could not be checked and the post is not disputed; a reader that takes the first served verifies the declaration and disputes.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-position-unknown")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(second, LogKeyValidFrom, declarationKeyIndex),
+            ],
+        };
+    }
+
     /// <summary>The same key under another kid: its public key, private key and thumbprint-independent members unchanged, its <c>kid</c> and the JWK's replaced.</summary>
     private static P256LogKey Renamed(P256LogKey key, string kid) =>
         key with { Kid = kid, Jwk = JsonBuilders.WithField((JsonValue.Object)key.Jwk, "kid", Str(kid)) };
@@ -738,6 +820,16 @@ internal static partial class LifecycleCases
             };
             if (extra.OmitAlg)
                 members.RemoveAll(m => m.Item1 == "alg");
+            if (extra.OmitY)
+                members.RemoveAll(m => m.Item1 == "y");
+            if (extra.StarX)
+            {
+                members.RemoveAll(m => m.Item1 == "x");
+                members.Add(("x", Str("*" + Jwk.Base64UrlEncode(extra.Key.X32)[1..])));
+            }
+
+            if (extra.Rsa)
+                members = [("alg", Str("RS256")), ("kid", Str("conformance-rsa")), ("kty", Str("RSA")), ("x", Str(Jwk.Base64UrlEncode(extra.Key.X32)))];
             if (extra.OmitKid)
                 members.RemoveAll(m => m.Item1 == "kid");
             if (extra.LogIndex is { } index)

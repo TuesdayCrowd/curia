@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The keys member lists, beside the head key, an entry of kty RSA, alg RS256 and a kid and x, and declaration_keys lists the declaration key at 3; the declaration at 4 is valid under it. An entry outside the closed form cannot be compared with the declaring key as a log key (R6.62(a), (d)), so the key set supplies no usable member and the verdict is could not be checked; a reader that counts it as a log key by its strings disputes, one that refuses the document reports an error and no verdict. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}
