@@ -210,10 +210,11 @@ internal static class ActaDocuments
     /// <c>EC</c>/<c>OKP</c> distinction to be got wrong, and errata D4 records what that costs.
     /// </summary>
     /// <remarks>
-    /// An entry of <c>keys</c> or of <c>declaration_keys</c> that is not an object carrying a string <c>kid</c>, <c>kty</c>, <c>alg</c> and <c>x</c> is an entry no reader can read as a key
-    /// (errata G67, R6.62; Amendment 4 rulings 47 and 48). It is left out of what is read, and it leaves the key set without a usable <c>declaration_keys</c> member: "first" and "no log
+    /// An entry of <c>keys</c> or of <c>declaration_keys</c> that is not a key of R6.62's closed form (see <see cref="IsReadableKey"/>) is an entry no reader can read as a key
+    /// (errata G67, R6.62; Amendment 4 rulings 47 and 48, Amendment 5 ruling 52). It is left out of what is read, and it leaves the key set without a usable <c>declaration_keys</c> member: "first" and "no log
     /// key" are statements about every key the set lists, and a reader that dropped the entry and decided on the rest would decide on a smaller set than the Forum served. The head
-    /// check goes on under the readable <c>keys</c>, since a header's <c>kid</c> can only select an entry that has one.
+    /// check goes on under the readable <c>keys</c>, since a header's <c>kid</c> can only select an entry that has one. A <c>kid</c> listed twice at one position with keys that differ is
+    /// read as a listing with no position (ruling 53): its earliest cannot be said, and the one tie-break left would be the order served, which R6.62 forbids.
     /// </remarks>
     internal static Result<LogKeySet> ReadLogJwks(JsonValue value)
     {
@@ -229,8 +230,49 @@ internal static class ActaDocuments
 
         var (declarationKeys, declarationKeysReadable) = ReadPublished(declared.Items);
         return Result<LogKeySet>.Ok(
-            keysReadable && declarationKeysReadable ? new LogKeySet(keys, declarationKeys) : new LogKeySet(keys));
+            keysReadable && declarationKeysReadable ? new LogKeySet(keys, WithoutPositionWhereAKidIsTwiceAtOne(declarationKeys)) : new LogKeySet(keys));
     }
+
+    /// <summary>
+    /// A listing of a <c>kid</c> that another listing of it, at the same position, contradicts (a different key) gives no position (<c>log_index</c> -1, as an entry with none): neither is
+    /// the earlier (R6.62, Amendment 5 ruling 53). Two listings that are the same key are one key and keep their position.
+    /// </summary>
+    private static ImmutableArray<LogJwk> WithoutPositionWhereAKidIsTwiceAtOne(ImmutableArray<LogJwk> keys) =>
+        keys.Select(k => k.LogIndex >= 0 && keys.Any(o => o.LogIndex == k.LogIndex
+                && string.Equals(o.Key.Kid, k.Key.Kid, StringComparison.Ordinal)
+                && !SameMaterial(o.Key, k.Key))
+            ? k with { LogIndex = -1 }
+            : k).ToImmutableArray();
+
+    private static bool SameMaterial(ForumJwk a, ForumJwk b) =>
+        string.Equals(a.Kty, b.Kty, StringComparison.Ordinal)
+        && string.Equals(a.Crv, b.Crv, StringComparison.Ordinal)
+        && string.Equals(a.X, b.X, StringComparison.Ordinal)
+        && string.Equals(a.Y, b.Y, StringComparison.Ordinal);
+
+    /// <summary>
+    /// R6.62's closed form, as string tests and no decoder: an object with a string <c>kid</c> and either an Ed25519 key (<c>alg</c> <c>EdDSA</c>, <c>kty</c> <c>OKP</c>, <c>crv</c> <c>Ed25519</c>,
+    /// a coordinate <c>x</c>) or an ES256 key (<c>alg</c> <c>ES256</c>, <c>kty</c> <c>EC</c>, <c>crv</c> <c>P-256</c>, coordinates <c>x</c> and <c>y</c>). Whether a point lies on its curve is not
+    /// asked here (Amendment 5 ruling 52): the declaring key's own signature is where a reader finds out.
+    /// </summary>
+    private static bool IsReadableKey(JsonValue.Object k) =>
+        ClientJson.String(k, "kid") is not null
+        && ClientJson.String(k, "alg") switch
+        {
+            "EdDSA" => ClientJson.String(k, "kty") == "OKP" && ClientJson.String(k, "crv") == "Ed25519" && IsCoordinate(ClientJson.String(k, "x")),
+            "ES256" => ClientJson.String(k, "kty") == "EC" && ClientJson.String(k, "crv") == "P-256"
+                && IsCoordinate(ClientJson.String(k, "x")) && IsCoordinate(ClientJson.String(k, "y")),
+            _ => false,
+        };
+
+    /// <summary>
+    /// A coordinate: 43 characters of the base64url alphabet, the last one of those that end 32 octets written without padding (the last character carries two unused bits, and they are
+    /// zero), written as comparisons so that no Unicode letter or digit passes.
+    /// </summary>
+    private static bool IsCoordinate(string? s) =>
+        s is { Length: 43 }
+        && s.All(c => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_')
+        && "AEIMQUYcgkosw048".Contains(s[^1], StringComparison.Ordinal);
 
     /// <summary>The entries of a key list that read as keys, and whether every entry did.</summary>
     private static (ImmutableArray<LogJwk> Keys, bool AllReadable) ReadPublished(IEnumerable<JsonValue> items)
@@ -239,7 +281,7 @@ internal static class ActaDocuments
         var allReadable = true;
         foreach (var item in items)
         {
-            if (item is not JsonValue.Object k || ForumDocuments.ReadJwk(k) is not { } key)
+            if (item is not JsonValue.Object k || !IsReadableKey(k) || ForumDocuments.ReadJwk(k) is not { } key)
             {
                 allReadable = false;
                 continue;

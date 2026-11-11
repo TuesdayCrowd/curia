@@ -428,7 +428,7 @@ public static class LifecycleCheck
             // R6.62, in order, the first that fails deciding. (a) A key set that supplied no declaration_keys member says nothing: an absence is not a denial.
             if (logKeys?.DeclarationKeys is not { } declarationKeys)
                 return CouldNotCheck("declaration-key-set-not-supplied", Text(
-                    $"the log's key set carries no usable declaration_keys member (absent, not an array, or listing an entry that is not an object carrying a string kid, kty, alg and x), so this reader cannot say which key may declare, and the declaration at log index {index} is not checked (R6.62)"));
+                    $"the log's key set carries no usable declaration_keys member (absent, not an array, or listing an entry it cannot read as a key (R6.62)), so this reader cannot say which key may declare, and the declaration at log index {index} is not checked (R6.62)"));
 
             // (b) The header's kid names a declaration key (a served empty array names none). The one with the lowest known position, when a kid is listed twice.
             var declarationKey = declarationKeys
