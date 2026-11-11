@@ -719,9 +719,7 @@ impl Fold {
                     let before = *at;
                     // R6.62: where two listings of a kid share a position and are not the same key, its earliest cannot be said.
                     *at = match (before, listed.log_index) {
-                        (Some(x), Some(y)) if x == y && earliest.material != listed.material => {
-                            None
-                        }
+                        (Some(x), Some(y)) if x == y && !earliest.same_key(listed) => None,
                         (Some(x), Some(y)) => Some(x.min(y)),
                         _ => None,
                     };
@@ -744,7 +742,7 @@ impl Fold {
         }
         let published_at = position.unwrap_or(u64::MAX);
         // (d) A log key never declares: by kid, or by public key under another kid.
-        if log_keys.is_log_key(&header_kid, declaration_key.key.as_ref().map(|j| &j.key)) {
+        if log_keys.is_log_key(declaration_key) {
             return Err(ActaError::DeclarationKeyIsLogKey {
                 at: index,
                 kid: header_kid,

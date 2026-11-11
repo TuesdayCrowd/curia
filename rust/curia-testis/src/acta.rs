@@ -539,8 +539,6 @@ pub struct LogKeys {
     /// The `declaration_keys` member (errata G67, R6.62): `None` where the document carries no such member, or a member that is not an array, or
     /// an entry that is not a key the reader can read; `Some` of an empty list where the Forum served an empty one.
     declaration_keys: Option<Vec<LogKey>>,
-    /// The public key of every readable entry of `keys` that has one (R6.62: a log key by `kid`, or by public key under another `kid`).
-    log_public_keys: Vec<crate::jwk::PublicKey>,
 }
 
 fn entry_member<'a>(entry: &'a crate::json::Value, name: &str) -> Option<&'a crate::json::Value> {
@@ -578,6 +576,13 @@ fn read_entry(item: &crate::json::Value) -> LogKey {
     }
 }
 
+impl LogKey {
+    /// R6.62's "the same key": the same `kty`, `crv`, `x` and `y` as written (`alg` follows from them; `use` and the rest are not the key).
+    pub fn same_key(&self, other: &LogKey) -> bool {
+        self.material[1..] == other.material[1..]
+    }
+}
+
 impl LogKeys {
     /// Parses the key set document. An error only where the document is no key set at all (the errors of `JwkSet::parse`).
     pub fn parse(log_jwks: &[u8]) -> Result<Self, ActaError> {
@@ -601,10 +606,6 @@ impl LogKeys {
             .filter(|e| is_readable_key_entry(e))
             .map(read_entry)
             .collect();
-        let log_public_keys = keys
-            .iter()
-            .filter_map(|k| k.key.as_ref().map(|j| j.key.clone()))
-            .collect();
 
         let declaration_keys = match declared {
             _ if unreadable_entry => None,
@@ -615,7 +616,6 @@ impl LogKeys {
         Ok(LogKeys {
             keys,
             declaration_keys,
-            log_public_keys,
         })
     }
 
@@ -624,11 +624,12 @@ impl LogKeys {
         self.declaration_keys.as_deref()
     }
 
-    /// Whether a declaration key is a log key (R6.62): by `kid`, or by public key under another `kid`. A key with no parsed public key
-    /// (a point off its curve) is a log key by `kid` alone.
-    pub fn is_log_key(&self, kid: &str, key: Option<&crate::jwk::PublicKey>) -> bool {
-        self.keys.iter().any(|k| k.kid == kid)
-            || key.is_some_and(|key| self.log_public_keys.iter().any(|k| k == key))
+    /// Whether a declaration key is a log key (R6.62): by `kid`, or by public key under another `kid`, the key as the entry states it: its
+    /// `kty`, `crv`, `x` and `y` compared as written, whether or not the point lies on its curve.
+    pub fn is_log_key(&self, declaration_key: &LogKey) -> bool {
+        self.keys
+            .iter()
+            .any(|k| k.kid == declaration_key.kid || k.same_key(declaration_key))
     }
 
     /// The key published under `kid`: the last one, as the head's own lookup takes the key set's last match.
