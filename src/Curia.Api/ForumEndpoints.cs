@@ -3650,7 +3650,9 @@ public static class ForumEndpoints
             or KeyActErrors.RotationCeilingReachedType
             or KeyActErrors.NotLiveType
             or KeyActErrors.LastLiveKeyType
-            or KeyActErrors.DeclarationKeyNotPublishedType => StatusCodes.Status409Conflict,
+            or KeyActErrors.DeclarationKeyNotPublishedType
+            or KeyActErrors.DeclarationKeyIsLogKeyType
+            or KeyActErrors.DeclarationKeyAlreadyPublishedType => StatusCodes.Status409Conflict,
 
         KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,
         LogBoundKeys.LogUnreadableType or StoreFaults.StoreUnavailableType => StatusCodes.Status503ServiceUnavailable,
