@@ -3621,7 +3621,8 @@ public static class ForumEndpoints
     /// <summary>
     /// The status a key act's refusal reports (spec section 4.7). Matched on the condition's published
     /// slug; a refusal the table does not list is the Forum's, 500, never a 4xx that tells an agent its
-    /// request was at fault.
+    /// request was at fault. Errata G67: <c>declaration-key-is-log-key</c> and <c>declaration-key-already-published</c> are the operator tool's
+    /// refusals, no route reaches them, and they are not listed.
     /// </summary>
     private static int StatusForKeyAct(Error error) => error.Type switch
     {
@@ -3649,7 +3650,7 @@ public static class ForumEndpoints
             or KeyActErrors.RotationCeilingReachedType
             or KeyActErrors.NotLiveType
             or KeyActErrors.LastLiveKeyType
-            or KeyActErrors.LogKeyNotPublishedType => StatusCodes.Status409Conflict,
+            or KeyActErrors.DeclarationKeyNotPublishedType => StatusCodes.Status409Conflict,
 
         KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,
         LogBoundKeys.LogUnreadableType or StoreFaults.StoreUnavailableType => StatusCodes.Status503ServiceUnavailable,

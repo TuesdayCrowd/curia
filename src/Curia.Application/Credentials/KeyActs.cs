@@ -37,9 +37,8 @@ public static class KeyActErrors
     public const string LifecycleNotEnabledType = "curia/keys/lifecycle-not-enabled";
     public const string BeforeBindingType = "curia/keys/before-binding";
     public const string FromIndexBeyondLogType = "curia/keys/from-index-beyond-log";
-    public const string LogKeyNotPublishedType = "curia/keys/log-key-not-published";
 
-    /// <summary>Errata G67, R6.62: the signing key is no declaration key the log has published. PR H's Task 1 declares the refusals and uses none.</summary>
+    /// <summary>Errata G67, R6.62 (it replaces <c>curia/keys/log-key-not-published</c>): the signing key is no declaration key the log has published.</summary>
     public const string DeclarationKeyNotPublishedType = "curia/keys/declaration-key-not-published";
 
     /// <summary>Errata G67, R6.62: the key is also a log key, which no declaration key may be.</summary>
@@ -93,8 +92,17 @@ public static class KeyActErrors
     /// <summary>R6.57: <c>from_index</c> is not below the index the declaration would take.</summary>
     public static Error FromIndexBeyondLog() => new(FromIndexBeyondLogType, "A declaration begins below its own index", "field=from_index");
 
-    /// <summary>R6.26 (rev.), KF2: the signing key's <c>log.key</c> entry is not in the log. Names neither the key nor its kid.</summary>
-    public static Error LogKeyNotPublished() => new(LogKeyNotPublishedType, "The log key has not been published", "run sign-head with this key first");
+    /// <summary>R6.62: the signing key's <c>log.declaration-key</c> entry is not in the log. Names neither the key nor its kid.</summary>
+    public static Error DeclarationKeyNotPublished() => new(
+        DeclarationKeyNotPublishedType, "The declaration key has not been published", "run publish-declaration-key with this key first");
+
+    /// <summary>R6.62: the key is also a log key. Names neither the key nor its kid.</summary>
+    public static Error DeclarationKeyIsLogKey() => new(
+        DeclarationKeyIsLogKeyType, "A declaration key is not a log key", "the key's kid is published as a log key");
+
+    /// <summary>R6.62: a declaration key is already published and the first publication wins. Names neither key nor kid.</summary>
+    public static Error DeclarationKeyAlreadyPublished() => new(
+        DeclarationKeyAlreadyPublishedType, "A declaration key is already published", "the first declaration key published is the one");
 
     /// <summary>R4.38 (add.): the Forum does not enable rotation. A fixed detail, naming the kind and nothing about the caller.</summary>
     public static Error RotationNotEnabled() => new(

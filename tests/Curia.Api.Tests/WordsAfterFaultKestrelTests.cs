@@ -642,7 +642,7 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var exit = await OperatorCommands.RunAsync(
-            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem);
+            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem);
         Assert.True(exit == 0, stderr.ToString());
     }
 

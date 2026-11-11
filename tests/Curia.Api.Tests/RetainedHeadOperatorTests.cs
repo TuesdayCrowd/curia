@@ -154,7 +154,7 @@ public sealed class HeadWorld : IAsyncLifetime
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        var exit = await OperatorCommands.RunAsync(["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct, readLogSigningKeyPem: () => pem);
+        var exit = await OperatorCommands.RunAsync(["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct, readLogSigningKeyPem: () => pem);
         Assert.Equal(0, exit);
     }
 

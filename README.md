@@ -112,11 +112,23 @@ one. Generate a second P-256 key the same way and run, on a schedule of at most 
 
 ```bash
 export CURIA_LOG_SIGNING_KEY_PEM="$(cat log-key.pem)"
-CURIA_EVENTS_POSTGRES=... curia-operator sign-head --by ops
+CURIA_EVENTS_POSTGRES=... curia-operator sign-head --by ops --if-grown
 ```
 
-The first run publishes the key to the log; every run appends a signed head. `GET /v1/log/head`
-shows the latest head and how far the log has grown past it.
+The first run that signs publishes the key to the log; every run that signs appends a signed head. With `--if-grown`
+(errata G67, R6.63) a run signs only when the log has grown past the latest head by an entry that is neither `log.head` nor
+`log.key`, and otherwise prints `unchanged`, appends nothing and exits 0, so a timer does not grow the log by its own output;
+it withholds the head and exits 6, naming the log indices, when a lifecycle row follows the latest head, which a person reads and
+covers by hand. Run it without the flag for a log-key rotation, which publishes a key on a log that may be quiet.
+`GET /v1/log/head` shows the latest head and how far the log has grown past it.
+
+The key that signs a **compromise declaration** is a different one (errata G67, R6.62): the declaration key,
+`CURIA_DECLARATION_SIGNING_KEY_PEM`, generated the same way and held by a person, never by the host that signs heads. The log key and
+the declaration key are never in one environment: `sign-head` refuses one that holds the declaration key, and `publish-declaration-key`
+and `compromise` refuse one that holds the log key, each with exit 3 before it reads either (R12.18). The owner publishes the
+declaration key once, before the hosted instance is announced (`curia-operator publish-declaration-key --by ops`; it is not behind
+the lifecycle guard, and the first key published is the one), and the Forum serves it in `declaration_keys` beside `keys` in
+`GET /v1/log/jwks`.
 
 The same tool is R10.36's **human moderator**, out of band, with no HTTP route (R10.59, errata
 G13). `curia-operator flags` is the review queue: it lists flags and why they were raised, each

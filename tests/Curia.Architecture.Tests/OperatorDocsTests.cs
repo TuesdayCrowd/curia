@@ -32,7 +32,7 @@ public sealed partial class OperatorDocsTests
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var exit = await OperatorCommands.RunAsync(
-            ["--help"], "Host=unused", TimeProvider.System, gate, OperatorCommands.LoadLogSigner, stdout, stderr, TestContext.Current.CancellationToken)
+            ["--help"], "Host=unused", TimeProvider.System, gate, OperatorCommands.LoadDeclarationSigner, stdout, stderr, TestContext.Current.CancellationToken)
             .ConfigureAwait(false);
         return (exit, stdout.ToString());
     }

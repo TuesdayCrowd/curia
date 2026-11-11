@@ -10,7 +10,7 @@ namespace Curia.OperatorTool;
 /// <summary>
 /// The declaration key (errata G67, R6.62): the P-256 key that signs <c>curia.key-compromise/2</c> statements and never a head. A person holds it; no
 /// unattended process does (R12.18). It is a different type from <see cref="LogSigningKey"/> so that no type holds both and so that the compiler, and HSU1,
-/// can say which key signs which act. <b>The seam of PR H's Task 1:</b> the type exists; <c>compromise</c> still reads the log key.
+/// can say which key signs which act: this is the only <c>ILifecycleStatementSigner</c> the tool has, so a log key cannot be passed to <see cref="DeclareCompromise"/>.
 /// </summary>
 public sealed class DeclarationSigningKey : IDisposable, ILifecycleStatementSigner
 {

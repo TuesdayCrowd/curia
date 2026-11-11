@@ -1,10 +1,8 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
-using Curia.Application.Credentials;
 using Curia.AuthN.Dpop;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
-using Curia.Domain.Primitives;
 
 namespace Curia.OperatorTool;
 
@@ -27,8 +25,12 @@ namespace Curia.OperatorTool;
 /// radii, and this type refuses nothing that would stop an operator reusing one -- the
 /// <c>typ</c> discipline in <see cref="DetachedJws"/> is what keeps a head from passing as a
 /// post even then.</para>
+///
+/// <para><b>The log key signs heads and nothing else (errata G67, R6.62, R12.18).</b> It is not an <c>ILifecycleStatementSigner</c> and has no
+/// <c>SignStatement</c>: a compromise declaration is signed by <see cref="DeclarationSigningKey"/>, which a person holds and no unattended process does, so
+/// that the key an unattended signer holds cannot also end an agent's keys. Making the wrong call a compile error is the strongest form of the split.</para>
 /// </summary>
-public sealed class LogSigningKey : IDisposable, ILifecycleStatementSigner
+public sealed class LogSigningKey : IDisposable
 {
     private readonly ECDsa _key;
 
@@ -90,13 +92,6 @@ public sealed class LogSigningKey : IDisposable, ILifecycleStatementSigner
             new("y", new JsonValue.String(Base64Url.EncodeToString(parameters.Q.Y!))),
         ]);
     }
-
-    /// <summary>
-    /// The port <see cref="DeclareCompromise"/> signs through (R6.26 rev.): ES256 in RFC 7518 section 3.4's
-    /// fixed-width R||S form over the JWS signing input, as <see cref="Es256Adapter"/> signs a head.
-    /// </summary>
-    public Result<byte[]> SignStatement(ReadOnlySpan<byte> signingInput) =>
-        Result<byte[]>.Ok(_key.SignData(signingInput, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
 
     public void Dispose() => _key.Dispose();
 }

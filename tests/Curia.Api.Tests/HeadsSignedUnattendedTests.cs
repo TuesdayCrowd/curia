@@ -81,7 +81,7 @@ public sealed partial class HeadsSignedUnattendedTests
         try
         {
             var exit = await OperatorCommands.RunAsync(
-                args, connection ?? forum.ConnectionString, forum.Clock, gate ?? forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct,
+                args, connection ?? forum.ConnectionString, forum.Clock, gate ?? forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
                 readLogSigningKeyPem: logKey, readDeclarationSigningKeyPem: declarationKey);
             return new Run(exit, stdout.ToString(), stderr.ToString());
         }

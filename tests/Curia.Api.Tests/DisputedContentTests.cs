@@ -28,24 +28,28 @@ public sealed class DisputedContentTests(ForumFixture forum) : IClassFixture<For
 
     private static string Number(long value) => value.ToString(CultureInfo.InvariantCulture);
 
-    private async Task<int> OperatorAsync(string pem, CancellationToken ct, params string[] args)
+    /// <summary>A verb with the one key it signs with in its environment: <c>compromise</c> the declaration key, <c>sign-head</c> the log key (R12.18: never both).</summary>
+    private async Task<int> OperatorAsync(string pem, string declarationPem, CancellationToken ct, params string[] args)
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
+        var declares = args[0] == "compromise";
         return await OperatorCommands.RunAsync(
-            args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct,
-            readLogSigningKeyPem: () => pem);
+            args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+            readLogSigningKeyPem: () => declares ? null : pem,
+            readDeclarationSigningKeyPem: () => declares ? declarationPem : null);
     }
 
     /// <summary>Publishes the log key, then declares <paramref name="kid"/> compromised from <paramref name="fromIndex"/>; returns the declaration's log index.</summary>
     private async Task<long> DeclareAsync(string agent, string kid, long fromIndex, CancellationToken ct)
     {
         var pem = LogSigningKey.GeneratePem();
-        Assert.Equal(0, await OperatorAsync(pem, ct, "sign-head", "--by", "ops"));
+        var declarationPem = await DeclarationKeyHost.PemAsync(forum, ct);
+        Assert.Equal(0, await OperatorAsync(pem, declarationPem, ct, "sign-head", "--by", "ops"));
 
         // The declaration is the next entry of the log, so its log index is the count of entries before it.
         var declarationIndex = await CompromiseDeclarationTests.EventCountAsync(forum.ConnectionString, ct);
-        Assert.Equal(0, await OperatorAsync(pem, ct, "compromise", "--agent", agent, "--kid", kid, "--from-index", Number(fromIndex),
+        Assert.Equal(0, await OperatorAsync(pem, declarationPem, ct, "compromise", "--agent", agent, "--kid", kid, "--from-index", Number(fromIndex),
             "--reason", "owner-reported", "--operator", "ops"));
         return declarationIndex;
     }

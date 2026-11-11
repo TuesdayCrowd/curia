@@ -21,7 +21,7 @@ namespace Curia.Application.Tests.Credentials;
 
 /// <summary>
 /// R6.26 (rev.) and R6.57 at the declaration use case (errata G21, spec sections 4.5, 4.8): a declaration
-/// is signed by a published log key under its own <c>typ</c>, its <c>t_c</c> is floored at the binding, and
+/// is signed by a published declaration key (errata G67, R6.62) under its own <c>typ</c>, its <c>t_c</c> is floored at the binding, and
 /// its cascade is transitive over rotations at or after <c>from_index</c> and no earlier.
 /// </summary>
 [SuppressMessage(
@@ -36,7 +36,7 @@ public sealed class DeclareCompromiseTests
 
     private static string Describe<T>(Result<T> result) => result.Match(_ => "ok", e => $"{e.Type} {e.Detail}");
 
-    /// <summary>Publishes <paramref name="signer"/>'s key as the log does (<c>log.key</c>, R6.50), as the operator's sign-head does.</summary>
+    /// <summary>Publishes <paramref name="signer"/>'s key as the operator's publish-declaration-key does (<c>log.declaration-key</c>, R6.62).</summary>
     private static async Task PublishAsync(KeyActHarness harness, ILifecycleStatementSigner signer)
     {
         var acta = Require(ActaLog.Fold(Require(await harness.Events.ReadAllAsync(Ct).ConfigureAwait(false))));
@@ -47,9 +47,9 @@ public sealed class DeclareCompromiseTests
             new(LogEntries.ValidFromMember, new JsonValue.String(LogLeaf.RenderServerTimestamp(ServerTimestamp.At(harness.Clock.GetUtcNow())))),
         ]);
         Require(await harness.Events.AppendAsync(
-            Require(AggregateId.Create(LogEntries.KeysAggregate)),
-            Require(AggregateVersion.From(acta.Keys.Length)),
-            [new DomainEvent(Require(EventId.Create("01K4CQ1V9P3R5T7W9Y1A3C5EKY")), Require(EventType.Create(LogEntries.KeyType)), Operator, payload)],
+            Require(AggregateId.Create(LogEntries.DeclarationKeysAggregate)),
+            Require(AggregateVersion.From(acta.DeclarationKeys.Length)),
+            [new DomainEvent(Require(EventId.Create("01K4CQ1V9P3R5T7W9Y1A3C5EKY")), Require(EventType.Create(LogEntries.DeclarationKeyType)), Operator, payload)],
             Ct).ConfigureAwait(false));
     }
 
@@ -131,18 +131,18 @@ public sealed class DeclareCompromiseTests
     }
 
     [Fact]
-    public async Task R6_26_ALogKeyTheLogHasNotPublishedIsRefusedAndNothingIsWritten()
+    public async Task R6_62_ADeclarationKeyTheLogHasNotPublishedIsRefusedAndNothingIsWritten()
     {
         var (harness, _, signer) = await ChainAsync(2);
         using var published = signer;
-        using var stranger = new InMemoryLifecycleStatementSigner("another-log-key");
+        using var stranger = new InMemoryLifecycleStatementSigner("another-declaration-key");
         var before = Require(await harness.Events.ReadAllAsync(Ct)).Count;
 
         var answer = await DeclareAsync(harness, stranger, "alice-1", fromIndex: 1);
         var control = await DeclareAsync(harness, published, "alice-1", fromIndex: 1);
 
         Assert.Equal(
-            $"curia/keys/log-key-not-published run sign-head with this key first; ok; {before + 1}",
+            $"curia/keys/declaration-key-not-published run publish-declaration-key with this key first; ok; {before + 1}",
             $"{Describe(answer)}; {Describe(control)}; {Require(await harness.Events.ReadAllAsync(Ct)).Count}");
     }
 
