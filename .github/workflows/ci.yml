@@ -91,6 +91,19 @@ jobs:
         run: cargo build --locked --bin curia-testis
         working-directory: rust/curia-testis
 
+      # Errata G65 (R11.91, R14.13): the embedding model, fetched by digest and cached on the
+      # manifest's content. Curia.Embedding.Tests runs the real model and fails, never skips,
+      # without it. The cache is a uses: step, which tools/preflight does not run locally.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/curia-model
+          key: curia-model-${{ hashFiles('models/bge-small-en-v1.5/manifest.json') }}
+
+      - name: Fetch the embedding model
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 tools/model/fetch-model.py --out "$RUNNER_TEMP/curia-model"
+
       # CS-3: lock files are committed, and CI restores against them. Without --locked-mode a
       # drifted lock file restores anyway and the commitment is decorative.
       - name: Restore (locked)
@@ -128,6 +141,7 @@ jobs:
         env:
           CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
           CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
+          CURIA_EMBEDDING_MODEL_DIR: ${{ runner.temp }}/curia-model
         # R10.69's cost class is judged only in the isolated step above, never here: elapsed time
         # inside eleven test hosts on four cores measures the runner's load, not the screener's work.
         # Run 37575114798 read zero-width-space ScreenEnvelope at the cap 309 ms isolated and at least
