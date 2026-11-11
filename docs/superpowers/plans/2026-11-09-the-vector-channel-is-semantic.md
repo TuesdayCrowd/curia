@@ -161,7 +161,7 @@ Computed on 2026-11-09 against `IMPLEMENTATION_PLAN.md` and the errata at `93a99
 
 (a) The model does not make search correct: the floor, the diversification and the dedupe thresholds are the hashed era's until D10b, and the floor admits more than it did. (b) A long post is found by its first 510 tokens. (c) Vectors from two hosts agree to about 1e-4, not bit for bit (ORT is not bit-identical across CPU feature sets); a stored vector is never recomputed to be compared. (d) A cursor minted before a model change is not bound to the model (the binding has no model member). (e) A search that cannot embed its query is `503`; it does not fall back to words. (f) The first start after a model change blocks on the reindex, for a time that is measured and published. (g) Training-data provenance of the weights was not reviewed. (h) Nothing here bounds the cost of an anonymous novel query (D11). (i) The tokenizer is the project's own and agrees with the reference on the committed parity file and the canaries, not on every code point: an id for a character assigned or recategorised after the Unicode version of either the host or the reference can differ. (j) During the first start after a model change the port is closed and does not answer `503`; behind a proxy that is a `502`; the time is about 30 ms per post on the build machine. (k) After a long reconcile the first `vector_checked_at` read is the reconcile's beginning, which is R9.53's word for a check that completed. (l) The latency figures are the build machine's; the reference host is unmeasured, and a burst of about twenty long posts makes the tail `pending` (R8.81), retried by the catch-up. (m) ONNX Runtime 1.31.0 has no `osx-x64` native: the real embedder, and `Curia.Embedding.Tests`, do not run on an Intel Mac. (n) The native library's notices include MPL-2.0 and Intel-licensed components among 70 (Task 0 M2); this project does not redistribute the library. (o) The model directory's two files are verified by digest and then opened by path, so a writer to the directory can swap a file between the two; the canaries are the second line, and a model that reproduces them and differs elsewhere is not caught. The directory is the operator's to write and nobody else's.
 
-**Status.** Specified; not built.
+**Status.** Built 2026-11-10; the entry as pasted, with its Status line from the run, is in the errata.
 
 ## Amendment 1 (2026-11-09, Task 0)
 
@@ -3447,14 +3447,205 @@ Task 4's whole run as CI runs it with the model fetched; the closed fuzz; prefli
 
 ## As run
 
-*(Empty. Written by the builder at Task 8 from the run: the commits oldest first, the probes SEM1 to SEM60 with any retired (SEM40 is), the falsification FSEM1 to FSEM56 (FSEM20 is retired), the measurements M1 to M20 beside their rules, the gates, the live run L1 to L8, the cold read, deviations from this plan with their reasons, concerns left.)*
+Written 2026-11-10 by the builder at Task 8, from the run: the reports under `.superpowers/sdd/2026-11-09-d10a/` (untracked) and their records, every count recomputed from the raw files. Where a figure in a report or in a brief differs from the raw record, the record is used and the difference is said in "Deviations".
 
 ### The commits, oldest first
+
+- `8db64d16` (plan): the vector channel is semantic (D10's build half; errata G65)
+- `2da518cb` (plan, amendment 1): Task 0's results, rulings 22 to 34 (hand-written BCL tokenizer, FIFO gate with terminate, first start as built with progress, licences recorded, model digests)
+- `2e79344d` (T1): the seam, behaviour-preserving (errata G65: R9.63, R9.64, R11.91, R11.92, R11.93, R14.13)
+- `b6380192` (T1): the probes, red on the seam (errata G65: R9.63, R9.64, R11.91, R11.92, R11.93, R14.13)
+- `b9504b18` (T1): a probe's sample path names the placeholder home the privacy rule admits
+- `e9fd98a1` (T2): the adapter, the composition, the fetch, the fences (errata G65: R9.63, R9.64, R11.91, R11.92, R14.13)
+- `3668e97f` (T3): the words (errata G65: R11.93, R9.63, R14.13)
+- `a0cda877` (T4): existing facts, and the start-up check names no path (errata G65: R11.91)
+- `c8dee7de` (plan, amendment 2): Task 5's review, rulings 35 to 45 (the served id quoted, an absent id NOT STATED, the preflight sentence without a number, manifest id/dims/canary count, FIFO barging probe, fetch HTTPException, the 512 sentence)
+- `a73c8814` (T5 fix): the probes first, SEM49 to SEM55 and SEM42 widened (errata G65: R11.91, R11.92, R11.93)
+- `8f3b6722` (T5 fix): the code, the served id quoted, an empty id not stated, the manifest held to the build's identity, the fetch's HTTPException (errata G65: R11.91, R11.93)
+- `0b465556` (plan, amendment 3): Task 6's falsification, rulings 46 to 57 (three counts, masking and the isolation patch, SEM56 to SEM58, FSEM53 and FSEM54, re-aimed FSEM24 and FSEM31, the streaming probe, SEM50's precomposed cases)
+- `fafaeba8` (T6b): the probes, red on the falsification's gaps (errata G65: R9.63, R11.10, R11.91, R11.92, R14.13)
+- `4c8ff27d` (plan, amendment 4): Task 7's live run, rulings 58 to 64 (the warm-up dropped, FifoGate kept for order with ruling 23's tail premise withdrawn, the banner says nearest posts are ranked however far, the cold read rewritten, findings filed as leads)
+- `5046d355` (T7a): the probes SEM59 and SEM60, SEM60 red on the unmodified sentence (errata G65: R9.63, R11.93, R14.13)
+- `9ab8b39c` (T7a): the warm-up removed, the bge sentence says a long list is no evidence, the gate's comment says what was measured (errata G65: R11.92, R11.93)
+- (T8) this commit: register and docs (errata G65 built; D10 build half closed; D11, D14, D114 amended; D120; D61 items 215 to 246; traps 207 to 229; As run)
+
+Branch `the-vector-channel-is-semantic`, from `main` 2708d826 (#150). The `ci.yml` commit (Task 9) is not yet made: it is the last commit of the PR and changes nothing else. T2 `e9fd98a1` lacks the `Claude-Session` trailer. Amendment 4's in-place edits (E107 to E130) were already in the plan at `4c8ff27d` (Task 7a needed no plan commit), and the plan check at the end of Amendment 4, run on the plan at Task 7a, read 130 edits, 0 wrong, 107 `after` and 23 `superseded`.
+
 ### Probes SEM1 to SEM60 (SEM15, SEM16, SEM19, SEM25, SEM35, SEM40, SEM41 and SEM43 are unused numbers, kept unused so the references above stay stable)
+
+52 probes. Written red first on the seam (`b6380192`), red as predicted where the plan predicted red; 62 red cases in all (Application 1, Client 6, Infrastructure 32, Architecture 3, Embedding 13, Api 7). **Green on the seam by design (controls):** SEM2, SEM3's Application half (the seam already passed the token; its runner half was red), SEM17, SEM23, SEM24 (the routes already answered `503` before PERSIST), SEM26 (control for the grant), and the R14.13 control. **Red with the seam's text recorded:** SEM1 (`HybridSearch embedded "npgsql ECONNRESET" as Passage, expected Query`), SEM4 (empty manifest), SEM5 (six rows: `the check verified a directory it should have refused`), SEM6 (`No exception was thrown` for +2e-4 and for one id different), SEM7 to SEM12 and SEM27 to SEM39 (`curia/embedding/model-not-ready` or an empty result on the stub), SEM13 (`Curia.Api references Curia.Application.Retrieval.HashedNGramEmbedder`), SEM14 (`Curia.Infrastructure references no type of Microsoft.ML.OnnxRuntime, so the scan found nothing`), SEM18 (`docs/third-party.md does not exist`), SEM20 to SEM22 (`the host started`), SEM42 (the stub's empty sentence and the banner still holding "until an ONNX model is configured"), SEM44, SEM45 to SEM48. **Added after the first build:** SEM49 to SEM55 by Task 5's fix round (red: SEM51, SEM52, SEM53, SEM54 and the widened SEM42; SEM49, SEM50 and SEM55 were green controls), SEM56 to SEM58 and the bounded SEM11 by Task 6b (each red on the falsification row that exposed the gap, green on the tree), SEM59 and SEM60 by Task 7a (SEM60 red on the unmodified sentence, `the sentence for bge-small-en-v1.5@1 does not say however far`; SEM59 green on the real model).
+
+**Unused numbers:** SEM15 was not built (`IlCallSites` returns the calls of a body and not their order; SEM20 and SEM21 carry the property that a bad model is refused before the first request; Amendment 3 ruling 57); SEM25 was not needed (M7 and M9: the listener is closed for the whole reconcile; Amendment 1 ruling 24); SEM40 was retired with the warm-up (Amendment 4 ruling 58); SEM16, SEM19, SEM35, SEM41 and SEM43 were never allocated. **SEM42b** reads the errata's G65 identity table and was red, by design, from Task 1 until this task pasted G65 (`the errata holds no G65 identity table`); `dotnet test tests/Curia.Client.Tests -c Release --filter "FullyQualifiedName~SEM42"` now reads 6 of 6 passed.
+
 ### Falsification FSEM1 to FSEM56 (FSEM20 is retired)
+
+Each row patched a kept copy, built `--no-incremental`, ran the named probes, was restored by plain copy and run once unpatched (green each time). **The three counts of Amendment 3 ruling 46, computed by the ruling's script from the records and not by hand:**
+
+| Run | Rows | Red on the first record | Red on any record | Red by a named probe's own assertion, first | Red by a named probe's own assertion, any |
+|---|---|---|---|---|---|
+| Task 6 (FSEM1 to FSEM52, before the fix round) | 52 | 46 | 50 | 39 | 42 |
+| Task 6b and Task 7a (FSEM1 to FSEM56 less FSEM20) | 55 | 50 | 55 | 50 | 55 |
+
+The Task 6 report's 49 is withdrawn (it counted FSEM17, FSEM18 and FSEM44 on their corrected forms). The 6b report's 49 of 54 and 54 of 54 were over 54 rows, FSEM20 still among them; with FSEM20 retired and FSEM55 and FSEM56 added the rows are 55 and the counts 50 and 55 (the 7a report's). **The five rows not red on the first record** are FSEM14, FSEM38, FSEM39, FSEM41 and FSEM42, each `masked` (a patch to the tokenizer or the input makes the start's canary comparison refuse the build, so `RealModelFixture`'s constructor throws before a probe asserts), and each red by assertion under the isolation companion of ruling 47 (the comparison neutralised). **Two forms stay green and are recorded, not killed:** FSEM35's `SemaphoreSlim(2)` body (form b3; it keeps arrival order, so it is an equivalent mutant of the order property, rulings 56 and 59) and FSEM51's form (b) (sites (b) and (c) with the inline continuation kept: no window); no row is green in every form. FSEM22, FSEM31's first form and FSEM43 were green in Task 6 and are red since (SEM56, SEM14's lock leg and SEM57). The control row `CTRL1413` (the R14.13 message with the fetch command removed) is red and is not an FSEM row; the isolation control `ISO` (the unmodified tree with the comparison neutralised) read `Curia.Embedding.Tests` 14 of 14 green.
+
+The table below is the first record of every row of `fsem-results-2.jsonl` (the Task 6b and Task 7a records), with the probes that were red on it:
+
+| Row | First record | Probes red on it | Other forms and the isolation companion |
+|---|---|---|---|
+| FSEM1 | red | SEM13, SEM20, SEM21, SEM22 | - |
+| FSEM2 | red | SEM13, SEM22 | - |
+| FSEM3 | red | SEM5, SEM21 | - |
+| FSEM4 | red | SEM5 | - |
+| FSEM5 | red | SEM6 | - |
+| FSEM6 | red | SEM6 | - |
+| FSEM7 | red | SEM6 | - |
+| FSEM8 | red | SEM8 | ISO companion: red (SEM8, SEM30) |
+| FSEM9 | red | SEM8 | ISO companion: red (SEM8, SEM30) |
+| FSEM10 | red | SEM7 | ISO companion: red (SEM7, SEM28) |
+| FSEM11 | red | SEM7 | ISO companion: red (SEM7, SEM28) |
+| FSEM12 | red | SEM8 | ISO companion: red (SEM8, SEM31) |
+| FSEM13 | red | SEM8 | ISO companion: red (SEM8, SEM31, SEM36) |
+| FSEM14 | masked | none (masked: the fixture threw before a probe asserted) | ISO companion: red (SEM28, SEM31) |
+| FSEM15 | red | SEM12 | ISO companion: red (SEM12, SEM36) |
+| FSEM16 | red | SEM39 | - |
+| FSEM17 | red | SEM11 | - |
+| FSEM18 | red | SEM11, SEM58 | - |
+| FSEM19 | red | SEM10 | - |
+| FSEM21 | red | SEM20, SEM21 | - |
+| FSEM22 | red | SEM56 | - |
+| FSEM23 | red | SEM26 | - |
+| FSEM24 | red | SEM26 | form b: red (SEM26) |
+| FSEM25 | red | SEM23 | - |
+| FSEM26 | red | SEM1 | - |
+| FSEM27 | red | SEM24 | - |
+| FSEM28 | red | SEM24 | - |
+| FSEM29 | red | SEM27 | - |
+| FSEM30 | red | SEM18 | - |
+| FSEM31 | red | SEM14 | form b: red (SEM14) |
+| FSEM32 | red | SEM44 | - |
+| FSEM33 | red | SEM42 | - |
+| FSEM34 | red | SEM42 | - |
+| FSEM35 | red | SEM45 | form b3: green |
+| FSEM36 | red | SEM46 | - |
+| FSEM37 | red | SEM46 | - |
+| FSEM38 | masked | none (masked: the fixture threw before a probe asserted) | ISO companion: red (SEM28, SEM29) |
+| FSEM39 | masked | none (masked: the fixture threw before a probe asserted) | ISO companion: red (SEM28, SEM29) |
+| FSEM40 | red | SEM50 | ISO companion: red (SEM29, SEM50) |
+| FSEM41 | masked | none (masked: the fixture threw before a probe asserted) | ISO companion: red (SEM29) |
+| FSEM42 | masked | none (masked: the fixture threw before a probe asserted) | ISO companion: red (SEM28, SEM29) |
+| FSEM43 | red | SEM57 | form b: red (SEM57) |
+| FSEM44 | red | SEM47 | - |
+| FSEM45 | red | SEM48 | - |
+| FSEM46 | red | SEM53 | - |
+| FSEM47 | red | SEM54 | - |
+| FSEM48 | red | SEM55 | - |
+| FSEM49 | red | SEM52 | - |
+| FSEM50 | red | SEM52 | form b: red (SEM52); form c: red (SEM52) |
+| FSEM51 | red | SEM45, SEM49 | form b: green; form c: red (SEM45) |
+| FSEM52 | red | SEM51 | - |
+| FSEM53 | red | SEM56 | - |
+| FSEM54 | red | SEM56 | - |
+| FSEM55 | red | SEM59 | - |
+| FSEM56 | red | SEM60 | form b: red (SEM60) |
+
 ### The measurements (M1 to M20) beside their rules
+
+Task 0's table, from `d10a-task0.txt`, with M19 and M20 from Task 2.
+
+| M | Rule (short) | Result | Held |
+|---|---|---|---|
+| M1 | identifiers free; no PR since #150 touched the files; line numbers re-grepped | G65, R9.63, R9.64, R11.91 to R11.93, R14.13, SEM, FSEM, D120 free; D61 first free 215; traps first free 207; only PR 7's commits touched the listed files; `GetRequiredService<ILifecycleAppendGate>` is at `Program.cs:363` (the plan said 362); the test files that use `HashedNGramEmbedder` are 11, not 27; Ruling 21 was cited and never written | yes, with 7 corrections |
+| M2 | licences MIT, Apache-2.0 or BSD-3-Clause only | ORT 1.31.0 MIT by the file inside the package (31 days old), 1.31.1 12 days (notes: nothing this stage meets), `Microsoft.ML.Tokenizers` 2.0.1 MIT, `Google.Protobuf` 3.30.2 BSD-3-Clause; two transitives the plan did not list (`Microsoft.ML.OnnxRuntime.Managed`, `System.Numerics.Tensors` 9.0.0, both MIT); flag: the native library's notices list 70 components, among them Eigen under MPL-2.0 and Mbed TLS under "Apache-2.0 OR GPL" | yes, with a flag ruled in Amendment 1 ruling 27 |
+| M3 | locked restore fails; locks listed; bytes; native; `ExcludeAssets` | 6 lock files change and 1 is new; +250.4 MB per executable or test project, five of them; `libonnxruntime.so` (linux-x64) is in an ordinary build output, so no native step; `ExcludeAssets="native;build;buildtransitive"` on `Curia.Operator` and `Curia.Architecture.Tests` cuts them to 21 and 36 MB and Architecture passes 117 of 117 in both configurations; no `osx-x64` native in 1.31.0; cold restore 2.5 to 3.7 s, +162.9 MB of packages | yes |
+| M4 | the reference agrees to 1e-4 and the ids exactly | torch against ORT 5.2e-7 over 200 strings, the query role 3.3e-7, the slow and fast tokenizers identical; python 3.12.16, transformers 5.22.2, torch 2.15.0, onnxruntime 1.31.1, tokenizers 0.23.3 | yes |
+| M5 | the tokenizer package's ids equal on all 200 | 51 of 200 differ at its best options (78 at its defaults) and 5 throw; no option closes a class; a 120-line BCL prototype matched 200 of 200 | **no**: ruling 22, the tokenizer is the project's own |
+| M6 | p99 of a 510-token embedding alone at most 400 ms and at 8 concurrent at most 1,000 ms | 153.5 ms alone; 826.0 ms at 8; 2,063 ms at 20; CLS, three required `Int64` inputs, `RunOptions.Terminate` stops a started run in 2 to 4 ms; `SemaphoreSlim(2).Wait()` from threads starved waiters at 16 tokens (p99 908 and 1,379 ms against 22.6 and 56.4 ms through a FIFO gate); the reference box is unmeasured. Amendment 4 ruling 59 restates the starvation as a property of the synchronous primitive, which the adapter's `WaitAsync` does not have | yes |
+| M7 | who starts first | connections refused for 15 s of a 15 s sleeper; the listener opens after the reconcile | yes (Ruling 21 not needed) |
+| M8 | the cold reindex at most 120 s | 304.7 s for 9,975 posts (30.5 ms a post, sequential), warm start 1.1 s, 2.05 GB resident afterwards; 600 embeds for 300 absent posts on the check path | **no**: ruling 24, as built with progress |
+| M9 | the check's words during a long reconcile | 48 of 48 polls over a 2,000-post reconcile refused; the first answer reads `vector_checked_at` as the reconcile's start | yes (SEM25 not built) |
+| M10 | no record of dependencies exists | none (no SBOM, no third-party file) | yes: Ruling 17 stands |
+| M11 | none is a gate; a write over 2 s is a finding | a question write +30.8 ms at 2,000 posts (44.2 to 75.1) and +28.5 ms at 10,000 (184.7 to 213.2); a novel query +3.6 and +2.3 ms of 74 to 334 ms; an exact scan 115 ms at 10,000 rows; the flood (64 threads, 10 s): hashed host writes 170 to 245 ms and one at 1,189 ms, bge host 206 to 247 ms and one at 5,338 ms answered `201` `indexed` | the finding fires: D120 |
+| M12 | the implementers and callers | implementers `HashedNGramEmbedder`, `CheckProbeSupport`'s `HookedEmbedder`, `HybridSearchCursorBindingTests`' `CountingEmbedder`; 10 call sites; none under `tools/` | yes |
+| M13 | two dimensions in one table | no dimension error, no row of the other model returned; the plan is a sequential scan with a filter, 115 ms at 10,000 rows | yes |
+| M14 | which tests parse `RESULTS.md` | none | yes |
+| M15 | preflight runs the fetch from step-level `env`, says the cache step is skipped, runs the model suite | the fetch and the variable work (262 s); the summary is silent about every `uses:` step | **partly**: Amendment 1 ruling 28, a sentence and item 224 |
+| M16 | a second emoji-only question is refused without the placeability rule | refused `409`, cosine 1.000, overlap 1.000, a different emoji, real model | yes: finding 6 confirmed, Ruling 9 stands |
+| M17 | the asserts of the banner sentence | one site, `Help.cs:41-42`, printed by `Cli/Program.cs:1096`; no test asserts it; `curia-mcp` makes no claim about the model | yes, with the plan wrong about where |
+| M18 | the model's bytes reproduce and the card says MIT | `BAAI/bge-small-en-v1.5` at revision `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`; `onnx/model.onnx` 133,093,490 bytes, sha256 `828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35`; `vocab.txt` 231,508 bytes, sha256 `07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3`; reproduced by two downloads; licence field `mit` | yes |
+| M19 | the arena: off if the resident size falls by 30 percent and the p50 of a 128-token embedding rises by at most 10 | arena on 332 MB, off 295 to 298 MB (a fall of 10.5 percent), the 128-token p50 41.0 ms both; a 2,000-post reconcile in 71.5 s | no: left on, the README states the resident size |
+| M20 | globalization-invariant mode | with `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` text normalisation does not decompose and the start refuses at the first canary with accents (`accents-composed`) | recorded: the README says the Forum needs ICU |
+
+The baseline at Task 0 on the unmodified tree, in one directory: Release build 74.2 s at 0 warnings; the all-but-Api step 5,190 tests with 1 failure in 71.5 s (`PostgresAppendGuardTests.R6_60_LCB22_EveryExitReleasesTheConnectionAndTheLock`, red in the whole assembly twice and green alone twice); Debug architecture 117 of 117; the Api suite 1,551 tests in 40 m 38 s with 1 failure (`BrowseEndToEndTests.R10_73_SighupAfterTheMasterClosesExitsWithinTwoSeconds`, green alone). Both are D61 item 163's, which this task amends.
+
 ### Gates
+
+- **Task 4 (`a0cda877`):** `dotnet build Curia.sln` at 0 warnings; `preflight --no-api` ok except "Test (all but Api)", which failed on SEM42b alone (Client 1,596 of 1,597; Embedding 14 of 14 with the model directory set; Application 691; Infrastructure 264; Architecture 121 in Debug and Release; Mcp 955 with 4 skipped, as before; Canon 329). **The whole Api suite, built first and run `--no-build`, the closed fuzz included: 1,561 of 1,561 passed in 41 m 5 s** (the baseline above: 1,551 tests, 40 m 38 s, one flake), the fuzz's expected-failure ledger empty; the password cluster (its own `initdb`, `scram-sha-256`, loopback only, pgvector) ran the new Api classes and SEM26, 52 of 52 and 1 of 1.
+- **Task 5's fix round (`8f3b6722`):** build Debug and Release at 0 warnings; Client 1,598 of 1,599 (SEM42b), Mcp 956, Application 691, Infrastructure 271, Embedding 14 of 14, Architecture 121 in both configurations, `EmbedderBootTests` 9 of 9; the whole Api suite not run.
+- **Task 6b (`fafaeba8`):** build Debug and Release at 0 warnings; Client 1,598 of 1,599 (SEM42b), Mcp 956 (4 skipped), Application 692, Infrastructure 273, Embedding 14, Architecture 121 in both configurations; `EmbedderBootTests` and `ReconcileProgressTests` 10; the whole Api suite not run.
+- **Task 7a (`9ab8b39c`):** build Debug and Release at 0 warnings; Application 692 of 692, Infrastructure 272 of 272 (273 less SEM40), Client 1,599 of 1,600 (SEM42b), Embedding 15 of 15, Architecture 121 of 121 in Debug and 121 in Release, `EmbedderBootTests` 9 of 9; SEM11, SEM45 and SEM49 15 runs each on the tip, 15 of 15 green each; `check-spec.py` clean; `preflight --no-api`: every step ok (spec checks, build, locked restore, screening cost, Debug architecture, `cargo fmt`, clippy and test, the differential comparison, the added-lines lint, conformance unchanged) except "Test (all but Api)", on SEM42b alone (Domain 1,042, Mcp 956, Canon 329, AuthN 140, Domain.Primitives 64, Canon.Sodium 32 all green). The whole Api suite was not run after Task 4.
+- **Task 8 (this commit):** documentation only; SEM42 6 of 6; `check-spec.py` and `falsify-spec-checks.py` as recorded in the Task 8 report.
+- **The final whole run** is the last line of this section.
+- `git diff --stat origin/main` shows nothing under `db/`, `rust/`, `conformance/retrieval/*.jsonl`, `src/Curia.Domain/Screening` or any write-path file; `.github/` is untouched until Task 9's one commit. The only edits under `conformance/` are the two sentences each of `README.md` and `RESULTS.md` (Ruling 19).
+
 ### The live run
+
+Task 7, on 2026-11-10 at `fafaeba8`, Release, the built Forum with the real model against a throwaway database restored from the thirteenth exercise's fixture; record `d10a-task7-after.txt`, report `task-7-live-report.md` (untracked). **7 of 8 legs held at first.**
+
+| Leg | Before (control) | After | Held |
+|---|---|---|---|
+| L1 boot and reindex | M8: 9,975 posts cold 304.7 s, warm 1.1 s | the fixture's 406 posts: listener open at 13.1 s, reconcile 11.5 s (35 a second); a second start embedded 0 posts in 1.3 s; `kill -9` mid-reindex (194 of 195 rows) then a start embedded 211 more, 406 rows over 406 distinct posts, the hashed 406 kept | yes |
+| L2 refusals | none | a missing directory, an empty one, a flipped byte, a swapped vocabulary and a build without lower-casing each abort with no listener, a message naming the file or key and a `curia/embedding/*` code, no model path in anything printed | yes |
+| L3 what an agent finds | `baseline.out` (hashed) | C1 2 to 1, C2 1, C3 1, N1x 1, N2x 2: none fell out of the top 5; N2n 8 to 4, N3 5 to 3, N8 7 to 5, ASY 10 to 9; N4b not found (0 hits to 42, none the needle); nonsense 25 of 25 first-page hits vector-only (199 in all), `gradient accumulation` 24 of 25 (198) | yes |
+| L4 the dedupe | ruling 30 | the five literal pairs refused with the right thread (cosine 0.985 to 1.000); the four paraphrases, four related and three distinct pairs accepted; an emoji-only question twice accepted; of four readers' paraphrases 1 refused (cosine 0.9403, overlap 0.538, against 0.94 and 0.50) | yes for the refusals; **not checked for the annotation**: an accepted receipt prints neither a cosine nor an annotation and no client prints `possible_duplicate_of` (lead 242) |
+| L5 the flood | M11 | quiet writes 36 to 43 ms; under 64 threads for 10 s (2,350 queries, 0 errors) writes 485 to 581 ms, 0 `pending`, CPU 100.9 s, `vector_pending` back to 0 | yes (records) |
+| L6 the first request after boot | FSEM20 | first write 214 ms against 219 ms with the warm-up removed, steady 70 and 55 ms, first search 162 against 160 ms | **not held as written; explained and the warm-up removed (ruling 58)** |
+| L7 receipts at ordinary use | M6: 22.6 and 908 ms | 40 of 40 `indexed`; eight at once, 208 of 208 `indexed` on both forms; per-round p50 median 1,156 ms (`FifoGate`) against 1,154 (`SemaphoreSlim(2)`), longest 1,419 against 1,413, 26 rounds each, alternating | **recorded; the forms do not separate; explained (ruling 59)** |
+| L8 the harness | none | `burst.sh` at 64: 3 `201`, 14 `403`, 47 `409`, 0 `5xx`; the request log equal to the database (3 `201` and 3 `post.accepted`); unindexed 0 | yes |
+
+**Superseded and kept:** L5's first run (a client wall of 899 s with no Forum request over 0.85 s: the host slept), L5's runs 2 and 3 (the builder's own, a repeated seed and an exhausted budget), L6b's first attempts (one ended in a refused connection) and L6's first run (before the sleep, but it counted the `401` nonce challenge as the first write in 3 of 12 rounds); the valid L5 run preceded the sleep, L6 and L6b were re-run after it and L7 ran after. The host slept about 04:13 to 04:26 and earlier; the architect's four runs under Amendment 4 are evidence for its rulings and not this record. **L6 after the fix round (Task 7a, six alternating rounds, a 430-word first write, `fafaeba8` against the tip):** ready 1,334 ms (1,301 to 1,342) against 919 ms (778 to 1,361), 415 ms sooner; first write 421 ms against 423 ms (2 ms slower, inside ruling 58's 20 ms); steady write 270 ms in both. Ruling 58 stands. The first write costs about 150 ms more than the steady write in both builds (lead 240).
+
+**Findings against the words (Amendment 4 ruling 62):** the start-up check logs nothing (lead 241); an accepted receipt prints no similarity (lead 242); a reader paraphrase refused at cosine 9403 bp, 3 bp over the line (input for D10b); pages are never short, so the banner gained its clause (ruling 60); `corpus_bound 510` beside "512 tokens" is the newest event's sequence (lead 244); the old client against a bge Forum prints a false pairing, which is the cold read's control; a refused start is an unhandled-exception trace (lead 243); the query set holds 19 queries, not 20.
+
 ### The cold read
+
+Task 7b, 2026-11-10, final form (Amendment 4 ruling 61): six fresh Sonnet readers, one neutral note each, read once with no other tool, from Task 7a's captures (`coldtext-7b/`, one Forum, one day): readers 1 to 4 saw the eight pages with the new banner, readers 5 and 6 the same eight pages from `main` 2708d826's client (the old banner) as the control. The banner sentence in each new page equals `ModelWording`'s literal byte for byte (checked by program); `however far` appears in none of the old pages; no absolute path, user name or temporary-directory string is in the folder.
+
+| Reader | Banner | Paraphrase reliable? | (c) long-post tail | (d) nonsense page | (d) full page | Gate |
+|---|---|---|---|---|---|---|
+| 1 | new | no ("can miss one") | not by meaning; from the banner | nothing on the topic | "tells you only that the Forum holds at least that many posts near the query" | pass |
+| 2 | new | no | not by meaning; from the banner | "most likely nothing" | not evidence; banner quoted | pass |
+| 3 | new | no | "probably not reliably"; from the banner | nothing | "nothing about whether the Forum holds what I want" | pass |
+| 4 | new | no | "probably not"; from the banner | nothing; banner clause quoted | "tells me nothing"; reads hits | pass |
+| 5 | old (control) | sees the stale "does not find paraphrase" against the model line | "the page does not promise this"; inferred from `corpus_bound`, not from a banner | nothing | not evidence (from the hits' signals) | control: fails (c) as expected; passes (d) |
+| 6 | old (control) | sees the stale sentence; says paraphrase works here | "probably not reliably"; inferred from `corpus_bound 513` | nothing | "only that the limit was filled" | control: fails (c) from the banner; passes (d) |
+
+**The gate passes:** no bge reader says search finds paraphrase reliably, says the end of a long post is searchable, reads a full page as evidence that the Forum holds the topic, or reads an absent hit as proof of absence; all four answer (c) from the banner; all four conclude nothing on the made-up query's topic, each citing `lexical absent` and the low flat cosines, and two quoting the new clause. **What the control shows, honestly:** both control readers failed (c) as a banner reading (the old banner has no token limit) and both passed the full-page half of (d) from the page's own signals (`lexical absent`, a flat cosine band, the reciprocal-rank-fusion staircase). The questions discriminate on (c) and did **not** discriminate on (d): by ruling 61 the clause is kept because it is true, and no claim is made that it was needed for (d); the extra-readers step applies only when both controls pass both questions and was not triggered. **Recorded, not gated (lead 244):** five of six readers read `corpus_bound 513` beside the 512-token limit, and the two controls reached the tail answer from `corpus_bound` alone, a wrong road to a right answer. Readers 3, 4 and 6 note that the default form (pages 7 and 8) carries no channel mark, so only `--why` lets a reader judge relevance: that is PR 8's per-hit mark (D114).
+
+**Results pass (not gated).** A seventh reader, who did not know the needles, named the three best hits per query from the 19 queries' bge output (`--titles`, first page); scored against `needles.json` by the controller: **10 of the 13 queries that have a needle** held one in the reader's top three. Missed: N3 (`key rotation`; the reader picked the key-rotation threads and not the needled posts), N4b (`pgcrypto` on `postgres`; the needle lives on another board, so the filtered page cannot hold it, by design) and ASY (`async cancellation tokio`). AP (`ArrayPool`) has no needle (`needles 0`) and the score file's own tally, "14 queries with a needle; 10", counts it, so 10 of 14 by that file's line and 10 of 13 by the needles. The reader also flagged `tracing` (expected to find nothing) as covered by two real tracing threads: input for D10b and PR 8.
+
 ### Deviations from the plan as written, with their reasons
+
+1. **The tokenizer is the project's own and no tokenizer package is added** (Amendment 1 ruling 22, M5). The namespace is `Curia.Infrastructure.Embedder`, not `.Embedding`: a namespace `Curia.Infrastructure.Embedding` collides with the type `Curia.Application.Ports.Embedding` and broke `PostgresVectorIndex`; the folder is still `Embedding/` (lead 232).
+2. **The gate is first-in-first-out and a started run is stopped** (ruling 23); **the premise that it buys a measured tail was withdrawn** (ruling 59: M6's starvation was a synchronous `Wait()`, the adapter's `WaitAsync` keeps arrival order, L7 could not have separated the forms). The gate is kept for R11.92's order.
+3. **The first start is a longer start with progress and the port closed** (ruling 24); M8's 120 s rule was missed 2.5 times and is not met. Ruling 21 and SEM25 are withdrawn.
+4. **The warm-up is removed** (ruling 58), with SEM40 and FSEM20; the plan's design paragraph and ruling 5 said the check warmed the session. R11.92 lost its clause.
+5. **SEM15 was not built** (ruling 57). SEM3's Application half was green on the seam, not red as the plan predicted (the seam already passed the token). SEM24's "no detail" is read as no member beyond the exception's type name on the `Error` and none on the response; `Error.Detail` keeps the type name and `ServerFault` logs it and serves none (the controller's ruling). SEM33's "ten-post corpus" is read as `corpus.jsonl` plus the pair's own first text; SEM44 flips a byte of `vocab.txt` (the model is symlinked); SEM26's reconcile leg uses `IndexAsync` plus absence-by-model assertions (Infrastructure.Tests cannot construct `AppendedEvent`); SEM47 seeds 2,500 posts through the Forum's Postgres store and its "a request at the first progress line is refused" half is not built (no listener in process; M7, M9 and L1 carry it); SEM51's body is a chunked response cut mid-chunk, because the plan's Content-Length shape reads as a clean end of file.
+6. **`HybridSearch` passed `Passage` on the seam** (the plan's Task 1 text) so that SEM1 was red; Task 2 changed it to `Query`.
+7. **Plan-body edits E68 to E72 were not applied in Task 5's fix round** (its brief did not list them); they were applied by Task 6b and the check at Task 7a reads them `after`.
+8. **The parity file holds 2,600 strings** (200 corpus strings and 2,400 generated), not "at least 2,000 plus 200": the generator drops code points on which the fast tokenizer's tables (older than Unicode 15.0) disagree with Python's, and U+1171E, whose category differs in .NET (before that 109 differed); a host with different ICU or normalisation data may still differ on a rare character (ruling 22 (iii), item 231).
+9. **The manifest's release-asset URL is a guess until the owner uploads the exact bytes**; the fetch falls back to the pinned Hugging Face revision (a real download, 7.6 s) and checks the same digest. `NetArchTest.Rules` declares no licence in its package and is recorded as MIT from the project.
+10. **The preflight sentence in `tools/preflight/README.md`** first said "CI has 18 `uses:` steps", true only once Task 9's commit lands; Task 5's fix round (ruling 38) rewrote it without a number (trap 217).
+11. **The README's item 8 read "Task 0 M20"**; M20 was measured in Task 2, and this task corrected it.
+12. **L5 was planned as three runs of the flood on the built tree**; only one run was valid (the others are superseded above), so the count over two seconds is one run's (0 `pending`, the longest write 581 ms), and the architect's cold-process floods (1.2 to 3.8 s on both gate forms, `pending` not recorded) are lead 246.
+13. **The report-versus-record differences:** the Task 0 report's summary put `SemaphoreSlim(2)`'s 16-token p99 at "1,369 ms at 8 callers", while its table reads 908 ms at 8 callers and 1,379 ms at 20, and 1,369 ms is the value of the two reruns; the Task 0 report's "about twice as fast" for both slots is 1.47 times by M6's own rows (ruling 24 (c)); the plan's "20 queries" is 19.
+
 ### Concerns left
+
+- **The owner's:** the `ci.yml` commit and its merge (Task 9; without it `Curia.Embedding.Tests` is red on GitHub by design); uploading the exact bytes of M18 as the release asset; the interim exposure, in which `main` serves bge with the hashed era's thresholds and floor until D10b (finding 13: annotation may fire on related questions, refusal needs the lexical conjunct so the zero-false-refusal ceiling is protected by construction); training-data provenance of the weights was not reviewed; the `curia` skill's "No semantic search yet" paragraph, outside the repository (item 164).
+- **Unmeasured:** the reference host (a 2-core host will be slower by more than the core count says), the canary tolerance of 1e-4 on any second CPU class (item 238), the cold-process flood's `pending` count (item 246).
+- **Probe weaknesses recorded, not fixed:** SEM45 is weak on FSEM51's form (a) (red 4 of 8 runs; SEM49 carries it, red 8 of 8); SEM11, SEM45, SEM49 and SEM58 wait on real-time deadlines and are green 15 of 15 here, a slow runner could turn one red (item 239); the isolation rows are red against an embedder production would not start, and the boot check itself is held by FSEM5 to FSEM7 and the masked records; inline gate continuations run on the thread that frees a place.
+- **Filed as leads (D61 items 215 to 246) and trap entries 207 to 229:** see the register.
+
+The PR is #151, on `main` at ________.
+
+Final whole run: FINAL_RUN
