@@ -96,8 +96,8 @@ fn r6_54_every_lifecycle_case_reaches_its_verdict_and_names_its_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.lifecycle.len(),
-        59,
-        "conformance/lifecycle/ holds the 59 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain and the 7 of errata G67's declaration key)"
+        65,
+        "conformance/lifecycle/ holds the 65 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key and the 6 of R6.62's undeclared decisions)"
     );
 
     let mut failures = Vec::new();
@@ -477,8 +477,38 @@ fn the_compromise_cases_are_all_present_with_their_vocabulary() {
             "failed",
             "declaration-key-unpublished",
         ),
+        (
+            "compromise-declaration-keys-null",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
+        (
+            "compromise-declaration-keys-object",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
+        (
+            "compromise-log-key-kid-position-unknown",
+            "could-not-check",
+            "declaration-key-position-unknown",
+        ),
+        (
+            "compromise-declaration-key-is-log-key-under-another-kid",
+            "failed",
+            "declaration-key-is-log-key",
+        ),
+        (
+            "compromise-another-declaration-key-position-unknown",
+            "could-not-check",
+            "declaration-key-position-unknown",
+        ),
+        (
+            "compromise-declaration-kid-published-twice",
+            "failed",
+            "declaration-signature-invalid",
+        ),
     ];
-    assert_eq!(expected.len(), 22);
+    assert_eq!(expected.len(), 28);
     for (name, verdict, predicate) in expected {
         let vector = case(name);
         assert_eq!(

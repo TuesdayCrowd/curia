@@ -536,6 +536,8 @@ pub struct LogKeys {
     /// The `declaration_keys` member (errata G67, R6.62): `None` where the document carries no such member (an absence, which is not a
     /// denial), `Some` of an empty list where the Forum served an empty one.
     declaration_keys: Option<Vec<LogKey>>,
+    /// The public key of every entry of `keys`, with or without a `kid` (R6.62: a log key by `kid`, or by public key under another `kid`).
+    log_public_keys: Vec<crate::jwk::PublicKey>,
 }
 
 impl LogKeys {
@@ -559,6 +561,7 @@ impl LogKeys {
             .map(|items| items.iter().map(log_index_of).collect())
             .unwrap_or_default();
 
+        let log_public_keys = set.keys().iter().map(|j| j.key.clone()).collect();
         let keys = set
             .keys()
             .iter()
@@ -599,11 +602,13 @@ impl LogKeys {
                 }
                 Some(read)
             }
-            Some(_) => return Err(ActaError::Jwks(crate::jwk::JwkError::KeysNotArray)),
+            // R6.62: a member that is present and is not an array says nothing usable and is read as absent.
+            Some(_) => None,
         };
         Ok(LogKeys {
             keys,
             declaration_keys,
+            log_public_keys,
         })
     }
 
@@ -612,9 +617,9 @@ impl LogKeys {
         self.declaration_keys.as_deref()
     }
 
-    /// Whether `kid` is a log key (R6.62(d)): any key of the `keys` member.
-    pub fn is_log_key(&self, kid: &str) -> bool {
-        self.keys.iter().any(|k| k.kid == kid)
+    /// Whether a declaration key is a log key (R6.62): by `kid`, or by public key under another `kid`.
+    pub fn is_log_key(&self, kid: &str, key: &crate::jwk::PublicKey) -> bool {
+        self.keys.iter().any(|k| k.kid == kid) || self.log_public_keys.iter().any(|k| k == key)
     }
 
     /// The key published under `kid`: the last one, as the head's own lookup takes the key set's last match.

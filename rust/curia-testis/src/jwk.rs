@@ -47,7 +47,7 @@ use crate::json::{self, Value};
 /// declared curve (or a well-formed Ed25519 verifying key), so a caller
 /// matching on this enum can never hand the wrong byte shape to the wrong
 /// verifier.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PublicKey {
     Ed25519(ed25519_dalek::VerifyingKey),
     EcdsaP256(p256::ecdsa::VerifyingKey),

@@ -103,8 +103,8 @@ fn hsu18_the_families_hold_the_counts_of_the_declaration_key_vectors() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         (corpus.lifecycle.len(), corpus.acta.len()),
-        (59, 12),
-        "conformance/lifecycle/ holds 59 cases (the 58 of Amendment 1 ruling 26 and the control of HSU22) and conformance/acta/ 12"
+        (65, 12),
+        "conformance/lifecycle/ holds 65 cases (the 58 of Amendment 1 ruling 26, the control of HSU22 and the 6 of R6.62's undeclared decisions) and conformance/acta/ 12"
     );
 }
 
@@ -314,6 +314,44 @@ fn hsu25_an_absent_key_set_member_is_not_a_denial_and_an_empty_one_is() {
             "compromise-declaration-keys-empty",
             "failed",
             "declaration-key-unpublished",
+        ),
+    ]);
+}
+
+/// R6.62's rules the decision order alone left open: a present non-array member is read as absent, a log key is a log key by its public key
+/// under another kid, any declaration key with no position makes the result could not be checked, and a repeated kid is its earliest listing.
+#[test]
+fn r6_62_the_undeclared_decisions_reach_their_verdicts() {
+    all_hold(&[
+        describe(
+            "compromise-declaration-keys-null",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
+        describe(
+            "compromise-declaration-keys-object",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
+        describe(
+            "compromise-log-key-kid-position-unknown",
+            "could-not-check",
+            "declaration-key-position-unknown",
+        ),
+        describe(
+            "compromise-declaration-key-is-log-key-under-another-kid",
+            "failed",
+            "declaration-key-is-log-key",
+        ),
+        describe(
+            "compromise-another-declaration-key-position-unknown",
+            "could-not-check",
+            "declaration-key-position-unknown",
+        ),
+        describe(
+            "compromise-declaration-kid-published-twice",
+            "failed",
+            "declaration-signature-invalid",
         ),
     ]);
 }

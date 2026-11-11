@@ -32,8 +32,8 @@ use base64::Engine;
 use serde_json::{Map, Value};
 
 use crate::acta::{
-    self, entry_fields, head_covers, post_author_and_kid, str_at, ActaError, LogKeys, VerifiedHead,
-    ENROLLED, KEY_BOUND, POST_ACCEPTED,
+    self, entry_fields, head_covers, post_author_and_kid, str_at, ActaError, LogKey, LogKeys,
+    VerifiedHead, ENROLLED, KEY_BOUND, POST_ACCEPTED,
 };
 use crate::jwk::JwkSet;
 use crate::jws;
@@ -700,24 +700,39 @@ impl Fold {
         let Some(declaration_keys) = log_keys.declaration_keys() else {
             return Err(ActaError::DeclarationKeySetNotSupplied);
         };
-        // (b) The header's kid names a declaration key (a served empty array names none): the one with the lowest known position
-        // where a kid is listed twice.
-        let Some(declaration_key) = declaration_keys
-            .iter()
-            .filter(|k| k.kid == header_kid)
-            .min_by_key(|k| k.log_index.unwrap_or(u64::MAX))
+        // (b) The header's kid names a declaration key (a served empty array names none). A kid listed more than once is the key of its
+        // earliest listing, and a later entry under it is not a key: each kid below stands for its earliest listing, whose position is
+        // not given if any listing of the kid gives none (the earliest cannot then be said).
+        let mut keys: Vec<(&LogKey, Option<u64>)> = Vec::new();
+        for listed in declaration_keys {
+            match keys.iter_mut().find(|(k, _)| k.kid == listed.kid) {
+                None => keys.push((listed, listed.log_index)),
+                Some((earliest, at)) => {
+                    let before = *at;
+                    *at = match (before, listed.log_index) {
+                        (Some(x), Some(y)) => Some(x.min(y)),
+                        _ => None,
+                    };
+                    if listed.log_index.is_some() && listed.log_index == *at && before != *at {
+                        *earliest = listed;
+                    }
+                }
+            }
+        }
+        let Some(&(declaration_key, position)) = keys.iter().find(|(k, _)| k.kid == header_kid)
         else {
             return Err(ActaError::DeclarationKeyUnpublished {
                 at: index,
                 kid: header_kid,
             });
         };
-        // (c) Its position is given.
-        let Some(published_at) = declaration_key.log_index else {
+        // (c) A position not given: the declaring key's or any other declaration key's.
+        if keys.iter().any(|(_, at)| at.is_none()) {
             return Err(ActaError::DeclarationKeyPositionUnknown { kid: header_kid });
-        };
-        // (d) A log key never declares.
-        if log_keys.is_log_key(&header_kid) {
+        }
+        let published_at = position.unwrap_or(u64::MAX);
+        // (d) A log key never declares: by kid, or by public key under another kid.
+        if log_keys.is_log_key(&header_kid, &declaration_key.key.key) {
             return Err(ActaError::DeclarationKeyIsLogKey {
                 at: index,
                 kid: header_kid,
@@ -725,9 +740,9 @@ impl Fold {
         }
         // (e) The first declaration key published is the one, by `log_index` and never by the order the key set is served in: no
         // other key is at or before it.
-        if declaration_keys
+        if keys
             .iter()
-            .any(|k| k.kid != header_kid && k.log_index.is_some_and(|at| at <= published_at))
+            .any(|(k, at)| k.kid != header_kid && at.is_some_and(|at| at <= published_at))
         {
             return Err(ActaError::DeclarationKeyNotFirst {
                 at: index,
