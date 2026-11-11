@@ -18,6 +18,12 @@ fn read(path: &Path) -> Vec<u8> {
 
 /// The verdict and short predicate this verifier reaches for a case: the same walk of its documents `tests/lifecycle.rs` makes.
 fn judge(vector: &LifecycleVector) -> (String, String) {
+    let log_jwks = read(&vector.dir.join("log-jwks.json"));
+    judge_under(vector, &log_jwks)
+}
+
+/// [`judge`] with `log_jwks` served in place of the case's own key set.
+fn judge_under(vector: &LifecycleVector, log_jwks: &[u8]) -> (String, String) {
     let entries = vector.dir.join("entries");
     let mut indices: Vec<u64> = fs::read_dir(&entries)
         .unwrap_or_else(|e| panic!("{} must be readable: {e}", entries.display()))
@@ -48,9 +54,8 @@ fn judge(vector: &LifecycleVector) -> (String, String) {
         })
         .collect();
     let head = read(&vector.dir.join("head.json"));
-    let log_jwks = read(&vector.dir.join("log-jwks.json"));
 
-    match verify_lifecycle(&post_entry, &chain, &head, &log_jwks) {
+    match verify_lifecycle(&post_entry, &chain, &head, log_jwks) {
         Ok(_) => ("verified".to_string(), "verified".to_string()),
         Err(err) => {
             let verdict = if err.disputed() {
@@ -354,4 +359,110 @@ fn r6_62_the_undeclared_decisions_reach_their_verdicts() {
             "declaration-signature-invalid",
         ),
     ]);
+}
+
+/// The base of HSU50: a valid case whose declaration disputes the post under its one declaration key, and whose key set serves one log key.
+const HSU50_BASE: &str = "compromised-before-post";
+
+fn hsu50_base() -> (LifecycleVector, serde_json::Value) {
+    let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
+    let vector = corpus
+        .lifecycle
+        .into_iter()
+        .find(|v| v.case == HSU50_BASE)
+        .expect("the base case is in conformance/lifecycle/");
+    let jwks = serde_json::from_slice(&read(&vector.dir.join("log-jwks.json")))
+        .expect("the key set parses");
+    (vector, jwks)
+}
+
+/// A mutation of one key entry; `None` removes the member.
+type Mutation = (&'static str, fn(&mut serde_json::Value));
+
+fn drop_member(entry: &mut serde_json::Value, name: &str) {
+    entry.as_object_mut().expect("an object").remove(name);
+}
+
+/// Applies `mutate` to `member`'s entry: a `declaration_keys` entry is changed in place, and a `keys` entry is a copy of the head key appended after it (the head
+/// key itself is the one the head verifies under, and a key set whose head cannot be verified is a different case).
+fn mutated_key_set(
+    base: &serde_json::Value,
+    member: &str,
+    mutate: &dyn Fn(&mut serde_json::Value),
+) -> Vec<u8> {
+    let mut jwks = base.clone();
+    let list = jwks[member].as_array_mut().expect("the member is an array");
+    if member == "keys" {
+        let copy = list[0].clone();
+        list.push(copy);
+    }
+    let last = list.len() - 1;
+    mutate(&mut list[last]);
+    serde_json::to_vec(&jwks).expect("the key set serializes")
+}
+
+#[test]
+fn hsu50_an_unreadable_key_entry_leaves_the_key_set_without_a_usable_member() {
+    let (vector, base) = hsu50_base();
+    assert_eq!(
+        judge(&vector),
+        ("disputed".to_string(), "disputed".to_string()),
+        "the unmutated base disputes"
+    );
+    let table1: [Mutation; 6] = [
+        ("drop kid", |e| drop_member(e, "kid")),
+        ("drop kty", |e| drop_member(e, "kty")),
+        ("drop alg", |e| drop_member(e, "alg")),
+        ("drop x", |e| drop_member(e, "x")),
+        ("replace by 7", |e| *e = serde_json::json!(7)),
+        ("replace by null", |e| *e = serde_json::Value::Null),
+    ];
+    let mut problems = Vec::new();
+    for member in ["declaration_keys", "keys"] {
+        for (name, mutate) in &table1 {
+            let served = mutated_key_set(&base, member, mutate);
+            let got = judge_under(&vector, &served);
+            if got
+                != (
+                    "could-not-check".to_string(),
+                    "declaration-key-set-not-supplied".to_string(),
+                )
+            {
+                problems.push(format!("{member} / {name}: got {} {}", got.0, got.1));
+            }
+        }
+    }
+    all_hold(&problems);
+}
+
+/// Table 2, measured: what the reader makes of entries that carry all four strings and are still not usable keys, or are listed oddly. It asserts nothing on a
+/// verdict; run with `--nocapture` to read it.
+#[test]
+fn hsu50_measured_entries_that_are_readable_as_objects_but_not_as_keys() {
+    let (vector, base) = hsu50_base();
+    let rows: [Mutation; 5] = [
+        ("EC key without y", |e| drop_member(e, "y")),
+        ("x that does not decode", |e| {
+            e["x"] = serde_json::json!("!!not base64!!")
+        }),
+        ("kty RSA", |e| e["kty"] = serde_json::json!("RSA")),
+        ("kid a number", |e| e["kid"] = serde_json::json!(7)),
+        // Replaced below: one kid listed twice at one position with different x.
+        ("kid twice at one position, different x", |_| {}),
+    ];
+    for (name, mutate) in &rows {
+        let mut jwks = base.clone();
+        let list = jwks["declaration_keys"].as_array_mut().expect("an array");
+        if name.starts_with("kid twice") {
+            let mut other = list[0].clone();
+            other["x"] = serde_json::json!("mfCWmaHAcO2_WNMXZKV0PuEHXot69w_OxH2gYaAdtMM");
+            other["y"] = serde_json::json!("_su9B0jJ07Rka17m9G8MiFHbdEl9C0sl0u1Ytb0Pdjo");
+            list.push(other);
+        } else {
+            mutate(&mut list[0]);
+        }
+        let served = serde_json::to_vec(&jwks).expect("serializes");
+        let (verdict, predicate) = judge_under(&vector, &served);
+        println!("table2: {name}: {verdict} {predicate}");
+    }
 }

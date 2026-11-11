@@ -543,9 +543,18 @@ pub struct LogKeys {
 impl LogKeys {
     /// Parses the key set document. The same errors as `JwkSet::parse`.
     pub fn parse(log_jwks: &[u8]) -> Result<Self, ActaError> {
-        let set = JwkSet::parse(log_jwks).map_err(ActaError::Jwks)?;
+        let (set, keys_document) = match JwkSet::parse(log_jwks) {
+            Ok(set) => (set, log_jwks.to_vec()),
+            // R6.62(a): an entry of `keys` that is no object carrying a string `kid`, `kty`, `alg` and `x` leaves the key set without a usable
+            // member, which is decided by what the document says and not by an error. The entries that are readable still make a key set.
+            Err(err) => {
+                let filtered = readable_keys_document(log_jwks).ok_or(ActaError::Jwks(err))?;
+                let set = JwkSet::parse(&filtered).map_err(ActaError::Jwks)?;
+                (set, filtered)
+            }
+        };
         // `JwkSet::parse` has admitted this document, so it parses here and `keys` is an array of as many entries.
-        let positions: Vec<Option<u64>> = crate::json::parse(log_jwks)
+        let positions: Vec<Option<u64>> = crate::json::parse(&keys_document)
             .ok()
             .and_then(|root| match root {
                 crate::json::Value::Object(members) => members
@@ -559,6 +568,21 @@ impl LogKeys {
                 _ => None,
             })
             .map(|items| items.iter().map(log_index_of).collect())
+            .unwrap_or_default();
+
+        let raw_keys: Vec<crate::json::Value> = crate::json::parse(log_jwks)
+            .ok()
+            .and_then(|root| match root {
+                crate::json::Value::Object(members) => members
+                    .into_iter()
+                    .find(|(name, _)| name == "keys")
+                    .map(|(_, value)| value),
+                _ => None,
+            })
+            .and_then(|keys| match keys {
+                crate::json::Value::Array(items) => Some(items),
+                _ => None,
+            })
             .unwrap_or_default();
 
         let log_public_keys = set.keys().iter().map(|j| j.key.clone()).collect();
@@ -586,7 +610,12 @@ impl LogKeys {
                     .map(|(_, value)| value),
                 _ => None,
             });
+        // R6.62(a), decided first: a key set in which any entry of `keys` or of `declaration_keys` is not an object carrying a string
+        // `kid`, `kty`, `alg` and `x` says nothing usable, and is read as a key set without the member.
+        let unreadable_entry = !raw_keys.iter().all(is_readable_key_entry)
+            || matches!(&declared, Some(crate::json::Value::Array(items)) if !items.iter().all(is_readable_key_entry));
         let declaration_keys = match declared {
+            _ if unreadable_entry => None,
             None => None,
             Some(crate::json::Value::Array(items)) => {
                 let mut read = Vec::with_capacity(items.len());
@@ -626,6 +655,39 @@ impl LogKeys {
     pub fn find(&self, kid: &str) -> Option<&LogKey> {
         self.keys.iter().rev().find(|k| k.kid == kid)
     }
+}
+
+/// `log_jwks` with the entries of `keys` that are not objects carrying a string `kid`, `kty`, `alg` and `x` removed (R6.62(a)), or `None`
+/// where that changes nothing or the document is not a key set at all. A reader that must say what a key set holds, where one entry of
+/// it cannot be read, still reads the head's key from the entries that can.
+pub(crate) fn readable_keys_document(log_jwks: &[u8]) -> Option<Vec<u8>> {
+    let mut root: serde_json::Value = serde_json::from_slice(log_jwks).ok()?;
+    let keys = root.get_mut("keys")?.as_array_mut()?;
+    let before = keys.len();
+    keys.retain(|entry| {
+        entry.as_object().is_some_and(|o| {
+            ["kid", "kty", "alg", "x"]
+                .iter()
+                .all(|name| o.get(*name).is_some_and(serde_json::Value::is_string))
+        })
+    });
+    if keys.len() == before {
+        return None;
+    }
+    serde_json::to_vec(&root).ok()
+}
+
+/// Whether a key entry is an object carrying a string `kid`, `kty`, `alg` and `x` (R6.62(a)).
+fn is_readable_key_entry(entry: &crate::json::Value) -> bool {
+    let crate::json::Value::Object(members) = entry else {
+        return false;
+    };
+    ["kid", "kty", "alg", "x"].iter().all(|name| {
+        matches!(
+            members.iter().find(|(m, _)| m == name),
+            Some((_, crate::json::Value::String(_)))
+        )
+    })
 }
 
 /// A key entry's `log_index` as a non-negative I-JSON integer, else `None`.

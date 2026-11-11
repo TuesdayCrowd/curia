@@ -123,7 +123,15 @@ pub fn verify_lifecycle(
     head: &[u8],
     log_jwks: &[u8],
 ) -> Result<VerifiedLifecycle, ActaError> {
-    let head = acta::verify_head(head, log_jwks)?;
+    // R6.62(a): a key set with an entry of `keys` that is not readable as a key still carries the head's key among the entries that are, and
+    // says nothing usable about the declaration keys, which is decided at the declaration.
+    let head = match acta::verify_head(head, log_jwks) {
+        Err(first @ ActaError::Jwks(_)) => match acta::readable_keys_document(log_jwks) {
+            Some(readable) => acta::verify_head(head, &readable).map_err(|_| first)?,
+            None => return Err(first),
+        },
+        other => other?,
+    };
     let log_keys = LogKeys::parse(log_jwks)?;
     verify_lifecycle_under(post_entry, chain, &head, &log_keys)
 }
