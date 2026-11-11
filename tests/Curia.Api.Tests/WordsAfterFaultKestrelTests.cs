@@ -772,19 +772,29 @@ public sealed partial class WordsAfterFaultKestrelTests(WordsAfterFaultFixture f
         Assert.True(head.TryGetValue(out var served, out var headRefusal), headRefusal?.Summary);
         var size = served!.TreeSize.ToString(CultureInfo.InvariantCulture);
 
+        // R11.94: the closing names when the head was signed. The tools run on a clock this test holds, 90 s after the head's own signed timestamp, so that the expected words are
+        // this test's arithmetic over that timestamp and that clock and never the client's.
+        var signedAt = DateTimeOffset.Parse(served.Timestamp!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        var began = signedAt.AddSeconds(90);
+        var signed = PublishedClientWords.SignedSecondsForm
+            .Replace("<instant>", signedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("<k>", "90", StringComparison.Ordinal);
+
         var fragments = PublishedClientWords.InclusionFragments();
         foreach (var post in new[] { posts[0], posts[3] })
         {
-            var tool = await VerifiedTextAsync(ToolsFor(WordsAfterFaultFixture.Answerer, headHome: NewHome()), post);
+            var tool = await VerifiedTextAsync(ToolsFor(WordsAfterFaultFixture.Answerer, new TimerManualTimeProvider(began), headHome: NewHome()), post);
             var leaf = LogIndexLine().Match(tool).Groups[1].Value;
             var expectedLeaf = Fold(fragments[0].Replace("<n>", leaf, StringComparison.Ordinal).Replace("<m>", size, StringComparison.Ordinal));
-            var closing = Fold(PublishedClientWords.PastHeadClosing.Replace("<n>", size, StringComparison.Ordinal));
+            var closing = Fold(PublishedClientWords.PastHeadClosing.Replace("<n>", size, StringComparison.Ordinal).Replace("<signed>", signed, StringComparison.Ordinal));
+            var thatHead = Fold(PublishedClientWords.ThatHeadSentence.Replace("<signed>", signed, StringComparison.Ordinal));
+            if (!tool.Contains(thatHead, StringComparison.Ordinal)) problems.Add($"curia_verify of {post}: the inclusion line lacks \"{thatHead}\"");
 
             if (!tool.Contains(expectedLeaf, StringComparison.Ordinal)) problems.Add($"curia_verify of {post}: the inclusion line lacks \"{expectedLeaf}\"");
             if (!tool.Contains(Fold(fragments[1]), StringComparison.Ordinal)) problems.Add($"curia_verify of {post}: the inclusion line lacks \"{fragments[1]}\"");
             if (!tool.Contains(closing, StringComparison.Ordinal)) problems.Add($"curia_verify of {post}: lacks the closing \"{closing}\"");
             // The fresh home retained no head: nothing to compare, so the closing is the published one whole, with no suffix after it (ruling 20).
-            var closingOnly = await VerifiedClosingAsync(ToolsFor(WordsAfterFaultFixture.Answerer, headHome: NewHome()), post);
+            var closingOnly = await VerifiedClosingAsync(ToolsFor(WordsAfterFaultFixture.Answerer, new TimerManualTimeProvider(began), headHome: NewHome()), post);
             if (closingOnly != closing) problems.Add($"curia_verify of {post}: the closing is \"{closingOnly}\", expected exactly \"{closing}\"");
 
             var cli = await CuriaAsync("verify", post, "--forum", Address);

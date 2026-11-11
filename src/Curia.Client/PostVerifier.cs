@@ -33,6 +33,11 @@ namespace Curia.Client;
 /// Errata G53 (R11.74 (b)): the tree size of the latest signed head when the post's leaf lies at or past it and no check failed, the typed
 /// fact <c>curia_verify</c>'s closing line names (<see cref="Render"/>). It is carried, not matched out of a detail string, and is <see langword="null"/> where a check failed.
 /// </param>
+/// <param name="PastHeadTimestamp">
+/// Errata G67 (R11.94): the latest signed head's own <c>timestamp</c>, as signed (the signer's clock), when <see cref="PastHeadTreeSize"/> is set. Signed content the client verified, never printed:
+/// the words render the client's reading of it and say <c>NOT STATED</c> where it is not a time (<see cref="HeadSignedWords"/>).
+/// </param>
+/// <param name="CheckBegan">The verifier's clock at the start of the check, which the age in the words is computed against (R11.94).</param>
 public sealed record PostVerification(
     string PostId,
     Check Signature,
@@ -44,7 +49,9 @@ public sealed record PostVerification(
     long? LogIndex,
     long? AnchorTreeSize,
     ImmutableArray<Successor> SupersededBy = default,
-    long? PastHeadTreeSize = null)
+    long? PastHeadTreeSize = null,
+    string? PastHeadTimestamp = null,
+    DateTimeOffset CheckBegan = default)
 {
     /// <summary>
     /// R11.74 (b): whether a check other than the ones the post's leaf past the head explains could not be made. Inclusion is the cause; the key and lifecycle checks
@@ -165,7 +172,7 @@ public sealed record PostVerification(
                 + "this client's ability to reach it.\n",
             CheckOutcome.CouldNotCheck when PastHeadTreeSize is { } pastHead =>
                 // R11.74 (b): the cause, from a typed fact, and never a sole cause where another check could not be made either.
-                HeadSignedWords.Closing(pastHead, headTimestamp: null, checkBegan: default, OtherCheckCouldNotBeMade) + "\n",
+                HeadSignedWords.Closing(pastHead, PastHeadTimestamp, CheckBegan, OtherCheckCouldNotBeMade) + "\n",
             CheckOutcome.CouldNotCheck =>
                 "NOT ESTABLISHED. Nothing failed, and something could not be checked. This is not a "
                 + "verification and must not be read as one; the line above says what was missing.\n",
@@ -249,10 +256,12 @@ public sealed class PostVerifier
     {
         ArgumentNullException.ThrowIfNull(post);
 
+        // R11.94: the instant the check began, which the age of the head in the words is computed against.
+        var began = _time.GetUtcNow();
         var (signature, digest, signingKey) = await SignatureAsync(post, ct).ConfigureAwait(false);
 
         var head = await AnchorAsync(ct).ConfigureAwait(false);
-        var inclusion = await InclusionAsync(post, head, ct).ConfigureAwait(false);
+        var inclusion = await InclusionAsync(post, head, began, ct).ConfigureAwait(false);
         var consistency = await ConsistencyAsync(head, ct).ConfigureAwait(false);
         var keyBinding = await KeyBindingAsync(post, head, inclusion, signature, signingKey, ct).ConfigureAwait(false);
         var lifecycle = await LifecycleAsync(post, head, inclusion, ct).ConfigureAwait(false);
@@ -268,7 +277,9 @@ public sealed class PostVerifier
             post.LogIndex,
             head.Head?.TreeSize,
             post.Provenance.SupersededBy,
-            PastHead(inclusion, signature, consistency));
+            PastHead(inclusion, signature, consistency),
+            inclusion.PastHeadTimestamp,
+            began);
     }
 
     /// <summary>R11.74 (b): the head's tree size when the leaf lies past it and no check failed; otherwise <see langword="null"/>.</summary>
@@ -505,7 +516,7 @@ public sealed class PostVerifier
     /// <c>head_signed: false</c>, and treating that as a failure would report an attack every time a
     /// signing schedule fell behind.
     /// </summary>
-    private async Task<PostInclusion> InclusionAsync(ProvenancePost post, Anchor anchor, CancellationToken ct)
+    private async Task<PostInclusion> InclusionAsync(ProvenancePost post, Anchor anchor, DateTimeOffset began, CancellationToken ct)
     {
         if (post.LogIndex is not { } logIndex || post.InclusionProof is null)
             return new(Check.CouldNotCheck(
@@ -523,9 +534,12 @@ public sealed class PostVerifier
             return new(
                 Check.CouldNotCheck(
                     Invariant($"leaf {logIndex} is not covered by the signed head at tree size {head.TreeSize}.")
+                    // R11.94: when that head was signed, from its own signed timestamp, between the first sentence and the second.
+                    + " " + HeadSignedWords.InclusionSentence(head.Timestamp, began)
                     + " The Forum served this post at that leaf and no published head commits to it yet. A later head will,"
                     + " once the operator signs one with 'curia-operator sign-head'; verify again then."),
-                PastHeadTreeSize: head.TreeSize);
+                PastHeadTreeSize: head.TreeSize,
+                PastHeadTimestamp: head.Timestamp);
 
         var proof = post.InclusionProof;
         if (proof.TreeSize != head.TreeSize)
@@ -694,5 +708,5 @@ public sealed class PostVerifier
 
     /// <summary>R6.52's second check, and the post's own entry and proof it ran over, when it had both.</summary>
     private readonly record struct PostInclusion(
-        Check Check, LogEntryDocument? Entry = null, InclusionProofDocument? Proof = null, long? PastHeadTreeSize = null);
+        Check Check, LogEntryDocument? Entry = null, InclusionProofDocument? Proof = null, long? PastHeadTreeSize = null, string? PastHeadTimestamp = null);
 }

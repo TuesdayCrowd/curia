@@ -365,7 +365,7 @@ public sealed class BoardToolTests : IDisposable
             [read.Contains("curia_boards") ? "curia_boards is a read tool" : "curia_boards is not a read tool", withIdentity.Contains("curia_boards", StringComparison.Ordinal) ? "named in the instructions with an identity" : "not named in the instructions with an identity", withoutIdentity.Contains("curia_boards", StringComparison.Ordinal) ? "named in the instructions without one" : "not named in the instructions without one"]);
     }
 
-    /// <summary>LOB36, the version: <see cref="ToolCatalogue.Version"/> is the number the one parser, <see cref="PublishedReadersLastWords.Version"/>, reads out of R11.88's paragraph (0.11.0). RLW40 (nothing else in <c>tests/</c> reads a version out of the errata) stays green.</summary>
+    /// <summary>LOB36, the version: <see cref="ToolCatalogue.Version"/> is the number the one parser, <see cref="PublishedReadersLastWords.Version"/>, reads out of R11.88's paragraph (0.11.1). RLW40 (nothing else in <c>tests/</c> reads a version out of the errata) stays green.</summary>
     [Fact]
     public void R11_88_LOB36_TheVersionIsTheOneTheErrataNames()
     {
