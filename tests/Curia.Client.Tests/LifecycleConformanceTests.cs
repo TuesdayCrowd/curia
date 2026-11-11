@@ -98,7 +98,7 @@ public sealed class LifecycleConformanceTests
     }
 
     /// <summary>
-    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain, the seven PR H adds under the declaration key and the six of Amendment 3: errata G67) are all present and reach
+    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain, the seven PR H adds under the declaration key, the six of Amendment 3 and the six of Amendment 4: errata G67) are all present and reach
     /// the verdict and predicate the vocabulary names, one string at a time. They are named here so that a case dropped from the family is a red fact and not a smaller count.
     /// </summary>
     [Fact]
@@ -134,9 +134,15 @@ public sealed class LifecycleConformanceTests
             ["compromise-declaration-key-is-log-key-under-another-kid"] = ("failed", "declaration-key-is-log-key"),
             ["compromise-another-declaration-key-position-unknown"] = ("could-not-check", "declaration-key-position-unknown"),
             ["compromise-declaration-kid-published-twice"] = ("failed", "declaration-signature-invalid"),
+            ["compromise-declaration-kid-twice-one-unpositioned"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-declaration-key-without-kid"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-log-key-without-kid"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-keys-share-position"] = ("failed", "declaration-key-not-first"),
+            ["compromise-declaration-keys-entry-not-an-object"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-keys-entry-without-alg"] = ("could-not-check", "declaration-key-set-not-supplied"),
         };
 
-        Assert.Equal(28, expected.Count);
+        Assert.Equal(34, expected.Count);
         foreach (var (name, want) in expected)
         {
             Assert.Equal(want, Expected(name));
@@ -157,7 +163,7 @@ public sealed class LifecycleConformanceTests
             .GetProperty("count").GetInt32();
 
         Assert.Equal(declared, CaseNames().Count);
-        Assert.Equal(65, declared);
+        Assert.Equal(71, declared);
     }
 
     [Fact]
@@ -184,14 +190,17 @@ public sealed class LifecycleConformanceTests
         SignedHeadDocument Head,
         LogKeySet LogKeys);
 
-    internal static CaseDocuments Load(string name)
+    internal static CaseDocuments Load(string name) => Load(name, File.ReadAllBytes(Path.Combine(Root, name, "log-jwks.json")));
+
+    /// <summary>A case read against a key set other than its own (HSU50 mutates one entry of a key set and reads the case again).</summary>
+    internal static CaseDocuments Load(string name, byte[] logJwks)
     {
         var dir = Path.Combine(Root, name);
         using var meta = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(dir, "meta.json")));
         var postIndex = meta.RootElement.GetProperty("post_index").GetInt64();
 
         var head = Read(Path.Combine(dir, "head.json"), ActaDocuments.ReadHead);
-        var keys = Read(Path.Combine(dir, "log-jwks.json"), ActaDocuments.ReadLogJwks);
+        var keys = Read("the key set of " + name, logJwks, ActaDocuments.ReadLogJwks);
         Assert.Equal(CheckOutcome.Verified, ActaCheck.HeadSignature(head, keys.Keys).Outcome);
 
         var indices = Directory.EnumerateFiles(Path.Combine(dir, "entries"), "*.json")
@@ -236,9 +245,11 @@ public sealed class LifecycleConformanceTests
     /// <summary>The <c>keys</c> member of a case's key set: the log keys, which sign heads.</summary>
     internal static ImmutableArray<LogJwk> ReadLogKeys(string path) => Read(path, ActaDocuments.ReadLogJwks).Keys;
 
-    private static T Read<T>(string path, Func<JsonValue, Curia.Domain.Primitives.Result<T>> parse)
+    private static T Read<T>(string path, Func<JsonValue, Curia.Domain.Primitives.Result<T>> parse) => Read(path, File.ReadAllBytes(path), parse);
+
+    private static T Read<T>(string path, byte[] bytes, Func<JsonValue, Curia.Domain.Primitives.Result<T>> parse)
     {
-        var parsed = JsonReader.Parse(File.ReadAllBytes(path), AdmitLimits.Default);
+        var parsed = JsonReader.Parse(bytes, AdmitLimits.Default);
         Assert.True(parsed.TryGetValue(out var value, out var error), $"{path}: {error?.Type}");
         Assert.True(parse(value!).TryGetValue(out var read, out var readError), $"{path}: {readError?.Type}");
         return read!;

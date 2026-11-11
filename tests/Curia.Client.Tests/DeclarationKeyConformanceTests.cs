@@ -1,5 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Curia.Canon.Json;
 using Xunit;
 
 namespace Curia.Client.Tests;
@@ -14,7 +17,7 @@ namespace Curia.Client.Tests;
     "Naming",
     "CA1707:Identifiers should not contain underscores",
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
-public sealed class DeclarationKeyConformanceTests
+public sealed class DeclarationKeyConformanceTests(Xunit.ITestOutputHelper output)
 {
     private static string Describe(string name, string verdict, string predicate)
     {
@@ -46,14 +49,14 @@ public sealed class DeclarationKeyConformanceTests
     }
 
     /// <summary>
-    /// HSU18 (this reader's half). The family holds the 65 lifecycle cases (Amendment 1 ruling 26's 58, the control of HSU22 and the six of HSU44) and the 12 acta cases, and the index declares
+    /// HSU18 (this reader's half). The family holds the 71 lifecycle cases (Amendment 1 ruling 26's 58, the control of HSU22, the six of HSU44 and the six of HSU49) and the 12 acta cases, and the index declares
     /// what the directories hold. Red on the seam: <c>lifecycle 53</c>. (Every case reaching its own expected verdict is the existing <c>R6_54_EveryLifecycleCaseReachesItsVerdictAndNamesItsPredicate</c>.)
     /// </summary>
     [Fact]
     public void R6_62_HSU18_TheFamiliesHoldTheCountsOfTheDeclarationKeyVectors()
     {
         Assert.Equal(
-            "lifecycle 65 (index 65); acta 12 (index 12)",
+            "lifecycle 71 (index 71); acta 12 (index 12)",
             $"lifecycle {DirectoryCount("lifecycle")} (index {IndexCount("lifecycle")}); acta {DirectoryCount("acta")} (index {IndexCount("acta")})");
     }
 
@@ -136,4 +139,133 @@ public sealed class DeclarationKeyConformanceTests
             Describe("compromise-declaration-key-is-log-key-under-another-kid", "failed", "declaration-key-is-log-key"),
             Describe("compromise-another-declaration-key-position-unknown", "could-not-check", "declaration-key-position-unknown"),
             Describe("compromise-declaration-kid-published-twice", "failed", "declaration-signature-invalid"));
+
+    /// <summary>
+    /// HSU49 (this reader's half; Amendment 4 rulings 46 to 49). The six vectors that state what both readers decide about an entry no reader can read, a kid listed twice with one
+    /// listing unpositioned, and two keys at one position, each by hand: an unreadable entry, in either member, leaves the key set without a usable member; a kid with an
+    /// unpositioned listing has no earliest; of two keys at one position neither is the first.
+    /// </summary>
+    [Fact]
+    public void R6_62_HSU49_TheUnreadableEntryAndTheRepeatedKidAndTheTieHoldInTheSixVectors() =>
+        AllHold(
+            Describe("compromise-declaration-kid-twice-one-unpositioned", "could-not-check", "declaration-key-position-unknown"),
+            Describe("compromise-declaration-key-without-kid", "could-not-check", "declaration-key-set-not-supplied"),
+            Describe("compromise-log-key-without-kid", "could-not-check", "declaration-key-set-not-supplied"),
+            Describe("compromise-declaration-keys-share-position", "failed", "declaration-key-not-first"),
+            Describe("compromise-declaration-keys-entry-not-an-object", "could-not-check", "declaration-key-set-not-supplied"),
+            Describe("compromise-declaration-keys-entry-without-alg", "could-not-check", "declaration-key-set-not-supplied"));
+
+    private const string TwoKeysCase = "compromise-first-of-two-declaration-keys";
+
+    private static readonly string[] Members = ["keys", "declaration_keys"];
+
+    /// <summary>
+    /// The key set of <c>compromise-first-of-two-declaration-keys</c> with <paramref name="appended"/> appended to <paramref name="member"/>: a copy of the second declaration key's JWK
+    /// (for <c>keys</c>, with a kid of its own; for <c>declaration_keys</c>, at <c>log_index</c> 9), then whatever the row does to it.
+    /// </summary>
+    private static byte[] KeySetWith(string member, Func<JsonObject, IEnumerable<JsonNode?>> appended)
+    {
+        var set = JsonNode.Parse(File.ReadAllBytes(Path.Combine(LifecycleConformanceTests.Root, TwoKeysCase, "log-jwks.json")))!.AsObject();
+        var second = set["declaration_keys"]!.AsArray().Select(k => k!.AsObject()).Single(k => k["log_index"]!.GetValue<long>() == 4);
+        var copy = (JsonObject)second.DeepClone();
+        copy["log_index"] = 9;
+        if (member == "keys") copy["kid"] = "conformance-extra-log-key";
+        var array = set[member]!.AsArray();
+        foreach (var item in appended(copy)) array.Add(item);
+        return JsonSerializer.SerializeToUtf8Bytes(set);
+    }
+
+    private static string Verdict(byte[] logJwks)
+    {
+        var (verdict, predicate) = LifecycleConformanceTests.Judge(LifecycleConformanceTests.Load(TwoKeysCase, logJwks));
+        return $"{verdict} {predicate}";
+    }
+
+    /// <summary>
+    /// HSU50, table 1 (asserted; Amendment 4 ruling 47 and 48). To the member under test (<c>keys</c>, then <c>declaration_keys</c>) a copy of the second declaration key's JWK is appended
+    /// and then mutated: <c>kid</c>, <c>kty</c>, <c>alg</c> or <c>x</c> dropped, or the entry replaced by <c>7</c> or by <c>null</c>. Each of the twelve is an entry no reader can read as a key,
+    /// and each is could not be checked, <c>declaration-key-set-not-supplied</c>; the control, the copy unmutated, is disputed in each member (so that a reader refusing every longer key set is red).
+    /// </summary>
+    [Fact]
+    public void R6_62_HSU50_AnEntryNoReaderCanReadLeavesTheKeySetWithoutAUsableMemberInEitherMember()
+    {
+        static JsonNode? Dropping(JsonObject copy, string member)
+        {
+            copy.Remove(member);
+            return copy;
+        }
+
+        var rows = new List<(string Row, Func<JsonObject, JsonNode?> Mutate)>
+        {
+            ("drop kid", c => Dropping(c, "kid")),
+            ("drop kty", c => Dropping(c, "kty")),
+            ("drop alg", c => Dropping(c, "alg")),
+            ("drop x", c => Dropping(c, "x")),
+            ("replace by 7", _ => JsonNode.Parse("7")),
+            ("replace by null", _ => null),
+        };
+
+        var problems = new List<string>();
+        foreach (var member in Members)
+        {
+            var control = Verdict(KeySetWith(member, c => [c]));
+            if (control != "disputed disputed") problems.Add($"{member} control: expected disputed disputed, got {control}");
+
+            foreach (var (row, mutate) in rows)
+            {
+                var got = Verdict(KeySetWith(member, c => [mutate(c)]));
+                if (got != "could-not-check declaration-key-set-not-supplied") problems.Add($"{member} {row}: expected could-not-check declaration-key-set-not-supplied, got {got}");
+            }
+        }
+
+        AllHold([.. problems]);
+    }
+
+    /// <summary>
+    /// HSU50, table 2 (measured, not asserted; Amendment 4 ruling 50): entries readable by the four-member definition whose material a reader may refuse, in each member, read by this
+    /// reader and written to the test output beside the Rust reader's own table (<c>tests/lifecycle.rs</c>). A row on which the two differ is a stop, filed as D61 item 268.
+    /// </summary>
+    [Fact]
+    public void R6_62_HSU50_TheMaterialAReaderMayRefuseIsMeasured()
+    {
+        var rows = new List<(string Row, Func<JsonObject, IEnumerable<JsonNode?>> Append)>
+        {
+            ("an EC key without y", c => { c.Remove("y"); return [c]; }),
+            ("an x that does not decode", c => { c["x"] = "!!!"; return [c]; }),
+            ("a kty of RSA", c => { c["kty"] = "RSA"; return [c]; }),
+            ("a kid that is a number", c => { c["kid"] = 7; return [c]; }),
+            ("one kid twice at one position with other key material", c =>
+            {
+                var other = (JsonObject)c.DeepClone();
+                other["x"] = new string('A', 43);
+                return [c, other];
+            }),
+        };
+
+        var table = new StringBuilder("HSU50 table 2 (C#):");
+        var measured = 0;
+        foreach (var member in Members)
+        {
+            foreach (var (row, append) in rows)
+            {
+                string got;
+                try
+                {
+                    got = Verdict(KeySetWith(member, append));
+                }
+                catch (Xunit.Sdk.XunitException refused)
+                {
+                    got = "refused: " + refused.Message.Split('\n')[0];
+                }
+
+                table.Append('\n').Append(Line(member, row, got));
+                measured++;
+            }
+        }
+
+        output.WriteLine(table.ToString());
+        Assert.Equal(10, measured);
+    }
+
+    private static string Line(string member, string row, string got) => $"  {member,-17} | {row,-55} | {got}";
 }
