@@ -203,13 +203,19 @@ public static class OperatorCommands
                                      the declaration key (publish-declaration-key and compromise
                                      only; never in the same environment as the log key)
           Curia__Lifecycle__Enabled  none, or a comma list over rotation, retirement and compromise
+                                     that this build's approval record approves; it is read before
+                                     any verb runs, so a kind the record does not approve refuses
+                                     every verb (exit 3), sign-head and publish-declaration-key
+                                     among them
 
         EXIT CODES
           0  recorded
           1  usage error -- nothing was written
           2  refused -- the reason's slug is on stderr; nothing was written
-          3  CURIA_EVENTS_POSTGRES is not set, a key is unusable, or the environment holds both
-             the log key and the declaration key
+          3  CURIA_EVENTS_POSTGRES is not set, a key is unusable, Curia__Lifecycle__Enabled names a
+             kind this build does not approve, or the environment holds the key the verb does not
+             run with (R12.18): the declaration key for sign-head, the log key for
+             publish-declaration-key and compromise
           4  the lifecycle guard refuses this verb -- nothing was read, signed or written
           5  the Forum's store could not complete the verb (curia/store/unavailable) -- what it
              appended, if anything, is not known: read the log before running it again; sign-head
@@ -428,7 +434,7 @@ public static class OperatorCommands
 
         // Errata G67, R12.18: before either key is parsed or used. The host that signs heads holds the log key and no declaration key.
         if (!string.IsNullOrWhiteSpace(readDeclarationSigningKeyPem?.Invoke()))
-            return await SharedEnvironmentAsync(stderr, "sign-head", "CURIA_DECLARATION_SIGNING_KEY_PEM").ConfigureAwait(false);
+            return await SharedEnvironmentAsync(stderr, "sign-head", "CURIA_DECLARATION_SIGNING_KEY_PEM", "the declaration key", DeclarationKeyHeldWhy).ConfigureAwait(false);
 
         var logSigningKeyPem = readLogSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(logSigningKeyPem))
@@ -633,7 +639,7 @@ public static class OperatorCommands
 
         // Errata G67, R12.18: before either key is parsed or used. A declaration key is never published or used in an environment that holds the log key.
         if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
-            return await SharedEnvironmentAsync(stderr, "publish-declaration-key", "CURIA_LOG_SIGNING_KEY_PEM").ConfigureAwait(false);
+            return await SharedEnvironmentAsync(stderr, "publish-declaration-key", "CURIA_LOG_SIGNING_KEY_PEM", "the log key", LogKeyHeldWhy).ConfigureAwait(false);
 
         var pem = readDeclarationSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(pem))
@@ -749,7 +755,7 @@ public static class OperatorCommands
 
         // Errata G67, R12.18: after the gate, before either key is parsed or used.
         if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
-            return await SharedEnvironmentAsync(stderr, "compromise", "CURIA_LOG_SIGNING_KEY_PEM").ConfigureAwait(false);
+            return await SharedEnvironmentAsync(stderr, "compromise", "CURIA_LOG_SIGNING_KEY_PEM", "the log key", LogKeyHeldWhy).ConfigureAwait(false);
 
         var pem = readDeclarationSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(pem))
@@ -955,19 +961,22 @@ public static class OperatorCommands
     }
 
     /// <summary>
-    /// Errata G67, R12.18: the refusal of an environment that holds both keys. It names the variable to unset and the verb, never a value, and is made before
+    /// Errata G67, R12.18: the refusal of an environment that holds the key the verb does not run with. It names the variable to unset and the verb, never a value, and is made before
     /// either key is parsed or used (two keys in one environment are one key to whatever reads that environment); the other side's variable is tested for emptiness and held by nothing after.
     /// Nothing was written.
     /// </summary>
-    private static async Task<int> SharedEnvironmentAsync(TextWriter stderr, string verb, string variable)
+    private static async Task<int> SharedEnvironmentAsync(TextWriter stderr, string verb, string variable, string held, string why)
     {
         await stderr.WriteLineAsync(
-            $"error: {variable} is set in this environment, and {verb} does not run in an environment that holds both the log key and the declaration key (R12.18): " +
-            $"the host that signs heads holds the log key and no declaration key, and the declaration key is held where no unattended process can read it. " +
+            $"error: {variable} is set in this environment, and {verb} does not run in an environment that holds {held} (R12.18): {why} " +
             $"Unset {variable} and run {verb} again. No key was parsed or used, and nothing was signed or written.")
             .ConfigureAwait(false);
         return ExitCode.Environment;
     }
+
+    private const string DeclarationKeyHeldWhy = "the key that signs heads is held by an unattended process, and the declaration key is held where none can read it.";
+
+    private const string LogKeyHeldWhy = "the log key is the one an unattended process holds, and a declaration key is published and used only where none can read it.";
 
     private static async Task<int> UsageErrorAsync(TextWriter stderr, string message)
     {

@@ -342,6 +342,59 @@ public sealed partial class HeadsSignedUnattendedTests
     }
 
     /// <summary>
+    /// HSU53 (Amendment 7 ruling 65). The environment refusal claims only keys the environment holds. Each of the three verbs is run with only the key it refuses set and with both set, and the refusal is read
+    /// against the environment this test built: the keys it says the environment holds are the one key the verb refuses and none that is not set, and it never says "holds both". The live run found
+    /// <c>compromise</c> with only the log key refusing "in an environment that holds both" (trap 243). HSU12 holds the variable's name, "unset", the absence of the value and the last sentence, all of which the
+    /// false sentence kept, and every one of its refusal rows sets both variables, the one environment in which that sentence is true. Red on the tip: all six rows.
+    /// </summary>
+    [Fact]
+    public async Task R12_18_HSU53_TheEnvironmentRefusalClaimsOnlyWhatTheEnvironmentHolds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var forum = await NewAsync<ForumFixture>();
+        var logPem = LogSigningKey.GeneratePem();
+        var declarationPem = DeclarationSigningKey.GeneratePem();
+        await GrowAsync(forum, ct);
+        var before = await CountAsync(forum, null, ct);
+        string[] compromise = ["compromise", "--agent", "https://agents.example/nobody", "--kid", "k", "--from-index", "1", "--reason", "owner-reported", "--operator", "ops"];
+
+        // The key each verb refuses in its environment: sign-head the declaration key, the other two the log key.
+        var verbs = new (string Name, string[] Args, string Refused)[]
+        {
+            ("sign-head", ["sign-head", "--by", "ops"], "declaration"),
+            ("publish-declaration-key", ["publish-declaration-key", "--by", "ops"], "log"),
+            ("compromise", compromise, "log"),
+        };
+
+        var expected = new List<string>();
+        var actual = new List<string>();
+        foreach (var (name, args, refused) in verbs)
+        {
+            foreach (var both in new[] { false, true })
+            {
+                var logSet = refused == "log" || both;
+                var declarationSet = refused == "declaration" || both;
+                var run = await OperatorAsync(forum, ct, args, logKey: logSet ? Pem(logPem) : null, declarationKey: declarationSet ? Pem(declarationPem) : null);
+
+                var held = new List<string>();
+                if (logSet) held.Add("log");
+                if (declarationSet) held.Add("declaration");
+                var claimed = Regex.Matches(run.Err, @"holds (?:the )?(log|declaration) key", RegexOptions.None, TimeSpan.FromSeconds(5))
+                    .Select(m => m.Groups[1].Value).Distinct().Order().ToList();
+
+                var row = $"{name} {(both ? "both" : "alone")}";
+                expected.Add($"{row}: 3, claims {refused}");
+                actual.Add($"{row}: {run.Exit}, claims {string.Join('+', claimed)}"
+                    + (claimed.Except(held).Any() ? " NOT-HELD" : string.Empty)
+                    + (run.Err.Contains("holds both", StringComparison.Ordinal) ? " SAYS-BOTH" : string.Empty));
+            }
+        }
+
+        var after = await CountAsync(forum, null, ct);
+        Same(string.Join("; ", expected) + " | 0 rows", string.Join("; ", actual) + $" | {after - before} rows");
+    }
+
+    /// <summary>
     /// HSU13. The exemption is exactly one entry (the production gate; Amendment 2 ruling 29): <c>publish-declaration-key</c> exits 0 and appends one <c>log.declaration-key</c>; <c>compromise</c> in the
     /// same environment exits 4 with <c>lifecycle-not-enabled</c> before the key reader is called; <c>GET /v1/log/jwks</c> serves the key in <c>declaration_keys</c> with its <c>log_index</c> and <c>keys</c>
     /// does not carry it; <c>curia_lifecycle_kinds</c> is still empty. Red on the seam: <c>declaration_keys</c> is absent.
