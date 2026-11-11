@@ -466,3 +466,116 @@ fn hsu50_measured_entries_that_are_readable_as_objects_but_not_as_keys() {
         println!("table2: {name}: {verdict} {predicate}");
     }
 }
+
+/// R6.62's four vectors for a key entry outside the closed form, and for a kid listed twice at one position, each reaching the verdict its `expected.json`
+/// says, written here by hand.
+#[test]
+fn r6_62_the_four_closed_form_vectors_reach_their_verdicts() {
+    let not_supplied = "declaration-key-set-not-supplied";
+    all_hold(&[
+        describe(
+            "compromise-declaration-key-without-y",
+            "could-not-check",
+            not_supplied,
+        ),
+        describe(
+            "compromise-declaration-key-x-not-base64url",
+            "could-not-check",
+            not_supplied,
+        ),
+        describe(
+            "compromise-log-key-kty-rsa",
+            "could-not-check",
+            not_supplied,
+        ),
+        describe(
+            "compromise-declaration-kid-twice-at-one-position",
+            "could-not-check",
+            "declaration-key-position-unknown",
+        ),
+    ]);
+}
+
+/// Applies `mutate` to an EC entry of `member`: the declaration key itself in `declaration_keys`, and in `keys` a copy of it under another `kid` appended after
+/// the head key (so the head still verifies).
+fn mutated_ec_key_set(
+    base: &serde_json::Value,
+    member: &str,
+    mutate: &dyn Fn(&mut serde_json::Value),
+) -> Vec<u8> {
+    let mut jwks = base.clone();
+    let declaration_key = jwks["declaration_keys"][0].clone();
+    if member == "keys" {
+        let mut copy = declaration_key;
+        copy["kid"] = serde_json::json!("another-ec-key");
+        jwks["keys"].as_array_mut().expect("an array").push(copy);
+    }
+    let list = jwks[member].as_array_mut().expect("an array");
+    let last = list.len() - 1;
+    mutate(&mut list[last]);
+    serde_json::to_vec(&jwks).expect("serializes")
+}
+
+/// HSU51's table: eight entries outside R6.62's closed form, each in a `declaration_keys` entry and in a `keys` entry, and each leaves the key set without a usable member.
+#[test]
+fn hsu51_an_entry_outside_the_closed_form_leaves_the_key_set_without_a_usable_member() {
+    let (vector, base) = hsu50_base();
+    let table: [Mutation; 8] = [
+        ("EC key without y", |e| drop_member(e, "y")),
+        ("x not base64url", |e| {
+            e["x"] = serde_json::json!("!!not base64url!!")
+        }),
+        ("kty RSA", |e| e["kty"] = serde_json::json!("RSA")),
+        ("coordinate of 42 characters", |e| {
+            let x = e["x"].as_str().expect("x").to_string();
+            e["x"] = serde_json::json!(&x[..42]);
+        }),
+        ("coordinate of 44 characters", |e| {
+            let x = e["x"].as_str().expect("x").to_string();
+            e["x"] = serde_json::json!(format!("{x}A"));
+        }),
+        ("last character outside the set", |e| {
+            let x = e["x"].as_str().expect("x").to_string();
+            e["x"] = serde_json::json!(format!("{}B", &x[..42]));
+        }),
+        ("alg ES256 with kty OKP", |e| {
+            e["kty"] = serde_json::json!("OKP")
+        }),
+        ("crv missing", |e| drop_member(e, "crv")),
+    ];
+    let mut problems = Vec::new();
+    let mut rows = 0;
+    for member in ["declaration_keys", "keys"] {
+        for (name, mutate) in &table {
+            rows += 1;
+            let served = mutated_ec_key_set(&base, member, mutate);
+            let got = judge_under(&vector, &served);
+            if got
+                != (
+                    "could-not-check".to_string(),
+                    "declaration-key-set-not-supplied".to_string(),
+                )
+            {
+                problems.push(format!("{member} / {name}: got {} {}", got.0, got.1));
+            }
+        }
+    }
+    assert_eq!(rows, 16);
+    all_hold(&problems);
+}
+
+/// HSU51's measured row: an EC entry whose `x` and `y` are each 43 `A` is in the closed form and is not a point on the curve. R6.62 asks that of the declaring key
+/// alone, at the signature. It asserts nothing; run with `--nocapture` to read it.
+#[test]
+fn hsu51_measured_an_entry_in_the_closed_form_that_is_not_a_point_on_the_curve() {
+    let (vector, base) = hsu50_base();
+    let off_curve: &dyn Fn(&mut serde_json::Value) = &|e| {
+        e["x"] = serde_json::json!("A".repeat(43));
+        e["y"] = serde_json::json!("A".repeat(43));
+    };
+    for member in ["declaration_keys", "keys"] {
+        let served = mutated_ec_key_set(&base, member, off_curve);
+        let (verdict, predicate) = judge_under(&vector, &served);
+        println!("hsu51 measured: {member}, x and y each 43 A: {verdict} {predicate}");
+    }
+}

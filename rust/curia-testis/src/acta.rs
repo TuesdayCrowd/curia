@@ -519,7 +519,11 @@ pub fn verify_head(head_json: &[u8], log_jwks: &[u8]) -> Result<VerifiedHead, Ac
 #[derive(Debug, Clone)]
 pub struct LogKey {
     pub kid: String,
-    pub key: crate::jwk::Jwk,
+    /// The parsed public key, or `None` where the entry is a key the reader can read (R6.62's closed form) whose point does not lie on its
+    /// curve: R6.62 asks that of the declaring key alone, at the signature, so such an entry is a key that cannot verify anything.
+    pub key: Option<crate::jwk::Jwk>,
+    /// `alg`, `kty`, `crv`, `x` and `y` as the entry states them: two listings of a kid are the same key where these are equal.
+    pub material: [Option<String>; 5],
     /// `None` when the member is absent, negative, or not an I-JSON integer: the position is not given, and a
     /// declaration under this key cannot be said to follow its publication (KF2, KF4's rule).
     pub log_index: Option<u64>,
@@ -527,112 +531,86 @@ pub struct LogKey {
 
 /// The log's key set with each key's position, read from `GET /v1/log/jwks`'s body.
 ///
-/// The key material is parsed by [`JwkSet::parse`], the one JWK parser, so a key set this reads is a key set
-/// [`verify_head`] reads, byte for byte; the position of each key is read beside it from the same document. A key
-/// without a `kid` carries no position a declaration could name and is left out.
+/// An entry is a key the reader can read only in R6.62's closed form ([`is_readable_key_entry`]). A key set in which any entry of
+/// `keys` or of `declaration_keys` is not one carries no usable `declaration_keys` (R6.62), whatever else it holds.
 #[derive(Debug, Clone, Default)]
 pub struct LogKeys {
     keys: Vec<LogKey>,
-    /// The `declaration_keys` member (errata G67, R6.62): `None` where the document carries no such member (an absence, which is not a
-    /// denial), `Some` of an empty list where the Forum served an empty one.
+    /// The `declaration_keys` member (errata G67, R6.62): `None` where the document carries no such member, or a member that is not an array, or
+    /// an entry that is not a key the reader can read; `Some` of an empty list where the Forum served an empty one.
     declaration_keys: Option<Vec<LogKey>>,
-    /// The public key of every entry of `keys`, with or without a `kid` (R6.62: a log key by `kid`, or by public key under another `kid`).
+    /// The public key of every readable entry of `keys` that has one (R6.62: a log key by `kid`, or by public key under another `kid`).
     log_public_keys: Vec<crate::jwk::PublicKey>,
 }
 
+fn entry_member<'a>(entry: &'a crate::json::Value, name: &str) -> Option<&'a crate::json::Value> {
+    match entry {
+        crate::json::Value::Object(members) => {
+            members.iter().find(|(m, _)| m == name).map(|(_, v)| v)
+        }
+        _ => None,
+    }
+}
+
+fn entry_text<'a>(entry: &'a crate::json::Value, name: &str) -> Option<&'a str> {
+    match entry_member(entry, name) {
+        Some(crate::json::Value::String(s)) => Some(s),
+        _ => None,
+    }
+}
+
+fn root_member(log_jwks: &[u8], name: &str) -> Option<crate::json::Value> {
+    match crate::json::parse(log_jwks).ok()? {
+        crate::json::Value::Object(members) => {
+            members.into_iter().find(|(m, _)| m == name).map(|(_, v)| v)
+        }
+        _ => None,
+    }
+}
+
+fn read_entry(item: &crate::json::Value) -> LogKey {
+    let text = |n: &str| entry_text(item, n).map(str::to_string);
+    LogKey {
+        kid: text("kid").unwrap_or_default(),
+        key: crate::jwk::parse_key_entry(item).ok(),
+        material: [text("alg"), text("kty"), text("crv"), text("x"), text("y")],
+        log_index: log_index_of(item),
+    }
+}
+
 impl LogKeys {
-    /// Parses the key set document. The same errors as `JwkSet::parse`.
+    /// Parses the key set document. An error only where the document is no key set at all (the errors of `JwkSet::parse`).
     pub fn parse(log_jwks: &[u8]) -> Result<Self, ActaError> {
-        let (set, keys_document) = match JwkSet::parse(log_jwks) {
-            Ok(set) => (set, log_jwks.to_vec()),
-            // R6.62(a): an entry of `keys` that is no object carrying a string `kid`, `kty`, `alg` and `x` leaves the key set without a usable
-            // member, which is decided by what the document says and not by an error. The entries that are readable still make a key set.
-            Err(err) => {
-                let filtered = readable_keys_document(log_jwks).ok_or(ActaError::Jwks(err))?;
-                let set = JwkSet::parse(&filtered).map_err(ActaError::Jwks)?;
-                (set, filtered)
-            }
+        let Some(crate::json::Value::Array(raw_keys)) = root_member(log_jwks, "keys") else {
+            return Err(ActaError::Jwks(
+                JwkSet::parse(log_jwks)
+                    .err()
+                    .unwrap_or(crate::jwk::JwkError::KeysNotArray),
+            ));
         };
-        // `JwkSet::parse` has admitted this document, so it parses here and `keys` is an array of as many entries.
-        let positions: Vec<Option<u64>> = crate::json::parse(&keys_document)
-            .ok()
-            .and_then(|root| match root {
-                crate::json::Value::Object(members) => members
-                    .into_iter()
-                    .find(|(name, _)| name == "keys")
-                    .map(|(_, value)| value),
-                _ => None,
-            })
-            .and_then(|keys| match keys {
-                crate::json::Value::Array(items) => Some(items),
-                _ => None,
-            })
-            .map(|items| items.iter().map(log_index_of).collect())
-            .unwrap_or_default();
+        let declared = root_member(log_jwks, "declaration_keys");
 
-        let raw_keys: Vec<crate::json::Value> = crate::json::parse(log_jwks)
-            .ok()
-            .and_then(|root| match root {
-                crate::json::Value::Object(members) => members
-                    .into_iter()
-                    .find(|(name, _)| name == "keys")
-                    .map(|(_, value)| value),
-                _ => None,
-            })
-            .and_then(|keys| match keys {
-                crate::json::Value::Array(items) => Some(items),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        let log_public_keys = set.keys().iter().map(|j| j.key.clone()).collect();
-        let keys = set
-            .keys()
-            .iter()
-            .enumerate()
-            .filter_map(|(i, jwk)| {
-                jwk.kid.clone().map(|kid| LogKey {
-                    kid,
-                    key: jwk.clone(),
-                    log_index: positions.get(i).copied().flatten(),
-                })
-            })
-            .collect();
-
-        // `declaration_keys`, read from the same admitted document by the same JWK parser. An absent member is `None`; a member that is not an array
-        // is as malformed as a `keys` that is not one.
-        let declared = crate::json::parse(log_jwks)
-            .ok()
-            .and_then(|root| match root {
-                crate::json::Value::Object(members) => members
-                    .into_iter()
-                    .find(|(name, _)| name == "declaration_keys")
-                    .map(|(_, value)| value),
-                _ => None,
-            });
-        // R6.62(a), decided first: a key set in which any entry of `keys` or of `declaration_keys` is not an object carrying a string
-        // `kid`, `kty`, `alg` and `x` says nothing usable, and is read as a key set without the member.
+        // R6.62: a key set in which any entry of `keys` or of `declaration_keys` is not a key the reader can read says nothing usable about
+        // the declaration keys, and is read as a key set without the member.
         let unreadable_entry = !raw_keys.iter().all(is_readable_key_entry)
             || matches!(&declared, Some(crate::json::Value::Array(items)) if !items.iter().all(is_readable_key_entry));
+
+        // The log keys: every entry that is readable, whether or not its point is on its curve.
+        let keys: Vec<LogKey> = raw_keys
+            .iter()
+            .filter(|e| is_readable_key_entry(e))
+            .map(read_entry)
+            .collect();
+        let log_public_keys = keys
+            .iter()
+            .filter_map(|k| k.key.as_ref().map(|j| j.key.clone()))
+            .collect();
+
         let declaration_keys = match declared {
             _ if unreadable_entry => None,
-            None => None,
-            Some(crate::json::Value::Array(items)) => {
-                let mut read = Vec::with_capacity(items.len());
-                for item in &items {
-                    let jwk = crate::jwk::parse_key_entry(item).map_err(ActaError::Jwks)?;
-                    if let Some(kid) = jwk.kid.clone() {
-                        read.push(LogKey {
-                            kid,
-                            key: jwk,
-                            log_index: log_index_of(item),
-                        });
-                    }
-                }
-                Some(read)
-            }
-            // R6.62: a member that is present and is not an array says nothing usable and is read as absent.
-            Some(_) => None,
+            Some(crate::json::Value::Array(items)) => Some(items.iter().map(read_entry).collect()),
+            // R6.62: absent, or present and not an array (which says nothing usable and is read as absent).
+            _ => None,
         };
         Ok(LogKeys {
             keys,
@@ -641,14 +619,16 @@ impl LogKeys {
         })
     }
 
-    /// The declaration keys the log published, or `None` where the key set carried no `declaration_keys` member at all (R6.62(a)).
+    /// The declaration keys the log published, or `None` where the key set carried no usable `declaration_keys` member (R6.62(a)).
     pub fn declaration_keys(&self) -> Option<&[LogKey]> {
         self.declaration_keys.as_deref()
     }
 
-    /// Whether a declaration key is a log key (R6.62): by `kid`, or by public key under another `kid`.
-    pub fn is_log_key(&self, kid: &str, key: &crate::jwk::PublicKey) -> bool {
-        self.keys.iter().any(|k| k.kid == kid) || self.log_public_keys.iter().any(|k| k == key)
+    /// Whether a declaration key is a log key (R6.62): by `kid`, or by public key under another `kid`. A key with no parsed public key
+    /// (a point off its curve) is a log key by `kid` alone.
+    pub fn is_log_key(&self, kid: &str, key: Option<&crate::jwk::PublicKey>) -> bool {
+        self.keys.iter().any(|k| k.kid == kid)
+            || key.is_some_and(|key| self.log_public_keys.iter().any(|k| k == key))
     }
 
     /// The key published under `kid`: the last one, as the head's own lookup takes the key set's last match.
@@ -657,37 +637,51 @@ impl LogKeys {
     }
 }
 
-/// `log_jwks` with the entries of `keys` that are not objects carrying a string `kid`, `kty`, `alg` and `x` removed (R6.62(a)), or `None`
-/// where that changes nothing or the document is not a key set at all. A reader that must say what a key set holds, where one entry of
+/// `log_jwks` with the entries of `keys` that are not keys the reader can read, or whose point is not on its curve, removed (R6.62(a)), or
+/// `None` where that changes nothing or the document is not a key set at all. A reader that must say what a key set holds, where one entry of
 /// it cannot be read, still reads the head's key from the entries that can.
 pub(crate) fn readable_keys_document(log_jwks: &[u8]) -> Option<Vec<u8>> {
-    let mut root: serde_json::Value = serde_json::from_slice(log_jwks).ok()?;
-    let keys = root.get_mut("keys")?.as_array_mut()?;
-    let before = keys.len();
-    keys.retain(|entry| {
-        entry.as_object().is_some_and(|o| {
-            ["kid", "kty", "alg", "x"]
-                .iter()
-                .all(|name| o.get(*name).is_some_and(serde_json::Value::is_string))
-        })
-    });
-    if keys.len() == before {
+    let crate::json::Value::Array(items) = root_member(log_jwks, "keys")? else {
+        return None;
+    };
+    let keep: Vec<bool> = items
+        .iter()
+        .map(|e| is_readable_key_entry(e) && crate::jwk::parse_key_entry(e).is_ok())
+        .collect();
+    if keep.iter().all(|k| *k) {
         return None;
     }
+    let mut root: serde_json::Value = serde_json::from_slice(log_jwks).ok()?;
+    let list = root.get_mut("keys")?.as_array_mut()?;
+    let mut flags = keep.into_iter();
+    list.retain(|_| flags.next().unwrap_or(false));
     serde_json::to_vec(&root).ok()
 }
 
-/// Whether a key entry is an object carrying a string `kid`, `kty`, `alg` and `x` (R6.62(a)).
+/// A coordinate of R6.62's closed form: the 43 characters of the base64url alphabet, the last one of `A E I M Q U Y c g k o s w 0 4 8`
+/// (which encode 32 octets without padding).
+fn is_coordinate(text: &str) -> bool {
+    text.len() == 43
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && text.ends_with(|c| "AEIMQUYcgkosw048".contains(c))
+}
+
+/// Whether a key entry is a key the reader can read (R6.62): an object carrying a string `kid` and the members of one of two keys, an
+/// Ed25519 key (`alg` `EdDSA`, `kty` `OKP`, `crv` `Ed25519`, a coordinate `x`) or an ES256 key (`alg` `ES256`, `kty` `EC`, `crv` `P-256`,
+/// coordinates `x` and `y`). Whether a point lies on its curve is not part of it.
 fn is_readable_key_entry(entry: &crate::json::Value) -> bool {
-    let crate::json::Value::Object(members) = entry else {
+    let text = |n: &str| entry_text(entry, n);
+    if text("kid").is_none() {
         return false;
-    };
-    ["kid", "kty", "alg", "x"].iter().all(|name| {
-        matches!(
-            members.iter().find(|(m, _)| m == name),
-            Some((_, crate::json::Value::String(_)))
-        )
-    })
+    }
+    let coordinate = |n: &str| text(n).is_some_and(is_coordinate);
+    match (text("alg"), text("kty"), text("crv")) {
+        (Some("EdDSA"), Some("OKP"), Some("Ed25519")) => coordinate("x"),
+        (Some("ES256"), Some("EC"), Some("P-256")) => coordinate("x") && coordinate("y"),
+        _ => false,
+    }
 }
 
 /// A key entry's `log_index` as a non-negative I-JSON integer, else `None`.
