@@ -71,6 +71,12 @@ internal static partial class LifecycleCases
         /// null serves no <c>declaration_keys</c> member at all, and an empty list serves an empty one.
         /// </summary>
         public IReadOnlyList<ExtraLogKey>? DeclarationKeys { get; init; }
+
+        /// <summary>
+        /// The key set's <c>declaration_keys</c> member as raw JSON text, for a member that is present and is not an array (errata G67, R6.62, Amendment 3 ruling 38); it wins
+        /// over <see cref="DeclarationKeys"/>.
+        /// </summary>
+        public string? DeclarationKeysRawJson { get; init; }
     }
 
     /// <summary>A log key the case's key set lists beside the head key; a null <paramref name="LogIndex"/> gives no position (KF2).</summary>

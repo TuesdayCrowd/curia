@@ -46,14 +46,14 @@ public sealed class DeclarationKeyConformanceTests
     }
 
     /// <summary>
-    /// HSU18 (this reader's half). The family holds the 59 lifecycle cases (Amendment 1 ruling 26's 58 and the control of HSU22) and the 12 acta cases, and the index declares
+    /// HSU18 (this reader's half). The family holds the 65 lifecycle cases (Amendment 1 ruling 26's 58, the control of HSU22 and the six of HSU44) and the 12 acta cases, and the index declares
     /// what the directories hold. Red on the seam: <c>lifecycle 53</c>. (Every case reaching its own expected verdict is the existing <c>R6_54_EveryLifecycleCaseReachesItsVerdictAndNamesItsPredicate</c>.)
     /// </summary>
     [Fact]
     public void R6_62_HSU18_TheFamiliesHoldTheCountsOfTheDeclarationKeyVectors()
     {
         Assert.Equal(
-            "lifecycle 59 (index 59); acta 12 (index 12)",
+            "lifecycle 65 (index 65); acta 12 (index 12)",
             $"lifecycle {DirectoryCount("lifecycle")} (index {IndexCount("lifecycle")}); acta {DirectoryCount("acta")} (index {IndexCount("acta")})");
     }
 
@@ -121,4 +121,19 @@ public sealed class DeclarationKeyConformanceTests
         AllHold(
             Describe("compromise-declaration-key-set-absent", "could-not-check", "declaration-key-set-not-supplied"),
             Describe("compromise-declaration-keys-empty", "failed", "declaration-key-unpublished"));
+
+    /// <summary>
+    /// HSU44 (this reader's half; Amendment 3 rulings 38 and 39). The six vectors that state the readers' undeclared decisions, each by hand: a <c>declaration_keys</c> that is not an array
+    /// is read as absent (a <c>null</c> and an object, two JSON types); a position not given is decided before a log key; a log key is a log key by public key under another kid; an unpositioned
+    /// other declaration key makes "first" undecidable; a kid listed twice is the key of its earliest listing.
+    /// </summary>
+    [Fact]
+    public void R6_62_HSU44_TheReadersUndeclaredDecisionsHoldInTheSixVectors() =>
+        AllHold(
+            Describe("compromise-declaration-keys-null", "could-not-check", "declaration-key-set-not-supplied"),
+            Describe("compromise-declaration-keys-object", "could-not-check", "declaration-key-set-not-supplied"),
+            Describe("compromise-log-key-kid-position-unknown", "could-not-check", "declaration-key-position-unknown"),
+            Describe("compromise-declaration-key-is-log-key-under-another-kid", "failed", "declaration-key-is-log-key"),
+            Describe("compromise-another-declaration-key-position-unknown", "could-not-check", "declaration-key-position-unknown"),
+            Describe("compromise-declaration-kid-published-twice", "failed", "declaration-signature-invalid"));
 }

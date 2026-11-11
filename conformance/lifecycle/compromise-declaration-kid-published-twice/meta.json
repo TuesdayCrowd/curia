@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The declaration key's kid is listed at 3 with the first test key and at 9 with another, and the declaration at 5 is signed with the other. A kid is the key of its earliest listing and a later entry under it is not a key (R6.62), so the signature does not verify under it and the declaration fails; a reader that took the later listing would read it published after the declaration. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

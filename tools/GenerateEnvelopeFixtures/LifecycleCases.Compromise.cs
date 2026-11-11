@@ -75,6 +75,12 @@ internal static partial class LifecycleCases
             PostUnderCascadedKey(root, k1, k2),
             KidsSiblingsReordered(root, k1, k2, k3),
             SiblingDeclaredAlone(root, k1, k2, k3),
+            DeclarationKeysNotAnArray(root, k1, "compromise-declaration-keys-null", "null", "62", "\"declaration_keys\":null"),
+            DeclarationKeysNotAnArray(root, k1, "compromise-declaration-keys-object", "{}", "63", "\"declaration_keys\":{}"),
+            LogKeyKidPositionUnknown(root, k1),
+            DeclarationKeyIsLogKeyUnderAnotherKid(root, k1),
+            AnotherDeclarationKeyPositionUnknown(root, k1),
+            DeclarationKidPublishedTwice(root, k1),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -393,6 +399,111 @@ internal static partial class LifecycleCases
         { DeclarationKeys = [] };
     }
 
+    /// <summary>
+    /// A key set whose <c>declaration_keys</c> member is present and is not an array (Amendment 3 ruling 38, R6.62): it says nothing usable, which is the same non-statement as an
+    /// absent member, so the declaration is could not be checked and no reader errors. Not an empty array, which says that none is published (<c>compromise-declaration-keys-empty</c>).
+    /// 0 enrolled, 1 binding, 2 the post, 3 the declaration key's publication, 4 the declaration under it.
+    /// </summary>
+    private static Case DeclarationKeysNotAnArray(string root, Key k1, string name, string json, string nonce, string member)
+    {
+        var (log, post, _, decl) = PostThenDeclaration(k1, nonce);
+        AddDeclaration(log, decl, root, name);
+        return new Case(name, "R6.62",
+            $"The key set is served with {member}: the member is present and is not an array, which says nothing usable about declaration keys and is read as an absent member (Amendment 3 ruling 38, R6.62(a)). The declaration at 4 is under the published declaration key and the verdict is could not be checked, not failed and not an error. A different JSON type for each of this case and its twin, so that a reader that tests only one of them is caught.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-set-not-supplied")
+        { DeclarationKeysRawJson = json };
+    }
+
+    /// <summary>
+    /// The log key's own kid listed in <c>declaration_keys</c> with no <c>log_index</c>, and a declaration under it: 0 enrolled, 1 binding, 2 the post, 3 the log key's
+    /// publication, 4 the declaration. A position not given (R6.62(c)) is decided before a log key (R6.62(d)): could not be checked, and a reader that decided the log key first reads failed.
+    /// </summary>
+    private static Case LogKeyKidPositionUnknown(string root, Key k1)
+    {
+        var log = EnrolledAndBound(k1);
+        var post = AddPost(log, k1, "64");
+        var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
+        AddDeclaration(log, new Decl(ConformanceLogKeys.Log, [k1.Kid], FromIndex: 1, Prev: 1), root, "compromise-log-key-kid-position-unknown");
+        return new Case("compromise-log-key-kid-position-unknown", "R6.62",
+            "The test log key, published at 3 as a log key, is also listed in declaration_keys with no log_index, and signs the declaration at 4. Two things are wrong with it, a position not given (R6.62(c)) and a log key (R6.62(d)), and the order of R6.62 decides: the position is checked first, so the verdict is could not be checked, and a reader that put the log key first reads failed. It pins the order.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-position-unknown")
+        {
+            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)],
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, LogIndex: null)],
+        };
+    }
+
+    /// <summary>
+    /// The log key's public key published as a declaration key under another kid (Amendment 3 ruling 39 (b), R6.62(d)): 0 enrolled, 1 binding, 2 the post, 3 the log key's
+    /// publication, 4 the same key as a declaration key under <c>k-other</c>, 5 the declaration, whose header kid is <c>k-other</c>, signed with the log key's private key. The two
+    /// kids differ and the keys are one key: a reader that compares kids only passes it.
+    /// </summary>
+    private static Case DeclarationKeyIsLogKeyUnderAnotherKid(string root, Key k1)
+    {
+        var other = Renamed(ConformanceLogKeys.Log, "k-other");
+        var log = EnrolledAndBound(k1);
+        var post = AddPost(log, k1, "65");
+        var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
+        var declarationKeyIndex = PublishDeclarationKey(log, other);
+        AddDeclaration(log, new Decl(other, [k1.Kid], FromIndex: 1, Prev: 1), root, "compromise-declaration-key-is-log-key-under-another-kid");
+        return new Case("compromise-declaration-key-is-log-key-under-another-kid", "R6.62",
+            "The test log key is published at 3 as a log key and its public key at 4 as a declaration key under the kid k-other, and the key signs the declaration at 5 with k-other as its header kid. The kids differ and the key is one key (R6.62(d): by kid, or by public key under another kid), so it fails.",
+            log, post, [0, 1, 5], "failed", "declaration-key-is-log-key")
+        {
+            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)],
+            DeclarationKeys = [new ExtraLogKey(other, LogKeyValidFrom, declarationKeyIndex)],
+        };
+    }
+
+    /// <summary>
+    /// A second declaration key the key set lists with no <c>log_index</c> (Amendment 3 ruling 39 (c), R6.62): 0 enrolled, 1 binding, 2 the post, 3 the first declaration key's
+    /// publication, 4 a valid declaration under it. The unpositioned key might be earlier, so "first" cannot be decided: could not be checked, not disputed.
+    /// </summary>
+    private static Case AnotherDeclarationKeyPositionUnknown(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "66");
+        AddDeclaration(log, decl, root, "compromise-another-declaration-key-position-unknown");
+        return new Case("compromise-another-declaration-key-position-unknown", "R6.62",
+            "The key set lists the first declaration key at 3 and a second with no log_index, and the declaration at 4 is valid under the first. A reader cannot say the declaring key is the earliest when a listed key has no position (R6.62(c)), so the verdict is could not be checked and the post is not disputed.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-position-unknown")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(ConformanceLogKeys.Unpublished, LogKeyValidFrom, LogIndex: null),
+            ],
+        };
+    }
+
+    /// <summary>
+    /// One kid listed twice (Amendment 3 ruling 39 (d), R6.62): 0 enrolled, 1 binding, 2 the post, 3 the declaration key's publication, 4 another post, 5 the declaration, whose
+    /// header kid is the declaration key's and which is signed with the other key's private key. The key set lists that kid at 3 with the first key and at 9 with the second: a
+    /// kid is the key of its earliest listing, so the signature does not verify, and a reader that took the later listing reads a key published after the declaration.
+    /// </summary>
+    private static Case DeclarationKidPublishedTwice(string root, Key k1)
+    {
+        var second = Renamed(ConformanceLogKeys.Unpublished, ConformanceLogKeys.Declaration.Kid);
+        var log = EnrolledAndBound(k1);
+        var post = AddPost(log, k1, "67");
+        var firstIndex = PublishDeclarationKey(log, ConformanceLogKeys.Declaration);
+        AddPost(log, k1, "68");
+        AddDeclaration(log, new Decl(second, [k1.Kid], FromIndex: 1, Prev: 1), root, "compromise-declaration-kid-published-twice");
+        return new Case("compromise-declaration-kid-published-twice", "R6.62",
+            "The declaration key's kid is listed at 3 with the first test key and at 9 with another, and the declaration at 5 is signed with the other. A kid is the key of its earliest listing and a later entry under it is not a key (R6.62), so the signature does not verify under it and the declaration fails; a reader that took the later listing would read it published after the declaration.",
+            log, post, [0, 1, 5], "failed", "declaration-signature-invalid")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, firstIndex),
+                new ExtraLogKey(second, LogKeyValidFrom, LogIndex: 9),
+            ],
+        };
+    }
+
+    /// <summary>The same key under another kid: its public key, private key and thumbprint-independent members unchanged, its <c>kid</c> and the JWK's replaced.</summary>
+    private static P256LogKey Renamed(P256LogKey key, string kid) =>
+        key with { Kid = kid, Jwk = JsonBuilders.WithField((JsonValue.Object)key.Jwk, "kid", Str(kid)) };
+
     private static Case FromIndexBeforeBinding(string root, Key k1)
     {
         var (log, post, logKeyIndex, decl) = PostThenDeclaration(k1, "49", d => d with { FromIndex = 0 });
@@ -516,7 +627,10 @@ internal static partial class LifecycleCases
 
     /// <summary>The key set's <c>declaration_keys</c> member as JSON text, starting with a comma; empty where the case serves no member at all (R6.62(a)).</summary>
     private static string DeclarationKeysJson(Case c) =>
-        c.DeclarationKeys is null
-            ? string.Empty
-            : ",\"declaration_keys\":[" + ExtraLogKeysJson(c.DeclarationKeys).TrimStart(',') + "]";
+        (c.DeclarationKeysRawJson, c.DeclarationKeys) switch
+        {
+            ({ } raw, _) => ",\"declaration_keys\":" + raw,
+            (null, null) => string.Empty,
+            (null, { } keys) => ",\"declaration_keys\":[" + ExtraLogKeysJson(keys).TrimStart(',') + "]",
+        };
 }

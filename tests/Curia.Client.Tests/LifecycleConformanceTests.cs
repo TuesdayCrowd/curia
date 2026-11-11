@@ -98,7 +98,7 @@ public sealed class LifecycleConformanceTests
     }
 
     /// <summary>
-    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain and the seven PR H adds under the declaration key: errata G67) are all present and reach
+    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain, the seven PR H adds under the declaration key and the six of Amendment 3: errata G67) are all present and reach
     /// the verdict and predicate the vocabulary names, one string at a time. They are named here so that a case dropped from the family is a red fact and not a smaller count.
     /// </summary>
     [Fact]
@@ -128,9 +128,15 @@ public sealed class LifecycleConformanceTests
             ["compromise-first-of-two-declaration-keys"] = ("disputed", "disputed"),
             ["compromise-declaration-key-set-absent"] = ("could-not-check", "declaration-key-set-not-supplied"),
             ["compromise-declaration-keys-empty"] = ("failed", "declaration-key-unpublished"),
+            ["compromise-declaration-keys-null"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-keys-object"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-log-key-kid-position-unknown"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-declaration-key-is-log-key-under-another-kid"] = ("failed", "declaration-key-is-log-key"),
+            ["compromise-another-declaration-key-position-unknown"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-declaration-kid-published-twice"] = ("failed", "declaration-signature-invalid"),
         };
 
-        Assert.Equal(22, expected.Count);
+        Assert.Equal(28, expected.Count);
         foreach (var (name, want) in expected)
         {
             Assert.Equal(want, Expected(name));
@@ -151,7 +157,7 @@ public sealed class LifecycleConformanceTests
             .GetProperty("count").GetInt32();
 
         Assert.Equal(declared, CaseNames().Count);
-        Assert.Equal(59, declared);
+        Assert.Equal(65, declared);
     }
 
     [Fact]

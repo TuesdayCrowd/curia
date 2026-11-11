@@ -478,15 +478,15 @@ entry type or a statement version the reader does not fold), `bound-after-post`,
 (errata G67, R6.62). A reader also reaches `declaration-signature-invalid` and a failed
 `compromised-before-post` (a declaration that precedes the post); no case carries either, and the readers' own facts do.
 
-**The compromise cases.** Twenty-two cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
+**The compromise cases.** Twenty-eight cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
 the fixed P-256 test declaration key that `acta/key-compromised-entry` uses (a `/2` statement: `/1` is withdrawn); their `log-jwks.json`
 carries it in a `declaration_keys` member beside `keys` (the head key), with the `log_index` of the `log.declaration-key` entry that
 publishes it. A declaration is held to KF1 to KF4 and to KF3, in this order, the
 first failure deciding the predicate: the entry type and the statement `typ` and `reason` are read first (an unknown one is
 could not be checked); the closed member sets and the link; the header `typ` (`curia-key-compromise+jws`); then R6.62's seven checks
-on the header `kid`: (a) the key set carries a `declaration_keys` member (absent: `declaration-key-set-not-supplied`, could not be
-checked), (b) the kid names a declaration key (`declaration-key-unpublished`; a served empty member names none), (c) its position is
-given (`declaration-key-position-unknown`, could not be checked), (d) it is no log key (`declaration-key-is-log-key`), (e) it is the first
+on the header `kid`: (a) the key set carries a `declaration_keys` member (absent, or present and not an array: `declaration-key-set-not-supplied`, could not be
+checked), (b) the kid names a declaration key (`declaration-key-unpublished`; a served empty member names none), (c) its position, and
+every other listed declaration key's, is given (`declaration-key-position-unknown`, could not be checked), (d) it is no log key, by kid or by public key (`declaration-key-is-log-key`), (e) it is the first
 declaration key published, by `log_index` and not by the order the set is served in (`declaration-key-not-first`), (f) it was
 published before the declaration (`declaration-key-unpublished`), (g) the signature verifies under it; then (1) every `kid` in `kids` is bound to the agent
 in the stream the reader holds -- **the supplied stream only**, so a case whose log keeps another identity's binding out of
@@ -506,7 +506,14 @@ Verdicts: `disputed` / `disputed`: `compromised-before-post`, `compromised-after
 `compromise-first-of-two-declaration-keys` (the control of the second-key case: the same log, the declaration under the first key).
 `could-not-check`: `compromise-unknown-reason` (`unknown-reason`), `compromise-declaration-kid-position-unknown`
 (`declaration-key-position-unknown`), `compromise-v1-statement` (`unknown-lifecycle-kind`), `compromise-declaration-key-set-absent`
-(`declaration-key-set-not-supplied`; its served empty twin, `compromise-declaration-keys-empty`, is failed). Each runner compares the
+(`declaration-key-set-not-supplied`; its served empty twin, `compromise-declaration-keys-empty`, is failed). Errata G67's
+Amendment 3 (rulings 38 and 39) adds six that state what both readers must decide the same way (R6.62). `could-not-check`:
+`compromise-declaration-keys-null` and `compromise-declaration-keys-object` (a `declaration_keys` member that is present and is not an
+array, read as absent: `declaration-key-set-not-supplied`), `compromise-log-key-kid-position-unknown` (a position not given is decided
+before a log key) and `compromise-another-declaration-key-position-unknown` (an unpositioned other declaration key makes "first"
+undecidable) (both `declaration-key-position-unknown`). `failed`: `compromise-declaration-key-is-log-key-under-another-kid` (the log
+key's public key under another kid is still a log key: `declaration-key-is-log-key`) and `compromise-declaration-kid-published-twice` (a kid is
+the key of its earliest listing: `declaration-signature-invalid`). Each runner compares the
 predicate as well as the verdict. The ES256 declaration signatures are pinned: `dotnet run --project
 tools/GenerateEnvelopeFixtures -- --compromise` generates a case once and keeps it.
 
