@@ -40,6 +40,18 @@ public static class ExitCode
     /// signed anything. Nothing was written.
     /// </summary>
     public const int LifecycleNotEnabled = 4;
+
+    /// <summary>
+    /// The Forum's store could not complete the verb (a fault, not a refusal): what the verb appended, if anything, is not known, and a verb that only
+    /// reads and signs is safe to run again. Errata G67 (R12.18, Amendment 1 ruling 23). Declared; nothing returns it yet.
+    /// </summary>
+    public const int StoreFault = 5;
+
+    /// <summary>
+    /// <c>sign-head --if-grown</c> withheld the head because a lifecycle row follows the latest head and this tool does not check its signature. Nothing was
+    /// written. Errata G67 (Amendment 2 ruling 28). Declared; nothing returns it yet.
+    /// </summary>
+    public const int HeadWithheld = 6;
 }
 
 /// <summary>
@@ -98,7 +110,8 @@ public static class Program
                 Console.Out,
                 Console.Error,
                 CancellationToken.None,
-                readLogSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_LOG_SIGNING_KEY_PEM"))
+                readLogSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_LOG_SIGNING_KEY_PEM"),
+                readDeclarationSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_DECLARATION_SIGNING_KEY_PEM"))
             .ConfigureAwait(false);
     }
 }
@@ -208,7 +221,8 @@ public static class OperatorCommands
         TextWriter stdout,
         TextWriter stderr,
         CancellationToken cancellationToken,
-        Func<string?>? readLogSigningKeyPem = null)
+        Func<string?>? readLogSigningKeyPem = null,
+        Func<string?>? readDeclarationSigningKeyPem = null)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(clock);
@@ -225,6 +239,10 @@ public static class OperatorCommands
 
         if (args[0] == "sign-head")
             return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "publish-declaration-key")
+            return await PublishDeclarationKeyAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readDeclarationSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "compromise")
@@ -312,6 +330,10 @@ public static class OperatorCommands
         for (var i = 0; i < argv.Length; i++)
         {
             if (argv[i] == "--by" && i + 1 < argv.Length) { byValue = argv[++i]; continue; }
+
+            // Errata G67 (R6.63): the seam of PR H's Task 1 parses the flag and ignores it; the verb signs every time, as it did.
+            if (argv[i] == "--if-grown") continue;
+
             await stderr.WriteLineAsync($"error: unexpected argument '{argv[i]}'. sign-head takes --by <operator-name>.").ConfigureAwait(false);
             return ExitCode.Usage;
         }
@@ -413,6 +435,65 @@ public static class OperatorCommands
                 await stdout.WriteLineAsync($"at             {timestamp}").ConfigureAwait(false);
                 return ExitCode.Ok;
             }
+        }
+    }
+
+    /// <summary>
+    /// Errata G67, R6.62: the operator publishes the declaration key (<c>log.declaration-key</c>), out of band. Not a lifecycle act, so the verb does not ask
+    /// the gate. <b>The seam of PR H's Task 1:</b> it reads the declaration key's PEM, appends the entry and refuses nothing else.
+    /// </summary>
+    private static async Task<int> PublishDeclarationKeyAsync(
+        string[] argv,
+        string connectionString,
+        TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
+        TextWriter stdout,
+        TextWriter stderr,
+        Func<string?>? readDeclarationSigningKeyPem,
+        CancellationToken cancellationToken)
+    {
+        string? byValue = null;
+        for (var i = 0; i < argv.Length; i++)
+        {
+            if (argv[i] == "--by" && i + 1 < argv.Length) { byValue = argv[++i]; continue; }
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[i]}'. publish-declaration-key takes --by <role>.").ConfigureAwait(false);
+        }
+
+        if (string.IsNullOrWhiteSpace(byValue))
+            return await UsageErrorAsync(stderr, "--by <role> is required.").ConfigureAwait(false);
+
+        var actorValue = byValue.StartsWith(ApplyModeration.OperatorPrefix, StringComparison.Ordinal) ? byValue : ApplyModeration.OperatorPrefix + byValue;
+        if (!ActorId.Create(actorValue).TryGetValue(out var actor, out _))
+            return await UsageErrorAsync(stderr, "--by <role> is required.").ConfigureAwait(false);
+
+        var pem = readDeclarationSigningKeyPem?.Invoke();
+        if (string.IsNullOrWhiteSpace(pem))
+        {
+            await stderr.WriteLineAsync("error: CURIA_DECLARATION_SIGNING_KEY_PEM is not set.").ConfigureAwait(false);
+            return ExitCode.Environment;
+        }
+
+        using var key = LoadDeclarationKey(pem, out var keyProblem);
+        if (key is null)
+        {
+            await stderr.WriteLineAsync("error: CURIA_DECLARATION_SIGNING_KEY_PEM is not a usable P-256 key: " + keyProblem).ConfigureAwait(false);
+            return ExitCode.Environment;
+        }
+
+        {
+            Result<long> result;
+            var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+            await using (adapters.ConfigureAwait(false))
+            {
+                result = await new PublishDeclarationKey(adapters.EventStore, clock).PublishAsync(key, actor!, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!result.TryGetValue(out var logIndex, out var error))
+                return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+            await stdout.WriteLineAsync($"published declaration key  {key.Kid}").ConfigureAwait(false);
+            await stdout.WriteLineAsync($"log_index                  {logIndex.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            return ExitCode.Ok;
         }
     }
 
@@ -710,6 +791,20 @@ public static class OperatorCommands
         {
             problem = null;
             return LogSigningKey.FromPem(pem);
+        }
+        catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or ArgumentException or InvalidOperationException)
+        {
+            problem = e.Message;
+            return null;
+        }
+    }
+
+    private static DeclarationSigningKey? LoadDeclarationKey(string pem, out string? problem)
+    {
+        try
+        {
+            problem = null;
+            return DeclarationSigningKey.FromPem(pem);
         }
         catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or ArgumentException or InvalidOperationException)
         {

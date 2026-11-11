@@ -39,6 +39,15 @@ public static class KeyActErrors
     public const string FromIndexBeyondLogType = "curia/keys/from-index-beyond-log";
     public const string LogKeyNotPublishedType = "curia/keys/log-key-not-published";
 
+    /// <summary>Errata G67, R6.62: the signing key is no declaration key the log has published. PR H's Task 1 declares the refusals and uses none.</summary>
+    public const string DeclarationKeyNotPublishedType = "curia/keys/declaration-key-not-published";
+
+    /// <summary>Errata G67, R6.62: the key is also a log key, which no declaration key may be.</summary>
+    public const string DeclarationKeyIsLogKeyType = "curia/keys/declaration-key-is-log-key";
+
+    /// <summary>Errata G67, R6.62: a declaration key is already published, and the first publication wins.</summary>
+    public const string DeclarationKeyAlreadyPublishedType = "curia/keys/declaration-key-already-published";
+
     /// <summary>The act's <c>prev</c> is not the identity's latest lifecycle index. The detail is that index, an integer.</summary>
     public static Error LifecycleMoved(long latest) => new(
         LifecycleMovedType,

@@ -165,11 +165,7 @@ public sealed record PostVerification(
                 + "this client's ability to reach it.\n",
             CheckOutcome.CouldNotCheck when PastHeadTreeSize is { } pastHead =>
                 // R11.74 (b): the cause, from a typed fact, and never a sole cause where another check could not be made either.
-                "NOT ESTABLISHED. Nothing failed: the post is newer than the latest signed head (tree size "
-                + pastHead.ToString(culture)
-                + "), so its inclusion could not be checked, and the key and lifecycle checks, which need it, were not run. Verify again after the operator signs a head."
-                + (OtherCheckCouldNotBeMade ? " Another check could not be made: read the lines above." : string.Empty)
-                + "\n",
+                HeadSignedWords.Closing(pastHead, headTimestamp: null, checkBegan: default, OtherCheckCouldNotBeMade) + "\n",
             CheckOutcome.CouldNotCheck =>
                 "NOT ESTABLISHED. Nothing failed, and something could not be checked. This is not a "
                 + "verification and must not be read as one; the line above says what was missing.\n",

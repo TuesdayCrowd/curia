@@ -27,6 +27,12 @@ public sealed record SignedHead(
 /// <summary>A log signing key as published to the log (R6.50). Never retired here: R12.16's history is append-only.</summary>
 public sealed record LogKey(long LogIndex, string Kid, JsonValue.Object Jwk, string ValidFrom);
 
+/// <summary>
+/// A declaration key as published to the log (errata G67, R6.62): the key that signs compromise declarations and never a head. The seam of PR H's Task 1
+/// carries the type and folds none.
+/// </summary>
+public sealed record DeclarationKey(long LogIndex, string Kid, JsonValue.Object Jwk, string ValidFrom);
+
 /// <summary>An audit path and everything a verifier needs to check it (R6.48).</summary>
 public sealed record InclusionProof(
     long LogIndex,
@@ -95,6 +101,18 @@ public sealed class ActaLog
 
     /// <summary>Every log key ever published, in log order (R12.16: the full history, forever).</summary>
     public ImmutableArray<LogKey> Keys { get; }
+
+    /// <summary>
+    /// Every declaration key published to the log, in log order (errata G67). The seam of PR H's Task 1: empty for every log, so nothing that reads it
+    /// changes yet.
+    /// </summary>
+    public ImmutableArray<DeclarationKey> DeclarationKeys { get; } = [];
+
+    /// <summary>
+    /// Errata G67, R6.63: whether an entry other than <c>log.head</c> and <c>log.key</c> follows the latest head (any entry, with no head). The seam of
+    /// PR H's Task 1: always <see langword="true"/> (a tree size is never negative), which is what signing every tick does today.
+    /// </summary>
+    public bool GrownPastLatestHead() => TreeSize >= 0;
 
     /// <summary>The leaf index of the event with a given <c>event_id</c>, for R6.18's per-item <c>log_index</c>.</summary>
     public ImmutableDictionary<string, long> IndexByEventId { get; }
@@ -238,6 +256,11 @@ public static class ActaErrors
     public static Error MalformedHead(long logIndex) => new(
         "curia/acta/malformed-head",
         "A log.head entry does not carry { head: { root_hash, timestamp, tree_size }, kid, signature } with a size the log had reached",
+        $"log_index={logIndex}");
+
+    public static Error MalformedDeclarationKey(long logIndex) => new(
+        "curia/acta/malformed-declaration-key",
+        "A log.declaration-key entry does not carry { kid, jwk, valid_from }",
         $"log_index={logIndex}");
 
     public static Error MalformedKey(long logIndex) => new(
