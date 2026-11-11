@@ -222,24 +222,16 @@ public sealed class DeclarationKeyConformanceTests(Xunit.ITestOutputHelper outpu
     }
 
     /// <summary>
-    /// HSU50, table 2 (measured, not asserted; Amendment 4 ruling 50): entries readable by the four-member definition whose material a reader may refuse, in each member, read by this
-    /// reader and written to the test output beside the Rust reader's own table (<c>tests/lifecycle.rs</c>). A row on which the two differ is a stop, filed as D61 item 268.
+    /// HSU50, table 2 (measured, not asserted; Amendment 5 ruling 57): one row, an EC entry of the closed form whose coordinates are not a point on the curve (<c>x</c> of 43 <c>A</c>, <c>y</c> of
+    /// the second key), in each member, read by this reader and written to the test output beside the Rust reader's own row (<c>tests/lifecycle.rs</c>). The two are known to differ (Rust refuses
+    /// the document, this reader reads the entry and decides: D61 item 268's open remainder, an error in the safe direction); a change in either line is what the row is for.
     /// </summary>
     [Fact]
-    public void R6_62_HSU50_TheMaterialAReaderMayRefuseIsMeasured()
+    public void R6_62_HSU50_AnEntryOfTheClosedFormThatIsNotAPointOnTheCurveIsMeasured()
     {
         var rows = new List<(string Row, Func<JsonObject, IEnumerable<JsonNode?>> Append)>
         {
-            ("an EC key without y", c => { c.Remove("y"); return [c]; }),
-            ("an x that does not decode", c => { c["x"] = "!!!"; return [c]; }),
-            ("a kty of RSA", c => { c["kty"] = "RSA"; return [c]; }),
-            ("a kid that is a number", c => { c["kid"] = 7; return [c]; }),
-            ("one kid twice at one position with other key material", c =>
-            {
-                var other = (JsonObject)c.DeepClone();
-                other["x"] = new string('A', 43);
-                return [c, other];
-            }),
+            ("an EC entry of the closed form, x of 43 A (not a point)", c => { c["x"] = new string('A', 43); return [c]; }),
         };
 
         var table = new StringBuilder("HSU50 table 2 (C#):");
@@ -264,7 +256,59 @@ public sealed class DeclarationKeyConformanceTests(Xunit.ITestOutputHelper outpu
         }
 
         output.WriteLine(table.ToString());
-        Assert.Equal(10, measured);
+        Assert.Equal(2, measured);
+    }
+
+    /// <summary>
+    /// HSU51 (this reader's half; Amendment 5 rulings 52 and 53). The four vectors, by hand: an entry that carries the four strings and is no usable key (no <c>y</c>; an <c>x</c> that is not
+    /// base64url; <c>kty</c> RSA), in either member, leaves the key set without a usable member; a kid twice at one position with keys that differ has no earliest listing.
+    /// </summary>
+    [Fact]
+    public void R6_62_HSU51_AnEntryOutsideTheClosedFormAndAKidTwiceAtOnePositionHoldInTheFourVectors() =>
+        AllHold(
+            Describe("compromise-declaration-key-without-y", "could-not-check", "declaration-key-set-not-supplied"),
+            Describe("compromise-declaration-key-x-not-base64url", "could-not-check", "declaration-key-set-not-supplied"),
+            Describe("compromise-log-key-kty-rsa", "could-not-check", "declaration-key-set-not-supplied"),
+            Describe("compromise-declaration-kid-twice-at-one-position", "could-not-check", "declaration-key-position-unknown"));
+
+    /// <summary>
+    /// HSU51's table (asserted; Amendment 5 ruling 52). To the member under test a copy of the second declaration key's JWK is appended and then mutated into an entry outside R6.62's closed form
+    /// that still carries a string <c>kid</c>, <c>kty</c>, <c>alg</c> and <c>x</c> or is one step from it: no <c>y</c>; an <c>x</c> that begins with an asterisk; <c>kty</c> RSA; a <c>kid</c> that is a number;
+    /// an <c>x</c> one character short; an <c>x</c> whose last character carries non-zero trailing bits; <c>alg</c> <c>EdDSA</c> over <c>kty</c> <c>EC</c>; no <c>crv</c>. Eight rows in each of two members,
+    /// each could not be checked, <c>declaration-key-set-not-supplied</c>; the control, the copy unmutated, is disputed in each member (HSU50's table 1).
+    /// </summary>
+    [Fact]
+    public void R6_62_HSU51_AnEntryOutsideTheClosedFormLeavesTheKeySetWithoutAUsableMemberInEitherMember()
+    {
+        const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        var rows = new List<(string Row, Func<JsonObject, JsonNode?> Mutate)>
+        {
+            ("drop y", c => { c.Remove("y"); return c; }),
+            ("x begins with an asterisk", c => { c["x"] = "*" + c["x"]!.GetValue<string>()[1..]; return c; }),
+            ("kty RSA", c => { c["kty"] = "RSA"; return c; }),
+            ("kid a number", c => { c["kid"] = 7; return c; }),
+            ("x one character short", c => { var x = c["x"]!.GetValue<string>(); c["x"] = x[..^1]; return c; }),
+            ("x with non-zero trailing bits", c =>
+            {
+                var x = c["x"]!.GetValue<string>();
+                c["x"] = x[..^1] + Alphabet[(Alphabet.IndexOf(x[^1], StringComparison.Ordinal) + 1) % 64];
+                return c;
+            }),
+            ("alg EdDSA over kty EC", c => { c["alg"] = "EdDSA"; return c; }),
+            ("drop crv", c => { c.Remove("crv"); return c; }),
+        };
+
+        var problems = new List<string>();
+        foreach (var member in Members)
+        {
+            foreach (var (row, mutate) in rows)
+            {
+                var got = Verdict(KeySetWith(member, c => [mutate(c)]));
+                if (got != "could-not-check declaration-key-set-not-supplied") problems.Add($"{member} {row}: expected could-not-check declaration-key-set-not-supplied, got {got}");
+            }
+        }
+
+        AllHold([.. problems]);
     }
 
     private static string Line(string member, string row, string got) => $"  {member,-17} | {row,-55} | {got}";
