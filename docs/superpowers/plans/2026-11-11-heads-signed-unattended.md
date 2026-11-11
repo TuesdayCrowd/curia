@@ -3909,4 +3909,4 @@ The closed fuzz was run once, inside the whole Api suite at Task 4 (ledger empty
 
 The PR is #152, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-11-11, on an export of `7ee5b1be` alone, not the GitButler workspace that also holds #151; Release, `--no-build`): Api 1572/1572 (42 m 55 s, the closed fuzz included), Application 695/695, Architecture 124/124 (and 124/124 in Debug), AuthN 140/140, Canon.Sodium 32/32, Canon 329/329, Client 1640/1640, Domain.Primitives 64/64, Domain 1043/1043, Infrastructure 230/230, Mcp 958 passed and 4 skipped (the standing skips); locked restore, `cargo fmt`, clippy, `cargo test`, the differential (0 divergence classes), the spec checks and their falsification all passed, and `conformance/` was unchanged by the run.
