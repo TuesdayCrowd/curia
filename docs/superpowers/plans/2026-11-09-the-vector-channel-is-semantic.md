@@ -3648,4 +3648,4 @@ Task 7b, 2026-11-10, final form (Amendment 4 ruling 61): six fresh Sonnet reader
 
 The PR is #151, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run (2026-11-10, at f659082f, Release, `--no-build`, the model directory set): Api 1561/1561 (40 m 38 s, the closed fuzz included), Application 692/692, Architecture 121/121 (and 121/121 in Debug), AuthN 140/140, Canon.Sodium 32/32, Canon 329/329, Client 1600/1600 (SEM42b green after G65's paste), Domain.Primitives 64/64, Domain 1042/1042, Embedding 15/15, Infrastructure 272/272, Mcp 956 passed and 4 skipped (the standing skips); locked restore, `cargo fmt`, clippy, `cargo test`, the differential (0 divergence classes), the spec checks and their falsification all passed. The `ci.yml` commit is made after this run and changes nothing it tested.
