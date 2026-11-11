@@ -205,40 +205,50 @@ internal static class ActaDocuments
     }
 
     /// <summary>
-    /// R6.50's key set. The key material is read by <see cref="ForumDocuments.ReadJwks"/> -- the
+    /// R6.50's key set. The key material is read by <see cref="ForumDocuments.ReadJwk"/> -- the
     /// same reader the agents' JWKS uses, because a second JWK parser is a second place for the
     /// <c>EC</c>/<c>OKP</c> distinction to be got wrong, and errata D4 records what that costs.
     /// </summary>
+    /// <remarks>
+    /// An entry of <c>keys</c> or of <c>declaration_keys</c> that is not an object carrying a string <c>kid</c>, <c>kty</c>, <c>alg</c> and <c>x</c> is an entry no reader can read as a key
+    /// (errata G67, R6.62; Amendment 4 rulings 47 and 48). It is left out of what is read, and it leaves the key set without a usable <c>declaration_keys</c> member: "first" and "no log
+    /// key" are statements about every key the set lists, and a reader that dropped the entry and decided on the rest would decide on a smaller set than the Forum served. The head
+    /// check goes on under the readable <c>keys</c>, since a header's <c>kid</c> can only select an entry that has one.
+    /// </remarks>
     internal static Result<LogKeySet> ReadLogJwks(JsonValue value)
     {
         if (value is not JsonValue.Object o)
             return Result<LogKeySet>.Fail(
                 ClientErrors.ResponseMalformed("the log key set is not an object"));
 
-        if (!ReadPublished(ClientJson.Array(o, "keys")).TryGetValue(out var keys, out var keysError))
-            return Result<LogKeySet>.Fail(keysError!);
+        var (keys, keysReadable) = ReadPublished(ClientJson.Array(o, "keys"));
 
         // R6.62: an absent member and an empty one are different statements, so the reader keeps the difference.
         if (ClientJson.Member(o, "declaration_keys") is not JsonValue.Array declared)
             return Result<LogKeySet>.Ok(new LogKeySet(keys));
 
-        return ReadPublished(declared.Items).Map(declarationKeys => new LogKeySet(keys, declarationKeys));
+        var (declarationKeys, declarationKeysReadable) = ReadPublished(declared.Items);
+        return Result<LogKeySet>.Ok(
+            keysReadable && declarationKeysReadable ? new LogKeySet(keys, declarationKeys) : new LogKeySet(keys));
     }
 
-    private static Result<ImmutableArray<LogJwk>> ReadPublished(IEnumerable<JsonValue> items)
+    /// <summary>The entries of a key list that read as keys, and whether every entry did.</summary>
+    private static (ImmutableArray<LogJwk> Keys, bool AllReadable) ReadPublished(IEnumerable<JsonValue> items)
     {
         var published = ImmutableArray.CreateBuilder<LogJwk>();
+        var allReadable = true;
         foreach (var item in items)
         {
-            if (item is not JsonValue.Object k) continue;
-
-            if (ForumDocuments.ReadJwk(k) is not { } key)
-                return Result<ImmutableArray<LogJwk>>.Fail(ClientErrors.ResponseMalformed("log jwk"));
+            if (item is not JsonValue.Object k || ForumDocuments.ReadJwk(k) is not { } key)
+            {
+                allReadable = false;
+                continue;
+            }
 
             published.Add(new LogJwk(key, ClientJson.String(k, "valid_from"), ClientJson.WholeNumber(k, "log_index") ?? -1));
         }
 
-        return Result<ImmutableArray<LogJwk>>.Ok(published.ToImmutable());
+        return (published.ToImmutable(), allReadable);
     }
 
     private static bool Bool(JsonValue.Object o, string name) =>
