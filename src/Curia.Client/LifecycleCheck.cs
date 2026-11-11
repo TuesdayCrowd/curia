@@ -439,13 +439,13 @@ public static class LifecycleCheck
                 return Failed("declaration-key-unpublished", Text(
                     $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, which the log's declaration keys do not publish (R6.62)"));
 
-            // (c) Its position is given.
-            if (declarationKey.LogIndex < 0)
+            // (c) Its position is given, and so is every other declaration key's: a listed key with no position might be the earliest, so "first" cannot be decided (Amendment 3 ruling 39 (c)).
+            if (declarationKeys.Any(k => k.LogIndex < 0))
                 return CouldNotCheck("declaration-key-position-unknown", Text(
-                    $"the log's key set gives the declaration key kid={Check.Quote(header.Kid)} no log index, so this reader cannot say it was published before the declaration at {index} (R6.62)"));
+                    $"the log's key set gives a declaration key no log index, so this reader cannot say kid={Check.Quote(header.Kid)} was published before the declaration at {index} or is the first (R6.62)"));
 
-            // (d) A log key never declares.
-            if (logKeys.Keys.Any(k => string.Equals(k.Key.Kid, header.Kid, StringComparison.Ordinal)))
+            // (d) A log key never declares: a log key by kid, or by public key under another kid (Amendment 3 ruling 39 (b)).
+            if (logKeys.Keys.Any(k => IsSameKey(k.Key, declarationKey.Key)))
                 return Failed("declaration-key-is-log-key", Text(
                     $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, which is also a log key (R6.62)"));
 
@@ -552,6 +552,14 @@ public static class LifecycleCheck
         && root is JsonValue.Object o
             ? ClientJson.String(o, "typ")
             : null;
+
+    /// <summary>One key under one name or two: the same <c>kid</c>, or the same public key (<c>kty</c>, <c>crv</c>, <c>x</c>, <c>y</c>) under another (R6.62).</summary>
+    private static bool IsSameKey(ForumJwk a, ForumJwk b) =>
+        string.Equals(a.Kid, b.Kid, StringComparison.Ordinal)
+        || (string.Equals(a.Kty, b.Kty, StringComparison.Ordinal)
+            && string.Equals(a.Crv, b.Crv, StringComparison.Ordinal)
+            && string.Equals(a.X, b.X, StringComparison.Ordinal)
+            && string.Equals(a.Y, b.Y, StringComparison.Ordinal));
 
     private static bool HasHeaderTyp(JwsSignature signature, string typ) =>
         DetachedJws.ReadProtectedHeader(signature).TryGetValue(out var header, out _)
