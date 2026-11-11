@@ -18,7 +18,8 @@ public sealed class HeadSignedWordsTests
 {
     private static readonly DateTimeOffset Began = new(2026, 11, 11, 9, 31, 0, TimeSpan.Zero);
 
-    private const string NotStated = "signed at NOT STATED (the head's timestamp is not a time this client can read)";
+    // The published NOT STATED form, read from R11.94 words (WAF30: no test copies a published sentence).
+    private static readonly string NotStated = PublishedClientWords.SignedNotStatedForm;
 
     private static string Row(string name, string expected, string actual) => expected == actual ? string.Empty : $"{name}: expected \"{expected}\", got \"{actual}\"";
 
@@ -86,10 +87,10 @@ public sealed class HeadSignedWordsTests
     [Fact]
     public void R11_94_HSU30_TheClosingCarriesTheInstantAndTheSuffixOnlyWhereAnotherCheckWasNotMade()
     {
-        // The published closing and suffix, from the errata (WAF30: no test copies a published sentence), with the one new clause filled in by hand and by arithmetic
-        // (09:25:43 plus 317 s is the check's 09:31:00). R11.74 words' template ends the parenthesis at <n>; R11.94 words adds the clause after it.
+        // The published closing and suffix, from R11.94 words (WAF30: no test copies a published sentence), with <n> and <signed> filled in by hand and by arithmetic
+        // (09:25:43 plus 317 s is the check's 09:31:00).
         const string Clause = "signed at 2026-11-11T09:25:43.000Z, 317 s before this check began";
-        var head = PublishedClientWords.Fold(PublishedClientWords.PastHeadClosing.Replace("(tree size <n>)", $"(tree size 6, {Clause})", StringComparison.Ordinal));
+        var head = PublishedClientWords.Fold(PublishedClientWords.PastHeadClosing.Replace("<n>", "6", StringComparison.Ordinal).Replace("<signed>", Clause, StringComparison.Ordinal));
 
         Assert.Equal(
             [head + " " + PublishedClientWords.AnotherCheckSuffix, head],
