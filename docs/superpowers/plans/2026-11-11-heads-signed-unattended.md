@@ -18,7 +18,7 @@ PR H is O1 of the operations track. It comes **before** any timer runs and befor
 | `README.md` | "Running it": the model variable and fetch; the `"model"` example line; the "does not" bullet | "Running it": the log-key block at `:125-145`, the `NOT ESTABLISHED` words at `:925` | Different regions; if git conflicts on adjacent lines, keep both. |
 | `CLAUDE.md` | the G65 clauses | **not touched by this PR (the constraint)** | Docs owed: one clause (below). Carried by the register to PR O, which merges after both. |
 
-Files that look shared and are not: `tests/Shared/StubLog.cs` is #151's (a `SearchModelJson` property) and this plan does **not** edit it (it hard-codes the served head's `timestamp` as `1970-01-01T00:00:00Z` at `:1404`; the words probes therefore live where the clock is the test's: finding 11). `tests/Curia.Architecture.Tests/PortStringAllowlist.cs`, `JsonReaderFenceTests.cs`, `ForumFixture.cs`, `Directory.Packages.props`, `Curia.sln`, every `packages.lock.json` and `Curia.Operator.csproj` are #151's; this PR adds **no package, no port parameter typed `string` and no new test assembly**, so none needs an edit. `.github/` is untouched by this PR: the owner-merge condition on `ci.yml` stays #151's alone.
+Files that look shared and are not: `tests/Shared/StubLog.cs` is #151's (a `SearchModelJson` property) and this plan does **not** edit it (it hard-codes the served head's `timestamp` as `1970-01-01T00:00:00Z` at `:1398` (the plan said `:1404`, which is `EntryJson`: Amendment 1 ruling 25); the words probes therefore live where the clock is the test's: finding 11). `tests/Curia.Architecture.Tests/PortStringAllowlist.cs`, `JsonReaderFenceTests.cs`, `ForumFixture.cs`, `Directory.Packages.props`, `Curia.sln`, every `packages.lock.json` and `Curia.Operator.csproj` are #151's; this PR adds **no package, no port parameter typed `string` and no new test assembly**, so none needs an edit. `.github/` is untouched by this PR: the owner-merge condition on `ci.yml` stays #151's alone.
 
 **Allocations: the errata letter is G67, not G66.** G64 is PR 8's (D114's header and the order name it) and the D10a plan says D10b expects G66 ("G66 (expected)", in #151's "Next stage" and in its plan's "Next stage"). Taking G66 here would leave D10b to discover the collision after both plans were written. Taking G67 leaves every published citation valid; the cost is a visible gap (G63, G65, G67) until PR 8 and D10b merge, and `check-spec.py` reads no contiguity (D10a's plan grepped its source for entry numbering and found none; Task 0 M1 re-reads it). If D10b or PR 8 has merged before this PR is built, Task 0 re-greps and says so in "As run"; the rule that has held since G65 is to take the first number nobody has written down, never the first one nobody has merged.
 
@@ -27,10 +27,10 @@ Files that look shared and are not: `tests/Shared/StubLog.cs` is #151's (a `Sear
 1 to 6 change the design; 7 to 12 change the scope or the words; 13 to 16 are facts the builder would trip on.
 
 1. **The readers verify a declaration under *any* log key ever published, so a new signing key alone changes nothing.** `LifecycleCheck.cs:428`: `logKeys.LastOrDefault(k => k.Key.Kid == header.Kid)`, then `logKey.LogIndex < index`. The timer's host holds a published log key; a declaration it signs passes KF2 today. Moving `curia-operator compromise` to a new PEM would leave every reader honouring the old key. The fix is in the **lookup**, in both readers (C# and `rust/curia-testis/src/lifecycle.rs:699`, `log_keys.find`), and in the key set the Forum serves. The existing vector `compromise-v2-under-unknown-signer` pins the opposite case (a `/2` signed by a key the log key set does not list reads *could not be checked* in a `/1` reader); after this PR a reader that knows `/2` reads that same log as *failed*, so the vector's meaning changes and it is retired and replaced (ruling 12).
-2. **`LogSigningKey` is the declaration signer by type.** `LogSigningKey : IDisposable, ILifecycleStatementSigner` (`LogSigningKey.cs:33`) and `DeclareCompromise.DeclareAsync` takes `ILifecycleStatementSigner`. The tool refuses nothing that would stop reuse (its own comment says so). The strongest form of the split is the project's usual one: make the wrong call a compile error. A `DeclarationSigningKey` that is the only implementer, and `LogSigningKey` losing the interface, means no log key can be passed to `DeclareCompromise` at all (ruling 1, HSU1).
+2. **`LogSigningKey` is the declaration signer by type.** `LogSigningKey : IDisposable, ILifecycleStatementSigner` (`LogSigningKey.cs:31`; the plan said `:33`, which is `private readonly ECDsa _key;`: Amendment 1 ruling 25) and `DeclareCompromise.DeclareAsync` takes `ILifecycleStatementSigner`. The tool refuses nothing that would stop reuse (its own comment says so). The strongest form of the split is the project's usual one: make the wrong call a compile error. A `DeclarationSigningKey` that is the only implementer, and `LogSigningKey` losing the interface, means no log key can be passed to `DeclareCompromise` at all (ruling 1, HSU1).
 3. **Publishing a key in the log gives it no authority.** Whoever can append can append a `log.declaration-key` entry; the log is not a trust root for its own keys (it is the reason R12.17's recovery anchor is gossiped heads). The rule that makes the publication mean anything is *first published wins*: a reader holds a declaration to the earliest declaration key by `log_index`, and a later entry is not a successor. That is a trust-on-first-publication window, stated as a non-property and as an open risk (a host that can append before the operator does would front-run); it is closed by the runbook publishing the key at the lift and the owner announcing its `kid` out of band, not by code.
-4. **The Forum's own fold honours a declaration by shape, not by signature.** `KeyLifecycle.CompromisedEntry` (`:225-250`) requires `declaration` to be *a string* and reads the statement's members; `DisputedPosts`'s header says so ("the Forum folds its own log, so a declaration is read as the log records it; the readers ... hold a declaration to R6.57's cascade themselves"). Search omission, the served `disputed_by_log_index` mark, vote weight and the token refusal for a compromised key (R5.22) all follow that shape. So the key split binds **readers**, not the Forum's own marks.
-5. **A reader fails the author's whole lifecycle when one declaration fails.** `LifecycleCheck.Folder.Apply` returns the refusal and `Fold` returns it as the post's verdict (`:127-130`): a bad declaration is `Failed` (exit 6, "do not cite"), not skipped. Today a forged-but-valid declaration reads DISPUTED (exit 9, "do not cite it as the author's"); after the split a forged-and-invalid one reads FAILED (exit 6, "do not cite"). **Both end in an uncitable author.** What the split removes is the *valid* forgery; what it cannot remove is the power of whoever holds the Forum's database credential to append anything: `CURIA_EVENTS_POSTGRES` is the one app role (`db/0001:22-48`, `INSERT, SELECT` on `events`), the operator tool uses "the same connection the Forum uses" (`Program.Main`), and a timer host needs exactly that to fold and append. **Key out of band is necessary and not sufficient.** This is **register D121** (open, by decision, with its trigger: before the timer runs on the hosted instance). A narrower role (row-level security or an insert function limited to `log.head` and `log.key`) is a `db/` change and its own PR (H2, below); it is not built here because it changes every Postgres suite's setup `[unverified: Task 0 M15 reads the setup and the events columns]`.
+4. **The Forum's own fold honours a declaration by shape, not by signature.** `KeyLifecycle.CompromisedEntry` (`:225-250`) requires `declaration` to be *a string* and reads the statement's members; `DisputedPosts`'s header says so ("the Forum folds its own log, so a declaration is read as the log records it; the readers ... hold a declaration to R6.57's cascade themselves"). Search omission, the served `disputed_by_log_index` mark, vote weight and the token refusal for a compromised key (R5.22) all follow that shape. So the key split binds **readers**, not the Forum's own marks. **Task 0 M3 measured it (Amendment 1): the fold checks no signature and no kid list, an appended row also locks the agent out, and ruling 20 decides that this PR does not change the fold.**
+5. **A reader fails the author's whole lifecycle when one declaration fails, and the Forum fails it by neither.** `LifecycleCheck.Folder.Apply` returns the refusal and `Fold` returns it as the post's verdict (`:127-130`): a bad declaration is `Failed` (exit 6, "do not cite"), not skipped. **Measured by Task 0 M3 and ruled in Amendment 1 (rulings 20 to 22): there are three attackers and the split moves one.** (1) *The Forum's database credential alone* (`CURIA_EVENTS_POSTGRES`: `INSERT, SELECT` on `events`, `db/0001:46-48`; its `UPDATE` and `DELETE` are refused, measured): a row of type `agent.key-compromised` that it appends is folded by its shape, with an all-zero signature or an invented kid beside the real one. The Forum marks the victim `compromised`, omits its posts from search, makes `curia read` exit 9 and answers every token request of the victim `401 invalid_client`: **the agent is locked out**, and nothing in the tree reverses a declaration. Every reader that verifies fails the row once a head covers it (`curia verify` exit 6, `curia-testis log author` exit 1) and says nothing before it (`verify` exits 0). Unchanged by this PR. (2) *The credential plus the log key*, which is what the timer's host holds: before this PR it could append a declaration every reader verifies (exit 9, DISPUTED; Task 0 measured the operator's own, which has that shape); after it, one that fails (exit 6). **That is all the split removes.** (3) *The credential plus the declaration key*: no environment can hold both (R12.18) and a person holds the second. All three end in an uncitable author, and the first two in a locked-out one. So **key out of band is necessary and not sufficient**: `CURIA_EVENTS_POSTGRES` is the one app role (`db/0001:22-48`), the operator tool uses "the same connection the Forum uses" (`Program.Main`), and a timer host needs exactly that to fold and append. A narrower role (H2, below) narrows the timer host's copy of the credential and not the Forum's own copy, which can append the same row. This is **register D121** (open, by decision; trigger: hosting, Amendment 1 ruling 21), and its remedy is two items (ruling 20), not one.
 6. **An unmodelled event type passes the guard as nothing.** `LifecycleAppendGuard.Classify` scans by event type; a `log.declaration-key` entry, unclassified, is appended freely under a guarded build. "Guarded by default" therefore needs a *classification*, and a fence so the next new log entry type must be decided (vacuity question 3). The guard's surface is three kinds "from the first day" (spec 4.13, `LifecycleKind`'s comment): no fourth kind is added; the entry is classified **Compromise**, since it exists only to authorize that act.
 7. **The approval record cannot pin a second event type for a kind.** `LifecycleApprovalRecord.OwnEventType(Compromise)` is the one constant `agent.key-compromised` and `ReadApprovedKind` refuses any other (`EventTypeNotTheKinds`). The lift's lock 1 pins one vector per kind, so `log.declaration-key` would be enabled by the owner's approval of compromise and pinned by nothing. This PR leaves the record's file **and parser** alone (the owner's condition; the parser is lift machinery) and carries the gap to the lift as a register item and an owner question (ruling 14).
 8. **`sign-head` has no growth test, confirmed by reading all of `SignHeadAsync` (`:301-417`).** It folds, publishes the key if absent, appends a head. A head is itself a leaf (`LogEntries.HeadType`), so on a quiet log every run grows the log by its own output; a 5-minute timer without a test appends 288 heads a day, each a leaf every reader proves. "Grown" must therefore mean grown by something other than `log.head` and `log.key`, and the test must run **before** the key is published, or a first run on a quiet log publishes a key it never uses.
@@ -38,9 +38,9 @@ Files that look shared and are not: `tests/Shared/StubLog.cs` is #151's (a `Sear
 10. **Two timers race into a conflict, not a duplicate.** The head append is at `acta.Heads.Length` on the one aggregate `log:heads` (the comment on `HeadsAggregate` says concurrent signers "conflict rather than interleave"). A second signer gets `curia/domain/concurrency-conflict` (exit 2). Ruling 8 keeps exit 2 and does not retry.
 11. **The words live in an errata paragraph, and the probes parse it.** `NOT ESTABLISHED`'s past-head closing and the inclusion line's fragments are published in `R11.74 words` and read by `tests/Shared/PublishedClientWords.cs` (`ClosingPhrase()`, `InclusionPhrase()`); `PostVerifier.cs:166-172` and `:528-532` compose them. So (c) is an errata paragraph first, the parser second, the client third. The instant already exists: `SignedHead.Timestamp` ("the signer's clock, as it was signed") and `SignedHeadDocument.Head` carries `timestamp`; the client already holds `anchor.Head` verified, so the instant is signed content, not a Forum claim. The retained-head instant has three `<when>` forms (R11.74 (a)); this entry's are its own, because the two instants are different facts.
 12. **The `/1`-reader claim cannot be a test.** "`/1` readers report could-not-be-checked" is about readers already deployed; after this PR no reader in the tree is one. The pre-H build (`2708d826`) is the only `/1` reader there will ever be. The claim is operated once (L2: `git archive` the old commit into a scratch directory, build it, run its `curia verify` over a post-H log), not asserted by a probe that cannot be red (trap 233).
-13. **`curia verify` and `curia_verify` share one definition.** `Render()` is in `Curia.Client`; the MCP adapter prints the same text. One edit; two suites assert it. The result text of `curia_verify` changes, and the project's convention is that a result-words change bumps `curia-mcp` (G53 0.9.4, G62 0.10.4); the one parser (`PublishedReadersLastWords.Version()`) reads the paragraph of the entry that last bumped it (`R11.88` today), so a bump re-points it at `R11.94`. Six test files hold a hand-written twin of `0.11.0` (`BudgetToolTests`, `NameWordsToolTests`, `PrintedAgentToolTests`, `StoreWordsToolTests`, `BoardToolTests`, `IndexLagEntryTests`) and the README sentence `[unverified: the list is from a grep of origin/main; Task 0 M8 re-reads it]`. #151 does not bump (its plan: "`curia-mcp` stays 0.11.0").
-14. **Pinned counts move.** The lifecycle family is pinned at 53 cases, acta at 11, total 144 in `rust/curia-testis/tests/vectors.rs:679-686` and `lifecycle.rs:100`, and in `tests/Curia.Canon.Tests/Vectors/ConformanceIndexTests.cs`, `conformance/README.md` and `rust/curia-testis/tests/loader_errors.rs` `[unverified: Task 0 M6 lists every home]`. A row added moves all of them, in both runners.
-15. **`CLAUDE.md` carries a clause this PR makes false** ("`curia-operator compromise` ... refuses before it reads the log key") and is #151's file; the edit is owed and not made here.
+13. **`curia verify` and `curia_verify` share one definition.** `Render()` is in `Curia.Client`; the MCP adapter prints the same text. One edit; two suites assert it. The result text of `curia_verify` changes, and the project's convention is that a result-words change bumps `curia-mcp` (G53 0.9.4, G62 0.10.4); the one parser (`PublishedReadersLastWords.Version()`) reads the paragraph of the entry that last bumped it (`R11.88` today), so a bump re-points it at `R11.94`. Five code literals hold a hand-written twin of `0.11.0` (`BudgetToolTests.cs:233`, `PrintedAgentToolTests.cs:134`, `StoreWordsToolTests.cs:291`, `NameWordsToolTests.cs:341` and `tests/Curia.Architecture.Tests/IndexLagEntryTests.cs:79`), a doc comment holds it (`BoardToolTests.cs:368`), and so do `README.md:1047` and `:1109`, `CLAUDE.md:86`, `ToolCatalogue.cs:43` and the doc comment at `PublishedReadersLastWords.cs:147` (Task 0 M8, re-read at `779b6898`; Amendment 1 ruling 25). #151 does not bump (its plan: "`curia-mcp` stays 0.11.0").
+14. **Pinned counts move.** The lifecycle family is pinned at 53 cases, acta at 11, the eleven families at 144 and the corpus at 150. The homes that hold a literal (Task 0 M6, Amendment 1 ruling 19): `conformance/index.json` (acta `:11`, lifecycle `:65`), `rust/curia-testis/tests/vectors.rs` (`:679`, `:680`, `:686`, `:713`, `:717`, `:729`), `rust/curia-testis/tests/lifecycle.rs` (`:99-100`) and `tests/Curia.Client.Tests/LifecycleConformanceTests.cs:149`. `ConformanceIndexTests.cs`, `conformance/README.md`'s counts and `loader_errors.rs` hold none. After Amendment 1 ruling 26 the values are lifecycle 58, acta 12, families 150, corpus 156. `index.json` is edited by hand (no generator writes it) and R6.45's two runners check it against the disk.
+15. **`CLAUDE.md` carries two clauses this PR makes false** ("`curia-operator compromise` ... refuses before it reads the log key", and `:86`'s "`curia-mcp` 0.11.0, current") and is #151's file; the edit is owed and not made here.
 16. **The unattended signer's `--if-grown` is wrong for one act.** A log-key *rotation* (R12.17's runbook) publishes a new key and signs under it on a log that may be quiet; under `--if-grown` that run is a no-op. The runbook says to run that one act without the flag. Not a defect; a sentence that must exist.
 
 ## Identifiers (provisional; re-grep at write, name what each was computed against)
@@ -49,7 +49,7 @@ Computed on 2026-11-11 against `origin/main` `2708d826` **and** `origin/the-vect
 
 - **Errata:** highest entry on main **G63**; on #151's branch **G65**; **G64 is PR 8's, G66 is D10b's** (named in #151's text). **This PR: G67.**
 - **Requirements** (highest per section across both refs, including every reservation named in the register and in #151: PR 8's R9.59-R9.62, R10.99, R10.100, R11.89, R11.90, and #151's R9.63, R9.64, R11.91-R11.93, R14.13): R6.61 (so **R6.62, R6.63**), R11.93 (so **R11.94**), R12.17 (so **R12.18**). `grep` for each of the four on both refs, in the plan, the errata and the white paper: **no hits**. No R4, R5, R7, R8, R9, R10 or R14 number is needed.
-- **Register:** highest `### D` on main **D119**, on #151's branch **D120**, so **D121**; D61 items on main to 214, on #151's branch to **246**, so **247**; traps on main to 206, on #151's branch to **229**, so **230**. Probe prefix **HSU**, falsification prefix **FHSU**: unused on both refs (grep of every tracked file).
+- **Register:** highest `### D` on main **D119**, on #151's branch **D120**, so **D121**; D61 items on main to 214, on #151's branch to **246**, so **247**; traps on main to 206, on #151's branch to **229**, so **230**. Probe prefix **HSU**, falsification prefix **FHSU**: unused on both refs (grep of every tracked file). **Amendment 1 adds** rulings 16 to 26, probes HSU35 and HSU36, falsification FHSU27 to FHSU29, D61 items 254 to 256 (247 rewritten), traps 234 and 235, and the operator's exit code 5; the "251" the Task 0 report proposed collides with item 251 below and is not used.
 - **`curia-mcp`:** 0.11.0 on both; this PR bumps to the next patch (expected **0.11.1**, ruling 10); Task 0 M8 re-reads main for a PR that bumped first.
 
 ## The design in one paragraph
@@ -63,18 +63,18 @@ The operator holds two keys that never share a process environment. The **log ke
 - `src/Curia.Application/Credentials/PublishDeclarationKey.cs` (the use case), and the refusals `KeyActErrors.DeclarationKeyNotPublished`, `DeclarationKeyIsLogKey`, `DeclarationKeyAlreadyPublished`.
 - `src/Curia.Client/HeadSignedWords.cs` (the typed fact and the words; pure).
 - `conformance/acta/declaration-key-entry/` (`input.json`, `expected.canonical`, `expected.leaf`, `meta.json`) and the lifecycle cases of ruling 12.
-- Tests: `tests/Curia.Application.Tests/Credentials/DeclarationKeyTests.cs` (HSU2 to HSU4), `tests/Curia.Application.Tests/Acta/GrownPastLatestHeadTests.cs` (HSU7), `tests/Curia.Architecture.Tests/DeclarationKeyFenceTests.cs` (HSU1, HSU6), `tests/Curia.Architecture.Tests/OperatorDocsTests.cs` (HSU32, HSU33), `tests/Curia.Api.Tests/HeadsSignedUnattendedTests.cs` (HSU8 to HSU17, HSU28, HSU31), `tests/Curia.Client.Tests/HeadSignedWordsTests.cs` (HSU27, HSU29, HSU30), `tests/Curia.Mcp.Tests/HeadSignedWordsToolTests.cs` (HSU28's MCP half).
+- Tests: `tests/Curia.Application.Tests/Credentials/DeclarationKeyTests.cs` (HSU2 to HSU4), `tests/Curia.Application.Tests/Acta/GrownPastLatestHeadTests.cs` (HSU7), `tests/Curia.Architecture.Tests/DeclarationKeyFenceTests.cs` (HSU1, HSU6), `tests/Curia.Architecture.Tests/OperatorDocsTests.cs` (HSU32, HSU33), `tests/Curia.Architecture.Tests/ApprovalRecordBytesTests.cs` (HSU34; text in Amendment 1, "What Task 1 onward now do"), `tests/Curia.Api.Tests/HeadsSignedUnattendedTests.cs` (HSU8 to HSU17, HSU28, HSU31, HSU35, HSU36), `tests/Curia.Client.Tests/HeadSignedWordsTests.cs` (HSU27, HSU29, HSU30), `tests/Curia.Mcp.Tests/HeadSignedWordsToolTests.cs` (HSU28's MCP half).
 - `docs/superpowers/plans/2026-11-11-heads-signed-unattended.md` (this file).
 
 **Edited**
-- `src/Curia.Operator/LogSigningKey.cs` (drops `ILifecycleStatementSigner` and `SignStatement`), `src/Curia.Operator/Program.cs` (the usage text, `RunAsync`'s second reader, `sign-head --if-grown` and its environment rule, `publish-declaration-key`, `compromise` on the declaration key and its environment rule).
+- `src/Curia.Operator/LogSigningKey.cs` (drops `ILifecycleStatementSigner` and `SignStatement`), `src/Curia.Operator/Program.cs` (the usage text and its `EXIT CODES` block gaining 5, `ExitCode.StoreFault`, `RunAsync` as a thin wrapper that answers a store fault with exit 5 (Amendment 1 ruling 23), `RunAsync`'s second reader, `sign-head --if-grown` and its environment rule, `publish-declaration-key`, `compromise` on the declaration key and its environment rule).
 - `src/Curia.Domain/Acta/LogLeaf.cs` (`DeclarationKeyType`, `DeclarationKeysAggregate`), `src/Curia.Domain/Keys/KeyStatements.cs` (`CompromiseStatementTyp` to `/2`).
-- `src/Curia.Application/Projections/ActaProjector.cs` (`DeclarationKeys`, `ReadDeclarationKey`, `GrownPastLatestHead`, `ActaErrors.MalformedDeclarationKey`), `Credentials/DeclareCompromise.cs` (the declaration key and its three refusals), `Credentials/KeyActs.cs` (error constants), `Ports/LifecycleAppendGuard.cs` (the classification), `src/Curia.Api/Adapters/LifecycleEntryScan.cs` (counts the new shape and its comment), `src/Curia.Api/ActaEndpoints.cs` (`declaration_keys`).
+- `src/Curia.Application/Projections/ActaProjector.cs` (`DeclarationKeys`, `ReadDeclarationKey`, `GrownPastLatestHead`, `ActaErrors.MalformedDeclarationKey`), `Credentials/DeclareCompromise.cs` (the declaration key and its three refusals), `Credentials/KeyActs.cs` (error constants), `Ports/LifecycleAppendGuard.cs` (the classification), `src/Curia.Api/Adapters/LifecycleEntryScan.cs` (counts the new shape and its comment), `src/Curia.Api/ActaEndpoints.cs` (`declaration_keys`), `src/Curia.Api/ForumEndpoints.cs` (`:3652`: the 409 row names `KeyActErrors.DeclarationKeyNotPublishedType`; the other two refusals are operator-only and unmapped, and the map's comment says so: Amendment 1 ruling 19).
 - `src/Curia.Client/LifecycleCheck.cs` (the lookup and its predicates; `KnownStatementTyps`; `ExpectedStatementTyp`), `ActaDocuments.cs` and `ForumClient.cs` (the key set carries the declaration keys; `LogJwk` gains no member, a new `LogKeySet` holds both lists), `PostVerifier.cs` (`PastHead` fact, `Render`, the inclusion line), `src/Curia.Mcp/ToolCatalogue.cs` (`Version`).
-- `rust/curia-testis/src/acta.rs` (`LogKeys` parses `declaration_keys`), `src/lifecycle.rs` (the typ, the lookup, four predicates), `tests/lifecycle.rs`, `tests/vectors.rs`, `tests/loader_errors.rs` (counts), `tests/log_author.rs` (the offline CLI case).
+- `rust/curia-testis/src/acta.rs` (`LogKeys` parses `declaration_keys`), `src/lifecycle.rs` (the typ, the lookup, four predicates), `tests/lifecycle.rs` (`:99-100`: the count and the breakdown in its message, "the 16 of PR 2's declarations"), `tests/vectors.rs` (six literals: Amendment 1 ruling 19), `tests/log_author.rs` (the offline CLI case); `tests/loader_errors.rs` holds no literal and is not edited.
 - `tools/GenerateEnvelopeFixtures/Lifecycle.Compromise.cs`, `LifecycleCases.Compromise.cs`, `LifecycleCases.cs`, `Program.cs` (a fixed P-256 test **declaration** key beside the fixed test log key; the cases of ruling 12; the counts).
-- `conformance/lifecycle/*` and `conformance/acta/key-compromised-entry/` (**regenerated**, 17 directories plus the new ones), `conformance/README.md`.
-- `tests/Curia.Api.Tests/CompromiseDeclarationTests.cs`, `DisputedContentTests.cs`, `BrowseEndToEndTests.cs` and every other caller that passes a PEM to `compromise` (Task 0 M5 lists them), `tests/Curia.Application.Tests/Credentials/DeclareCompromiseTests.cs`, `LifecycleChokepointContract.cs`, `tests/Curia.Client.Tests/CompromiseReaderTests.cs`, `LifecycleCaseForum.cs`, `tests/Curia.Canon.Tests/Vectors/ConformanceIndexTests.cs`, `tests/Shared/PublishedClientWords.cs` (the closing and inclusion parsers now read `R11.94 words`), `tests/Shared/PublishedReadersLastWords.cs` (`Version()` re-pointed), and the six version twins of finding 13.
+- `conformance/lifecycle/*` and `conformance/acta/key-compromised-entry/` (**regenerated**: 16 directories, the 17 less `compromise-v2-under-unknown-signer`, which ruling 12 retires; plus the new ones), `conformance/index.json` (hand-edited: no generator writes it), `conformance/README.md`.
+- `tests/Curia.Api.Tests/CompromiseDeclarationTests.cs`, `DisputedContentTests.cs`, `BrowseEndToEndTests.cs` and every other caller that passes a PEM to `compromise` (Task 0 M5 lists them), `tests/Curia.Application.Tests/Credentials/DeclareCompromiseTests.cs`, `LifecycleChokepointContract.cs`, `tests/Curia.Client.Tests/CompromiseReaderTests.cs`, `LifecycleConformanceTests.cs` (`:149`'s count and `:125`'s case table), `LifecycleCaseForum.cs`, `tests/Shared/PublishedClientWords.cs` (the closing and inclusion parsers now read `R11.94 words`), `tests/Shared/PublishedReadersLastWords.cs` (`Version()` re-pointed), and the five version literals and the comment of finding 13 (Amendment 1 ruling 25); `tests/Curia.Canon.Tests/Vectors/ConformanceIndexTests.cs` holds no literal and is not edited.
 - `README.md` (`:125-145`'s signer block, the `NOT ESTABLISHED` words at `:925`, the `curia-mcp` version sentence), `docs/runbooks/key-compromise.md` (preconditions, the command, section 5), `IMPLEMENTATION_PLAN.md`, the errata (G67, `(rev.)` marks, index rows).
 
 **Not touched, by design (the PR's diff proves it):** `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` (still `{"version":1,"approved":[]}`, byte for byte) and `LifecycleApprovalRecord.cs`, `.github/`, `db/`, `Directory.Packages.props`, `Curia.sln`, every `packages.lock.json`, `CLAUDE.md`, `tests/Shared/StubLog.cs`, `tests/Curia.Api.Tests/ForumFixture.cs`, `src/Curia.Client.Cli/Help.cs`, anything #151 added or changed other than the three documents, `src/Curia.Application/Projections/DisputedPosts.cs` and `KeyLifecycle.cs`'s fold beyond reading `/2` (finding 4 is a lead, not a change), the white paper, the scoping document. `git diff --stat origin/main` shows nothing under those.
@@ -85,13 +85,14 @@ The operator holds two keys that never share a process environment. The **log ke
 |---|---|---|
 | `CompromiseStatementTyp` `/1` to `/2` | `KeyStatements.ReadCompromise`; `KeyLifecycle.CompromisedEntry`; `LifecycleCheck.KnownStatementTyps`, `ExpectedStatementTyp`; Rust `COMPROMISE_STATEMENT_TYP`; the generator's statement builder; 17 regenerated directories | HSU4, HSU18, HSU20; both runners over the same vectors |
 | `LogSigningKey` stops being a statement signer | `Program.LoadLogSigner`, `LogSignerFactory`, `CompromiseAsync`; every test passing `readLogSigningKeyPem` to `compromise` | the compiler first; HSU1 second |
-| `RunAsync(..., readLogSigningKeyPem)` gains `readDeclarationSigningKeyPem` | every `OperatorCommands.RunAsync` caller in `tests/` (grep: 10+ Api test classes) | the compiler; the tests are edited, not the signature kept optional-and-wrong |
+| `RunAsync(..., readLogSigningKeyPem)` gains `readDeclarationSigningKeyPem` | every `OperatorCommands.RunAsync` caller (Task 0 M5: 19 files and 23 call sites, all in `tests/Curia.Api.Tests/`; the four classes that pass `"compromise"` and so need the declaration key's PEM are `CompromiseDeclarationTests` (`:56`, `:425`, `:471`), `BrowseEndToEndTests:235`, `DisputedContentTests:48` and `NameMatchesNothingEndToEndTests:313`) | the compiler; the tests are edited, not the signature kept optional-and-wrong |
 | `GET /v1/log/jwks` gains `declaration_keys` | C# `ActaDocuments.ReadLogJwks`, Rust `LogKeys::parse` and `JwkSet::parse` (finds `keys` by name; **whether it tolerates a sibling member is read at `jwk.rs:85-99` and not run** `[unverified]`), `StubLog.LogJwksJson` (not edited: serves no member, which the readers treat as could-not-check, HSU25), the closed fuzz's `GET /v1/log/jwks` exemplar | HSU16, HSU17, HSU26; the closed fuzz run in Task 5 |
 | `LifecycleAppendGuard.Classify` | both event-store adapters (one function), `LifecycleEntryScan`, `LifecycleChokepointContract`, `LifecycleGateFenceTests` | HSU5, HSU6, HSU13 |
 | The closing and inclusion words | `PostVerifier.Render` and `InclusionAsync`; `curia verify`, `curia_verify`, `curia browse read` (exits and lines "byte for byte" with `verify`), `RetainedHeadInstantTests` (the old parser), `HeadStoreLockTests:564`, `RetainedHeadOperatorTests:725`, README `:925` | the old probes are the control (HSU29); the parser is re-pointed in the same commit as the paragraph |
 | `docs/runbooks/key-compromise.md` §5's D43 paragraph | nothing parses it today `[unverified]` | HSU32 |
+| `KeyActErrors.LogKeyNotPublishedType` renamed `DeclarationKeyNotPublishedType` | `src/Curia.Api/ForumEndpoints.cs:3652` (the 409 row; no route reaches `DeclareCompromise`, so it is unprobeable over HTTP), `DeclareCompromise.cs:91`, `KeyActs.cs:40` and `:88` (Task 0 M5; the plan's table did not list the first) | the compiler; no test names the old string |
 
-## Rulings (decided, not asked)
+## Rulings (decided, not asked; 1 to 15 here, 16 to 26 in Amendment 1)
 
 1. **Two keys, two types.** `DeclarationSigningKey` (new, `Curia.Operator`) is the only `ILifecycleStatementSigner`. `LogSigningKey` keeps `PublicJwk()`, `AsSigningKey()`, `Kid`, loses the interface and `SignStatement`. A declaration key is a P-256 key from `GeneratePem` (the same shape as the log key, so one `openssl` line in the README makes either). No type holds both.
 2. **The entry.** `log.declaration-key`, payload `{ kid, jwk, valid_from }` (the members of `log.key`), actor `operator:<role>`, aggregate `log:declaration-keys` (the `log:` prefix is reserved wholesale by `ReservedIdentifiers.LogPrefix`, so no identity can collide: Task 0 M10 reads the reservation test), expected version `acta.DeclarationKeys.Length`. `ActaLog.Fold` reads it; a malformed entry fails the fold with `curia/acta/malformed-declaration-key` (as a malformed `log.key` does: an Acta with a hole serves proofs nobody can rebuild).
@@ -100,11 +101,11 @@ The operator holds two keys that never share a process environment. The **log ke
 5. **The statement.** `curia.key-compromise/2`; the six members, the header `typ` `curia-key-compromise+jws`, the header `kid` (the declaration key's), the canonical form and the `prev` rule are all unchanged. `ReadCompromise` reads `/2` only. Readers: `/1` is not a known statement `typ` (KF4), so an `agent.key-compromised` entry carrying it is **could not be checked** (`unknown-lifecycle-kind`), whoever signed it, and never disputes. The Forum's fold fails on a `/1` entry (`ReadCompromise` refuses it), which yields no mark for that author; a throwaway database holding one is reset (open risk 5; alpha, `CLAUDE.md` "Release stage").
 6. **The readers' rule (KF2 for declarations), in order; the first that fails decides.** After the entry type, statement `typ`, reason, closed member set, statement, link and KF1 (all unchanged, `LifecycleCheck.cs:400-423`): (a) the key set supplied no `declaration_keys` member at all: **could not be checked**, `declaration-key-set-not-supplied` (an older Forum, or no key set, says nothing; an absence is not a denial); (b) the header `kid` names no declaration key: **failed**, `declaration-key-unpublished`; (c) its `log_index` is not given: **could not be checked**, `declaration-key-position-unknown` (this renames `log-key-position-unknown`, so a predicate does not say "log key" of a declaration key; one existing vector's `expected.json` changes); (d) the same `kid` is also a log key's: **failed**, `declaration-key-is-log-key`; (e) it is not the earliest declaration key by `log_index` (the served array's order is irrelevant): **failed**, `declaration-key-not-first`; (f) its `log_index` is not below the declaration's: **failed**, `declaration-key-unpublished`; (g) the signature does not verify under it: **failed**, `declaration-signature-invalid`. Then KF3 unchanged. C# and Rust implement this independently, the Rust from G67's text and the vectors and not from the C# (Task 3).
 7. **The tool.** Three verbs touch keys. `sign-head --by <name> [--if-grown]` reads `CURIA_LOG_SIGNING_KEY_PEM` only. `publish-declaration-key --by <role>` asks the gate **first** (compromise; exit 4 before the key is read), reads `CURIA_DECLARATION_SIGNING_KEY_PEM`, refuses a key whose `kid` is a published log key (`curia/keys/declaration-key-is-log-key`, exit 2), refuses when a declaration key is already published (`curia/keys/declaration-key-already-published`, exit 2), appends the entry, prints `published declaration key  <kid>` and `log_index`. `compromise` keeps its flags, asks the gate first, reads the declaration key, and refuses a signer whose key the log has not published (`curia/keys/declaration-key-not-published`, replacing `log-key-not-published`) or whose `kid` is a log key. **The environment rule:** `sign-head` exits 3 (`ExitCode.Environment`) if `CURIA_DECLARATION_SIGNING_KEY_PEM` is non-empty in its environment; `publish-declaration-key` and `compromise` exit 3 if `CURIA_LOG_SIGNING_KEY_PEM` is non-empty; each says which variable and to unset it, names no value, and does so **before** reading either key. The reason: the split is two files in one environment unless something refuses the shared environment, and a timer unit whose environment file also holds the declaration key is the failure this PR exists to prevent. Reversible: an operator who wants both for a drill unsets one. `RunAsync` takes `readDeclarationSigningKeyPem` beside `readLogSigningKeyPem`; `Program.Main` is the one place either variable is read (the existing comment's rule).
-8. **`--if-grown`.** Grown means: an entry at an index `>= LatestHead.TreeSize` (or any entry, when there is no head) whose type is neither `log.head` nor `log.key`; computed by `ActaLog.GrownPastLatestHead` (pure, in `ActaProjector.cs`). Order in `SignHeadAsync`: arguments, actor, the environment rule, the key read, the fold, **the growth test**, then (only if grown) the key publication, the head, the append. A run that is not grown prints `unchanged  tree_size=<n>  latest_head_log_index=<i>` (or `latest_head none`), appends nothing, publishes nothing, and exits **0**; a signed run prints today's lines unchanged. A conflict on the append is exit 2 with today's words and no retry; the timer's next tick re-reads. `--if-grown` is the only new flag; an unknown flag stays exit 1.
-9. **The words (c).** The closing past the head and the inclusion line state when the latest head was signed, from the head's signed `timestamp`, parsed by the client; the string is **never printed**, only the client's own rendering of the parsed instant (UTC, to the millisecond, `2026-11-11T09:30:00.123Z`) and the age computed from the verifier's clock at the check's start. Forms of `<signed>`: `signed at <instant>, <k> s before this check began` (whole seconds, a second or more); `signed at <instant>, less than a second before this check began`; `signed at <instant>, after this check began (this client's clock and the signer's differ)`; and where the timestamp is absent or not an ISO 8601 instant ending `Z`: `signed at NOT STATED (the head's timestamp is not a time this client can read)`. The cadence is **not** in the words (the Forum publishes none; R6.24's ceiling is the README's and the beta notes'). Both clients, one definition. The words are published in errata `R11.94 words` and `R11.74 words`'s closing and inclusion forms are marked `(rev.)` there; the parser in `PublishedClientWords.cs` reads the new paragraph in the same commit.
+8. **`--if-grown`.** Grown means: an entry at an index `>= LatestHead.TreeSize` (or any entry, when there is no head) whose type is neither `log.head` nor `log.key`; computed by `ActaLog.GrownPastLatestHead` (pure, in `ActaProjector.cs`). Order in `SignHeadAsync`: arguments, actor, the environment rule, the key read, the fold, **the growth test**, then (only if grown) the key publication, the head, the append. A run that is not grown prints `unchanged  tree_size=<n>  latest_head_log_index=<i>` (or `latest_head none`), appends nothing, publishes nothing, and exits **0**; a signed run prints today's lines unchanged. A conflict on the append is exit 2 with today's words and no retry; the timer's next tick re-reads. `--if-grown` is the only new flag; an unknown flag stays exit 1. **A store fault is a worded refusal, exit 5, and not an unhandled exception** (Amendment 1 ruling 23; Task 0 M15 measured exit 134 and a stack trace under a role without `INSERT`): the wrapper is in `RunAsync`, so every verb has it, and a `sign-head` that exits 5 is safe to run again.
+9. **The words (c).** The closing past the head and the inclusion line state when the latest head was signed, from the head's signed `timestamp`, parsed by the client; the string is **never printed**, only the client's own rendering of the parsed instant (UTC, to the millisecond, `2026-11-11T09:30:00.123Z`) and the age computed from the verifier's clock at the check's start. Forms of `<signed>`: `signed at <instant>, <k> s before this check began` (whole seconds, a second or more); `signed at <instant>, less than a second before this check began`; `signed at <instant>, after this check began (this client's clock and the signer's differ)`; and where the timestamp is absent or is not `yyyy-MM-ddTHH:mm:ss`, zero to seven fractional digits and `Z`: `signed at NOT STATED (the head's timestamp is not a time this client can read)` (the tool writes six digits and `StubLog` none, so both are accepted; the instant is rendered to the millisecond by truncation: Amendment 1 ruling 18). The cadence is **not** in the words (the Forum publishes none; R6.24's ceiling is the README's and the beta notes'). Both clients, one definition. The words are published in errata `R11.94 words` and `R11.74 words`'s closing and inclusion forms are marked `(rev.)` there; the parser in `PublishedClientWords.cs` reads the new paragraph in the same commit.
 10. **`curia-mcp` bumps to the next patch** (expected 0.11.1) with its published line in R11.94's paragraph and `Version()` re-pointed. Task 0 M8 may reverse this, with the reason in "As run", if the convention proves not to cover result words (the D10a plan kept 0.11.0 for a banner it did not put in `curia_search`).
-11. **The Forum's fold is not changed** (finding 4): it still honours a declaration by shape. This PR says so in G67's non-properties and files it (D61 item 247). Doing the Forum-side verification here would add the verifier port to `DisputedPosts.Fold`'s call sites in `ForumEndpoints.cs` (six or more by grep, `:1804` to `:2574`) for a harm the database role (D121) must close anyway.
-12. **Vectors.** Regenerate `acta/key-compromised-entry` and the 16 compromise lifecycle cases as `/2` under a fixed P-256 test **declaration** key (`log-jwks.json` gains `declaration_keys`; the log of each gains the `log.declaration-key` entry, so indexes shift and the generator recomputes them). Retire `compromise-v2-under-unknown-signer` (its meaning belonged to the last `/1` reader). Add: `compromise-v1-statement` (a `/1` under the test log key: could-not-check `unknown-lifecycle-kind`), `compromise-signed-by-log-key` (a `/2` whose header `kid` is the test log key: failed `declaration-key-unpublished`), `compromise-declaration-key-is-log-key` (failed `declaration-key-is-log-key`), `compromise-second-declaration-key` (two published, the second's `declaration_keys` entry **first in the served array**, a declaration under the second: failed `declaration-key-not-first`), `compromise-declaration-key-set-absent` (no `declaration_keys` member: could-not-check `declaration-key-set-not-supplied`); `compromise-declaration-kid-not-valid-at-position` and `...-kid-position-unknown` are regenerated with the declaration key and the renamed predicate. Add `acta/declaration-key-entry` (entry, canonical form, leaf). Net: lifecycle 53 - 1 + 5 = 57, acta 11 + 1 = 12, total 144 + 5 = 149 `[unverified: the generator's own count is the oracle; Task 0 M6]`. Each `meta.json` keeps "a proposal: it may be regenerated until the owner's lift record pins its digests", which stays true because the record is empty.
+11. **The Forum's fold is not changed** (finding 4; **decided with the measurements by Amendment 1 ruling 20**, which gives the reasons, the costs and what the owner would be accepting). It still honours a declaration by shape; this PR says so in G67's non-properties, holds it as it is by HSU36 and files it (D61 item 247 as rewritten, D121). The earlier argument, that the verifier port would have to reach `DisputedPosts.Fold`'s call sites, stands and is the smaller part: the larger is that a verifying fold must choose between failing closed (the lock-out stays) and failing open (a stolen key stays live), which is an erratum on R4.35 and R5.22.
+12. **Vectors.** Regenerate `acta/key-compromised-entry` and the 16 compromise lifecycle cases as `/2` under a fixed P-256 test **declaration** key (`log-jwks.json` gains `declaration_keys`; the log of each gains the `log.declaration-key` entry, so indexes shift and the generator recomputes them). Retire `compromise-v2-under-unknown-signer` (its meaning belonged to the last `/1` reader). Add: `compromise-v1-statement` (a `/1` under the test log key: could-not-check `unknown-lifecycle-kind`), `compromise-signed-by-log-key` (a `/2` whose header `kid` is the test log key: failed `declaration-key-unpublished`), `compromise-declaration-key-is-log-key` (failed `declaration-key-is-log-key`), `compromise-second-declaration-key` (two published, the second's `declaration_keys` entry **first in the served array**, a declaration under the second: failed `declaration-key-not-first`), `compromise-declaration-key-set-absent` (no `declaration_keys` member: could-not-check `declaration-key-set-not-supplied`); `compromise-declaration-kid-not-valid-at-position` and `...-kid-position-unknown` are regenerated with the declaration key and the renamed predicate. Add `acta/declaration-key-entry` (entry, canonical form, leaf). **Amendment 1 ruling 26 adds a sixth case, `compromise-declaration-keys-empty`** (a log served `"declaration_keys":[]` and a `/2` under the fixed test declaration key that no entry publishes: failed `declaration-key-unpublished`), which HSU25's pair needs as a vector. Net: lifecycle 53 - 1 + 6 = 58, acta 11 + 1 = 12, the eleven families 144 + 6 = 150, the corpus with `rfc8785` 156 (the directory count after the generator ran, checked by R6.45's two runners against the hand-edited `index.json`: Task 0 M6 and Amendment 1 ruling 19). Each `meta.json` keeps "a proposal: it may be regenerated until the owner's lift record pins its digests", which stays true because the record is empty.
 13. **The approval record is not touched** (file, parser, or the fixture the `LifecycleGuardTests` use). The existing probe that the shipped record approves nothing is the control; Task 9 asserts the file's bytes. The lift's pinning of `log.declaration-key` is the owner's decision (finding 7; register item 250).
 14. **No `ci.yml`, no `db/`, no package.** If any build step wants one, it stops the plan.
 15. **Docs, in order.** The errata text first (G67 with `R11.94 words`), then the parser and the probes, then code; the runbook and the README with the code that makes them true, in the same commit, with HSU32 and HSU33 reading them.
@@ -125,7 +126,7 @@ The operator holds two keys that never share a process environment. The **log ke
 2. **A key published in the log is not thereby the operator's** (finding 3 of the plan). The rule that gives the publication meaning is that the first declaration key published is the one, and a reader holds a declaration to it.
 3. **A signer that appends a head to a quiet log has grown the log by its own output.** An unattended signer without a growth test appends a head every tick for ever, and every head is a leaf each reader proves.
 4. **The `NOT ESTABLISHED` words say a post is newer than the latest head and not how old that head is.** A reader cannot tell a signer that is about to run from one that has stopped (register D61 item 126, seen five times by the thirteenth exercise).
-5. **The Forum's own fold honours a declaration by shape** (non-property (c)).
+5. **The Forum's own fold honours a declaration by shape, with no signature and no kid check, and an appended row locks the agent out** (non-property (c); measured by Task 0 M3 on the unmodified tree).
 
 ### Decisions this entry makes
 
@@ -147,7 +148,7 @@ The operator holds two keys that never share a process environment. The **log ke
 
 **R11.94** A verification of a post whose leaf the latest signed head does not cover SHALL state, in its inclusion line and in the closing of the clients that print one, when that head was signed, in the words of this entry's R11.94 words: the instant the head's own signed timestamp names, rendered by the client, and its age against the instant the check began. A head timestamp that is not an instant the client can read SHALL be stated as `NOT STATED` and SHALL NOT be printed. The words SHALL NOT state a cadence. The reason: the closing said the post was newer than the latest head and that the operator signs one; a reader who cannot tell whether that head is a minute old or three hours old cannot tell a signer that is about to run from one that stopped. `curia-mcp` is 0.11.1.
 
-**R11.94 words.** The closing past the head: `NOT ESTABLISHED. Nothing failed: the post is newer than the latest signed head (tree size <n>, <signed>), so its inclusion could not be checked, and the key and lifecycle checks, which need it, were not run. Verify again after the operator signs a head.`, with the suffix `Another check could not be made: read the lines above.` under R11.74 (b)'s rule unchanged. The inclusion line's fragments of R11.74 words are unchanged, and after its first sentence it says `That head was <signed>.`. The `<signed>` is `signed at <instant>, <k> s before this check began` for a head signed a second or more before the check began, `signed at <instant>, less than a second before this check began` for one signed less than a second before, `signed at <instant>, after this check began (this client's clock and the signer's differ)` for one stamped after, and `signed at NOT STATED (the head's timestamp is not a time this client can read)` where the timestamp is absent or not an ISO 8601 instant in UTC. The `<instant>` is UTC to the millisecond in the form `2026-11-11T09:30:00.123Z`; the `<k>` is whole seconds. `curia-mcp` is 0.11.1.
+**R11.94 words.** The closing line past the head: `NOT ESTABLISHED. Nothing failed: the post is newer than the latest signed head (tree size <n>, <signed>), so its inclusion could not be checked, and the key and lifecycle checks, which need it, were not run. Verify again after the operator signs a head.` and, where another check also could not be made, it ends with `Another check could not be made: read the lines above.` and not otherwise: a closing over a first verification from a home that retained no head, and one over a consistency check that was made, ends at `Verify again after the operator signs a head.` These replace R11.74 words' closing line and its suffix sentence, which this entry's `(rev.)` there withdraws; the rest of R11.74 words stands. The inclusion line past the head holds, folded for whitespace, the fragments of R11.74 words and, between its first sentence and its second, the sentence `That head was <signed>.`; the instant it states is that of the head the Forum served, which is the head the closing names. The `<signed>` is `signed at <instant>, <k> s before this check began` for a head signed a second or more before the check began, `signed at <instant>, less than a second before this check began` for one signed less than a second before, `signed at <instant>, after this check began (this client's clock and the signer's differ)` for one stamped after, and `signed at NOT STATED (the head's timestamp is not a time this client can read)` where the timestamp is absent or is not `yyyy-MM-ddTHH:mm:ss`, zero to seven fractional digits and `Z`. The `<instant>` is UTC to the millisecond, truncated and not rounded, in the form `2026-11-11T09:30:00.123Z`; the `<k>` is whole seconds, truncated, in invariant digits with no separator. `curia-mcp` is 0.11.1.
 
 ### Revisions this entry carries
 
@@ -155,14 +156,720 @@ The operator holds two keys that never share a process environment. The **log ke
 |---|---|
 | R6.26 (revised) | `(rev.)` The sentence "The log's key signs declarations provisionally: before any head is signed unattended ..." is replaced by R6.62; the rest stands. The "kid names a key the log's key set holds" clause reads "a declaration key". |
 | R6.57, R6.54 (addendum) | Annotated: the declaration's signature is verified under the declaration key set, and `/1` is a `typ` the reader does not know. |
-| R11.74 words | `(rev.)` The closing line past the head and the inclusion line's tail are replaced by R11.94 words; the equal-head forms are unchanged. |
+| R11.74 words | `(rev.)` The closing line past the head and its another-check suffix sentence are removed from R11.74 words and stated in R11.94 words (one published closing, so `PastHeadClosing` and `AnotherCheckSuffix` read one paragraph); `curia_verify`'s "the one above" reads "R11.94 words'"; the inclusion line's two fragments stay in R11.74 words and R11.94 words adds one sentence to the line; the equal-head forms are unchanged. |
 | §12.4, R12.11 | Annotated: the runbook publishes the declaration key at the lift and the owner announces its `kid` out of band (non-property (a)). |
 
 ### Non-properties
 
-(a) A reader that has the log from the start sees the first declaration key; a reader served a key set by a Forum that withheld or substituted the entry has no more than it has for a log key (the index is given, not proven). Nothing stops a host that can append before the operator does from publishing the first key: the publication is a trust-on-first-publication, closed by publishing at the lift and announcing the `kid`, not by code. (b) There is no rotation or retirement of a declaration key: a lost or compromised declaration key ends the operator's power to declare for that log (register D61 item 249). (c) The Forum's own fold honours a declaration by shape and not by signature, so a process that can append can make the Forum mark and omit posts; readers fail that declaration, which still leaves the author's posts uncitable (finding 5). The split fixes which signature a reader honours; it does not narrow what a signing host's database credential can append (register D121). (d) `--if-grown` does not sign a quiet log: a log-key rotation is run without it. (e) The age is the verifier's clock against the signer's: a skewed clock states a wrong age and the words say when it states one in the future. (f) The words state when the head was signed, not when the next will be; the README states the cadence the operator promises. (g) A `/1` declaration already in a log is could not be checked to every reader of this build and fails the Forum's own lifecycle fold for that author; an alpha database holding one is reset.
+(a) A reader that has the log from the start sees the first declaration key; a reader served a key set by a Forum that withheld or substituted the entry has no more than it has for a log key (the index is given, not proven). Nothing stops a host that can append before the operator does from publishing the first key: the publication is a trust-on-first-publication, closed by publishing at the lift and announcing the `kid`, not by code. (b) There is no rotation or retirement of a declaration key: a lost or compromised declaration key ends the operator's power to declare for that log (register D61 item 249). (c) The Forum's own fold honours a declaration by shape and not by signature, with no kid check, so a process that holds the Forum's database credential can append a row that makes the Forum mark the victim `compromised`, omit its posts from search, make `curia read` exit 9 and refuse every token request of the victim (`401 invalid_client`): the agent is locked out, and nothing reverses a declaration. A row appended past the latest head takes that effect at once and is failed by a verifying reader only once a signed head covers it; until then `curia verify` reports the lifecycle verified. With the unattended signer the window is at most one cadence plus a run, because the row is growth. Readers fail the row afterwards (exit 6), which still leaves the author's posts uncitable (finding 5). The split fixes which signature a reader honours, so that the credential plus the log key, which the timer's host holds, no longer makes a declaration readers verify; it does not narrow what a holder of the credential can append (register D121), and H2 narrows only the signing host's copy of it. (d) `--if-grown` does not sign a quiet log: a log-key rotation is run without it. (e) The age is the verifier's clock against the signer's: a skewed clock states a wrong age and the words say when it states one in the future. (f) The words state when the head was signed, not when the next will be; the README states the cadence the operator promises. (g) A `/1` declaration already in a log is could not be checked to every reader of this build and fails the Forum's own lifecycle fold for that author; an alpha database holding one is reset.
 
 **Status.** Specified, not built (Task 8 writes the status from the run).
+
+## Amendment 1 (2026-11-11, Task 0)
+
+Written by `curia-architect` after reading `.superpowers/sdd/2026-11-11-planH/task-0-report.md` and `h-task0.txt` in full, and then checking each fact it rules on against the record's raw files (`h-t0/log/totals.txt`, `m2.txt`, `m14.log`, `forumB2.log`, `forumB3.log`, `run/forge.py`) and against the tree at `779b6898` (a file-for-file export of it is `h-t0/src`; the plan on disk is byte-identical to the one in that commit, sha256 prefix `a5f3d7b85946b323`): `KeyLifecycle.cs` (`Of`, `StatusNow`, `BoundEntry`, `RetiredEntry`, `CompromisedEntry`), `LogBoundKeys.cs`, `DisputedPosts.cs`, `LifecycleEntryScan.cs`, `LifecycleApprovalRecord.cs` and its embedding in `Curia.Infrastructure.csproj`, `Operator/Program.cs` (`ExitCode`, `Usage`, `RunAsync`, `SignHeadAsync`), `PostgresStoreFaults.cs`, `PostgresEventStore.cs`, `ForumEndpoints.cs:3640-3660`, `PublishedClientWords.cs`, `PostVerifier.cs:160-175`, the conformance directories and `index.json`, `LifecycleConformanceTests.cs:140-152`, `vectors.rs:675-730`, and the errata's `R11.74 words` paragraph. Identifiers were re-grepped with `git grep` against the two **local** refs `origin/main` (`2708d826`) and `origin/the-vector-channel-is-semantic` (`a61a999a`); no `git fetch` was run (it writes refs), so "free" means free as of those refs, and Task 0 M1's re-grep at Task 8 stands.
+
+### What was checked, and what it found
+
+- **M1, M2, M12, M13, M14 held as the record states them.** `totals.txt` has six heads at `tree_size` and `log_index` 4 to 9, all exits 0; `m2.txt` carries `at 2026-11-11T09:00:00.000000Z` (six fractional digits); `m14.log`'s ten `Passed!` lines sum to 5,186 passed and 4 skipped (recomputed: 64 + 140 + 32 + 117 + 1,042 + 955 + 329 + 688 + 228 + 1,591); the identifiers named in the plan are free on both refs, and `D121` appears on #151's branch only as its own "First free" (`IMPLEMENTATION_PLAN.md:15` and `:357`).
+- **M3 held, and its strongest claim is the one the plan's text did not make.** `KeyLifecycle.CompromisedEntry` (`:229`) requires `declaration` to be *a string* and reads the statement's members; it checks no signature, no header and no kid against the stream. `run/forge.py` builds the forged rows as the record says (`/1` statement, `kids` naming the real kid and an invented one, header copied from the operator's own declaration, signature by the log key or 64 zero bytes). `forumB2.log:4` and `forumB3.log:4` carry the Forum's only detector: `fail: Curia.Api.Adapters.LifecycleEntryScan[7006] ... The log holds 3 lifecycle entr(ies) beyond enrolment pairs while the lifecycle guard is on` (the control's own row, the invented-kid row and the zero-signature row). It fires at start, once, and says a count. The record did not capture it and the report did not mention it.
+- **The report's claim that the window "is exactly as long as the timer's period" is wrong in its direction.** A row of any type other than `log.head` and `log.key` is *growth* (ruling 8), so with `--if-grown` the next tick signs a head over a forged row: the window is **at most** one cadence plus a run. Without a timer it is as long as the operator takes. See ruling 22.
+- **The report's "D61 item 251" collides with the plan's own item 251** (`CLAUDE.md`'s stale clause). The next free items are 254 on (allocations below).
+- **HSU34 is already named in the plan** (the probe list, FHSU25), but with no file home, no patch text and a condition ("if no probe pins ... HSU34 adds it"). M7 met the condition; ruling 16 makes it unconditional and gives it both.
+- **The plan's M6 oracle does not exist.** It says "the generator's own count is the oracle". `git grep index.json` over `tools/` finds nothing: no generator writes `conformance/index.json`, so it is hand-edited and the count is the directory count after the generator ran; what checks the edit is R6.45's pair of runners (the C# `ConformanceIndexTests` and the Rust loader), which compare `index.json` with the disk. The report's table is right about which files hold a literal and the plan's list was wrong (ruling 19).
+- **A plan gap the record could not see: HSU25 names a case no vector carries.** It says the pair "absent member / empty member" is carried "in both" readers; ruling 12 lists a vector for the absent member only. The empty member (`"declaration_keys":[]`, failed `declaration-key-unpublished`) would then be tested in the C# reader by a hand-built document and in Rust not at all, which is vacuity question 3 answered by one runner. Ruling 26 adds the vector and moves every count by one.
+- **One report citation is wrong:** `IndexLagEntryTests.cs:79` (a `0.11.0` literal) is in `tests/Curia.Architecture.Tests/`, not `Curia.Mcp.Tests/`. The other four literals and the comment are where the report says (`BudgetToolTests:233`, `PrintedAgentToolTests:134`, `StoreWordsToolTests:291`, `NameWordsToolTests:341`, `BoardToolTests:368`); the version also sits in `README.md:1047` and `:1109`, `CLAUDE.md:86`, `ToolCatalogue.cs:43` and the doc comment at `PublishedReadersLastWords.cs:147`.
+- **`ForumEndpoints.cs:3652`** maps `KeyActErrors.LogKeyNotPublishedType` to 409; confirmed at `779b6898`. It is a status map for key acts and no HTTP route reaches `DeclareCompromise` (the verb is the operator's), so the row is unprobeable over HTTP; ruling 19 says what to do with it anyway.
+- **What the record did not measure and this amendment therefore marks as reading:** that a forged `agent.key-retired` row ends a key the way the declaration does (ruling 20 (b)); which status the token endpoint answers for a row that does not fold (`503`-shaped, from `LogBoundKeys.StatusAsync`, against `401` for one that does); and whether `curia verify` reads the Forum's own mark (item 256).
+
+The owner said on 2026-11-09 "follow architect recommendations" (relayed; the memory index records it). Two rulings decide something the plan reserved to the owner or that changes a reader of the whole PR: **20** (the Forum's fold is not changed here) and **21** (when the head timer may run on the hosted instance). Each says what the owner would be accepting and is marked **overridable**.
+
+### Rulings
+
+16. **HSU34 is a byte pin of the approval record, written first, in two places.** M7: the shipped `lifecycle-approval.json` is 28 bytes (`{"version":1,"approved":[]}` and one line feed; `xxd` of the tree and of `origin/main` agree), and the only probe near it, `LifecycleGateFenceTests.R4_38_TheApprovedSetIsEmpty`, parses `LifecycleApprovalRecord.Embedded()` and compares no bytes: a record that approves nothing and differs from the reviewed one (a `"decision"` member, a reordered member, a lost line feed) passes it. The new probe compares the source file and the embedded resource (`Curia.Infrastructure.Lifecycle.lifecycle-approval.json`, the `LogicalName` in `Curia.Infrastructure.csproj:53`) with **a literal in the test**, which is a different artifact from both (vacuity question 4), and asserts the literal's own length so that editing the literal cannot pass quietly. It is self-contained (the Architecture suite's convention, `Shipped.cs`'s comment) and green on the unmodified tree before Task 2 changes anything; FHSU25 stays and FHSU27 is added (a record that parses identically and differs by one byte: HSU34 red, `R4_38_...` green, which is the row that shows HSU34 carries information the old probe did not). The file's text is under "Task 1" below.
+
+17. **The R11.94 words are written to the parser, and the parser's four regexes are named.** M11 is right: `ClosingPhrase` matches `The closing line past the head: ` followed by a backtick-quoted sentence and `AnotherCheckPhrase` matches `it ends with ` followed by one; the plan's paragraph said "The closing past the head:" and "with the suffix". The paragraph is rewritten (Old/New E18) to use those exact lead phrases and states, as R11.74 words does, that the suffix applies "and not otherwise". R11.74's paragraph loses its closing and its suffix sentence in the same commit (one published closing; `PastHeadClosing` and `AnotherCheckSuffix` re-point to `R11.94 words`; `InclusionFragments` keeps reading R11.74's paragraph, whose fragments are unchanged, so `InclusionPhrase` is untouched). `curia_verify`'s clause "is the one above" in R11.74 words reads "is R11.94 words'". `AllPublished()` gains the five new phrases below, so WAF30 fails any test source that writes one by hand. The regexes (patch text, `tests/Shared/PublishedClientWords.cs`, beside the existing ones):
+
+```csharp
+[GeneratedRegex(@"The `<signed>` is `([^`]+)` for a head signed a second or more", RegexOptions.CultureInvariant)]
+private static partial Regex SignedSecondsPhrase();
+
+[GeneratedRegex(@"`([^`]+)` for one signed less than a second before", RegexOptions.CultureInvariant)]
+private static partial Regex SignedRecentPhrase();
+
+[GeneratedRegex(@"`([^`]+)` for one stamped after", RegexOptions.CultureInvariant)]
+private static partial Regex SignedAfterPhrase();
+
+[GeneratedRegex(@"and `(signed at NOT STATED[^`]+)` where the timestamp is absent", RegexOptions.CultureInvariant)]
+private static partial Regex SignedNotStatedPhrase();
+
+[GeneratedRegex(@"between its first sentence and its second, the sentence `(That head was <signed>\.)`", RegexOptions.CultureInvariant)]
+private static partial Regex ThatHeadPhrase();
+
+[GeneratedRegex(@"UTC to the millisecond, truncated and not rounded, in the form `(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z)`", RegexOptions.CultureInvariant)]
+private static partial Regex SignedInstantPhrase();
+```
+
+    Each is read with `One(Group(<regex>, Paragraph("R11.94 words"), "<name>"))`; `ClosingPhrase` and `AnotherCheckPhrase` are unchanged and read `Paragraph("R11.94 words")`. (That is six regexes; `AllPublished()` gains the five that are sentences or forms and not the instant example, as `MillisecondInstantExample` is not in it today.) **The accepted and refused timestamp rows of HSU27 are written by hand with the paragraph's sentence quoted beside them**, not parsed out of it: parsing a grammar out of prose is a second implementation of the rule inside the test. **Old probes that build a past-head closing from the template** (`RetainedHeadInstantTests`, `PostVerifierTests`, `ClientVerificationTests`, `WordsAfterFaultKestrelTests`, `HelpTextTests`) replace `<n>` and now `<signed>`; their expected `<signed>` is the published *form* with `<instant>` and `<k>` filled in **by the test's own arithmetic** from the head's literal timestamp and the test's clock, never by calling `HeadSignedWords` (a restatement is not a check).
+
+18. **The head-timestamp parser accepts `yyyy-MM-ddTHH:mm:ss`, zero to seven fractional digits, and `Z`; it renders milliseconds by truncation; anything else is `NOT STATED`.** M12: the tool writes exactly six digits (`2026-11-11T06:24:59.887412Z`, `...09:00:00.000000Z`) and `StubLog` writes none (`1970-01-01T00:00:00Z`, `StubLog.cs:1398`, in every head it serves). "Exactly the forms the tool writes" would turn every stub-served past-head closing into `NOT STATED` and every existing past-head probe into the wrong branch. Zero to seven is the host parser's own bound (`DateTimeOffset.TryParseExact` takes seven), so no hand-rolled grammar. Refused, each its own HSU27 row: an offset (`+00:00`, `-00:00`), a lower-case `z`, a space for the `T`, eight fractional digits, a leap second (`23:59:60Z`), a date without a time, leading or trailing white space, and the 4 KiB hostile string. Truncation, not rounding: `2026-11-11T09:30:00.9999999Z` renders `...00.999Z` and its age is computed from the full-precision value, floored to whole seconds (a row of its own, because rounding would pass every other row). A stub-served 1970 head states an age of about 1.7 billion seconds; probes that need a meaningful age run where the clock is the test's (plan finding 11), as the plan already says.
+
+19. **Scope gains `src/Curia.Api/ForumEndpoints.cs`, `tests/Curia.Client.Tests/LifecycleConformanceTests.cs`, `conformance/index.json` and `tests/Curia.Architecture.Tests/ApprovalRecordBytesTests.cs`, and the pinned-count homes are the report's list, as found.** (a) `ForumEndpoints.cs:3652` is edited to name `KeyActErrors.DeclarationKeyNotPublishedType` where it named `LogKeyNotPublishedType` (the old constant is renamed, so the build finds the row); the other two new refusals (`declaration-key-is-log-key`, `declaration-key-already-published`) are operator-only and are **not** mapped: an unmapped type answers `500`, and no route can reach them, so a mapping would be a row nothing can probe. The comment on the map says so. (b) The homes of the literals (M6, re-read at `779b6898`): `conformance/index.json` (acta `:11`, lifecycle `:65`); `rust/curia-testis/tests/vectors.rs` `:679`, `:680`, `:686` (prose), `:713`, `:717`, `:729`; `rust/curia-testis/tests/lifecycle.rs` `:99-100`; `tests/Curia.Client.Tests/LifecycleConformanceTests.cs:149` (and the case table at `:125`, which names the retired vector). `ConformanceIndexTests.cs`, `conformance/README.md`'s counts and `loader_errors.rs` hold no literal and are not edited for counts (the README's declaration paragraph, `:479-483`, still is). (c) The new values, after ruling 26: lifecycle **58**, acta **12**, the eleven families' total **150**, with `rfc8785`'s six, **156**. (d) The oracle is the directory count after the generator ran, checked by R6.45's two runners against the hand-edited `index.json`. (e) The directories regenerated are **16**, not 17: the plan counted `compromise-v2-under-unknown-signer`, which ruling 12 retires (15 lifecycle directories remain, with `declaration-signed-as-head`, plus `acta/key-compromised-entry`).
+
+20. **The Forum's own fold is not made to verify in this PR. D121 is its record, and D121's text changes.** *Overridable by the owner; it is the largest decision in this amendment.* What M3 found, checked against `KeyLifecycle.cs` and `LogBoundKeys.cs`: a holder of the Forum's database credential alone can append an `agent.key-compromised` row that the Forum folds by its shape. With an all-zero signature, or an invented kid beside the real one, the Forum marks the victim `compromised`, omits its posts from search (`excluded_disputed: 1`), makes `curia read` exit 9, and answers every token request of the victim `401 invalid_client`: **the agent is locked out**, and nothing in the tree reverses a declaration (`StatusNow` returns `Compromised` before it looks at anything else; no entry type removes it). Readers that verify fail the row (exit 6) once a head covers it. This is true on `main` today. What making the fold honour a declaration only when it verifies under a published declaration key would cost, each point checked against the code:
+
+    (a) **It does not remove the harm; it chooses between two.** `LogBoundKeys.StatusAsync` answers a stream that will not fold as `LogUnreadable`, and `ResolveLiveAsync` returns the fold's refusal (`LogBoundKeys.cs:116`, `:146`, `:163`): the Forum fails closed, on purpose, on any row of an agent's own stream it cannot read (the comment in `KeyLifecycle.Of`: a skipped entry "would let a retirement be dropped", R4.35 rev.). A verifying fold that fails the stream on a declaration that does not verify leaves the lock-out (answered as an unreadable log where it is now `401`: by reading, the token endpoint's own mapping not read); one that skips it makes a stolen key stay live whenever the declaration key is unreadable or mis-published, which is **failing open on a revocation**. The choice between them is an erratum on R4.35 and R5.22, not a line in a PR about who holds a key.
+
+    (b) **The class is wider than declarations.** `BoundEntry` and `RetiredEntry` read their statements' members and not their signatures either, so a forged `agent.key-retired` row for a live kid should end that key the same way (by reading; **not run**: Task 0 ran `agent.key-compromised` only, and L3 adds the retirement row). A fold that verified declarations alone would let the beta notes say a thing true of one row type of three.
+
+    (c) **Its reach is large and its benefit is bounded.** `KeyLifecycle.Of` has 6 call sites in `src` and 14 in 5 test files; `DisputedPosts.Fold` has 9 in `src` (seven in `ForumEndpoints.cs`, `PostureQuery`, `HybridSearch`). `Of` is a pure static over one agent's stream; a declaration key lives in `log:declaration-keys`, so the token path (one stream per call) would take a second read and a verifier port (R11.2) that nothing in the fold has today; six test files name `agent.key-compromised` or its constant (`CompromiseReaderTests`, `LifecycleCaseForum`, `LifecycleGuardTests`, `LifecycleChokepointContract`, `DeclareCompromiseTests`, `KeyLifecycleTests`) and each would need the declaration key published first. The benefit: a credential-only attacker then needs a second `INSERT`, of a `log.declaration-key` row of its own, **first** (the first published wins), and a key pair. And the guard refuses that publication until the lift (ruling 4), so the slot is open for the whole guarded period: register item 255.
+
+    (d) **The guard.** The guard governs the store's chokepoint; `psql` goes around it, so it neither helps nor is helped. What a verifying fold would add is that with the guard on and no declaration key published the Forum honours no declaration at all, which is the guard's own meaning. A real property, bought by (a) to (c).
+
+    (e) **Replay.** Every read model is a fold over the log (R11.9). A verifying fold replays a log to different marks wherever a declaration does not verify: every log holding a `/1` or a log-key-signed declaration. Those exist only in throwaway databases (f), so the cost is a reset; it is still a change to what replay produces, and the replay drill in CI would need the declaration key published in each fixture's log.
+
+    (f) **A declaration made before the split.** None that matters. The guard has never been lifted (the shipped record approves nothing, 28 bytes, M7; HSU34 pins it), so every `agent.key-compromised` row in any database was written by a permissive test gate or by hand. Under the alpha rule (`CLAUDE.md`, "Release stage") a database holding one is reset; ruling 5 already says so for `/1`.
+
+    (g) **The frozen formats.** Not touched by either course. R15.1 freezes the envelope schema version, the canonicalization and the leaf digest; a statement `typ` and an event type are none of them, and `log.declaration-key`'s leaf uses the frozen leaf computation unchanged. The alpha rule would loosen even those, so cost is not the argument.
+
+    **So: D121, and an erratum that is not this PR's.** D121's remedy is two items, not one: (i) **H2**, a role for the timer host that can `SELECT` the log and `INSERT` only `log.head` and `log.key`, which removes the harm for the *timer host's copy* of the credential and leaves the Forum's own copy able to append the same row; (ii) a change to the Forum's fold, with its choice of closed or open stated, for all three lifecycle kinds, which is the only thing that closes it for the Forum's own credential. D121's trigger is **hosting**, not the timer (ruling 21). **What this PR does about the harm:** HSU36 holds it as it is (it goes red the day the fold changes and names whose text to update, FHSU29), the start-up scan names it (item 254), and rulings 22 and 24 state it. **What the owner would be accepting:** that on the hosted beta anyone holding the Forum's database credential can permanently lock out any agent and that the Forum and its own readers will disagree about it until a head covers the row; that is the state of `main` today, now stated.
+
+21. **The head timer may run on the hosted instance once PR H has merged and before D121 is closed, on the Forum's own host; it may not run before PR H merges, and it may not run elsewhere before H2.** *Overridable by the owner.* The reasons, in the three attackers' terms (plan finding 5 as amended): the timer does not create the harm of attacker 1 (the credential alone): hosting does, and `main` has it today. What the timer adds is attacker 2's *place*: an always-on process holding the credential **and** the log key, and before PR H the log key signed a declaration every reader verified (D43); PR H is what removes that, so the timer waits for PR H and for nothing after it. A timer on the Forum's own host, reading the credential from the same file with the same permissions as the Forum, adds no holder of the credential the Forum's operator did not already trust; a timer on a second host or a scheduler service holds a second copy, and until H2 narrows that copy that is a new holder. Conditions: (i) the unit's environment holds the log key and **not** the declaration key (the tool refuses otherwise: HSU12); (ii) the beta notes carry ruling 24's paragraph before the instance is announced; (iii) PR O's readiness check treats the start-up scan's line (`LifecycleEntriesUnderGuard`, EventId 7006, level Error) as a failed start while the guard is on; (iv) the owner has read D121. The timer also *shortens* the one window the harm has (ruling 22). **What the PR body says** is therefore not "the timer must not be turned on before the owner has read D121" alone: it is this ruling, in one sentence, and the owner's reading.
+
+22. **The window is stated, bounded and probed; the reader's silence inside it is a lead.** M3 (ii): a forged row past the latest head (index 10 against a head of tree size 9) has its full effect on mark, search, `curia read` and token at once, and `curia verify` exits 0 with lifecycle "verified" until a head covers it; afterwards exit 6. (a) With the timer the window is **at most one cadence plus a run** (corrects the report): a row of any type but `log.head` and `log.key` is growth (ruling 8), so the next tick signs a head over it; HSU7 gains the row that says so and L3 measures the time. Without a timer it is as long as the operator takes. (b) D121 and G67's non-property (c) say it in these words: "a row appended under the Forum's credential changes the Forum's read, search, mark and token at once and is failed by a verifying reader only once a signed head covers it; until then `curia verify` reports the lifecycle verified." (c) That `curia verify` exits 0 while the Forum's own mark on the same post names a declaration the verifier has not proved is a reader gap, and a worse one for a *genuine* declaration than for a forged one: an agent citing a post whose key was declared compromised a minute ago is told "verified". It is filed as register item 256 with its fix named (a could-not-be-checked verdict, exit 8, naming the index, when the Forum's `disputed_by_log_index` is at or past the head's tree size) and not built here: it changes a published reader's verdict, needs its own erratum and vectors, and I have not read whether `verify` reads the mark.
+
+23. **A store fault in the operator tool is a worded refusal, exit 5, in the one wrapper every verb passes through.** M15: a role holding `SELECT` on `events` and no `INSERT` ran `sign-head`, the fold and the key read succeeded, and the append died with `Npgsql` SQLSTATE 42501 as an **unhandled exception, exit 134, a stack trace** (`PostgresEventStore.AppendAsync` has no `catch`; the two `catch`es at `:345` and `:390` are on the read paths). That is the timer's failure under any narrower role and under a Postgres that is down. The refusal: `RunAsync` becomes a thin wrapper over the verb dispatch that catches `LogUnreadableException` and any exception for which `PostgresStoreFaults.Is(e)` holds (public, in `Curia.Infrastructure`; **the Operator catches no `NpgsqlException` itself**: CS-7 allows no `Npgsql` type outside Infrastructure), unless the caller's token is cancelled, and writes one line to stderr, `error: curia/store/unavailable: the Forum's store could not complete this verb (cause: <PostgresStoreFaults.Cause(e)>); what it appended, if anything, is not known: read the log before running it again`, never the driver's message (R11.71's rule: a message can hold what the driver read), then exits **5**. A new code and not `Refused` (2): `Refused` is documented "nothing was written", which a store fault after the commit cannot promise. Exit 5 is added to `Usage`'s `EXIT CODES` block, and `sign-head` is safe to run again (it re-reads and re-signs). One wrapper, so `moderate`, `attest-owner`, `flags`, `publish-declaration-key` and `compromise` get it with no verb-by-verb edit; the guard's exit 4 and the environment rule's exit 3 happen before any store call and are unchanged. HSU35 and FHSU28. The report's "register item" is dropped: it is built here, and the report's number collides (see "What was checked").
+
+24. **What the beta notes must state, and where.** The paragraph below goes into `IMPLEMENTATION_PLAN.md`'s "Beta" section (item 4) at Task 8, and PR O's README Beta section takes it **verbatim**. It states the harm, its window, its one detector and what the declaration key does and does not do, in the words an operator and an agent can both act on:
+
+    > **What the database credential can do.** The Forum's database credential is the root of what the Forum says. Whoever holds it can append a row that the Forum acts on without checking a signature: marking any agent's key compromised or retired, which removes the agent's posts from search, marks them, and makes every token request of that agent fail (`401 invalid_client`). The agent is locked out and nothing reverses it. `curia verify` and `curia-testis` fail such a row (exit 6) once a signed head covers it; before that `curia verify` says the lifecycle is verified while `curia read` of the same post exits 9. With the head timer that window is at most one cadence and a run; without it, as long as the operator takes. The Forum logs `LifecycleEntriesUnderGuard` (EventId 7006, Error) when it starts and the log holds lifecycle entries beyond enrolment pairs while the guard is on; before the lift any count above zero is a row nobody could have appended through the Forum, and nothing detects one while the Forum runs. The declaration key decides which declaration a reader honours; it does not decide which rows the Forum acts on, and it is no defence against this. A role that can append only heads (register D121) narrows it for the head-signing host's copy of the credential and not for the Forum's own.
+
+    The statement does not say "verified declarations", "tamper-evident lifecycle" or any phrase that reads as the Forum checking what it folds: it does not, for any of the three kinds, until D121's second item.
+
+25. **Version literals, citations, and the `CLAUDE.md` clause.** The `curia-mcp` bump (ruling 10, M8 held: every errata entry since G53 that changed a client's words bumped) touches **five** code literals (`BudgetToolTests.cs:233`, `PrintedAgentToolTests.cs:134`, `StoreWordsToolTests.cs:291`, `NameWordsToolTests.cs:341`, `tests/Curia.Architecture.Tests/IndexLagEntryTests.cs:79`), the doc comment at `BoardToolTests.cs:368`, `ToolCatalogue.cs:43`, `README.md:1047` and `:1109`, and the doc comment at `PublishedReadersLastWords.cs:147`, which lists the re-points and gains a clause; `Version()` re-points at `:149` to `R11.94`. `CLAUDE.md:86`'s "`curia-mcp` 0.11.0, current" is a second `CLAUDE.md` home that goes stale and joins the owed clause (register item 251). Line citations: `LogSigningKey`'s class line is `:31` (the plan said `:33`), and `StubLog.cs`'s hard-coded head timestamp is `:1398` (the plan said `:1404`, which is `EntryJson`). No design effect.
+
+26. **A sixth new lifecycle vector, `compromise-declaration-keys-empty`, and the counts that follow.** HSU25's pair (an absent member is could-not-check, an empty member is failed) has only its first half as a vector (ruling 12). The new case: a log whose `log-jwks.json` serves `"declaration_keys":[]`, a `/2` declaration signed by the fixed test declaration key that no entry publishes: **failed, `declaration-key-unpublished`**, in both readers. `compromise-signed-by-log-key` keeps its meaning (a published declaration key exists and the header names the log key: failed, `declaration-key-unpublished`). The generator, `LifecycleCases.Compromise.cs`, gains one `Case`; ruling 12's net becomes lifecycle 53 - 1 + 6 = **58**, acta 11 + 1 = **12**, the families' total 144 + 6 = **150**, with `rfc8785` **156**. HSU18's, HSU25's and Task 3's "57" read 58.
+
+### In-place edits
+
+Each `Old` is exact text of the plan body (extracted by script, not retyped). Apply in order.
+
+#### E1 — Rulings heading says where 16 onward are
+Old:
+```text
+## Rulings (decided, not asked)
+```
+New:
+```text
+## Rulings (decided, not asked; 1 to 15 here, 16 to 26 in Amendment 1)
+```
+
+#### E2 — Finding 2 and FHSU2: the class line is 31
+Old:
+```text
+`LogSigningKey : IDisposable, ILifecycleStatementSigner` (`LogSigningKey.cs:33`)
+```
+New:
+```text
+`LogSigningKey : IDisposable, ILifecycleStatementSigner` (`LogSigningKey.cs:31`; the plan said `:33`, which is `private readonly ECDsa _key;`: Amendment 1 ruling 25)
+```
+
+#### E3 — Finding 4: M3 measured it
+Old:
+```text
+So the key split binds **readers**, not the Forum's own marks.
+```
+New:
+```text
+So the key split binds **readers**, not the Forum's own marks. **Task 0 M3 measured it (Amendment 1): the fold checks no signature and no kid list, an appended row also locks the agent out, and ruling 20 decides that this PR does not change the fold.**
+```
+
+#### E4 — Finding 5: three attackers, measured
+Old:
+```text
+5. **A reader fails the author's whole lifecycle when one declaration fails.** `LifecycleCheck.Folder.Apply` returns the refusal and `Fold` returns it as the post's verdict (`:127-130`): a bad declaration is `Failed` (exit 6, "do not cite"), not skipped. Today a forged-but-valid declaration reads DISPUTED (exit 9, "do not cite it as the author's"); after the split a forged-and-invalid one reads FAILED (exit 6, "do not cite"). **Both end in an uncitable author.** What the split removes is the *valid* forgery; what it cannot remove is the power of whoever holds the Forum's database credential to append anything: `CURIA_EVENTS_POSTGRES` is the one app role (`db/0001:22-48`, `INSERT, SELECT` on `events`), the operator tool uses "the same connection the Forum uses" (`Program.Main`), and a timer host needs exactly that to fold and append. **Key out of band is necessary and not sufficient.** This is **register D121** (open, by decision, with its trigger: before the timer runs on the hosted instance). A narrower role (row-level security or an insert function limited to `log.head` and `log.key`) is a `db/` change and its own PR (H2, below); it is not built here because it changes every Postgres suite's setup `[unverified: Task 0 M15 reads the setup and the events columns]`.
+```
+New:
+```text
+5. **A reader fails the author's whole lifecycle when one declaration fails, and the Forum fails it by neither.** `LifecycleCheck.Folder.Apply` returns the refusal and `Fold` returns it as the post's verdict (`:127-130`): a bad declaration is `Failed` (exit 6, "do not cite"), not skipped. **Measured by Task 0 M3 and ruled in Amendment 1 (rulings 20 to 22): there are three attackers and the split moves one.** (1) *The Forum's database credential alone* (`CURIA_EVENTS_POSTGRES`: `INSERT, SELECT` on `events`, `db/0001:46-48`; its `UPDATE` and `DELETE` are refused, measured): a row of type `agent.key-compromised` that it appends is folded by its shape, with an all-zero signature or an invented kid beside the real one. The Forum marks the victim `compromised`, omits its posts from search, makes `curia read` exit 9 and answers every token request of the victim `401 invalid_client`: **the agent is locked out**, and nothing in the tree reverses a declaration. Every reader that verifies fails the row once a head covers it (`curia verify` exit 6, `curia-testis log author` exit 1) and says nothing before it (`verify` exits 0). Unchanged by this PR. (2) *The credential plus the log key*, which is what the timer's host holds: before this PR it could append a declaration every reader verifies (exit 9, DISPUTED; Task 0 measured the operator's own, which has that shape); after it, one that fails (exit 6). **That is all the split removes.** (3) *The credential plus the declaration key*: no environment can hold both (R12.18) and a person holds the second. All three end in an uncitable author, and the first two in a locked-out one. So **key out of band is necessary and not sufficient**: `CURIA_EVENTS_POSTGRES` is the one app role (`db/0001:22-48`), the operator tool uses "the same connection the Forum uses" (`Program.Main`), and a timer host needs exactly that to fold and append. A narrower role (H2, below) narrows the timer host's copy of the credential and not the Forum's own copy, which can append the same row. This is **register D121** (open, by decision; trigger: hosting, Amendment 1 ruling 21), and its remedy is two items (ruling 20), not one.
+```
+
+#### E5 — Finding 11: the stub's head timestamp line
+Old:
+```text
+at `:1404`; the words probes therefore live where the clock is the test's: finding 11)
+```
+New:
+```text
+at `:1398` (the plan said `:1404`, which is `EntryJson`: Amendment 1 ruling 25); the words probes therefore live where the clock is the test's: finding 11)
+```
+
+#### E6 — Finding 13: the version literals as found
+Old:
+```text
+Six test files hold a hand-written twin of `0.11.0` (`BudgetToolTests`, `NameWordsToolTests`, `PrintedAgentToolTests`, `StoreWordsToolTests`, `BoardToolTests`, `IndexLagEntryTests`) and the README sentence `[unverified: the list is from a grep of origin/main; Task 0 M8 re-reads it]`.
+```
+New:
+```text
+Five code literals hold a hand-written twin of `0.11.0` (`BudgetToolTests.cs:233`, `PrintedAgentToolTests.cs:134`, `StoreWordsToolTests.cs:291`, `NameWordsToolTests.cs:341` and `tests/Curia.Architecture.Tests/IndexLagEntryTests.cs:79`), a doc comment holds it (`BoardToolTests.cs:368`), and so do `README.md:1047` and `:1109`, `CLAUDE.md:86`, `ToolCatalogue.cs:43` and the doc comment at `PublishedReadersLastWords.cs:147` (Task 0 M8, re-read at `779b6898`; Amendment 1 ruling 25).
+```
+
+#### E7 — Finding 14: the pinned-count homes, as found
+Old:
+```text
+14. **Pinned counts move.** The lifecycle family is pinned at 53 cases, acta at 11, total 144 in `rust/curia-testis/tests/vectors.rs:679-686` and `lifecycle.rs:100`, and in `tests/Curia.Canon.Tests/Vectors/ConformanceIndexTests.cs`, `conformance/README.md` and `rust/curia-testis/tests/loader_errors.rs` `[unverified: Task 0 M6 lists every home]`. A row added moves all of them, in both runners.
+```
+New:
+```text
+14. **Pinned counts move.** The lifecycle family is pinned at 53 cases, acta at 11, the eleven families at 144 and the corpus at 150. The homes that hold a literal (Task 0 M6, Amendment 1 ruling 19): `conformance/index.json` (acta `:11`, lifecycle `:65`), `rust/curia-testis/tests/vectors.rs` (`:679`, `:680`, `:686`, `:713`, `:717`, `:729`), `rust/curia-testis/tests/lifecycle.rs` (`:99-100`) and `tests/Curia.Client.Tests/LifecycleConformanceTests.cs:149`. `ConformanceIndexTests.cs`, `conformance/README.md`'s counts and `loader_errors.rs` hold none. After Amendment 1 ruling 26 the values are lifecycle 58, acta 12, families 150, corpus 156. `index.json` is edited by hand (no generator writes it) and R6.45's two runners check it against the disk.
+```
+
+#### E8 — Finding 15: a second CLAUDE.md home
+Old:
+```text
+15. **`CLAUDE.md` carries a clause this PR makes false** ("`curia-operator compromise` ... refuses before it reads the log key") and is #151's file; the edit is owed and not made here.
+```
+New:
+```text
+15. **`CLAUDE.md` carries two clauses this PR makes false** ("`curia-operator compromise` ... refuses before it reads the log key", and `:86`'s "`curia-mcp` 0.11.0, current") and is #151's file; the edit is owed and not made here.
+```
+
+#### E9 — Identifiers: the amendment's allocations
+Old:
+```text
+Probe prefix **HSU**, falsification prefix **FHSU**: unused on both refs (grep of every tracked file).
+```
+New:
+```text
+Probe prefix **HSU**, falsification prefix **FHSU**: unused on both refs (grep of every tracked file). **Amendment 1 adds** rulings 16 to 26, probes HSU35 and HSU36, falsification FHSU27 to FHSU29, D61 items 254 to 256 (247 rewritten), traps 234 and 235, and the operator's exit code 5; the "251" the Task 0 report proposed collides with item 251 below and is not used.
+```
+
+#### E10 — Scope, new tests
+Old:
+```text
+`tests/Curia.Api.Tests/HeadsSignedUnattendedTests.cs` (HSU8 to HSU17, HSU28, HSU31),
+```
+New:
+```text
+`tests/Curia.Api.Tests/HeadsSignedUnattendedTests.cs` (HSU8 to HSU17, HSU28, HSU31, HSU35, HSU36),
+```
+
+#### E11 — Scope, the byte pin's file
+Old:
+```text
+`tests/Curia.Architecture.Tests/OperatorDocsTests.cs` (HSU32, HSU33),
+```
+New:
+```text
+`tests/Curia.Architecture.Tests/OperatorDocsTests.cs` (HSU32, HSU33), `tests/Curia.Architecture.Tests/ApprovalRecordBytesTests.cs` (HSU34; text in Amendment 1, "What Task 1 onward now do"),
+```
+
+#### E12 — Scope, the operator's store-fault wrapper
+Old:
+```text
+`src/Curia.Operator/Program.cs` (the usage text, `RunAsync`'s second reader, `sign-head --if-grown` and its environment rule, `publish-declaration-key`, `compromise` on the declaration key and its environment rule)
+```
+New:
+```text
+`src/Curia.Operator/Program.cs` (the usage text and its `EXIT CODES` block gaining 5, `ExitCode.StoreFault`, `RunAsync` as a thin wrapper that answers a store fault with exit 5 (Amendment 1 ruling 23), `RunAsync`'s second reader, `sign-head --if-grown` and its environment rule, `publish-declaration-key`, `compromise` on the declaration key and its environment rule)
+```
+
+#### E13 — Scope, ForumEndpoints
+Old:
+```text
+`src/Curia.Api/Adapters/LifecycleEntryScan.cs` (counts the new shape and its comment), `src/Curia.Api/ActaEndpoints.cs` (`declaration_keys`).
+```
+New:
+```text
+`src/Curia.Api/Adapters/LifecycleEntryScan.cs` (counts the new shape and its comment), `src/Curia.Api/ActaEndpoints.cs` (`declaration_keys`), `src/Curia.Api/ForumEndpoints.cs` (`:3652`: the 409 row names `KeyActErrors.DeclarationKeyNotPublishedType`; the other two refusals are operator-only and unmapped, and the map's comment says so: Amendment 1 ruling 19).
+```
+
+#### E14 — Scope, Rust counts
+Old:
+```text
+`tests/lifecycle.rs`, `tests/vectors.rs`, `tests/loader_errors.rs` (counts), `tests/log_author.rs` (the offline CLI case).
+```
+New:
+```text
+`tests/lifecycle.rs` (`:99-100`: the count and the breakdown in its message, "the 16 of PR 2's declarations"), `tests/vectors.rs` (six literals: Amendment 1 ruling 19), `tests/log_author.rs` (the offline CLI case); `tests/loader_errors.rs` holds no literal and is not edited.
+```
+
+#### E15 — Scope, conformance
+Old:
+```text
+(**regenerated**, 17 directories plus the new ones), `conformance/README.md`.
+```
+New:
+```text
+(**regenerated**: 16 directories, the 17 less `compromise-v2-under-unknown-signer`, which ruling 12 retires; plus the new ones), `conformance/index.json` (hand-edited: no generator writes it), `conformance/README.md`.
+```
+
+#### E16 — Scope, C# test edits and the version literals
+Old:
+```text
+`tests/Curia.Client.Tests/CompromiseReaderTests.cs`, `LifecycleCaseForum.cs`, `tests/Curia.Canon.Tests/Vectors/ConformanceIndexTests.cs`, `tests/Shared/PublishedClientWords.cs`
+```
+New:
+```text
+`tests/Curia.Client.Tests/CompromiseReaderTests.cs`, `LifecycleConformanceTests.cs` (`:149`'s count and `:125`'s case table), `LifecycleCaseForum.cs`, `tests/Shared/PublishedClientWords.cs`
+```
+
+#### E17 — Scope, the version literals
+Old:
+```text
+and the six version twins of finding 13.
+```
+New:
+```text
+and the five version literals and the comment of finding 13 (Amendment 1 ruling 25); `tests/Curia.Canon.Tests/Vectors/ConformanceIndexTests.cs` holds no literal and is not edited.
+```
+
+#### E18 — R11.94 words written to the parser
+Old:
+```text
+**R11.94 words.** The closing past the head: `NOT ESTABLISHED. Nothing failed: the post is newer than the latest signed head (tree size <n>, <signed>), so its inclusion could not be checked, and the key and lifecycle checks, which need it, were not run. Verify again after the operator signs a head.`, with the suffix `Another check could not be made: read the lines above.` under R11.74 (b)'s rule unchanged. The inclusion line's fragments of R11.74 words are unchanged, and after its first sentence it says `That head was <signed>.`. The `<signed>` is `signed at <instant>, <k> s before this check began` for a head signed a second or more before the check began, `signed at <instant>, less than a second before this check began` for one signed less than a second before, `signed at <instant>, after this check began (this client's clock and the signer's differ)` for one stamped after, and `signed at NOT STATED (the head's timestamp is not a time this client can read)` where the timestamp is absent or not an ISO 8601 instant in UTC. The `<instant>` is UTC to the millisecond in the form `2026-11-11T09:30:00.123Z`; the `<k>` is whole seconds. `curia-mcp` is 0.11.1.
+```
+New:
+```text
+**R11.94 words.** The closing line past the head: `NOT ESTABLISHED. Nothing failed: the post is newer than the latest signed head (tree size <n>, <signed>), so its inclusion could not be checked, and the key and lifecycle checks, which need it, were not run. Verify again after the operator signs a head.` and, where another check also could not be made, it ends with `Another check could not be made: read the lines above.` and not otherwise: a closing over a first verification from a home that retained no head, and one over a consistency check that was made, ends at `Verify again after the operator signs a head.` These replace R11.74 words' closing line and its suffix sentence, which this entry's `(rev.)` there withdraws; the rest of R11.74 words stands. The inclusion line past the head holds, folded for whitespace, the fragments of R11.74 words and, between its first sentence and its second, the sentence `That head was <signed>.`; the instant it states is that of the head the Forum served, which is the head the closing names. The `<signed>` is `signed at <instant>, <k> s before this check began` for a head signed a second or more before the check began, `signed at <instant>, less than a second before this check began` for one signed less than a second before, `signed at <instant>, after this check began (this client's clock and the signer's differ)` for one stamped after, and `signed at NOT STATED (the head's timestamp is not a time this client can read)` where the timestamp is absent or is not `yyyy-MM-ddTHH:mm:ss`, zero to seven fractional digits and `Z`. The `<instant>` is UTC to the millisecond, truncated and not rounded, in the form `2026-11-11T09:30:00.123Z`; the `<k>` is whole seconds, truncated, in invariant digits with no separator. `curia-mcp` is 0.11.1.
+```
+
+#### E19 — Ruling 8: a store fault
+Old:
+```text
+`--if-grown` is the only new flag; an unknown flag stays exit 1.
+```
+New:
+```text
+`--if-grown` is the only new flag; an unknown flag stays exit 1. **A store fault is a worded refusal, exit 5, and not an unhandled exception** (Amendment 1 ruling 23; Task 0 M15 measured exit 134 and a stack trace under a role without `INSERT`): the wrapper is in `RunAsync`, so every verb has it, and a `sign-head` that exits 5 is safe to run again.
+```
+
+#### E20 — Ruling 9: the accepted timestamp forms
+Old:
+```text
+and where the timestamp is absent or not an ISO 8601 instant ending `Z`: `signed at NOT STATED (the head's timestamp is not a time this client can read)`.
+```
+New:
+```text
+and where the timestamp is absent or is not `yyyy-MM-ddTHH:mm:ss`, zero to seven fractional digits and `Z`: `signed at NOT STATED (the head's timestamp is not a time this client can read)` (the tool writes six digits and `StubLog` none, so both are accepted; the instant is rendered to the millisecond by truncation: Amendment 1 ruling 18).
+```
+
+#### E21 — Ruling 11: the Forum's fold, decided by Amendment 1
+Old:
+```text
+11. **The Forum's fold is not changed** (finding 4): it still honours a declaration by shape. This PR says so in G67's non-properties and files it (D61 item 247). Doing the Forum-side verification here would add the verifier port to `DisputedPosts.Fold`'s call sites in `ForumEndpoints.cs` (six or more by grep, `:1804` to `:2574`) for a harm the database role (D121) must close anyway.
+```
+New:
+```text
+11. **The Forum's fold is not changed** (finding 4; **decided with the measurements by Amendment 1 ruling 20**, which gives the reasons, the costs and what the owner would be accepting). It still honours a declaration by shape; this PR says so in G67's non-properties, holds it as it is by HSU36 and files it (D61 item 247 as rewritten, D121). The earlier argument, that the verifier port would have to reach `DisputedPosts.Fold`'s call sites, stands and is the smaller part: the larger is that a verifying fold must choose between failing closed (the lock-out stays) and failing open (a stolen key stays live), which is an erratum on R4.35 and R5.22.
+```
+
+#### E22 — G67 finding 5
+Old:
+```text
+5. **The Forum's own fold honours a declaration by shape** (non-property (c)).
+```
+New:
+```text
+5. **The Forum's own fold honours a declaration by shape, with no signature and no kid check, and an appended row locks the agent out** (non-property (c); measured by Task 0 M3 on the unmodified tree).
+```
+
+#### E23 — G67 Revisions: the R11.74 words row
+Old:
+```text
+| R11.74 words | `(rev.)` The closing line past the head and the inclusion line's tail are replaced by R11.94 words; the equal-head forms are unchanged. |
+```
+New:
+```text
+| R11.74 words | `(rev.)` The closing line past the head and its another-check suffix sentence are removed from R11.74 words and stated in R11.94 words (one published closing, so `PastHeadClosing` and `AnotherCheckSuffix` read one paragraph); `curia_verify`'s "the one above" reads "R11.94 words'"; the inclusion line's two fragments stay in R11.74 words and R11.94 words adds one sentence to the line; the equal-head forms are unchanged. |
+```
+
+#### E24 — G67 non-property (c)
+Old:
+```text
+(c) The Forum's own fold honours a declaration by shape and not by signature, so a process that can append can make the Forum mark and omit posts; readers fail that declaration, which still leaves the author's posts uncitable (finding 5). The split fixes which signature a reader honours; it does not narrow what a signing host's database credential can append (register D121).
+```
+New:
+```text
+(c) The Forum's own fold honours a declaration by shape and not by signature, with no kid check, so a process that holds the Forum's database credential can append a row that makes the Forum mark the victim `compromised`, omit its posts from search, make `curia read` exit 9 and refuse every token request of the victim (`401 invalid_client`): the agent is locked out, and nothing reverses a declaration. A row appended past the latest head takes that effect at once and is failed by a verifying reader only once a signed head covers it; until then `curia verify` reports the lifecycle verified. With the unattended signer the window is at most one cadence plus a run, because the row is growth. Readers fail the row afterwards (exit 6), which still leaves the author's posts uncitable (finding 5). The split fixes which signature a reader honours, so that the credential plus the log key, which the timer's host holds, no longer makes a declaration readers verify; it does not narrow what a holder of the credential can append (register D121), and H2 narrows only the signing host's copy of it.
+```
+
+#### E25 — Task 1: the order, HSU34 first
+Old:
+```text
+The errata paragraph `R11.94 words` is written first because HSU27 to HSU30 parse it.
+```
+New:
+```text
+**Amendment 1's "What Task 1 onward now do" gives the order: HSU34 first, on the unmodified tree; then G67 (with R11.94 words as E18 gives it) pasted into the errata, because HSU27 to HSU30 parse it; then the parser's regexes; then the rest.** HSU35 and HSU36 are written with the rest. HSU36 is green on the seam by design.
+```
+
+#### E26 — Task 4: the store-fault wrapper
+Old:
+```text
+`ActaLog.GrownPastLatestHead`, `SignHeadAsync`'s order (ruling 8), the usage text, the README block. Probes HSU7 to HSU11 green; the miniature timer of HSU10 on a manual clock.
+```
+New:
+```text
+`ActaLog.GrownPastLatestHead`, `SignHeadAsync`'s order (ruling 8), the usage text, the README block, and the store-fault wrapper with exit 5 (Amendment 1 ruling 23). Probes HSU7 to HSU11 and HSU35 green; the miniature timer of HSU10 on a manual clock.
+```
+
+#### E27 — PR body: the timer sentence
+Old:
+```text
+The PR body states D121 and that the timer must not be turned on on the hosted instance before the owner has read it.
+```
+New:
+```text
+The PR body states D121 and Amendment 1 ruling 21 in one sentence each: the timer may run on the Forum's own host once this PR has merged, with the environment rule, ruling 24's paragraph in the beta notes and the owner's reading of D121; it may not run on any other host before H2.
+```
+
+#### E28 — HSU7: the unverified row is growth
+Old:
+```text
+`[post, head, declaration-key]`: grown;
+```
+New:
+```text
+`[post, head, declaration-key]`: grown; `[post, head covering 1, agent.key-compromised]`: grown (a row nobody verified is growth, so the unattended signer covers it at its next tick: Amendment 1 ruling 22);
+```
+
+#### E29 — HSU18, HSU25 and Task 3: 57 reads 58
+Old:
+```text
+**Readers (Client.Tests, Rust, Api end to end; the 57 cases)**
+```
+New:
+```text
+**Readers (Client.Tests, Rust, Api end to end; the 58 cases of Amendment 1 ruling 26)**
+```
+
+#### E30 — Ruling 12's counts and its sixth case
+Old:
+```text
+Net: lifecycle 53 - 1 + 5 = 57, acta 11 + 1 = 12, total 144 + 5 = 149 `[unverified: the generator's own count is the oracle; Task 0 M6]`.
+```
+New:
+```text
+**Amendment 1 ruling 26 adds a sixth case, `compromise-declaration-keys-empty`** (a log served `"declaration_keys":[]` and a `/2` under the fixed test declaration key that no entry publishes: failed `declaration-key-unpublished`), which HSU25's pair needs as a vector. Net: lifecycle 53 - 1 + 6 = 58, acta 11 + 1 = 12, the eleven families 144 + 6 = 150, the corpus with `rfc8785` 156 (the directory count after the generator ran, checked by R6.45's two runners against the hand-edited `index.json`: Task 0 M6 and Amendment 1 ruling 19).
+```
+
+#### E31 — Task 3: all 57 cases
+Old:
+```text
+(5) both runners over all 57 cases;
+```
+New:
+```text
+(5) both runners over all 58 cases;
+```
+
+#### E32 — HSU33: the exit-5 line
+Old:
+```text
+`curia-operator --help` lists `--if-grown`, `publish-declaration-key` and the three environment variables, and exits 0;
+```
+New:
+```text
+`curia-operator --help` lists `--if-grown`, `publish-declaration-key`, the three environment variables and the exit code `5` with its words, and exits 0;
+```
+
+#### E33 — HSU34 sharpened; HSU35 and HSU36 follow HSU31
+Old:
+```text
+- **HSU34** control, first: the shipped approval record is `{"version":1,"approved":[]}` byte for byte and `Embedded()` approves no kind. Green on the unmodified tree and on every commit; red on FHSU25.
+```
+New:
+```text
+- **HSU34** control, first (Amendment 1 ruling 16): the shipped approval record is `{"version":1,"approved":[]}` and one line feed, **28 bytes**, in two places, the source file `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` and the resource the assembly embeds (`Curia.Infrastructure.Lifecycle.lifecycle-approval.json`, read through `GetManifestResourceStream`), each compared with a **literal in the test** (a different artifact from both), and `LifecycleApprovalRecord.Embedded()` approves no kind. Home: `tests/Curia.Architecture.Tests/ApprovalRecordBytesTests.cs`, self-contained as the suite's files are. Green on the unmodified tree before Task 2 changes anything (Task 0 M7: 28 bytes by `od -c`; the existing `R4_38_TheApprovedSetIsEmpty` parses and compares no bytes, so a lost line feed, a reordered member or an added `decision` that approves nothing passes it and fails this) and on every commit; red on FHSU25 and on FHSU27, the second with `R4_38_...` green.
+```
+
+#### E34 — HSU35 and HSU36 added after HSU31
+Old:
+```text
+- **HSU31** stopping the timer: heads signed at T, no further signing, clock advanced 3 hours (10,800 s), two posts: both verifications say `10800 s before this check began`; a fresh signing then makes both `VERIFIED` and the words disappear (the other side of the words).
+```
+New:
+```text
+- **HSU31** stopping the timer: heads signed at T, no further signing, clock advanced 3 hours (10,800 s), two posts: both verifications say `10800 s before this check began`; a fresh signing then makes both `VERIFIED` and the words disappear (the other side of the words).
+- **HSU35** a store fault is a worded refusal (Amendment 1 ruling 23): `sign-head --by ops --if-grown`, and `attest-owner` (a second verb, so the wrapper is shown to be above the verbs), run under a role that holds `SELECT` on `events` and no `INSERT` (the test creates it through the fixture's admin connection and drops it): exit **5**; stderr begins `error: curia/store/unavailable`, names `PostgresException sqlstate=42501` (the form of `PostgresStoreFaults.Cause`), holds no line beginning `   at ` and no part of the driver's message; the events count is unchanged. The same call under the app role exits 0 (control). A refused connection (a port nothing listens on) exits 5 as well. A domain refusal is still exit 2 (a `moderate` over an unknown post: control, so the wrapper is not a catch-all). Red on the seam: the call throws `Npgsql.PostgresException (0x80004005): 42501: permission denied for table events` where exit 5 was expected.
+- **HSU36** (characterisation; D121's Forum half and non-property (c) held as a probe so that they cannot go stale; Amendment 1 ruling 20): the permissive fixture, two agents A and B, a post each and a head covering both. A row of type `agent.key-compromised` is appended **by SQL under the app role and through no use case** (the shape of Task 0 M3 (ii-b): the seven members `agent_id, declaration, from_index, kids, prev, reason, statement`, `declaration` a compact JWS whose signature is 64 zero bytes, `statement`'s `typ` read from `KeyStatements.CompromiseStatementTyp` so that the row is well formed on both sides of the `/1`-to-`/2` flip, because this probe is about the fold and HSU4 and HSU18 pin the typ) naming B's real kid. Asserted, with A and A's post as the served control: `GET /v1/posts/<B's post>` has `key_status` `compromised` and `disputed_by_log_index` equal to the row's index; `GET /v1/search` omits B's post and states `excluded_disputed` 1; B's token request answers `401` `invalid_client`; A's mark, search and token are unchanged; `curia verify` of B's post, run as the client does over the fixture's Forum, exits **0** while no head covers the row and **6** after `sign-head` has covered it (the window in both its states; assert the exit and the words `lifecycle FAILED`, not the predicate, which differs across the seam). Every assertion's message reads: `D121's Forum half has landed (the Forum's fold now checks what it folds): update D121, G67's non-property (c) and the beta notes in the same commit, and replace this probe's expectation.` Green on the seam and on every commit until that change; red on FHSU29 for the right reason (its own assertion).
+```
+
+#### E35 — FHSU27 to FHSU29
+Old:
+```text
+| FHSU26 | `docs/runbooks/key-compromise.md`: the "D43 ... stop" paragraph restored and `CURIA_LOG_SIGNING_KEY_PEM` put back in the command block | HSU32 | the operator is told to declare with the key the timer holds |
+```
+New:
+```text
+| FHSU26 | `docs/runbooks/key-compromise.md`: the "D43 ... stop" paragraph restored and `CURIA_LOG_SIGNING_KEY_PEM` put back in the command block | HSU32 | the operator is told to declare with the key the timer holds |
+| FHSU27 | `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` loses its final line feed (27 bytes; it parses identically), in a kept copy | HSU34 only; `R4_38_TheApprovedSetIsEmpty` must stay **green** (if it is red too the row proves nothing about HSU34 and is rewritten) | the shipped record is not the reviewed one and the parse probe cannot tell |
+| FHSU28 | `src/Curia.Operator/Program.cs`: the store-fault `catch` in `RunAsync` removed | HSU35 | the timer under a narrower role, or a Postgres that is down, crashes with a stack trace and exit 134 |
+| FHSU29 | `KeyLifecycle.CompromisedEntry`: return `Mismatch("signature")` when the compact `declaration`'s third segment decodes to 64 zero bytes (the crudest look at what the fold folds) | HSU36 (by its own assertion, whose message names D121) | D121's Forum half "lands" and the characterisation says whose text to update |
+```
+
+#### E36 — L3, measured on the unmodified tree and re-measured
+Old:
+```text
+- **L3 (what the host can still do: D121's control, measured).** On the built Forum with only the log key in the environment: `curia-operator compromise` exits 3 (the environment rule) or 4 (the guard), as the leg's environment dictates; then, with the app credential and `psql`, append a log-key-signed `/2` declaration for a second agent. *Rule, recorded and not judged:* the clients' verdict (expected exit 6 on every post of that agent), the Forum's search for that agent's posts, the served mark. The number goes into D121 as its first measurement; the leg is the evidence for H2 and for the owner's reading of the beta notes' "key out of band".
+```
+New:
+```text
+- **L3 (what the host can still do: D121's control, measured; baseline Task 0 M3, Amendment 1 rulings 20 to 22).** On the built Forum with only the log key in the environment: `curia-operator compromise` exits 3 (the environment rule) or 4 (the guard), as the leg's environment dictates. Then, with the app credential and `psql` and no operator tool, on the PR's tree, **four rows**: (a) a `/2` `agent.key-compromised` row with 64 zero bytes for agent B (attacker 1); (b) the same row signed by the **log key** over B's real kids, for agent C (attacker 2: the case the split exists for, expected `verify` exit 6 `declaration-key-unpublished` where `main` read 9); (c) an **`agent.key-retired` row** for a live kid of agent D (ruling 20 (b): a reading until this leg, expected to lock D out exactly as (a) does); (d) a well-formed row for agent E with an invented kid beside the real one. For each, record, and judge nothing: the Forum's served mark, search, `curia read`'s exit, the token request's status, `curia verify`'s exit **before** a head covers the row and **after**, and `curia-testis log author`'s. Then restart the Forum and record the `LifecycleEntryScan` line (EventId 7006) and its count: it is the one detector (item 254). Then, with the miniature timer of L1 running `sign-head --if-grown --by ops` every 2 seconds, append one more forged row and record the seconds until `curia verify` exits 6: **the window with the timer** (ruling 22 expects at most one tick). The numbers go into D121; the leg is the evidence for H2, for item 256 and for the owner's reading of the beta notes' "key out of band".
+```
+
+#### E37 — H2 is narrower than the plan said, and the timer may run before it
+Old:
+```text
+If it is declined, the beta notes say plainly that the timer's host can still make every agent's posts read FAILED.
+```
+New:
+```text
+**It narrows only the signing host's copy of the credential** (Amendment 1 ruling 20): the Forum's own copy can append the same row, and only a change to the Forum's fold closes that, with its own erratum. If H2 is declined the beta notes say what ruling 24's paragraph says, which is more than that the timer's host can make posts read FAILED: that any holder of the credential can lock an agent out. **H2 is a precondition of a timer on any host other than the Forum's own, not of the timer** (ruling 21).
+```
+
+#### E38 — Next stage: H2 is not the gate of the timer on the Forum's host
+Old:
+```text
+**H2 ("The head signer's database role", D121) is recommended between this PR and PR O's timer recipe**, and is the owner's call (below).
+```
+New:
+```text
+**H2 ("The head signer's database role", D121) is recommended before any timer runs on a host other than the Forum's own, and is not the gate of PR O's recipe for the Forum's host** (Amendment 1 ruling 21); it is the owner's call (below).
+```
+
+#### E39 — PR O: the beta notes carry ruling 24's paragraph
+Old:
+```text
+its README Beta section takes "a fresh post is `NOT ESTABLISHED` for up to about six minutes, and the words say when the latest head was signed";
+```
+New:
+```text
+its README Beta section takes "a fresh post is `NOT ESTABLISHED` for up to about six minutes, and the words say when the latest head was signed" **and the paragraph of Amendment 1 ruling 24 verbatim** (what the database credential can do); its readiness check fails a start whose log carries `LifecycleEntriesUnderGuard` (EventId 7006) while the guard is on;
+```
+
+#### E40 — Docs owed: the Beta section's sentence is ruling 24's paragraph
+Old:
+```text
+the "Beta" section's item 4 gaining the PR number and one sentence on D121
+```
+New:
+```text
+the "Beta" section's item 4 gaining the PR number and the paragraph of Amendment 1 ruling 24 (what the database credential can do), which PR O's README takes verbatim
+```
+
+#### E41 — Docs owed: the README's version lines
+Old:
+```text
+- `README.md`: `:125-145`'s signer block (`--if-grown`, the two keys, the environment rule, how to make a declaration key), `:925`'s words, the `curia-mcp` version sentence.
+```
+New:
+```text
+- `README.md`: `:125-145`'s signer block (`--if-grown`, the two keys, the environment rule, how to make a declaration key), `:925`'s words, the `curia-mcp` version sentence (`:1109`, and `:1047` where it is named). `CLAUDE.md:86`'s "0.11.0, current" joins the owed clause (register item 251).
+```
+
+#### E42 — The consumers table: the renamed refusal's row, and the RunAsync callers measured
+Old:
+```text
+| `docs/runbooks/key-compromise.md` §5's D43 paragraph | nothing parses it today `[unverified]` | HSU32 |
+```
+New:
+```text
+| `docs/runbooks/key-compromise.md` §5's D43 paragraph | nothing parses it today `[unverified]` | HSU32 |
+| `KeyActErrors.LogKeyNotPublishedType` renamed `DeclarationKeyNotPublishedType` | `src/Curia.Api/ForumEndpoints.cs:3652` (the 409 row; no route reaches `DeclareCompromise`, so it is unprobeable over HTTP), `DeclareCompromise.cs:91`, `KeyActs.cs:40` and `:88` (Task 0 M5; the plan's table did not list the first) | the compiler; no test names the old string |
+```
+
+#### E43 — The RunAsync callers, measured
+Old:
+```text
+every `OperatorCommands.RunAsync` caller in `tests/` (grep: 10+ Api test classes)
+```
+New:
+```text
+every `OperatorCommands.RunAsync` caller (Task 0 M5: 19 files and 23 call sites, all in `tests/Curia.Api.Tests/`; the four classes that pass `"compromise"` and so need the declaration key's PEM are `CompromiseDeclarationTests` (`:56`, `:425`, `:471`), `BrowseEndToEndTests:235`, `DisputedContentTests:48` and `NameMatchesNothingEndToEndTests:313`)
+```
+
+#### E44 — Traps applied
+Old:
+```text
+- **233 (new): a claim about an old reader that nothing in the tree can run.** L2, operated.
+```
+New:
+```text
+- **233 (new): a claim about an old reader that nothing in the tree can run.** L2, operated.
+- **234 (new, Amendment 1): a fix that moves the harm.** Ruling 20 (a); HSU36 and FHSU29.
+- **235 (new, Amendment 1): a measurement under one attacker read as the harm of all.** Finding 5 as amended; L3's four rows.
+```
+
+#### E45 — Open risk 2
+Old:
+```text
+2. **D121.** The split does not stop a host with the app credential. The word "refused" in the exercise's criterion 5 means failed, not harmless.
+```
+New:
+```text
+2. **D121.** The split does not stop a host with the app credential, and H2 does not stop the Forum's own copy of it. The word "refused" in the exercise's criterion 5 means failed, not harmless, and an appended row also locks the agent out (Amendment 1 rulings 20 and 22).
+```
+
+#### E46 — Register: D121 as measured
+Old:
+```text
+**D121 — the head-signing host can append any entry, so the key split narrows what readers honour and not what it can do** *(PR H's plan, 2026-11-11; open, by decision; trigger: before the timer runs on the hosted instance)*: the operator tool and the timer use `CURIA_EVENTS_POSTGRES`, the Forum's one app role (`INSERT, SELECT` on `events`), so the timer's host can append a malformed or invented entry. Measured (L3, to be written from the run): a log-key-signed `/2` declaration appended under that credential is failed by the readers (exit 6 on every post of the named agent) and is still honoured by shape by the Forum's own fold (search omission, the served mark, vote weight). Before PR H the same append was a *valid* forgery read DISPUTED (exit 9); both end in an uncitable author. **Rule (a lead for H2):** a role that can `SELECT` the log and `INSERT` only `log.head` and `log.key`, held by the timer's host in place of the Forum's credential; M15's facts are the sketch. Severity: high for the hosted instance; none for a single operator at a terminal.
+```
+New:
+```text
+**D121 — the holder of the Forum's database credential can append any entry, and the Forum acts on a lifecycle row it does not verify; the key split narrows what readers honour and not what the credential can do** *(PR H's plan and Amendment 1, 2026-11-11; open, by decision; trigger: hosting the beta, not the timer, Amendment 1 ruling 21)*: the Forum's one app role (`INSERT, SELECT` on `events`, `db/0001:22-48`) is what the Forum, the operator tool and the timer all use. **Measured on the unmodified tree (Task 0 M3):** a row of type `agent.key-compromised` appended by `psql` under that role, with an all-zero signature (or a log-key signature over an invented kid beside the real one), is folded by its shape: the Forum marks the victim `compromised`, omits its posts from search, makes `curia read` exit 9, and answers every token request of the victim `401 invalid_client`: **the agent is locked out**, and nothing reverses a declaration. A reader that verifies fails the row (exit 6, `curia-testis log author` exit 1) **once a signed head covers it**; until then `curia verify` exits 0 with the lifecycle verified (the window: with the timer at most one cadence plus a run, because the row is growth; without it, as long as the operator takes). The Forum's one detector is the start-up scan (`LifecycleEntriesUnderGuard`, 7006: a count, at start). There are three attackers and the split moves one: the credential alone (unchanged), the credential plus the log key, which the timer's host holds (before PR H a declaration every reader verified, after it one that fails), and the credential plus the declaration key (held by a person, never in the timer's environment). **Remedy, two items:** (i) **H2**, a role that can `SELECT` the log and `INSERT` only `log.head` and `log.key`, held by the timer's host, which removes the harm for that host's copy of the credential only; (ii) a change to the Forum's fold so that it honours a lifecycle row only when it verifies, for all three kinds, with its choice between failing closed (the lock-out stays) and failing open (a stolen key stays live) stated in an erratum on R4.35 and R5.22. M15's facts are the sketch of (i): the `events` columns, one append path, a `SELECT`-only role runs the fold and fails at the append with 42501. Severity: high for the hosted instance; none for a single operator at a terminal. Held as it is by HSU36 and L3.
+```
+
+#### E47 — Register: item 247 rewritten
+Old:
+```text
+(247) the Forum's fold honours a declaration by shape and not by signature (`KeyLifecycle.CompromisedEntry`, `DisputedPosts`), so search omission, the served mark, vote weight and the token refusal follow an entry no one verified; a verifier port in the fold's call sites in `ForumEndpoints.cs` would close it, and the readers' failure of a bad declaration still leaves the author uncitable;
+```
+New:
+```text
+(247) the Forum's fold honours a lifecycle row by its shape and not by signature (`KeyLifecycle.CompromisedEntry`, `BoundEntry`, `RetiredEntry`; `DisputedPosts`; `LogBoundKeys`), so search omission, the served mark, vote weight and the token refusal follow an entry no one verified, and an agent whose stream holds a row that does not fold is refused on the same path (fail closed on purpose, R4.35 rev.); measured for `agent.key-compromised` by Task 0 M3, read and not run for the other two until L3; a verifier in the fold's call sites (6 of `KeyLifecycle.Of`, 9 of `DisputedPosts.Fold`) would have to choose between failing closed and failing open on a row it cannot verify, which is an erratum on R4.35 and R5.22 and is D121's second remedy;
+```
+
+#### E48 — Register: items 254 to 256
+Old:
+```text
+(253) a log-key rotation is run without `--if-grown` (runbook sentence, no code).
+```
+New:
+```text
+(253) a log-key rotation is run without `--if-grown` (runbook sentence, no code); (254) the start-up scan (`LifecycleEntryScan`, EventId 7006) is the one detector of a forged lifecycle row and it runs at start only and says a count, not an index or a kind: while the guard is on any count above zero is a row nobody could have appended through the Forum, so the line should name the first index and the Forum should say it again at intervals or the readiness check should read it; PR O's check carries it and the scan is the lead *(Amendment 1)*; (255) the declaration key's first-publication slot is open from the first start to the lift, because the guard refuses its publication (ruling 4) and the first published wins: a holder of the credential can publish its own first, which turns attacker 1's FAILED into a DISPUTED that every reader verifies and makes the operator's own later key "not first"; both outcomes read uncitable, so the value to an attacker is lower than it looks, and the close is item 250's record pinning the key's `kid`, an owner decision *(Amendment 1)*; (256) `curia verify` exits 0 with the lifecycle verified while the Forum's own mark on the same post (`disputed_by_log_index`) names a declaration at or past the head's tree size (Task 0 M3 (ii): index 10 against tree size 9; `curia read` exits 9 on the same post), which for a **genuine** declaration tells an agent a key declared compromised a minute ago is verified; the fix is a could-not-be-checked verdict naming the index (exit 8), needs an erratum and vectors, and whether `verify` reads the mark was not read *(Amendment 1, ruling 22)*.
+```
+
+#### E49 — Register: traps 234 and 235
+Old:
+```text
+(233) a claim about an old reader that nothing in the tree can run, operated and not tested.
+```
+New:
+```text
+(233) a claim about an old reader that nothing in the tree can run, operated and not tested; (234) a fix that moves the harm instead of removing it: a fold that verifies a declaration must fail closed (the forged row still locks the agent out) or fail open (a stolen key stays live when the declaration cannot be verified), found by reading `LogBoundKeys.StatusAsync` and `KeyLifecycle.StatusNow` against Task 0's table and not by the report's proposal; (235) a measurement under one attacker read as the harm of all: M3 ran the credential alone, the plan's "valid forgery" sentence is about the credential plus the log key, and the two were one sentence until the three attackers were named.
+```
+
+#### E50 — FHSU2's row: the class line is 31
+Old:
+```text
+| FHSU2 | `LogSigningKey.cs:33`:
+```
+New:
+```text
+| FHSU2 | `LogSigningKey.cs:31`:
+```
+
+### What Task 1 onward now do
+
+- **Task 1.** In this order. (1) **HSU34 first, on the unmodified tree**: write `tests/Curia.Architecture.Tests/ApprovalRecordBytesTests.cs` (below), run it in Release and Debug, record it green; it is the control for every later task. (2) Paste G67 into the errata with `Status. Specified, not built.`, **edited as the in-place edits E22, E24 and E23 say** (finding 5, non-property (c), the Revisions row for R11.74 words) and with R11.94 words **as E18 gives it**; remove R11.74 words' closing and suffix sentences and re-point `curia_verify`'s "the one above" in the same commit (ruling 17); run `check-spec.py`. (3) Write the parser's six regexes (ruling 17) and re-point `PastHeadClosing`, `AnotherCheckSuffix` at `R11.94 words`; `AllPublished()` gains the five sentences and forms. Old probes that build the closing replace `<signed>` by arithmetic (ruling 17); they stay red on the seam (the closing has no clause) and say why. (4) HSU1 to HSU36 as the plan and this amendment write them: every one that can be red on the seam is red and its text recorded, HSU35 and HSU36 included. **HSU36 is green on the seam by design** (it characterises what the Forum does today) and is the control that FHSU29 turns red. The seam: the plan's, plus `ExitCode.StoreFault = 5` unused and `RunAsync` unwrapped, so HSU35 is red by an unhandled `PostgresException` and not by a missing symbol.
+- **Task 2.** As the plan, plus: `ForumEndpoints.cs:3652` (ruling 19); the store-fault wrapper is **Task 4's**, not this task's, so that HSU35's red is recorded on the seam before it is made green.
+- **Task 3.** As the plan, with the counts of ruling 19 and the sixth vector of ruling 26; `index.json` is edited by hand and the two R6.45 runners are what check it; `LifecycleConformanceTests.cs:125` loses the retired vector's row and gains the six new ones. **The Rust reader is written from G67's text, the vectors and `expected.json`, by a builder who has not read the C# change** (the plan's instruction stands; ruling 26's empty-member case is exactly where two independent readers could differ, which is why it is a vector).
+- **Task 4.** As the plan, plus the store-fault wrapper and exit 5 (ruling 23), `Usage`'s `EXIT CODES` block, HSU33's exit-5 clause.
+- **Task 5.** Flip the measured list (M5, M8, M11 as ruling 25 corrects them); the Api suite once, read against M14's counts (all-but-Api 5,186 passed and 4 skipped; Architecture 117 in both configurations; cargo 268 across 20 binaries; screening 28 + 28 rows). A red outside the list the plan and this amendment name is the PR's own until shown otherwise.
+- **Task 6.** Lens 2 (trust) also reads: that `DeclarationSigningKey` and `LogSigningKey` are never in one process (HSU12); that the store-fault wrapper catches nothing a domain refusal returns as a `Result` (exit 2 is unchanged); and that no Operator file names an `Npgsql` type.
+- **Task 7.** FHSU1 to FHSU29. FHSU27 patches `lifecycle-approval.json` in the kept copy by removing its final line feed (`printf '%s' '{"version":1,"approved":[]}' > ...`), builds `--no-incremental`, and shows HSU34 red and `R4_38_TheApprovedSetIsEmpty` **green**; if the older probe is also red the row proves nothing about HSU34 and is rewritten.
+- **Task 8.** L3 as E36 gives it; the register and the traps as E44 and E46 to E49 give them; the beta-notes paragraph of ruling 24 into `IMPLEMENTATION_PLAN.md`'s "Beta" section; G67's status from the run. `check-spec.py` and `falsify-spec-checks.py`.
+- **A stop.** Any of: HSU36 red on the unmodified tree (the Forum's behaviour is not what M3 recorded; D121's text is then wrong and the plan returns to the architect); the retirement row of L3 *not* locking the agent out (ruling 20 (b) narrows to declarations; say so in D121); a `curia verify` reading the Forum's mark and exiting nonzero inside the window (item 256 is then not a gap; strike it); the `R4_38_...` probe red on FHSU27.
+
+The text of `tests/Curia.Architecture.Tests/ApprovalRecordBytesTests.cs` (patch text; the file is new):
+
+```csharp
+using System.Diagnostics.CodeAnalysis;
+using System.Text;
+using Curia.Infrastructure.Lifecycle;
+using Xunit;
+
+namespace Curia.Architecture.Tests;
+
+/// <summary>
+/// HSU34 (PR H, register D121 context): the shipped lifecycle approval record is exactly <c>{"version":1,"approved":[]}</c> and one line feed, in the
+/// source file and in the resource the assembly embeds. <c>LifecycleGateFenceTests.R4_38_TheApprovedSetIsEmpty</c> parses the record and compares no bytes,
+/// so a record that approves nothing and differs from the reviewed one passes it; this does not. The expectation is a literal here, a different artifact
+/// from both the file and the resource.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class ApprovalRecordBytesTests
+{
+    private const string Shipped = "{\"version\":1,\"approved\":[]}\n";
+    private const string ResourceName = "Curia.Infrastructure.Lifecycle.lifecycle-approval.json";
+
+    [Fact]
+    public void R4_38_HSU34_TheShippedApprovalRecordIsTwentyEightBytes()
+    {
+        var expected = Encoding.UTF8.GetBytes(Shipped);
+        Assert.Equal(28, expected.Length);
+
+        var path = Path.Combine(FindRepoRoot(), "src", "Curia.Infrastructure", "Lifecycle", "lifecycle-approval.json");
+        Assert.Equal(expected, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public void R4_38_HSU34_TheEmbeddedResourceIsTheSameBytesAndApprovesNothing()
+    {
+        using var stream = typeof(LifecycleApprovalRecord).Assembly.GetManifestResourceStream(ResourceName);
+        Assert.NotNull(stream);
+        using var copy = new MemoryStream();
+        stream!.CopyTo(copy);
+        Assert.Equal(Encoding.UTF8.GetBytes(Shipped), copy.ToArray());
+
+        var record = LifecycleApprovalRecord.Embedded();
+        Assert.True(record.IsOk);
+        Assert.Empty(record.Match(r => r.Approved, _ => default));
+    }
+
+    /// <summary>Mirrors <c>Shipped.FindRepoRoot</c>: each file in this suite is self-contained.</summary>
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src")))
+            dir = dir.Parent;
+
+        return dir?.FullName
+            ?? throw new InvalidOperationException("Could not find repo root (a 'src' directory) above " + AppContext.BaseDirectory);
+    }
+}
+```
+
+### Allocations
+
+Computed on 2026-11-11 against `IMPLEMENTATION_PLAN.md` and the errata with `git grep` on the local refs `origin/main` (`2708d826`) and `origin/the-vector-channel-is-semantic` (`a61a999a`), and against this plan with its own reservations; no `git fetch` was run. `git grep` finds none of the identifiers below on either ref: `HSU35` to `HSU39`, `FHSU27` to `FHSU39`, `D122` to `D129`, `G66` and `G68` as written entries, and no D61 item above 246 or trap above 229 (the register writes items as `(n)` and traps as `n.`; the only `(234)` to `(240)` hits on #151's branch are its own items, which end at 246). Task 8 re-greps and renumbers by hand if another PR landed first.
+
+- **Rulings 16 to 26.** The plan's `R6.62`, `R6.63`, `R11.94`, `R12.18`, `G67` and `D121` stand; **no new requirement number and no new errata entry.**
+- **Probes HSU35 (the operator's store-fault refusal) and HSU36 (D121's Forum half, characterised).** HSU34 was the plan's. Totals: HSU1 to HSU36.
+- **Falsification FHSU27 (HSU34's byte row), FHSU28 (the store-fault wrapper removed), FHSU29 (the fold made to look at a zero signature).** Totals: FHSU1 to FHSU29.
+- **Register:** D121 (rewritten, E46); **D61 item 247 rewritten (E47)**, items **254** (the start-up scan is the only detector, at start only and a count), **255** (the declaration key's first-publication slot is open until the lift), **256** (`curia verify` exits 0 while the Forum's own mark names a declaration past the head), all in E48; the report's proposed "251" is **not used** (251 is the plan's `CLAUDE.md` item). **Traps 234 and 235** (E44, E49).
+- **Operator exit code 5** (`ExitCode.StoreFault`), in `Usage`'s `EXIT CODES`; not a registry identifier.
+- **Task 0 measurement numbers:** none new. L3 is amended (E29); no new leg.
+
+### The check (run it on the plan before and after applying the edits)
+
+```python
+import re, sys
+p = "docs/superpowers/plans/2026-11-11-heads-signed-unattended.md"
+t = open(p, encoding="utf-8").read()
+a = t.index("\n## Amendment 1 (2026-11-11, Task 0)")
+b = t.index("\n## Tasks\n", a)
+amend, body = t[a:b], t[:a] + t[b:]
+pairs = re.findall(r"#### (E\d+) .*?\nOld:\n```text\n(.*?)\n```\nNew:\n```text\n(.*?)\n```", amend, re.S)
+bad = 0
+for eid, old, new in pairs:
+    n_old, n_new = body.count(old), body.count(new)
+    before = n_old == 1 and n_new == 0
+    after = n_new == 1 and (n_old == 0 or old in new)
+    ok = before or after
+    print(eid, "old", n_old, "new", n_new, "before" if before else ("after" if after else "<-- WRONG"))
+    bad += not ok
+print(len(pairs), "edits,", bad, "wrong")
+sys.exit(1 if bad else 0)
+```
+
+Before the edits every row reads `old 1 new 0`; after, `new 1` (and `old 0`, except where the New contains the Old). 50 edits are expected.
 
 ## Tasks
 
@@ -188,7 +895,7 @@ Rules are written **before** each measurement. Wall times compare only in one pr
 
 ### Task 1: The probes, red on a behaviour-preserving seam
 
-The seam: `DeclarationSigningKey` exists but `compromise` still reads `CURIA_LOG_SIGNING_KEY_PEM` and signs `/1`; `ActaLog.DeclarationKeys` is empty and `GrownPastLatestHead` returns `true`; `--if-grown` is parsed and ignored; `declaration_keys` is not served; `Classify` knows nothing of `log.declaration-key`; `HeadSignedWords` returns the old closing. Write the probes below first; every one that can be red on the seam is red and its text is recorded (predicted below). The errata paragraph `R11.94 words` is written first because HSU27 to HSU30 parse it.
+The seam: `DeclarationSigningKey` exists but `compromise` still reads `CURIA_LOG_SIGNING_KEY_PEM` and signs `/1`; `ActaLog.DeclarationKeys` is empty and `GrownPastLatestHead` returns `true`; `--if-grown` is parsed and ignored; `declaration_keys` is not served; `Classify` knows nothing of `log.declaration-key`; `HeadSignedWords` returns the old closing. Write the probes below first; every one that can be red on the seam is red and its text is recorded (predicted below). **Amendment 1's "What Task 1 onward now do" gives the order: HSU34 first, on the unmodified tree; then G67 (with R11.94 words as E18 gives it) pasted into the errata, because HSU27 to HSU30 parse it; then the parser's regexes; then the rest.** HSU35 and HSU36 are written with the rest. HSU36 is green on the seam by design.
 
 ### Task 2: The declaration key (a): domain, application, guard, operator
 
@@ -196,11 +903,11 @@ The seam: `DeclarationSigningKey` exists but `compromise` still reads `CURIA_LOG
 
 ### Task 3: The readers and the vectors (a): C#, Rust, counts
 
-Two builders, not one, if the process allows: **the Rust reader is written from G67's text and the generator's vectors, by a builder who has not read the C# change** (the project's own differential doctrine; a reading agreed by one author is not two readings). Order: (1) the generator and the vectors (ruling 12); (2) C# `LifecycleCheck` and `ActaDocuments`; (3) Rust `LogKeys` and `lifecycle.rs`; (4) every pinned count (M6); (5) both runners over all 57 cases; any disagreement is a finding for "As run", fixed in the reader that departs from the text. Probes HSU18 to HSU26 green. The differential gate run (`--fail-on-divergence`), though it does not read lifecycle `[unverified]`.
+Two builders, not one, if the process allows: **the Rust reader is written from G67's text and the generator's vectors, by a builder who has not read the C# change** (the project's own differential doctrine; a reading agreed by one author is not two readings). Order: (1) the generator and the vectors (ruling 12); (2) C# `LifecycleCheck` and `ActaDocuments`; (3) Rust `LogKeys` and `lifecycle.rs`; (4) every pinned count (M6); (5) both runners over all 58 cases; any disagreement is a finding for "As run", fixed in the reader that departs from the text. Probes HSU18 to HSU26 green. The differential gate run (`--fail-on-divergence`), though it does not read lifecycle `[unverified]`.
 
 ### Task 4: `--if-grown` (b)
 
-`ActaLog.GrownPastLatestHead`, `SignHeadAsync`'s order (ruling 8), the usage text, the README block. Probes HSU7 to HSU11 green; the miniature timer of HSU10 on a manual clock.
+`ActaLog.GrownPastLatestHead`, `SignHeadAsync`'s order (ruling 8), the usage text, the README block, and the store-fault wrapper with exit 5 (Amendment 1 ruling 23). Probes HSU7 to HSU11 and HSU35 green; the miniature timer of HSU10 on a manual clock.
 
 ### Task 5: The words (c); existing facts; the whole suite once; the fuzz
 
@@ -220,7 +927,7 @@ See "The live run and the cold read". Then "Docs owed" and "Register text to pas
 
 ### Task 9: PR
 
-**Preflight first, every push:** `python3 tools/preflight/preflight.py --api "<the changed and new Api classes>"` (about four minutes). `git diff --stat origin/main` shows: no `.github/`, no `db/`, no `Directory.Packages.props`, no `packages.lock.json`, no `CLAUDE.md`, no `StubLog.cs`, `ForumFixture.cs`, `Help.cs`, and **`src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` unmodified**, asserted by `git diff --quiet origin/main -- src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` and by `cat` of the file equalling `{"version":1,"approved":[]}`. That record is the condition under which this PR is not the owner's merge: the PR body says so, and says that nothing here lifts the guard (compromise stays refused, exit 4, and so does the publication of a declaration key). Branch `heads-signed-unattended`, through the gitbutler skill; `gh pr list --state all` for the number; the merge-time path check before merging (memory: branch protection) lists the touched paths and finds no `ci.yml`. The PR body states D121 and that the timer must not be turned on on the hosted instance before the owner has read it.
+**Preflight first, every push:** `python3 tools/preflight/preflight.py --api "<the changed and new Api classes>"` (about four minutes). `git diff --stat origin/main` shows: no `.github/`, no `db/`, no `Directory.Packages.props`, no `packages.lock.json`, no `CLAUDE.md`, no `StubLog.cs`, `ForumFixture.cs`, `Help.cs`, and **`src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` unmodified**, asserted by `git diff --quiet origin/main -- src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` and by `cat` of the file equalling `{"version":1,"approved":[]}`. That record is the condition under which this PR is not the owner's merge: the PR body says so, and says that nothing here lifts the guard (compromise stays refused, exit 4, and so does the publication of a declaration key). Branch `heads-signed-unattended`, through the gitbutler skill; `gh pr list --state all` for the number; the merge-time path check before merging (memory: branch protection) lists the touched paths and finds no `ci.yml`. The PR body states D121 and Amendment 1 ruling 21 in one sentence each: the timer may run on the Forum's own host once this PR has merged, with the environment rule, ruling 24's paragraph in the beta notes and the owner's reading of D121; it may not run on any other host before H2.
 
 ## Probes and their red text (predicted, not run)
 
@@ -233,8 +940,8 @@ See "The live run and the cold read". Then "Docs owed" and "Register text to pas
 - **HSU4** `KeyStatements.ReadCompromise`: the six members under `/2` read; the same bytes under `/1` are `curia/keys/statement-unreadable field=typ`; a `/2` with a seventh member is `statement-mismatch`. Red on the seam: `/2` is `statement-unreadable field=typ`.
 - **HSU5** the guard: `Classify(New, [log.declaration-key])` is `[Compromise]`; a gate enabling rotation and retirement and not compromise refuses it naming `compromise`; both adapters, by `LifecycleChokepointContract`'s new shape `declaration-key`; the production gate refuses it and the event count is unchanged; under the permissive gate it appends (control). Red on the seam: `Expected: [Compromise]  Actual: []`; the production-gate row appends instead of refusing.
 - **HSU6** the fence: every `public const string ...Type` of `LogEntries` is either classified by `Classify` or in the fence's two-row allowlist with a reason; the types scanned are asserted by name (`HeadType`, `KeyType`, `DeclarationKeyType`). Control on the seam (the seam has no `DeclarationKeyType`: the assertion that the scan found it is red: `Assert.Contains() Failure: DeclarationKeyType not in the types scanned`); the falsification row FHSU6 shows it red for the right reason.
-- **HSU7** growth, both sides, one table: empty log: not grown; `[post]` no head: grown; `[post, key, head covering 2]`: not grown; `[post, head covering 1, key]`: not grown; `[post, head, post]`: grown; `[post, head, declaration-key]`: grown; `[enrolled, bound, head, head]` (a second head with nothing between): not grown. Red on the seam (`returns true`): `Expected: False  Actual: True` on the three not-grown rows.
-- **HSU34** control, first: the shipped approval record is `{"version":1,"approved":[]}` byte for byte and `Embedded()` approves no kind. Green on the unmodified tree and on every commit; red on FHSU25.
+- **HSU7** growth, both sides, one table: empty log: not grown; `[post]` no head: grown; `[post, key, head covering 2]`: not grown; `[post, head covering 1, key]`: not grown; `[post, head, post]`: grown; `[post, head, declaration-key]`: grown; `[post, head covering 1, agent.key-compromised]`: grown (a row nobody verified is growth, so the unattended signer covers it at its next tick: Amendment 1 ruling 22); `[enrolled, bound, head, head]` (a second head with nothing between): not grown. Red on the seam (`returns true`): `Expected: False  Actual: True` on the three not-grown rows.
+- **HSU34** control, first (Amendment 1 ruling 16): the shipped approval record is `{"version":1,"approved":[]}` and one line feed, **28 bytes**, in two places, the source file `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` and the resource the assembly embeds (`Curia.Infrastructure.Lifecycle.lifecycle-approval.json`, read through `GetManifestResourceStream`), each compared with a **literal in the test** (a different artifact from both), and `LifecycleApprovalRecord.Embedded()` approves no kind. Home: `tests/Curia.Architecture.Tests/ApprovalRecordBytesTests.cs`, self-contained as the suite's files are. Green on the unmodified tree before Task 2 changes anything (Task 0 M7: 28 bytes by `od -c`; the existing `R4_38_TheApprovedSetIsEmpty` parses and compares no bytes, so a lost line feed, a reordered member or an added `decision` that approves nothing passes it and fails this) and on every commit; red on FHSU25 and on FHSU27, the second with `R4_38_...` green.
 
 **Operator and Api (`tests/Curia.Api.Tests/HeadsSignedUnattendedTests.cs`; Postgres; `OperatorCommands.RunAsync` with a manual clock)**
 - **HSU8** `sign-head --if-grown` on a log whose only entries after the latest head are its own: exit 0, stdout begins `unchanged`, the events table gains **0** rows, no `log.key` is published on a log that has none yet; the same call without the flag appends one head (the control that the flag is what stopped it). Red on the seam: `Expected: 0  Actual: 1`.
@@ -249,8 +956,10 @@ See "The live run and the cold read". Then "Docs owed" and "Register text to pas
 - **HSU17** compatibility: the same log served with and without a declaration key has a byte-identical `keys` array; a reader that reads `keys` only (the pre-H client, L2) is unchanged. Red on FHSU7.
 - **HSU28** the words, end to end (the Api suite; real Forum; real head; `OperatorCommands` on a manual clock): head signed at T, a post appended, `curia verify` run at T plus 317 s by a client on the same manual clock: the inclusion line holds `That head was signed at <T as milliseconds>Z, 317 s before this check began.`; `curia_verify`'s closing holds the same clause after `(tree size <n>, `; the instant equals the **head's** timestamp and not the post's `server_ts` (the two are set 90 s apart). Red on the seam: the closing ends `(tree size 4), so its inclusion`.
 - **HSU31** stopping the timer: heads signed at T, no further signing, clock advanced 3 hours (10,800 s), two posts: both verifications say `10800 s before this check began`; a fresh signing then makes both `VERIFIED` and the words disappear (the other side of the words).
+- **HSU35** a store fault is a worded refusal (Amendment 1 ruling 23): `sign-head --by ops --if-grown`, and `attest-owner` (a second verb, so the wrapper is shown to be above the verbs), run under a role that holds `SELECT` on `events` and no `INSERT` (the test creates it through the fixture's admin connection and drops it): exit **5**; stderr begins `error: curia/store/unavailable`, names `PostgresException sqlstate=42501` (the form of `PostgresStoreFaults.Cause`), holds no line beginning `   at ` and no part of the driver's message; the events count is unchanged. The same call under the app role exits 0 (control). A refused connection (a port nothing listens on) exits 5 as well. A domain refusal is still exit 2 (a `moderate` over an unknown post: control, so the wrapper is not a catch-all). Red on the seam: the call throws `Npgsql.PostgresException (0x80004005): 42501: permission denied for table events` where exit 5 was expected.
+- **HSU36** (characterisation; D121's Forum half and non-property (c) held as a probe so that they cannot go stale; Amendment 1 ruling 20): the permissive fixture, two agents A and B, a post each and a head covering both. A row of type `agent.key-compromised` is appended **by SQL under the app role and through no use case** (the shape of Task 0 M3 (ii-b): the seven members `agent_id, declaration, from_index, kids, prev, reason, statement`, `declaration` a compact JWS whose signature is 64 zero bytes, `statement`'s `typ` read from `KeyStatements.CompromiseStatementTyp` so that the row is well formed on both sides of the `/1`-to-`/2` flip, because this probe is about the fold and HSU4 and HSU18 pin the typ) naming B's real kid. Asserted, with A and A's post as the served control: `GET /v1/posts/<B's post>` has `key_status` `compromised` and `disputed_by_log_index` equal to the row's index; `GET /v1/search` omits B's post and states `excluded_disputed` 1; B's token request answers `401` `invalid_client`; A's mark, search and token are unchanged; `curia verify` of B's post, run as the client does over the fixture's Forum, exits **0** while no head covers the row and **6** after `sign-head` has covered it (the window in both its states; assert the exit and the words `lifecycle FAILED`, not the predicate, which differs across the seam). Every assertion's message reads: `D121's Forum half has landed (the Forum's fold now checks what it folds): update D121, G67's non-property (c) and the beta notes in the same commit, and replace this probe's expectation.` Green on the seam and on every commit until that change; red on FHSU29 for the right reason (its own assertion).
 
-**Readers (Client.Tests, Rust, Api end to end; the 57 cases)**
+**Readers (Client.Tests, Rust, Api end to end; the 58 cases of Amendment 1 ruling 26)**
 - **HSU18** every case under `conformance/lifecycle/` and `conformance/acta/key-compromised-entry`: expected verdict and predicate equal in the C# reader and in `curia-testis`; the case count read from the directory equals the pinned count in each home (M6). Red on the seam: the regenerated vectors do not verify under the `/1` reader.
 - **HSU19** `compromise-signed-by-log-key`: C#, Rust and `curia-testis log author`: **failed** `declaration-key-unpublished`, exit 6 and not 9 (a log key's declaration never disputes, and fails the post's lifecycle: finding 5, recorded, not hidden). Red on FHSU1: `Expected: failed declaration-key-unpublished  Actual: disputed`.
 - **HSU20** `compromise-v1-statement`: **could not be checked**, `unknown-lifecycle-kind`, exit 8, in both; never `disputed`.
@@ -266,14 +975,14 @@ See "The live run and the cold read". Then "Docs owed" and "Register text to pas
 - **HSU29** control, the old facts: the equal-head line, its three `<when>` forms and `NOT STATED`, the no-head words, `VERIFIED`, `FAILED`, and a closing over a first verification with no retained head are byte-unchanged (the existing WAF probes are green, and a new row asserts a head-less log's closing holds no `signed at`).
 - **HSU30** a leaf past the head **and** a check not made: the closing carries the instant and the suffix `Another check could not be made: read the lines above.`; a leaf past the head and none missing: the instant and no suffix.
 - **HSU32** `docs/runbooks/key-compromise.md` names `CURIA_DECLARATION_SIGNING_KEY_PEM` and `publish-declaration-key`; its command block holds no `CURIA_LOG_SIGNING_KEY_PEM`; it no longer says "today the declaration is signed with the log key" or "stop and do not use this runbook"; the variable and verb names it uses are a subset of those in `curia-operator --help` (a different artifact from the runbook). Red on the seam: the runbook is unchanged.
-- **HSU33** `curia-operator --help` lists `--if-grown`, `publish-declaration-key` and the three environment variables, and exits 0; the README's `sign-head` fence (`README.md:138-139` today) carries `--if-grown` and the sentence that the log key and the declaration key are never in one environment, each name checked against the help.
+- **HSU33** `curia-operator --help` lists `--if-grown`, `publish-declaration-key`, the three environment variables and the exit code `5` with its words, and exits 0; the README's `sign-head` fence (`README.md:138-139` today) carries `--if-grown` and the sentence that the log key and the declaration key are never in one environment, each name checked against the help.
 
 ## Falsification rows (the first form is the harm)
 
 | # | Patch | Must go red | First form |
 |---|---|---|---|
 | FHSU1 | `LifecycleCheck.cs`, declaration lookup: restore `var logKey = logKeys.IsDefault ? null : logKeys.LastOrDefault(k => string.Equals(k.Key.Kid, header.Kid, StringComparison.Ordinal));` over the log key set in place of the declaration lookup | HSU19, HSU21, HSU24 | the timer's host declares compromise and every reader honours it |
-| FHSU2 | `LogSigningKey.cs:33`: `public sealed class LogSigningKey : IDisposable, ILifecycleStatementSigner` with `SignStatement` restored | HSU1 | the log key compiles as a `DeclareCompromise` signer again |
+| FHSU2 | `LogSigningKey.cs:31`: `public sealed class LogSigningKey : IDisposable, ILifecycleStatementSigner` with `SignStatement` restored | HSU1 | the log key compiles as a `DeclareCompromise` signer again |
 | FHSU3 | `DeclareCompromise`: the `Published` check removed (the declaration-key-not-published refusal) | HSU3 | a declaration is signed under a key no reader can find |
 | FHSU4 | `DeclareCompromise` and `PublishDeclarationKey`: the `declaration-key-is-log-key` refusal removed | HSU3, HSU14 | one key declares and signs heads |
 | FHSU5 | `LifecycleAppendGuard.Classify`: the `log.declaration-key` line removed | HSU5, HSU13 | the key is published under a guarded build: the guard is on and a compromise format reaches a retained log |
@@ -298,6 +1007,9 @@ See "The live run and the cold read". Then "Docs owed" and "Register text to pas
 | FHSU24 | the instant taken from the post's `server_ts` instead of the head's `timestamp` | HSU28 (the 90-second offset) | the words state an instant that is not the head's |
 | FHSU25 | `lifecycle-approval.json` becomes `{"version":1,"approved":[{...}]}` (any kind) | HSU34 and the existing record probes | the guard is lifted by this PR |
 | FHSU26 | `docs/runbooks/key-compromise.md`: the "D43 ... stop" paragraph restored and `CURIA_LOG_SIGNING_KEY_PEM` put back in the command block | HSU32 | the operator is told to declare with the key the timer holds |
+| FHSU27 | `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` loses its final line feed (27 bytes; it parses identically), in a kept copy | HSU34 only; `R4_38_TheApprovedSetIsEmpty` must stay **green** (if it is red too the row proves nothing about HSU34 and is rewritten) | the shipped record is not the reviewed one and the parse probe cannot tell |
+| FHSU28 | `src/Curia.Operator/Program.cs`: the store-fault `catch` in `RunAsync` removed | HSU35 | the timer under a narrower role, or a Postgres that is down, crashes with a stack trace and exit 134 |
+| FHSU29 | `KeyLifecycle.CompromisedEntry`: return `Mismatch("signature")` when the compact `declaration`'s third segment decodes to 64 zero bytes (the crudest look at what the fold folds) | HSU36 (by its own assertion, whose message names D121) | D121's Forum half "lands" and the characterisation says whose text to update |
 
 ## The live run and the cold read
 
@@ -305,7 +1017,7 @@ Throwaway Postgres; the built `curia-operator`, Forum, `curia`, `curia-mcp`, `cu
 
 - **L1 (the miniature timer, in real time).** A shell loop: `curia-operator sign-head --if-grown --by ops` every 2 seconds for 60 seconds on a quiet log, then one post, then 30 more seconds: SQL count of `log.head` after each phase. Control: the same loop without the flag for 10 seconds. *Rule:* with the flag, heads after the quiet minute = 0 (or 1 if the log was unsigned), +1 after the post, +0 after the 30 seconds; the control appends 5.
 - **L2 (the `/1` reader, operated).** The pre-H `curia.dll` (M4) against a Forum serving a post-H log that holds a `/2` declaration under the declaration key: `curia verify` of an affected post. *Rule:* exit 8, the lifecycle line naming `unknown-lifecycle-kind`; the post is **not** reported disputed or failed. This is the claim "`/1` readers report could-not-be-checked", measured once on the only `/1` reader there will be (trap 233). Then the post-H `curia verify` of the same post: exit 9.
-- **L3 (what the host can still do: D121's control, measured).** On the built Forum with only the log key in the environment: `curia-operator compromise` exits 3 (the environment rule) or 4 (the guard), as the leg's environment dictates; then, with the app credential and `psql`, append a log-key-signed `/2` declaration for a second agent. *Rule, recorded and not judged:* the clients' verdict (expected exit 6 on every post of that agent), the Forum's search for that agent's posts, the served mark. The number goes into D121 as its first measurement; the leg is the evidence for H2 and for the owner's reading of the beta notes' "key out of band".
+- **L3 (what the host can still do: D121's control, measured; baseline Task 0 M3, Amendment 1 rulings 20 to 22).** On the built Forum with only the log key in the environment: `curia-operator compromise` exits 3 (the environment rule) or 4 (the guard), as the leg's environment dictates. Then, with the app credential and `psql` and no operator tool, on the PR's tree, **four rows**: (a) a `/2` `agent.key-compromised` row with 64 zero bytes for agent B (attacker 1); (b) the same row signed by the **log key** over B's real kids, for agent C (attacker 2: the case the split exists for, expected `verify` exit 6 `declaration-key-unpublished` where `main` read 9); (c) an **`agent.key-retired` row** for a live kid of agent D (ruling 20 (b): a reading until this leg, expected to lock D out exactly as (a) does); (d) a well-formed row for agent E with an invented kid beside the real one. For each, record, and judge nothing: the Forum's served mark, search, `curia read`'s exit, the token request's status, `curia verify`'s exit **before** a head covers the row and **after**, and `curia-testis log author`'s. Then restart the Forum and record the `LifecycleEntryScan` line (EventId 7006) and its count: it is the one detector (item 254). Then, with the miniature timer of L1 running `sign-head --if-grown --by ops` every 2 seconds, append one more forged row and record the seconds until `curia verify` exits 6: **the window with the timer** (ruling 22 expects at most one tick). The numbers go into D121; the leg is the evidence for H2, for item 256 and for the owner's reading of the beta notes' "key out of band".
 - **L4 (the drill on the final form).** On the patched scratch tree: generate the declaration key, `publish-declaration-key` (exit 4 on the unpatched build first), `compromise` with a `--from-index` by R12.11's rule, `sign-head --if-grown`, readers exit 9, `curia keys` exit codes; the later `--from-index` control (a key stays live, which the help text promises and nobody has watched; shared with O3, recorded there if run there first).
 - **L5 (stop the timer; the words).** Heads signed by the loop; stop it; post; `curia verify` after 10 seconds and after 3 minutes: the instant is the last head's and the age follows the wall clock; resume the loop and verify again: `VERIFIED`.
 - **L6 (the cold read, scaled to the words).** Three fresh Sonnet readers (the project's rule for sub-agents; the controller writes their prompts from the files), each given in an empty directory the `curia verify` output of a post past a head signed 20 seconds before and past one signed 3 hours before, the old closing for a control group of two, and asked: when was the latest head signed, is a new head to be expected soon, what would you do next. *Gate:* each reader of the new words gives the age without computing it from anything else, and distinguishes the two outputs; none reads the instant as the post's time or says how often the Forum signs; the control group cannot answer "when" from the words. **If the control readers also answer, the question did not discriminate:** the clause stays because it is true and no claim is made that it was needed. A failure writes a numbered amendment and a second pass with fresh readers; a second failure goes to the owner.
@@ -320,6 +1032,8 @@ Throwaway Postgres; the built `curia-operator`, Forum, `curia`, `curia-mcp`, `cu
 - **231 (new): a control that removes the primitive from the key and leaves it on the credential.** Finding 5, D121.
 - **232 (new): a growth test that counts its own output.** HSU7's exclusion rows; FHSU8.
 - **233 (new): a claim about an old reader that nothing in the tree can run.** L2, operated.
+- **234 (new, Amendment 1): a fix that moves the harm.** Ruling 20 (a); HSU36 and FHSU29.
+- **235 (new, Amendment 1): a measurement under one attacker read as the harm of all.** Finding 5 as amended; L3's four rows.
 
 ## Gates
 
@@ -328,16 +1042,16 @@ Task 5's whole run as CI runs it; the closed fuzz; preflight (green before every
 ## The seam with the PRs after, and the neighbours
 
 - **#151 (D10a) and D10b, PR 8, PR 9:** disjoint except the three documents (above). PR 8 and PR 9 will bump `curia-mcp` too; the bump this PR makes re-points `Version()` once and the next re-points it again, a one-line conflict in `PublishedReadersLastWords.cs` and the twins, resolved by taking the later number.
-- **H2 (recommended, new; the owner's decision, below): "The head signer's database role" (register D121).** Before the timer runs on the hosted instance. A role that can `SELECT` the log and `INSERT` only `log.head` and `log.key` (row-level security on the event type, or an append function); the timer host holds that credential and not the Forum's. A `db/0006` migration and a change to the Postgres suites' setup; its Task 0 is M15's facts. If it is declined, the beta notes say plainly that the timer's host can still make every agent's posts read FAILED.
-- **PR O:** its unit file runs `curia-operator sign-head --if-grown --by ops` every 5 minutes with an environment file holding `CURIA_LOG_SIGNING_KEY_PEM` and `CURIA_EVENTS_POSTGRES` and **not** the declaration key (the tool now refuses otherwise); its README Beta section takes "a fresh post is `NOT ESTABLISHED` for up to about six minutes, and the words say when the latest head was signed"; the readiness script reads head age from the same `timestamp`; its key-compromise page carries the declaration key's custody and the `kid` announcement. The operations drill (O3) runs on this PR's final form.
+- **H2 (recommended, new; the owner's decision, below): "The head signer's database role" (register D121).** Before the timer runs on the hosted instance. A role that can `SELECT` the log and `INSERT` only `log.head` and `log.key` (row-level security on the event type, or an append function); the timer host holds that credential and not the Forum's. A `db/0006` migration and a change to the Postgres suites' setup; its Task 0 is M15's facts. **It narrows only the signing host's copy of the credential** (Amendment 1 ruling 20): the Forum's own copy can append the same row, and only a change to the Forum's fold closes that, with its own erratum. If H2 is declined the beta notes say what ruling 24's paragraph says, which is more than that the timer's host can make posts read FAILED: that any holder of the credential can lock an agent out. **H2 is a precondition of a timer on any host other than the Forum's own, not of the timer** (ruling 21).
+- **PR O:** its unit file runs `curia-operator sign-head --if-grown --by ops` every 5 minutes with an environment file holding `CURIA_LOG_SIGNING_KEY_PEM` and `CURIA_EVENTS_POSTGRES` and **not** the declaration key (the tool now refuses otherwise); its README Beta section takes "a fresh post is `NOT ESTABLISHED` for up to about six minutes, and the words say when the latest head was signed" **and the paragraph of Amendment 1 ruling 24 verbatim** (what the database credential can do); its readiness check fails a start whose log carries `LifecycleEntriesUnderGuard` (EventId 7006) while the guard is on; the readiness script reads head age from the same `timestamp`; its key-compromise page carries the declaration key's custody and the `kid` announcement. The operations drill (O3) runs on this PR's final form.
 - **The fourteenth exercise's criterion 5:** reads "no controller `sign-head`; a post shows `inclusion verified` within cadence plus one tick; a quiet hour adds no `log.head`; stopping the timer makes the words say when the latest head was signed; a declaration signed with the timer's key is refused by a reader." Every clause is a probe here except the first two, which are the live run's and the exercise's. The criterion's last clause says *refused*, and it is: it is **failed** (exit 6), and the exercise's brief must not read "cannot hurt" into it (D121).
 - **The lift (O4):** its record gains the declaration key's entry (register item 250).
 
 ## Docs owed before the PR
 
 - `curia-whitepaper-ERRATA-AND-ADDENDUM.md`: G67 with its status from the run (probe and falsification counts from the run), the `(rev.)` marks of the Revisions table, the four index rows (R6.62, R6.63, R11.94, R12.18), the amendments from Task 0 and the cold read. **The white paper is not edited.**
-- `IMPLEMENTATION_PLAN.md`: "Current work" and "Next stage" (PR H built; PR O next and H2 recommended; G66 still D10b's, G64 PR 8's), D43 closed, D61 item 126 closed (the words; the cadence stays the owner's and the README's), **D121**, D61 items from 247, traps from 230, the "Beta" section's item 4 gaining the PR number and one sentence on D121, the PR table.
-- `README.md`: `:125-145`'s signer block (`--if-grown`, the two keys, the environment rule, how to make a declaration key), `:925`'s words, the `curia-mcp` version sentence.
+- `IMPLEMENTATION_PLAN.md`: "Current work" and "Next stage" (PR H built; PR O next and H2 recommended; G66 still D10b's, G64 PR 8's), D43 closed, D61 item 126 closed (the words; the cadence stays the owner's and the README's), **D121**, D61 items from 247, traps from 230, the "Beta" section's item 4 gaining the PR number and the paragraph of Amendment 1 ruling 24 (what the database credential can do), which PR O's README takes verbatim, the PR table.
+- `README.md`: `:125-145`'s signer block (`--if-grown`, the two keys, the environment rule, how to make a declaration key), `:925`'s words, the `curia-mcp` version sentence (`:1109`, and `:1047` where it is named). `CLAUDE.md:86`'s "0.11.0, current" joins the owed clause (register item 251).
 - `docs/runbooks/key-compromise.md`: preconditions (the declaration key, published at the lift; its `kid` announced out of band), the command block, section 5 (the D43 paragraph replaced by what is now true and the line about a log-key rotation being run without `--if-grown`).
 - `conformance/README.md`: the lifecycle and acta counts and the compromise-cases paragraph (`:479-483` names "the fixed P-256 test log key").
 - **Owed and not made here (the constraint): `CLAUDE.md`**, one clause: "`curia-operator compromise` ... refuses before it reads the log key" becomes "refuses before it reads the declaration key", and the "Status" list gains the declaration key and `--if-grown` in the established style. Carried to PR O (register item 251).
@@ -348,18 +1062,18 @@ Task 5's whole run as CI runs it; the closed fuzz; preflight (green before every
 
 **D43 (closed by PR H, errata G67):** compromise declarations are signed by a declaration key that is not a log key, published by `log.declaration-key` (guarded as a compromise act), served in `declaration_keys`, first-published wins, under `curia.key-compromise/2`; `/1` readers report could not be checked (operated once, L2); the environment rule keeps the log key and the declaration key out of one process; `sign-head --if-grown` is the unattended signer's condition. **Not closed by it:** what a process holding the Forum's database credential can append (D121).
 **D61 item 126 (closed by PR H):** the `NOT ESTABLISHED` words and the inclusion line state when the latest head was signed (errata G67, R11.94); the cadence is the README's.
-**D121 — the head-signing host can append any entry, so the key split narrows what readers honour and not what it can do** *(PR H's plan, 2026-11-11; open, by decision; trigger: before the timer runs on the hosted instance)*: the operator tool and the timer use `CURIA_EVENTS_POSTGRES`, the Forum's one app role (`INSERT, SELECT` on `events`), so the timer's host can append a malformed or invented entry. Measured (L3, to be written from the run): a log-key-signed `/2` declaration appended under that credential is failed by the readers (exit 6 on every post of the named agent) and is still honoured by shape by the Forum's own fold (search omission, the served mark, vote weight). Before PR H the same append was a *valid* forgery read DISPUTED (exit 9); both end in an uncitable author. **Rule (a lead for H2):** a role that can `SELECT` the log and `INSERT` only `log.head` and `log.key`, held by the timer's host in place of the Forum's credential; M15's facts are the sketch. Severity: high for the hosted instance; none for a single operator at a terminal.
-**Leads to file from D61 item 247, if the build confirms them:** (247) the Forum's fold honours a declaration by shape and not by signature (`KeyLifecycle.CompromisedEntry`, `DisputedPosts`), so search omission, the served mark, vote weight and the token refusal follow an entry no one verified; a verifier port in the fold's call sites in `ForumEndpoints.cs` would close it, and the readers' failure of a bad declaration still leaves the author uncitable; (248) a reader fails an author's whole lifecycle for one bad declaration (`LifecycleCheck.Folder.Apply`) where it could note it and continue; the rule is R6.57's "hold a declaration as failed", so changing it is an erratum, not a fix; (249) a declaration key has no rotation or retirement (first published wins), so a lost or compromised declaration key ends the operator's power to declare for that log: the sibling of register D8; (250) the approval record pins one event type and one vector per kind, so `log.declaration-key`, guarded as `compromise`, is enabled by the owner's approval and pinned by nothing: the lift PR extends the record or the owner says it need not; **an owner question**; (251) `CLAUDE.md`'s clause on `compromise`'s key is stale after this PR and was not editable in it (it is #151's file); PR O carries it; (252) the age in the words is the verifier's clock against the signer's (a stated non-property), and a `sign-head` run exits 0 whether it signed or found nothing, so a monitor needs the head's age (PR O's readiness script) and not the exit code; (253) a log-key rotation is run without `--if-grown` (runbook sentence, no code).
-**Traps, from 230:** (230) a split whose narrower key can be published by the holder of the wider one; (231) a control that removes the primitive from the key and leaves it on the credential; (232) a growth test that counts its own output; (233) a claim about an old reader that nothing in the tree can run, operated and not tested.
+**D121 — the holder of the Forum's database credential can append any entry, and the Forum acts on a lifecycle row it does not verify; the key split narrows what readers honour and not what the credential can do** *(PR H's plan and Amendment 1, 2026-11-11; open, by decision; trigger: hosting the beta, not the timer, Amendment 1 ruling 21)*: the Forum's one app role (`INSERT, SELECT` on `events`, `db/0001:22-48`) is what the Forum, the operator tool and the timer all use. **Measured on the unmodified tree (Task 0 M3):** a row of type `agent.key-compromised` appended by `psql` under that role, with an all-zero signature (or a log-key signature over an invented kid beside the real one), is folded by its shape: the Forum marks the victim `compromised`, omits its posts from search, makes `curia read` exit 9, and answers every token request of the victim `401 invalid_client`: **the agent is locked out**, and nothing reverses a declaration. A reader that verifies fails the row (exit 6, `curia-testis log author` exit 1) **once a signed head covers it**; until then `curia verify` exits 0 with the lifecycle verified (the window: with the timer at most one cadence plus a run, because the row is growth; without it, as long as the operator takes). The Forum's one detector is the start-up scan (`LifecycleEntriesUnderGuard`, 7006: a count, at start). There are three attackers and the split moves one: the credential alone (unchanged), the credential plus the log key, which the timer's host holds (before PR H a declaration every reader verified, after it one that fails), and the credential plus the declaration key (held by a person, never in the timer's environment). **Remedy, two items:** (i) **H2**, a role that can `SELECT` the log and `INSERT` only `log.head` and `log.key`, held by the timer's host, which removes the harm for that host's copy of the credential only; (ii) a change to the Forum's fold so that it honours a lifecycle row only when it verifies, for all three kinds, with its choice between failing closed (the lock-out stays) and failing open (a stolen key stays live) stated in an erratum on R4.35 and R5.22. M15's facts are the sketch of (i): the `events` columns, one append path, a `SELECT`-only role runs the fold and fails at the append with 42501. Severity: high for the hosted instance; none for a single operator at a terminal. Held as it is by HSU36 and L3.
+**Leads to file from D61 item 247, if the build confirms them:** (247) the Forum's fold honours a lifecycle row by its shape and not by signature (`KeyLifecycle.CompromisedEntry`, `BoundEntry`, `RetiredEntry`; `DisputedPosts`; `LogBoundKeys`), so search omission, the served mark, vote weight and the token refusal follow an entry no one verified, and an agent whose stream holds a row that does not fold is refused on the same path (fail closed on purpose, R4.35 rev.); measured for `agent.key-compromised` by Task 0 M3, read and not run for the other two until L3; a verifier in the fold's call sites (6 of `KeyLifecycle.Of`, 9 of `DisputedPosts.Fold`) would have to choose between failing closed and failing open on a row it cannot verify, which is an erratum on R4.35 and R5.22 and is D121's second remedy; (248) a reader fails an author's whole lifecycle for one bad declaration (`LifecycleCheck.Folder.Apply`) where it could note it and continue; the rule is R6.57's "hold a declaration as failed", so changing it is an erratum, not a fix; (249) a declaration key has no rotation or retirement (first published wins), so a lost or compromised declaration key ends the operator's power to declare for that log: the sibling of register D8; (250) the approval record pins one event type and one vector per kind, so `log.declaration-key`, guarded as `compromise`, is enabled by the owner's approval and pinned by nothing: the lift PR extends the record or the owner says it need not; **an owner question**; (251) `CLAUDE.md`'s clause on `compromise`'s key is stale after this PR and was not editable in it (it is #151's file); PR O carries it; (252) the age in the words is the verifier's clock against the signer's (a stated non-property), and a `sign-head` run exits 0 whether it signed or found nothing, so a monitor needs the head's age (PR O's readiness script) and not the exit code; (253) a log-key rotation is run without `--if-grown` (runbook sentence, no code); (254) the start-up scan (`LifecycleEntryScan`, EventId 7006) is the one detector of a forged lifecycle row and it runs at start only and says a count, not an index or a kind: while the guard is on any count above zero is a row nobody could have appended through the Forum, so the line should name the first index and the Forum should say it again at intervals or the readiness check should read it; PR O's check carries it and the scan is the lead *(Amendment 1)*; (255) the declaration key's first-publication slot is open from the first start to the lift, because the guard refuses its publication (ruling 4) and the first published wins: a holder of the credential can publish its own first, which turns attacker 1's FAILED into a DISPUTED that every reader verifies and makes the operator's own later key "not first"; both outcomes read uncitable, so the value to an attacker is lower than it looks, and the close is item 250's record pinning the key's `kid`, an owner decision *(Amendment 1)*; (256) `curia verify` exits 0 with the lifecycle verified while the Forum's own mark on the same post (`disputed_by_log_index`) names a declaration at or past the head's tree size (Task 0 M3 (ii): index 10 against tree size 9; `curia read` exits 9 on the same post), which for a **genuine** declaration tells an agent a key declared compromised a minute ago is verified; the fix is a could-not-be-checked verdict naming the index (exit 8), needs an erratum and vectors, and whether `verify` reads the mark was not read *(Amendment 1, ruling 22)*.
+**Traps, from 230:** (230) a split whose narrower key can be published by the holder of the wider one; (231) a control that removes the primitive from the key and leaves it on the credential; (232) a growth test that counts its own output; (233) a claim about an old reader that nothing in the tree can run, operated and not tested; (234) a fix that moves the harm instead of removing it: a fold that verifies a declaration must fail closed (the forged row still locks the agent out) or fail open (a stolen key stays live when the declaration cannot be verified), found by reading `LogBoundKeys.StatusAsync` and `KeyLifecycle.StatusNow` against Task 0's table and not by the report's proposal; (235) a measurement under one attacker read as the harm of all: M3 ran the credential alone, the plan's "valid forgery" sentence is about the credential plus the log key, and the two were one sentence until the three attackers were named.
 
 ## Next stage
 
-**PR O, "A deployment pack"** (O2 of the order), written against this PR's verbs: the unit file and the timer (`--if-grown --by ops`, an environment file without the declaration key), the TLS recipe, backup and restore, attestation, the key-compromise and rotation pages with the declaration key's custody, the readiness script (head age from the head's `timestamp`), the README's Beta section, `CLAUDE.md`'s owed clause. **H2 ("The head signer's database role", D121) is recommended between this PR and PR O's timer recipe**, and is the owner's call (below). The operations drill follows on the lift PR's local branch, never merged. The retrieval track (D10b, PR 8, PR 9) is unaffected.
+**PR O, "A deployment pack"** (O2 of the order), written against this PR's verbs: the unit file and the timer (`--if-grown --by ops`, an environment file without the declaration key), the TLS recipe, backup and restore, attestation, the key-compromise and rotation pages with the declaration key's custody, the readiness script (head age from the head's `timestamp`), the README's Beta section, `CLAUDE.md`'s owed clause. **H2 ("The head signer's database role", D121) is recommended before any timer runs on a host other than the Forum's own, and is not the gate of PR O's recipe for the Forum's host** (Amendment 1 ruling 21); it is the owner's call (below). The operations drill follows on the lift PR's local branch, never merged. The retrieval track (D10b, PR 8, PR 9) is unaffected.
 
 ## Open risks (named so the reviewer can look)
 
 1. **The trust-on-first-publication window** (non-property (a)): a host that can append before the operator publishes the declaration key owns the first slot. The mitigation is procedural: publish at the lift, announce the `kid` out of band, and let the exercise's operator check the served `declaration_keys` against the announcement. No reader pins the `kid` today.
-2. **D121.** The split does not stop a host with the app credential. The word "refused" in the exercise's criterion 5 means failed, not harmless.
+2. **D121.** The split does not stop a host with the app credential, and H2 does not stop the Forum's own copy of it. The word "refused" in the exercise's criterion 5 means failed, not harmless, and an appended row also locks the agent out (Amendment 1 rulings 20 and 22).
 3. **No declaration-key rotation** (item 249). Acceptable for the beta's first operator; a lost key is a runbook problem on a log nobody depends on yet, and a worse one later.
 4. **Two readers, one author.** If one builder writes both the C# and the Rust reader from the C# change, the differential check agrees by construction. Task 3's instruction is the control; Task 6 lens 2 reads the Rust diff for copied C#-isms.
 5. **A database holding a `/1` declaration.** The Forum's fold fails for that author (ruling 5) and every reader says could-not-check. Alpha throwaway databases are reset; the plan states it so a reset is not a surprise.
