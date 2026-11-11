@@ -103,8 +103,8 @@ fn hsu18_the_families_hold_the_counts_of_the_declaration_key_vectors() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         (corpus.lifecycle.len(), corpus.acta.len()),
-        (65, 12),
-        "conformance/lifecycle/ holds 65 cases (the 58 of Amendment 1 ruling 26, the control of HSU22 and the 6 of R6.62's undeclared decisions) and conformance/acta/ 12"
+        (71, 12),
+        "conformance/lifecycle/ holds 71 cases (the 58 of Amendment 1 ruling 26, the control of HSU22, the 6 of R6.62's undeclared decisions and the 6 of HSU49) and conformance/acta/ 12"
     );
 }
 

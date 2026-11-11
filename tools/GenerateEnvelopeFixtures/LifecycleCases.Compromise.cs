@@ -81,6 +81,12 @@ internal static partial class LifecycleCases
             DeclarationKeyIsLogKeyUnderAnotherKid(root, k1),
             AnotherDeclarationKeyPositionUnknown(root, k1),
             DeclarationKidPublishedTwice(root, k1),
+            DeclarationKidTwiceOneUnpositioned(root, k1),
+            DeclarationKeyWithoutKid(root, k1),
+            LogKeyWithoutKid(root, k1),
+            DeclarationKeysSharePosition(root, k1),
+            DeclarationKeysEntryNotAnObject(root, k1),
+            DeclarationKeysEntryWithoutAlg(root, k1),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -500,6 +506,119 @@ internal static partial class LifecycleCases
         };
     }
 
+    /// <summary>
+    /// One kid listed twice, one listing positioned and one not (Amendment 4 ruling 46, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the declaration key's publication, 4 the declaration
+    /// under it. The key set lists the kid at 3 and again, with another key, with no <c>log_index</c>: the earliest listing cannot be said, a position not given.
+    /// </summary>
+    private static Case DeclarationKidTwiceOneUnpositioned(string root, Key k1)
+    {
+        var second = Renamed(ConformanceLogKeys.Unpublished, ConformanceLogKeys.Declaration.Kid);
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "69");
+        AddDeclaration(log, decl, root, "compromise-declaration-kid-twice-one-unpositioned");
+        return new Case("compromise-declaration-kid-twice-one-unpositioned", "R6.62",
+            "The declaration key's kid is listed at 3 and again, with another key, with no log_index, and the declaration at 4 is valid under the first. Where any listing of a kid gives no position its earliest cannot be said (R6.62(c)), so the verdict is could not be checked and the post is not disputed; a reader that ignores the later unpositioned listing, or takes the first served, disputes.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-position-unknown")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(second, LogKeyValidFrom, LogIndex: null),
+            ],
+        };
+    }
+
+    /// <summary>
+    /// A second declaration key listed with no <c>kid</c> (Amendment 4 ruling 47, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the first declaration key's publication, 4 a valid
+    /// declaration under it. The entry at <c>log_index</c> 1 is one no header can name and may be the earliest: the key set supplies no usable member.
+    /// </summary>
+    private static Case DeclarationKeyWithoutKid(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "70");
+        AddDeclaration(log, decl, root, "compromise-declaration-key-without-kid");
+        return new Case("compromise-declaration-key-without-kid", "R6.62",
+            "The key set lists the declaration key at 3 and a second declaration key with no kid at log_index 1, and the declaration at 4 is valid under the first. An entry the reader cannot read as a key may be the earliest and cannot be shown not to be (R6.62(a)), so the key set supplies no usable declaration_keys member and the verdict is could not be checked; a reader that drops the entry disputes, one that counts it by position fails the declaration as not first.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-set-not-supplied")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(ConformanceLogKeys.Unpublished, LogKeyValidFrom, LogIndex: 1, OmitKid: true),
+            ],
+        };
+    }
+
+    /// <summary>
+    /// A log key listed with no <c>kid</c> (Amendment 4 ruling 48, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the declaration key's publication, 4 the declaration under it. The
+    /// <c>keys</c> member lists the declaring key's own key with no kid: a log key the reader cannot read cannot be compared, and the key set supplies no usable member.
+    /// </summary>
+    private static Case LogKeyWithoutKid(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "71");
+        AddDeclaration(log, decl, root, "compromise-log-key-without-kid");
+        return new Case("compromise-log-key-without-kid", "R6.62",
+            "The keys member lists, beside the head key, the declaring key's own key with no kid at log_index 1, and declaration_keys lists it at 3; the declaration at 4 is valid under it. A log key the reader cannot read cannot be compared by public key (R6.62(a), (d)), so the key set supplies no usable member and the verdict is could not be checked; a reader that compares it by public key fails the declaration as a log key, one that drops it disputes.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-set-not-supplied")
+        {
+            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, LogIndex: 1, OmitKid: true)],
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex)],
+        };
+    }
+
+    /// <summary>
+    /// Two declaration keys listed at one <c>log_index</c> (Amendment 4 ruling 49, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the first key's publication, 4 the declaration under it,
+    /// which is the first key served. Neither is the first of two at one position, so the declaration fails.
+    /// </summary>
+    private static Case DeclarationKeysSharePosition(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "72");
+        AddDeclaration(log, decl, root, "compromise-declaration-keys-share-position");
+        return new Case("compromise-declaration-keys-share-position", "R6.62",
+            "The key set lists two declaration keys at log_index 3 and the declaration at 4 is under the first served. A declaration key listed at the declaring key's own position is at or before it, so neither is the first (R6.62(e)) and the declaration fails; a reader that decides by strict order or by the order served disputes.",
+            log, post, [0, 1, 4], "failed", "declaration-key-not-first")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(ConformanceLogKeys.Unpublished, LogKeyValidFrom, declarationKeyIndex),
+            ],
+        };
+    }
+
+    /// <summary>
+    /// A <c>declaration_keys</c> entry that is not an object (Amendment 4 ruling 47, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the declaration key's publication, 4 the declaration
+    /// under it. The member is <c>[K1, 7]</c>: an unreadable entry, so the key set supplies no usable member.
+    /// </summary>
+    private static Case DeclarationKeysEntryNotAnObject(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "73");
+        AddDeclaration(log, decl, root, "compromise-declaration-keys-entry-not-an-object");
+        var first = ExtraLogKeysJson([new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex)]).TrimStart(',');
+        return new Case("compromise-declaration-keys-entry-not-an-object", "R6.62",
+            "The key set serves declaration_keys as the declaration key at 3 and the number 7. An entry that is not an object is an entry the reader cannot read as a key (R6.62(a)), so the key set supplies no usable member and the verdict is could not be checked; a reader that skips the item disputes, one that refuses the document reports an error and no verdict.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-set-not-supplied")
+        { DeclarationKeysRawJson = "[" + first + ",7]" };
+    }
+
+    /// <summary>
+    /// A <c>declaration_keys</c> entry with no <c>alg</c> (Amendment 4 ruling 47, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the first key's publication, 4 the declaration under it.
+    /// The second entry is at <c>log_index</c> 5, after the declaration; it is unreadable all the same, and the key set supplies no usable member.
+    /// </summary>
+    private static Case DeclarationKeysEntryWithoutAlg(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "74");
+        AddDeclaration(log, decl, root, "compromise-declaration-keys-entry-without-alg");
+        return new Case("compromise-declaration-keys-entry-without-alg", "R6.62",
+            "The key set lists the declaration key at 3 and a second key with no alg at log_index 5, and the declaration at 4 is valid under the first. An entry without a string alg is not readable as a key (R6.62(a)), so the key set supplies no usable member and the verdict is could not be checked; a reader that reads the entry as a key disputes.",
+            log, post, [0, 1, 4], "could-not-check", "declaration-key-set-not-supplied")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(ConformanceLogKeys.Unpublished, LogKeyValidFrom, LogIndex: 5, OmitAlg: true),
+            ],
+        };
+    }
+
     /// <summary>The same key under another kid: its public key, private key and thumbprint-independent members unchanged, its <c>kid</c> and the JWK's replaced.</summary>
     private static P256LogKey Renamed(P256LogKey key, string kid) =>
         key with { Kid = kid, Jwk = JsonBuilders.WithField((JsonValue.Object)key.Jwk, "kid", Str(kid)) };
@@ -617,6 +736,10 @@ internal static partial class LifecycleCases
                 ("x", Str(Jwk.Base64UrlEncode(extra.Key.X32))),
                 ("y", Str(Jwk.Base64UrlEncode(extra.Key.Y32))),
             };
+            if (extra.OmitAlg)
+                members.RemoveAll(m => m.Item1 == "alg");
+            if (extra.OmitKid)
+                members.RemoveAll(m => m.Item1 == "kid");
             if (extra.LogIndex is { } index)
                 members.Add(("log_index", Num(index)));
             builder.Append(',').Append(Encoding.UTF8.GetString(Canon(Obj([.. members])).Span));

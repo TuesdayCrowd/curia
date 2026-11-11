@@ -79,8 +79,11 @@ internal static partial class LifecycleCases
         public string? DeclarationKeysRawJson { get; init; }
     }
 
-    /// <summary>A log key the case's key set lists beside the head key; a null <paramref name="LogIndex"/> gives no position (KF2).</summary>
-    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex);
+    /// <summary>
+    /// A log key the case's key set lists beside the head key; a null <paramref name="LogIndex"/> gives no position (KF2). <paramref name="OmitKid"/> and <paramref name="OmitAlg"/> write
+    /// the entry without that member, an entry no reader can read as a key (Amendment 4 rulings 47 and 48, R6.62).
+    /// </summary>
+    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex, bool OmitKid = false, bool OmitAlg = false);
 
     public static int Run(string repoRoot)
     {

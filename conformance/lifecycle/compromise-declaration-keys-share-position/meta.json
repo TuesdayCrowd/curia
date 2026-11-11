@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The key set lists two declaration keys at log_index 3 and the declaration at 4 is under the first served. A declaration key listed at the declaring key's own position is at or before it, so neither is the first (R6.62(e)) and the declaration fails; a reader that decides by strict order or by the order served disputes. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

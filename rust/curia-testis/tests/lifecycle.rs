@@ -96,8 +96,8 @@ fn r6_54_every_lifecycle_case_reaches_its_verdict_and_names_its_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.lifecycle.len(),
-        65,
-        "conformance/lifecycle/ holds the 65 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key and the 6 of R6.62's undeclared decisions)"
+        71,
+        "conformance/lifecycle/ holds the 71 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key, the 6 of R6.62's undeclared decisions and the 6 of Amendment 4's)"
     );
 
     let mut failures = Vec::new();
@@ -507,8 +507,38 @@ fn the_compromise_cases_are_all_present_with_their_vocabulary() {
             "failed",
             "declaration-signature-invalid",
         ),
+        (
+            "compromise-declaration-kid-twice-one-unpositioned",
+            "could-not-check",
+            "declaration-key-position-unknown",
+        ),
+        (
+            "compromise-declaration-key-without-kid",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
+        (
+            "compromise-log-key-without-kid",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
+        (
+            "compromise-declaration-keys-share-position",
+            "failed",
+            "declaration-key-not-first",
+        ),
+        (
+            "compromise-declaration-keys-entry-not-an-object",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
+        (
+            "compromise-declaration-keys-entry-without-alg",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
     ];
-    assert_eq!(expected.len(), 28);
+    assert_eq!(expected.len(), 34);
     for (name, verdict, predicate) in expected {
         let vector = case(name);
         assert_eq!(
