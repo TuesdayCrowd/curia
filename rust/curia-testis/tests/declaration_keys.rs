@@ -103,8 +103,8 @@ fn hsu18_the_families_hold_the_counts_of_the_declaration_key_vectors() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         (corpus.lifecycle.len(), corpus.acta.len()),
-        (58, 12),
-        "conformance/lifecycle/ holds 58 cases and conformance/acta/ 12 (Amendment 1 ruling 26)"
+        (59, 12),
+        "conformance/lifecycle/ holds 59 cases (the 58 of Amendment 1 ruling 26 and the control of HSU22) and conformance/acta/ 12"
     );
 }
 
@@ -135,13 +135,21 @@ fn hsu21_a_declaration_key_that_is_also_a_log_key_fails() {
     )]);
 }
 
+/// The control is `compromise-first-of-two-declaration-keys`, the same log with the declaration under the first key: a vector the plan's list did not name.
 #[test]
-fn hsu22_a_declaration_under_a_second_declaration_key_fails() {
-    all_hold(&[describe(
-        "compromise-second-declaration-key",
-        "failed",
-        "declaration-key-not-first",
-    )]);
+fn hsu22_a_declaration_under_a_second_declaration_key_fails_and_under_the_first_disputes() {
+    all_hold(&[
+        describe(
+            "compromise-second-declaration-key",
+            "failed",
+            "declaration-key-not-first",
+        ),
+        describe(
+            "compromise-first-of-two-declaration-keys",
+            "disputed",
+            "disputed",
+        ),
+    ]);
 }
 
 #[test]
@@ -232,6 +240,65 @@ fn hsu24_a_declaration_under_the_first_declaration_key_disputes_the_post() {
         ));
     }
     all_hold(&problems);
+}
+
+/// The exit `curia-testis log author` gives a case: 4 disputed, 1 failed, 3 not established (R6.54, R6.57). A declaration under a log key is a failure and never a
+/// dispute (HSU19), and a `/1` statement is not established whoever signed it (HSU20).
+fn log_author_exit(case: &str, lifecycle: &[u64]) -> Option<i32> {
+    let dir = conformance_dir().join("lifecycle").join(case);
+    let path = |kind: &str, index: u64| {
+        dir.join(kind)
+            .join(format!("{index}.json"))
+            .display()
+            .to_string()
+    };
+    Command::new(env!("CARGO_BIN_EXE_curia-testis"))
+        .args([
+            "log",
+            "author",
+            "--entry",
+            &path("entries", 2),
+            "--proof",
+            &path("proofs", 2),
+            "--key-entry",
+            &path("entries", 1),
+            "--key-proof",
+            &path("proofs", 1),
+            "--head",
+            &dir.join("head.json").display().to_string(),
+            "--log-jwks",
+            &dir.join("log-jwks.json").display().to_string(),
+        ])
+        .args(
+            lifecycle
+                .iter()
+                .flat_map(|i| {
+                    [
+                        "--lifecycle-entry".to_string(),
+                        path("entries", *i),
+                        "--lifecycle-proof".to_string(),
+                        path("proofs", *i),
+                    ]
+                })
+                .collect::<Vec<String>>(),
+        )
+        .output()
+        .expect("the binary runs")
+        .status
+        .code()
+}
+
+#[test]
+fn hsu19_20_log_author_fails_a_log_key_declaration_and_cannot_establish_a_version_one_statement() {
+    assert_eq!(
+        (
+            log_author_exit("compromise-signed-by-log-key", &[0, 1, 5]),
+            log_author_exit("compromise-v1-statement", &[0, 1, 4]),
+            log_author_exit("compromise-second-declaration-key", &[0, 1, 5]),
+        ),
+        (Some(1), Some(3), Some(1)),
+        "a declaration under a log key and one under a second declaration key fail (1) and never dispute (4); a /1 statement is not established (3)"
+    );
 }
 
 /// The pair that carries the difference between an absence and a denial: no `declaration_keys` member is could not be checked; a served empty one is failed.

@@ -96,8 +96,8 @@ fn r6_54_every_lifecycle_case_reaches_its_verdict_and_names_its_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.lifecycle.len(),
-        53,
-        "conformance/lifecycle/ holds the 53 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings and the 16 of PR 2's declarations)"
+        59,
+        "conformance/lifecycle/ holds the 59 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain and the 7 of errata G67's declaration key)"
     );
 
     let mut failures = Vec::new();
@@ -377,7 +377,7 @@ fn runner_comparison_fails_on_a_wrong_predicate() {
 /// R6.57: the sixteen cases of PR 2 are all present with the verdict and predicate the vocabulary names, so a case
 /// dropped from the family is a red fact and not a smaller count.
 #[test]
-fn the_sixteen_compromise_cases_are_all_present_with_their_vocabulary() {
+fn the_compromise_cases_are_all_present_with_their_vocabulary() {
     let expected = [
         ("compromised-before-post", "disputed", "disputed"),
         (
@@ -440,15 +440,45 @@ fn the_sixteen_compromise_cases_are_all_present_with_their_vocabulary() {
         (
             "compromise-declaration-kid-position-unknown",
             "could-not-check",
-            "log-key-position-unknown",
+            "declaration-key-position-unknown",
         ),
         (
-            "compromise-v2-under-unknown-signer",
+            "compromise-v1-statement",
             "could-not-check",
             "unknown-lifecycle-kind",
         ),
+        (
+            "compromise-signed-by-log-key",
+            "failed",
+            "declaration-key-unpublished",
+        ),
+        (
+            "compromise-declaration-key-is-log-key",
+            "failed",
+            "declaration-key-is-log-key",
+        ),
+        (
+            "compromise-second-declaration-key",
+            "failed",
+            "declaration-key-not-first",
+        ),
+        (
+            "compromise-first-of-two-declaration-keys",
+            "disputed",
+            "disputed",
+        ),
+        (
+            "compromise-declaration-key-set-absent",
+            "could-not-check",
+            "declaration-key-set-not-supplied",
+        ),
+        (
+            "compromise-declaration-keys-empty",
+            "failed",
+            "declaration-key-unpublished",
+        ),
     ];
-    assert_eq!(expected.len(), 16);
+    assert_eq!(expected.len(), 22);
     for (name, verdict, predicate) in expected {
         let vector = case(name);
         assert_eq!(
@@ -464,10 +494,10 @@ fn the_sixteen_compromise_cases_are_all_present_with_their_vocabulary() {
     }
 }
 
-/// R6.26 (revised), F2-25, F2-26: a log key whose `log_index` is negative is a position this verifier cannot read,
+/// R6.26 (revised), F2-25, F2-26, R6.62(c): a declaration key whose `log_index` is negative is a position this verifier cannot read,
 /// as an absent one is, and the declaration is not established, never verified. The key set is
 /// `compromise-declaration-kid-position-unknown`'s with the declaring key's position set to -1, and again to -5; the
-/// control gives it the position its `log.key` entry has (3, before the declaration at 4), and the declaration holds.
+/// control gives it the position its `log.declaration-key` entry has (3, before the declaration at 4), and the declaration holds.
 /// The Rust twin of `R6_26_ANegativeLogIndexCouldNotBeChecked`.
 #[test]
 fn negative_log_index_could_not_be_checked() {
@@ -476,7 +506,9 @@ fn negative_log_index_could_not_be_checked() {
 
     let with_position = |position: &str| -> Vec<u8> {
         let mut jwks: serde_json::Value = serde_json::from_slice(&d.log_jwks).expect("log jwks");
-        let keys = jwks["keys"].as_array_mut().expect("keys");
+        let keys = jwks["declaration_keys"]
+            .as_array_mut()
+            .expect("declaration_keys");
         let declaring = keys
             .iter_mut()
             .find(|k| k["alg"] == "ES256")
@@ -504,7 +536,7 @@ fn negative_log_index_could_not_be_checked() {
         judged(&d.log_jwks),
         (
             "could-not-check".to_string(),
-            "log-key-position-unknown".to_string()
+            "declaration-key-position-unknown".to_string()
         )
     );
     assert_eq!(
@@ -517,7 +549,7 @@ fn negative_log_index_could_not_be_checked() {
             judged(&with_position(position)),
             (
                 "could-not-check".to_string(),
-                "log-key-position-unknown".to_string()
+                "declaration-key-position-unknown".to_string()
             ),
             "log_index {position}"
         );
@@ -545,7 +577,7 @@ fn head_verifier_refuses_a_compromise_typ() {
 /// The pinned signature of `compromised-before-post`'s statement by the agent key `conformance-ed25519-minimal` under
 /// the declaration's header `typ`. Ed25519 is deterministic and this crate has no signer, so the string is pinned;
 /// the C# twin signs it live and holds both to the same bytes (`CompromiseReaderTests.AgentSignedDeclaration`).
-const AGENT_SIGNED_DECLARATION: &str = "eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLWVkMjU1MTktbWluaW1hbCIsInR5cCI6ImN1cmlhLWtleS1jb21wcm9taXNlXHUwMDJCandzIiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiXX0..xLupPvseTID4h-fbaeplsDeGQPgvQkkgNcWUet2XdkKa-6J3KCOEK5t615VlPlFrfCRXIAEzq1blWb6NW80oAw";
+const AGENT_SIGNED_DECLARATION: &str = "eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLWVkMjU1MTktbWluaW1hbCIsInR5cCI6ImN1cmlhLWtleS1jb21wcm9taXNlXHUwMDJCandzIiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiXX0..UOTxSo10Q0nvFcqky46ix4VBVk-phJ2MCS2x9JDm4dZoet4TcilI5reClUWplsmbVAvBHeB4Wa-QNwF5H2BnCw";
 
 fn parse_digest(text: &str) -> merkle::Hash {
     let hex = text.strip_prefix("sha256:").expect("a sha256: digest");

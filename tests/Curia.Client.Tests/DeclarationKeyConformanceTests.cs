@@ -46,14 +46,14 @@ public sealed class DeclarationKeyConformanceTests
     }
 
     /// <summary>
-    /// HSU18 (this reader's half). The family holds the 58 lifecycle cases and the 12 acta cases Amendment 1 ruling 26 counts, and the index declares what the directories
-    /// hold. Red on the seam: <c>lifecycle 53</c>. (Every case reaching its own expected verdict is the existing <c>R6_54_EveryLifecycleCaseReachesItsVerdictAndNamesItsPredicate</c>.)
+    /// HSU18 (this reader's half). The family holds the 59 lifecycle cases (Amendment 1 ruling 26's 58 and the control of HSU22) and the 12 acta cases, and the index declares
+    /// what the directories hold. Red on the seam: <c>lifecycle 53</c>. (Every case reaching its own expected verdict is the existing <c>R6_54_EveryLifecycleCaseReachesItsVerdictAndNamesItsPredicate</c>.)
     /// </summary>
     [Fact]
     public void R6_62_HSU18_TheFamiliesHoldTheCountsOfTheDeclarationKeyVectors()
     {
         Assert.Equal(
-            "lifecycle 58 (index 58); acta 12 (index 12)",
+            "lifecycle 59 (index 59); acta 12 (index 12)",
             $"lifecycle {DirectoryCount("lifecycle")} (index {IndexCount("lifecycle")}); acta {DirectoryCount("acta")} (index {IndexCount("acta")})");
     }
 
@@ -72,10 +72,15 @@ public sealed class DeclarationKeyConformanceTests
     public void R6_62_HSU21_ADeclarationKeyThatIsAlsoALogKeyFails() =>
         AllHold(Describe("compromise-declaration-key-is-log-key", "failed", "declaration-key-is-log-key"));
 
-    /// <summary>HSU22. A declaration under a declaration key that is not the first the log published fails, however the key set is ordered.</summary>
+    /// <summary>
+    /// HSU22. A declaration under a declaration key that is not the first the log published fails, however the key set is ordered; the same log with the declaration under the first key
+    /// disputes (the control, a vector the plan's list did not name: <c>compromise-first-of-two-declaration-keys</c>, so that a reader refusing every declaration of a two-key log is red).
+    /// </summary>
     [Fact]
-    public void R6_62_HSU22_ADeclarationUnderASecondDeclarationKeyFails() =>
-        AllHold(Describe("compromise-second-declaration-key", "failed", "declaration-key-not-first"));
+    public void R6_62_HSU22_ADeclarationUnderASecondDeclarationKeyFailsAndUnderTheFirstDisputes() =>
+        AllHold(
+            Describe("compromise-second-declaration-key", "failed", "declaration-key-not-first"),
+            Describe("compromise-first-of-two-declaration-keys", "disputed", "disputed"));
 
     /// <summary>HSU23. A declaration key published at or after the declaration fails; one whose position the key set does not give is could not be checked.</summary>
     [Fact]

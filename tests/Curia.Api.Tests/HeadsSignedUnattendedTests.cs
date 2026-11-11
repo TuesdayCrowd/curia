@@ -509,7 +509,7 @@ public sealed partial class HeadsSignedUnattendedTests
         var client = new ForumClient(forum.Client, forum.Client.BaseAddress!);
         Assert.True((await client.GetLogHeadAsync(ct)).TryGetValue(out var latest, out var headRefusal), headRefusal?.Summary);
         Assert.True((await client.GetLogJwksAsync(ct)).TryGetValue(out var keys, out var keysRefusal), keysRefusal?.Summary);
-        var verdict = ActaCheck.HeadSignature(latest!, keys);
+        var verdict = ActaCheck.HeadSignature(latest!, keys!.Keys);
 
         Same(
             "signature_valid False, client Failed",
@@ -565,7 +565,7 @@ public sealed partial class HeadsSignedUnattendedTests
     }
 
     private static async Task<string> KeyCountAsync(ForumClient client, CancellationToken ct) =>
-        (await client.GetLogJwksAsync(ct)).TryGetValue(out var keys, out var refusal) ? keys.Length.ToString(CultureInfo.InvariantCulture) : refusal!.Summary;
+        (await client.GetLogJwksAsync(ct)).TryGetValue(out var keys, out var refusal) ? keys!.Keys.Length.ToString(CultureInfo.InvariantCulture) : refusal!.Summary;
 
     // ---------------------------------------------------------------------------------------------------------------------------------- the words
 

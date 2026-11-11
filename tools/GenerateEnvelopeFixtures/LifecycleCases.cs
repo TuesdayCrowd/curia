@@ -63,8 +63,14 @@ internal static partial class LifecycleCases
     private sealed record Case(
         string Name, string Requirement, string Note, Log Log, int Post, int[] Supplied, string Verdict, string Predicate)
     {
-        /// <summary>Log keys beside the head key, each with the log index of its <c>log.key</c> entry (PR 2's declarations).</summary>
+        /// <summary>Log keys beside the head key, each with the log index of its <c>log.key</c> entry.</summary>
         public IReadOnlyList<ExtraLogKey> ExtraLogKeys { get; init; } = [];
+
+        /// <summary>
+        /// The declaration keys the case's key set serves, in the order it serves them (errata G67, R6.62), each with the log index of its <c>log.declaration-key</c> entry;
+        /// null serves no <c>declaration_keys</c> member at all, and an empty list serves an empty one.
+        /// </summary>
+        public IReadOnlyList<ExtraLogKey>? DeclarationKeys { get; init; }
     }
 
     /// <summary>A log key the case's key set lists beside the head key; a null <paramref name="LogIndex"/> gives no position (KF2).</summary>
@@ -721,7 +727,7 @@ internal static partial class LifecycleCases
 
         File.WriteAllText(
             Path.Combine(dir, "log-jwks.json"),
-            $"{{\"keys\":[{{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"alg\":\"EdDSA\",\"kid\":\"{LogKid}\",\"x\":\"{Jwk.Base64UrlEncode(logPublic)}\",\"valid_from\":\"2026-09-01T00:00:00Z\",\"log_index\":0}}{ExtraLogKeysJson(c)}]}}\n");
+            $"{{\"keys\":[{{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"alg\":\"EdDSA\",\"kid\":\"{LogKid}\",\"x\":\"{Jwk.Base64UrlEncode(logPublic)}\",\"valid_from\":\"2026-09-01T00:00:00Z\",\"log_index\":0}}{ExtraLogKeysJson(c.ExtraLogKeys)}]{DeclarationKeysJson(c)}}}\n");
         File.WriteAllText(
             Path.Combine(dir, "expected.json"),
             $"{{\"verdict\":\"{c.Verdict}\",\"predicate\":\"{c.Predicate}\"}}\n");

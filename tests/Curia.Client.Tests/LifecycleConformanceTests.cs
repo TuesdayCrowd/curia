@@ -98,12 +98,11 @@ public sealed class LifecycleConformanceTests
     }
 
     /// <summary>
-    /// R6.57: the fifteen cases of PR 2 and the one that closes the authorizer clause's exposure are all present and reach
-    /// the verdict and predicate the vocabulary names, one string at a time. The sixteen are named here so that a case
-    /// dropped from the family is a red fact and not a smaller count.
+    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain and the seven PR H adds under the declaration key: errata G67) are all present and reach
+    /// the verdict and predicate the vocabulary names, one string at a time. They are named here so that a case dropped from the family is a red fact and not a smaller count.
     /// </summary>
     [Fact]
-    public void R6_57_TheSixteenCompromiseCasesAreAllPresentWithTheirVocabulary()
+    public void R6_57_TheCompromiseCasesAreAllPresentWithTheirVocabulary()
     {
         var expected = new Dictionary<string, (string Verdict, string Predicate)>(StringComparer.Ordinal)
         {
@@ -121,11 +120,17 @@ public sealed class LifecycleConformanceTests
             ["compromise-kid-of-other-identity"] = ("failed", "kid-not-bound-to-agent"),
             ["compromise-declaration-kid-not-valid-at-position"] = ("failed", "declaration-key-unpublished"),
             ["compromise-unknown-reason"] = ("could-not-check", "unknown-reason"),
-            ["compromise-declaration-kid-position-unknown"] = ("could-not-check", "log-key-position-unknown"),
-            ["compromise-v2-under-unknown-signer"] = ("could-not-check", "unknown-lifecycle-kind"),
+            ["compromise-declaration-kid-position-unknown"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-v1-statement"] = ("could-not-check", "unknown-lifecycle-kind"),
+            ["compromise-signed-by-log-key"] = ("failed", "declaration-key-unpublished"),
+            ["compromise-declaration-key-is-log-key"] = ("failed", "declaration-key-is-log-key"),
+            ["compromise-second-declaration-key"] = ("failed", "declaration-key-not-first"),
+            ["compromise-first-of-two-declaration-keys"] = ("disputed", "disputed"),
+            ["compromise-declaration-key-set-absent"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-keys-empty"] = ("failed", "declaration-key-unpublished"),
         };
 
-        Assert.Equal(16, expected.Count);
+        Assert.Equal(22, expected.Count);
         foreach (var (name, want) in expected)
         {
             Assert.Equal(want, Expected(name));
@@ -146,7 +151,7 @@ public sealed class LifecycleConformanceTests
             .GetProperty("count").GetInt32();
 
         Assert.Equal(declared, CaseNames().Count);
-        Assert.Equal(53, declared);
+        Assert.Equal(59, declared);
     }
 
     [Fact]
@@ -171,7 +176,7 @@ public sealed class LifecycleConformanceTests
         LogEntryDocument PostEntry,
         List<(LogEntryDocument Entry, InclusionProofDocument Proof)> Chain,
         SignedHeadDocument Head,
-        ImmutableArray<LogJwk> LogKeys);
+        LogKeySet LogKeys);
 
     internal static CaseDocuments Load(string name)
     {
@@ -181,7 +186,7 @@ public sealed class LifecycleConformanceTests
 
         var head = Read(Path.Combine(dir, "head.json"), ActaDocuments.ReadHead);
         var keys = Read(Path.Combine(dir, "log-jwks.json"), ActaDocuments.ReadLogJwks);
-        Assert.Equal(CheckOutcome.Verified, ActaCheck.HeadSignature(head, keys).Outcome);
+        Assert.Equal(CheckOutcome.Verified, ActaCheck.HeadSignature(head, keys.Keys).Outcome);
 
         var indices = Directory.EnumerateFiles(Path.Combine(dir, "entries"), "*.json")
             .Select(f => long.Parse(Path.GetFileNameWithoutExtension(f), System.Globalization.CultureInfo.InvariantCulture))
@@ -222,7 +227,8 @@ public sealed class LifecycleConformanceTests
 
     internal static InclusionProofDocument ReadProofFile(string path) => Read(path, ActaDocuments.ReadInclusionProof);
 
-    internal static ImmutableArray<LogJwk> ReadLogKeys(string path) => Read(path, ActaDocuments.ReadLogJwks);
+    /// <summary>The <c>keys</c> member of a case's key set: the log keys, which sign heads.</summary>
+    internal static ImmutableArray<LogJwk> ReadLogKeys(string path) => Read(path, ActaDocuments.ReadLogJwks).Keys;
 
     private static T Read<T>(string path, Func<JsonValue, Curia.Domain.Primitives.Result<T>> parse)
     {

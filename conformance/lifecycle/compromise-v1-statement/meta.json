@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "A curia.key-compromise/1 statement, signed by the test log key under header typ curia-key-compromise+jws: /1 is withdrawn, so its statement typ is one this reader does not know (KF4), read before the signer, and the declaration is could not be checked whoever signed it. It never disputes. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

@@ -73,6 +73,7 @@ public sealed class LogLeafTests
     [InlineData("key-retired-entry")]
     [InlineData("key-bound-entry-es256")]
     [InlineData("key-compromised-entry")]
+    [InlineData("declaration-key-entry")]
     public void R6_46_AnEventRendersToTheConformanceVectorsLeafInputAndLeaf(string vector)
     {
         var dir = Path.Combine(ConformanceRoot, "acta", vector);

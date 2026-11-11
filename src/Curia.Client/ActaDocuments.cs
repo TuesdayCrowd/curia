@@ -102,6 +102,14 @@ public sealed record LogEntryDocument(long LogIndex, string LeafHash, JsonValue.
 public sealed record LogJwk(ForumJwk Key, string? ValidFrom, long LogIndex);
 
 /// <summary>
+/// The log's key set as <c>GET /v1/log/jwks</c> serves it (R6.50, errata G67 R6.62): the log keys, which sign heads and never a declaration, and the declaration keys,
+/// which sign a declaration and never a head. <paramref name="DeclarationKeys"/> is <see langword="null"/> where the document carries no <c>declaration_keys</c> member at
+/// all (an older Forum, or none said): an absence, which a reader never reads as a denial (R6.62: could not be checked). An empty array is a served denial: the Forum
+/// says it has published none.
+/// </summary>
+public sealed record LogKeySet(ImmutableArray<LogJwk> Keys, ImmutableArray<LogJwk>? DeclarationKeys = null);
+
+/// <summary>
 /// Parsers for the Acta's five routes. Separate from <see cref="ForumDocuments"/> because these are
 /// the log's shapes rather than the serving path's, and because R6.51 makes one of them a document
 /// this client must handle differently from every other thing the Forum sends.
@@ -201,14 +209,26 @@ internal static class ActaDocuments
     /// same reader the agents' JWKS uses, because a second JWK parser is a second place for the
     /// <c>EC</c>/<c>OKP</c> distinction to be got wrong, and errata D4 records what that costs.
     /// </summary>
-    internal static Result<ImmutableArray<LogJwk>> ReadLogJwks(JsonValue value)
+    internal static Result<LogKeySet> ReadLogJwks(JsonValue value)
     {
         if (value is not JsonValue.Object o)
-            return Result<ImmutableArray<LogJwk>>.Fail(
+            return Result<LogKeySet>.Fail(
                 ClientErrors.ResponseMalformed("the log key set is not an object"));
 
+        if (!ReadPublished(ClientJson.Array(o, "keys")).TryGetValue(out var keys, out var keysError))
+            return Result<LogKeySet>.Fail(keysError!);
+
+        // R6.62: an absent member and an empty one are different statements, so the reader keeps the difference.
+        if (ClientJson.Member(o, "declaration_keys") is not JsonValue.Array declared)
+            return Result<LogKeySet>.Ok(new LogKeySet(keys));
+
+        return ReadPublished(declared.Items).Map(declarationKeys => new LogKeySet(keys, declarationKeys));
+    }
+
+    private static Result<ImmutableArray<LogJwk>> ReadPublished(IEnumerable<JsonValue> items)
+    {
         var published = ImmutableArray.CreateBuilder<LogJwk>();
-        foreach (var item in ClientJson.Array(o, "keys"))
+        foreach (var item in items)
         {
             if (item is not JsonValue.Object k) continue;
 

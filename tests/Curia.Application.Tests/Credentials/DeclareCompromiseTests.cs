@@ -247,12 +247,12 @@ public sealed class DeclareCompromiseTests
     /// R6.57, the control for Task 2.3's readers: <c>DeclareCompromise</c>, behind the permissive gate, accepts exactly
     /// <c>acta/key-compromised-entry</c>'s inputs, so the vector is reachable by the use case and not only by hand. The log
     /// is the vector's implied one (0 enrolled, 1 the enrolment's binding, 2 the rotation binding <c>conformance-ed25519-second</c>,
-    /// 3 the retirement of the first key, 4 the conformance log key's <c>log.key</c> entry), the kid is
+    /// 3 the retirement of the first key, 4 the conformance declaration key's <c>log.declaration-key</c> entry), the kid is
     /// <c>conformance-ed25519-second</c>, <c>from_index</c> 2 and the reason <c>owner-reported</c>. Every member of the
     /// appended entry's payload except <c>declaration</c> equals the vector's byte for byte: <c>agent_id</c>,
     /// <c>from_index</c>, <c>kids</c>, <c>prev</c>, <c>reason</c> and <c>statement</c>. For <c>declaration</c>, its protected
     /// header equals the vector's, its signing input's payload is the vector's <c>statement</c> bytes, and it verifies under the
-    /// pinned conformance log key with header <c>typ</c> <c>curia-key-compromise+jws</c>.
+    /// pinned conformance declaration key with header <c>typ</c> <c>curia-key-compromise+jws</c>.
     ///
     /// <para>The declaration's signature bytes are not compared. ES256 signing is randomized (Task 2.0), so a fresh
     /// declaration's signature never equals the vector's pinned one, and comparing them would make this control red on
@@ -273,10 +273,10 @@ public sealed class DeclareCompromiseTests
         await harness.EnrollAsync(Scriptor, first);
         Require(await harness.RotateAsync(Scriptor, first, second));
         Require(await harness.RetireAsync(Scriptor, first));
-        using var logKey = new ConformanceLogKeySigner();
-        await PublishAsync(harness, logKey);
+        using var declarationKey = new ConformanceDeclarationKeySigner();
+        await PublishAsync(harness, declarationKey);
 
-        var declared = Require(await DeclareAsync(harness, logKey, "conformance-ed25519-second", fromIndex: 2, agent: Scriptor));
+        var declared = Require(await DeclareAsync(harness, declarationKey, "conformance-ed25519-second", fromIndex: 2, agent: Scriptor));
 
         var appended = (await harness.StreamAsync(Scriptor))[^1];
         var actual = (JsonValue.Object)appended.Event.Payload;
@@ -296,9 +296,9 @@ public sealed class DeclareCompromiseTests
 
         var canonical = Require(CanonicalJsonOf(vectorStatement));
         Assert.True(new DetachedJws(new Dictionary<string, IContentSigner>(), harness.Verifiers, KeyStatements.CompromiseHeaderTyp)
-            .Verify(canonical, new JwsSignature(ours), logKey.Material).IsOk);
+            .Verify(canonical, new JwsSignature(ours), declarationKey.Material).IsOk);
         Assert.True(new DetachedJws(new Dictionary<string, IContentSigner>(), harness.Verifiers, KeyStatements.CompromiseHeaderTyp)
-            .Verify(canonical, new JwsSignature(theirs), logKey.Material).IsOk, "the vector's own pinned declaration verifies under the same key");
+            .Verify(canonical, new JwsSignature(theirs), declarationKey.Material).IsOk, "the vector's own pinned declaration verifies under the same key");
         Assert.Equal(VectorKids, declared.Kids);
     }
 
@@ -315,16 +315,16 @@ public sealed class DeclareCompromiseTests
     }
 
     /// <summary>
-    /// The conformance log key (a fixed P-256 test key; its private scalar is published on purpose and signs nothing but
+    /// The conformance declaration key (a fixed P-256 test key; its private scalar is published on purpose and signs nothing but
     /// conformance vectors), from <c>tools/GenerateEnvelopeFixtures/ConformanceLogKeys.cs</c>: the key
-    /// <c>acta/key-compromised-entry</c>'s declaration is signed by, with the kid its RFC 7638 thumbprint.
+    /// <c>acta/key-compromised-entry</c>'s declaration is signed by (errata G67, R6.62), with the kid its RFC 7638 thumbprint.
     /// </summary>
-    private sealed class ConformanceLogKeySigner : ILifecycleStatementSigner, IDisposable
+    private sealed class ConformanceDeclarationKeySigner : ILifecycleStatementSigner, IDisposable
     {
-        private const string ScalarHex = "c82905a0459cc186f88844b01f7ceee5fb3cefa08602b006bd54ba9c80aef7b1";
+        private const string ScalarHex = "dc27beb3e8027661442e36efdc20b6af32f1b22f224fb6ee05475c9ee7c6d92c";
         private readonly ECDsa _key = ECDsa.Create(new ECParameters { Curve = ECCurve.NamedCurves.nistP256, D = Convert.FromHexString(ScalarHex) });
 
-        public string Kid => "qHPbhs_9o0jxVndzhwI7c3RLiGYoec5rTmfEtwT5j30";
+        public string Kid => "vlVAjPXVQPZ1hfwS2AykgPssJNaemQK33uwVM1Vm1Ls";
 
         internal PublicKeyMaterial Material => new("ES256", Kid, _key.ExportSubjectPublicKeyInfo());
 

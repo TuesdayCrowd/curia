@@ -144,13 +144,21 @@ pub enum ActaError {
     LifecycleTooLong,
     /// R6.57, not established: a declaration states a `reason` outside the closed set (KF4). Never verified, never skipped.
     LifecycleUnknownReason { reason: String },
-    /// R6.57, not established: the log's key set gives the declaring key no usable `log_index` (absent, negative or not
-    /// an I-JSON integer), so it cannot be said the key was published before the declaration (KF2, KF4's rule).
-    LogKeyPositionUnknown { kid: String },
-    /// R6.57: the declaration's header `kid` is not a key the log's key set publishes, or was published at or after the
-    /// declaration (KF2).
+    /// R6.62(a), not established: the log's key set carries no `declaration_keys` member at all (an older Forum, or none said). An
+    /// absence says nothing and is not a denial.
+    DeclarationKeySetNotSupplied,
+    /// R6.62(c), not established: the log's key set gives the declaring declaration key no usable `log_index` (absent, negative or
+    /// not an I-JSON integer), so it cannot be said the key was published before the declaration (KF2, KF4's rule).
+    DeclarationKeyPositionUnknown { kid: String },
+    /// R6.62(b) and (f): the declaration's header `kid` is no declaration key the log's key set publishes (a served empty
+    /// `declaration_keys` names none), or was published at or after the declaration (KF2).
     DeclarationKeyUnpublished { at: u64, kid: String },
-    /// R6.57: the declaration does not verify under the log key its header names.
+    /// R6.62(d): the declaration's key is also a log key, and a log key never declares.
+    DeclarationKeyIsLogKey { at: u64, kid: String },
+    /// R6.62(e): the declaration's key is not the first declaration key the log published, by `log_index` and never by the order
+    /// the key set is served in.
+    DeclarationKeyNotFirst { at: u64, kid: String },
+    /// R6.62(g): the declaration does not verify under the declaration key its header names.
     DeclarationSignatureInvalid { at: u64 },
     /// R6.57, KF3 (1): a key the declaration names is bound to no entry of the author's stream as supplied.
     KidNotBoundToAgent { at: u64, kid: String },
@@ -206,8 +214,15 @@ impl ActaError {
             ActaError::LifecycleNotSupplied => "curia/acta/lifecycle-not-supplied",
             ActaError::LifecycleTooLong => "curia/acta/lifecycle-too-long",
             ActaError::LifecycleUnknownReason { .. } => "curia/acta/unknown-reason",
-            ActaError::LogKeyPositionUnknown { .. } => "curia/acta/log-key-position-unknown",
+            ActaError::DeclarationKeySetNotSupplied => {
+                "curia/acta/declaration-key-set-not-supplied"
+            }
+            ActaError::DeclarationKeyPositionUnknown { .. } => {
+                "curia/acta/declaration-key-position-unknown"
+            }
             ActaError::DeclarationKeyUnpublished { .. } => "curia/acta/declaration-key-unpublished",
+            ActaError::DeclarationKeyIsLogKey { .. } => "curia/acta/declaration-key-is-log-key",
+            ActaError::DeclarationKeyNotFirst { .. } => "curia/acta/declaration-key-not-first",
             ActaError::DeclarationSignatureInvalid { .. } => {
                 "curia/acta/declaration-signature-invalid"
             }
@@ -230,7 +245,8 @@ impl ActaError {
                 | ActaError::LifecycleNotSupplied
                 | ActaError::LifecycleTooLong
                 | ActaError::LifecycleUnknownReason { .. }
-                | ActaError::LogKeyPositionUnknown { .. }
+                | ActaError::DeclarationKeySetNotSupplied
+                | ActaError::DeclarationKeyPositionUnknown { .. }
         )
     }
 
@@ -380,19 +396,33 @@ impl fmt::Display for ActaError {
                 "the declaration states the reason {}, outside the closed set this verifier knows",
                 display::literal(reason)
             ),
-            ActaError::LogKeyPositionUnknown { kid } => write!(
+            ActaError::DeclarationKeySetNotSupplied => write!(
                 f,
-                "the log's key set gives kid {} no log index, so it cannot be said it was published before the declaration",
+                "the log's key set carries no declaration_keys member, so it cannot be said which key may declare"
+            ),
+            ActaError::DeclarationKeyPositionUnknown { kid } => write!(
+                f,
+                "the log's key set gives the declaration key {} no log index, so it cannot be said it was published before the declaration",
                 display::literal(kid)
             ),
             ActaError::DeclarationKeyUnpublished { at, kid } => write!(
                 f,
-                "the declaration at leaf {at} is signed under kid {}, which the log's key set does not publish before it",
+                "the declaration at leaf {at} is signed under kid {}, which the log's declaration keys do not publish before it",
+                display::literal(kid)
+            ),
+            ActaError::DeclarationKeyIsLogKey { at, kid } => write!(
+                f,
+                "the declaration at leaf {at} is signed under kid {}, which is also a log key",
+                display::literal(kid)
+            ),
+            ActaError::DeclarationKeyNotFirst { at, kid } => write!(
+                f,
+                "the declaration at leaf {at} is signed under kid {}, which is not the first declaration key the log published",
                 display::literal(kid)
             ),
             ActaError::DeclarationSignatureInvalid { at } => write!(
                 f,
-                "the declaration at leaf {at} does not verify under the log key its header names"
+                "the declaration at leaf {at} does not verify under the declaration key its header names"
             ),
             ActaError::KidNotBoundToAgent { at, kid } => write!(
                 f,
@@ -484,8 +514,8 @@ pub fn verify_head(head_json: &[u8], log_jwks: &[u8]) -> Result<VerifiedHead, Ac
     })
 }
 
-/// One key of the log's key set (R6.50) with where the log published it: the `log_index` member of its
-/// `GET /v1/log/jwks` entry, which names the `log.key` entry that publishes it (KF2).
+/// One key of the log's key set (R6.50, R6.62) with where the log published it: the `log_index` member of its
+/// `GET /v1/log/jwks` entry, which names the `log.key` or `log.declaration-key` entry that publishes it (KF2).
 #[derive(Debug, Clone)]
 pub struct LogKey {
     pub kid: String,
@@ -503,6 +533,9 @@ pub struct LogKey {
 #[derive(Debug, Clone, Default)]
 pub struct LogKeys {
     keys: Vec<LogKey>,
+    /// The `declaration_keys` member (errata G67, R6.62): `None` where the document carries no such member (an absence, which is not a
+    /// denial), `Some` of an empty list where the Forum served an empty one.
+    declaration_keys: Option<Vec<LogKey>>,
 }
 
 impl LogKeys {
@@ -538,7 +571,50 @@ impl LogKeys {
                 })
             })
             .collect();
-        Ok(LogKeys { keys })
+
+        // `declaration_keys`, read from the same admitted document by the same JWK parser. An absent member is `None`; a member that is not an array
+        // is as malformed as a `keys` that is not one.
+        let declared = crate::json::parse(log_jwks)
+            .ok()
+            .and_then(|root| match root {
+                crate::json::Value::Object(members) => members
+                    .into_iter()
+                    .find(|(name, _)| name == "declaration_keys")
+                    .map(|(_, value)| value),
+                _ => None,
+            });
+        let declaration_keys = match declared {
+            None => None,
+            Some(crate::json::Value::Array(items)) => {
+                let mut read = Vec::with_capacity(items.len());
+                for item in &items {
+                    let jwk = crate::jwk::parse_key_entry(item).map_err(ActaError::Jwks)?;
+                    if let Some(kid) = jwk.kid.clone() {
+                        read.push(LogKey {
+                            kid,
+                            key: jwk,
+                            log_index: log_index_of(item),
+                        });
+                    }
+                }
+                Some(read)
+            }
+            Some(_) => return Err(ActaError::Jwks(crate::jwk::JwkError::KeysNotArray)),
+        };
+        Ok(LogKeys {
+            keys,
+            declaration_keys,
+        })
+    }
+
+    /// The declaration keys the log published, or `None` where the key set carried no `declaration_keys` member at all (R6.62(a)).
+    pub fn declaration_keys(&self) -> Option<&[LogKey]> {
+        self.declaration_keys.as_deref()
+    }
+
+    /// Whether `kid` is a log key (R6.62(d)): any key of the `keys` member.
+    pub fn is_log_key(&self, kid: &str) -> bool {
+        self.keys.iter().any(|k| k.kid == kid)
     }
 
     /// The key published under `kid`: the last one, as the head's own lookup takes the key set's last match.

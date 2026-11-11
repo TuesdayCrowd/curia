@@ -494,7 +494,7 @@ public sealed class PostVerifier
         if (!keys.TryGetValue(out var published, out var keysRefusal))
             return new Anchor(null, Check.CouldNotCheck($"the log's key set could not be fetched: {keysRefusal!.Summary}"));
 
-        var verified = ActaCheck.HeadSignature(head!, published);
+        var verified = ActaCheck.HeadSignature(head!, published!.Keys);
         return new Anchor(verified.Outcome is CheckOutcome.Verified ? head : null, verified, published);
     }
 
@@ -592,7 +592,7 @@ public sealed class PostVerifier
 
         try
         {
-            return await CompareAndRetainAsync(head, anchor.LogKeys, began, ct).ConfigureAwait(false);
+            return await CompareAndRetainAsync(head, anchor.LogKeys?.Keys ?? default, began, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -690,7 +690,7 @@ public sealed class PostVerifier
     private static string Invariant(FormattableString text) => FormattableString.Invariant(text);
 
     /// <summary>The head a proof will be anchored to, and why there is none when there is none.</summary>
-    private readonly record struct Anchor(SignedHeadDocument? Head, Check Verdict, ImmutableArray<LogJwk> LogKeys = default);
+    private readonly record struct Anchor(SignedHeadDocument? Head, Check Verdict, LogKeySet? LogKeys = null);
 
     /// <summary>R6.52's second check, and the post's own entry and proof it ran over, when it had both.</summary>
     private readonly record struct PostInclusion(
