@@ -478,15 +478,15 @@ entry type or a statement version the reader does not fold), `bound-after-post`,
 (errata G67, R6.62). A reader also reaches `declaration-signature-invalid` and a failed
 `compromised-before-post` (a declaration that precedes the post); no case carries either, and the readers' own facts do.
 
-**The compromise cases.** Thirty-four cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
+**The compromise cases.** Thirty-eight cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
 the fixed P-256 test declaration key that `acta/key-compromised-entry` uses (a `/2` statement: `/1` is withdrawn); their `log-jwks.json`
 carries it in a `declaration_keys` member beside `keys` (the head key), with the `log_index` of the `log.declaration-key` entry that
 publishes it. A declaration is held to KF1 to KF4 and to KF3, in this order, the
 first failure deciding the predicate: the entry type and the statement `typ` and `reason` are read first (an unknown one is
 could not be checked); the closed member sets and the link; the header `typ` (`curia-key-compromise+jws`); then R6.62's seven checks
-on the header `kid`: (a) the key set carries a `declaration_keys` member (absent, present and not an array, or listing an entry, in either member, that is not an object carrying a string `kid`, `kty`, `alg` and `x`: `declaration-key-set-not-supplied`, could not be
+on the header `kid`: (a) the key set carries a `declaration_keys` member (absent, present and not an array, or listing an entry, in either member, that is not a key of R6.62's closed form, an object with a string `kid` and either an Ed25519 key (`alg` `EdDSA`, `kty` `OKP`, `crv` `Ed25519`, `x`) or an ES256 key (`alg` `ES256`, `kty` `EC`, `crv` `P-256`, `x` and `y`), a coordinate being 43 base64url characters whose last is one of `A E I M Q U Y c g k o s w 0 4 8`; whether a point lies on its curve is asked only at the signature: `declaration-key-set-not-supplied`, could not be
 checked), (b) the kid names a declaration key (`declaration-key-unpublished`; a served empty member names none), (c) its position, and
-every other listed declaration key's, is given, and where a `kid` is listed more than once every listing of it gives one (`declaration-key-position-unknown`, could not be checked), (d) it is no log key, by kid or by public key (`declaration-key-is-log-key`), (e) it is the first
+every other listed declaration key's, is given, and where a `kid` is listed more than once every listing of it gives one, and two listings at one position are the same key (`declaration-key-position-unknown`, could not be checked), (d) it is no log key, by kid or by public key (`declaration-key-is-log-key`), (e) it is the first
 declaration key published, by `log_index` and not by the order the set is served in, so that of two keys listed at one position neither is the first (`declaration-key-not-first`), (f) it was
 published before the declaration (`declaration-key-unpublished`), (g) the signature verifies under it; then (1) every `kid` in `kids` is bound to the agent
 in the stream the reader holds -- **the supplied stream only**, so a case whose log keeps another identity's binding out of
@@ -517,9 +517,14 @@ the key of its earliest listing: `declaration-signature-invalid`). Errata G67's 
 stating a decision the two readers did not share or had not stated (R6.62). `could-not-check`: `compromise-declaration-kid-twice-one-unpositioned`
 (a `kid` listed twice with one listing unpositioned: its earliest cannot be said, `declaration-key-position-unknown`) and
 `compromise-declaration-key-without-kid`, `compromise-log-key-without-kid`, `compromise-declaration-keys-entry-not-an-object` and
-`compromise-declaration-keys-entry-without-alg` (an entry, in either member, that is not an object carrying a string `kid`, `kty`, `alg` and `x`
+`compromise-declaration-keys-entry-without-alg` (an entry, in either member, that is not a key of the closed form
 leaves the key set without a usable member: `declaration-key-set-not-supplied`). `failed`: `compromise-declaration-keys-share-position` (two
-declaration keys at one `log_index`, neither the first: `declaration-key-not-first`). Each runner compares the
+declaration keys at one `log_index`, neither the first: `declaration-key-not-first`). Amendment 5 (rulings 52 and 53) adds four that name the
+closed form and close the last tie-break by the order served. `could-not-check`: `compromise-declaration-key-without-y`,
+`compromise-declaration-key-x-not-base64url` (each a second declaration key at `log_index` 5, after the declaration, outside the closed form
+although it carries a string `kid`, `kty`, `alg` and `x`) and `compromise-log-key-kty-rsa` (a `keys` entry of `kty` `RSA`): each
+`declaration-key-set-not-supplied`; and `compromise-declaration-kid-twice-at-one-position` (a `kid` listed twice at one `log_index` with keys that
+differ: its earliest cannot be said, `declaration-key-position-unknown`). Each runner compares the
 predicate as well as the verdict. The ES256 declaration signatures are pinned: `dotnet run --project
 tools/GenerateEnvelopeFixtures -- --compromise` generates a case once and keeps it.
 
