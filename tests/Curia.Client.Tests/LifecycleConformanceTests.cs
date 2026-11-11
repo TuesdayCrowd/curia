@@ -98,7 +98,7 @@ public sealed class LifecycleConformanceTests
     }
 
     /// <summary>
-    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain, the seven PR H adds under the declaration key, the six of Amendment 3, the six of Amendment 4 and the four of Amendment 5: errata G67) are all present and reach
+    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain, the seven PR H adds under the declaration key, the six of Amendment 3, the six of Amendment 4, the four of Amendment 5 and the six of Amendment 6: errata G67) are all present and reach
     /// the verdict and predicate the vocabulary names, one string at a time. They are named here so that a case dropped from the family is a red fact and not a smaller count.
     /// </summary>
     [Fact]
@@ -144,9 +144,15 @@ public sealed class LifecycleConformanceTests
             ["compromise-declaration-key-x-not-base64url"] = ("could-not-check", "declaration-key-set-not-supplied"),
             ["compromise-log-key-kty-rsa"] = ("could-not-check", "declaration-key-set-not-supplied"),
             ["compromise-declaration-kid-twice-at-one-position"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-declaration-key-off-curve"] = ("failed", "declaration-signature-invalid"),
+            ["compromise-other-declaration-key-off-curve"] = ("disputed", "disputed"),
+            ["compromise-log-key-off-curve"] = ("disputed", "disputed"),
+            ["compromise-log-key-off-curve-under-declaration-kid"] = ("failed", "declaration-key-is-log-key"),
+            ["compromise-declaration-key-and-log-key-off-curve"] = ("failed", "declaration-key-is-log-key"),
+            ["compromise-declaration-kid-twice-at-one-position-same-key"] = ("disputed", "disputed"),
         };
 
-        Assert.Equal(38, expected.Count);
+        Assert.Equal(44, expected.Count);
         foreach (var (name, want) in expected)
         {
             Assert.Equal(want, Expected(name));
@@ -167,7 +173,7 @@ public sealed class LifecycleConformanceTests
             .GetProperty("count").GetInt32();
 
         Assert.Equal(declared, CaseNames().Count);
-        Assert.Equal(75, declared);
+        Assert.Equal(81, declared);
     }
 
     [Fact]

@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Curia.Canon.Json;
@@ -17,7 +16,7 @@ namespace Curia.Client.Tests;
     "Naming",
     "CA1707:Identifiers should not contain underscores",
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
-public sealed class DeclarationKeyConformanceTests(Xunit.ITestOutputHelper output)
+public sealed class DeclarationKeyConformanceTests
 {
     private static string Describe(string name, string verdict, string predicate)
     {
@@ -49,14 +48,14 @@ public sealed class DeclarationKeyConformanceTests(Xunit.ITestOutputHelper outpu
     }
 
     /// <summary>
-    /// HSU18 (this reader's half). The family holds the 75 lifecycle cases (Amendment 1 ruling 26's 58, the control of HSU22, the six of HSU44, the six of HSU49 and the four of HSU51) and the 12 acta cases, and the index declares
+    /// HSU18 (this reader's half). The family holds the 81 lifecycle cases (Amendment 1 ruling 26's 58, the control of HSU22, the six of HSU44, the six of HSU49, the four of HSU51 and the six of HSU52) and the 12 acta cases, and the index declares
     /// what the directories hold. Red on the seam: <c>lifecycle 53</c>. (Every case reaching its own expected verdict is the existing <c>R6_54_EveryLifecycleCaseReachesItsVerdictAndNamesItsPredicate</c>.)
     /// </summary>
     [Fact]
     public void R6_62_HSU18_TheFamiliesHoldTheCountsOfTheDeclarationKeyVectors()
     {
         Assert.Equal(
-            "lifecycle 75 (index 75); acta 12 (index 12)",
+            "lifecycle 81 (index 81); acta 12 (index 12)",
             $"lifecycle {DirectoryCount("lifecycle")} (index {IndexCount("lifecycle")}); acta {DirectoryCount("acta")} (index {IndexCount("acta")})");
     }
 
@@ -222,42 +221,20 @@ public sealed class DeclarationKeyConformanceTests(Xunit.ITestOutputHelper outpu
     }
 
     /// <summary>
-    /// HSU50, table 2 (measured, not asserted; Amendment 5 ruling 57): one row, an EC entry of the closed form whose coordinates are not a point on the curve (<c>x</c> of 43 <c>A</c>, <c>y</c> of
-    /// the second key), in each member, read by this reader and written to the test output beside the Rust reader's own row (<c>tests/lifecycle.rs</c>). The two are known to differ (Rust refuses
-    /// the document, this reader reads the entry and decides: D61 item 268's open remainder, an error in the safe direction); a change in either line is what the row is for.
+    /// HSU52 (this reader's half; Amendment 6 rulings 58 to 60). The six vectors, by hand from Amendment 6's table: a declaring key whose point is not on its curve fails at the signature; another
+    /// declaration key or a log key under another kid whose point is not on its curve is a key and is not the declaring key's, so the declaration disputes; a log key under the declaration key's kid
+    /// is a log key, and so is one that states the declaring key's points; one key listed twice at one position under other members is one key and keeps its position. One file for both readers
+    /// (<c>tests/declaration_keys.rs</c> holds the same table); a row measured in two runners is a vector or it is two measurements.
     /// </summary>
     [Fact]
-    public void R6_62_HSU50_AnEntryOfTheClosedFormThatIsNotAPointOnTheCurveIsMeasured()
-    {
-        var rows = new List<(string Row, Func<JsonObject, IEnumerable<JsonNode?>> Append)>
-        {
-            ("an EC entry of the closed form, x of 43 A (not a point)", c => { c["x"] = new string('A', 43); return [c]; }),
-        };
-
-        var table = new StringBuilder("HSU50 table 2 (C#):");
-        var measured = 0;
-        foreach (var member in Members)
-        {
-            foreach (var (row, append) in rows)
-            {
-                string got;
-                try
-                {
-                    got = Verdict(KeySetWith(member, append));
-                }
-                catch (Xunit.Sdk.XunitException refused)
-                {
-                    got = "refused: " + refused.Message.Split('\n')[0];
-                }
-
-                table.Append('\n').Append(Line(member, row, got));
-                measured++;
-            }
-        }
-
-        output.WriteLine(table.ToString());
-        Assert.Equal(2, measured);
-    }
+    public void R6_62_HSU52_AnEntryOfTheClosedFormThatIsNotAPointOnTheCurveHoldsInTheSixVectors() =>
+        AllHold(
+            Describe("compromise-declaration-key-off-curve", "failed", "declaration-signature-invalid"),
+            Describe("compromise-other-declaration-key-off-curve", "disputed", "disputed"),
+            Describe("compromise-log-key-off-curve", "disputed", "disputed"),
+            Describe("compromise-log-key-off-curve-under-declaration-kid", "failed", "declaration-key-is-log-key"),
+            Describe("compromise-declaration-key-and-log-key-off-curve", "failed", "declaration-key-is-log-key"),
+            Describe("compromise-declaration-kid-twice-at-one-position-same-key", "disputed", "disputed"));
 
     /// <summary>
     /// HSU51 (this reader's half; Amendment 5 rulings 52 and 53). The four vectors, by hand: an entry that carries the four strings and is no usable key (no <c>y</c>; an <c>x</c> that is not
@@ -310,6 +287,4 @@ public sealed class DeclarationKeyConformanceTests(Xunit.ITestOutputHelper outpu
 
         AllHold([.. problems]);
     }
-
-    private static string Line(string member, string row, string got) => $"  {member,-17} | {row,-55} | {got}";
 }

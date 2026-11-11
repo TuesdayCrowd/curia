@@ -84,7 +84,7 @@ internal static partial class LifecycleCases
     /// the entry without that member, an entry no reader can read as a key (Amendment 4 rulings 47 and 48, R6.62). <paramref name="OmitY"/>, <paramref name="StarX"/> and <paramref name="Rsa"/> write an entry
     /// outside the closed form that carries the four strings (without <c>y</c>; an <c>x</c> that begins with an asterisk; a <c>kty</c> of RSA: Amendment 5 ruling 52).
     /// </summary>
-    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex, bool OmitKid = false, bool OmitAlg = false, bool OmitY = false, bool StarX = false, bool Rsa = false);
+    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex, bool OmitKid = false, bool OmitAlg = false, bool OmitY = false, bool StarX = false, bool Rsa = false, bool OffCurve = false, bool UseEnc = false);
 
     public static int Run(string repoRoot)
     {

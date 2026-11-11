@@ -91,6 +91,12 @@ internal static partial class LifecycleCases
             DeclarationKeyXNotBase64Url(root, k1),
             LogKeyKtyRsa(root, k1),
             DeclarationKidTwiceAtOnePosition(root, k1),
+            DeclarationKeyOffCurve(root, k1),
+            OtherDeclarationKeyOffCurve(root, k1),
+            LogKeyOffCurve(root, k1),
+            LogKeyOffCurveUnderDeclarationKid(root, k1),
+            DeclarationKeyAndLogKeyOffCurve(root, k1),
+            DeclarationKidTwiceAtOnePositionSameKey(root, k1),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -701,6 +707,98 @@ internal static partial class LifecycleCases
         };
     }
 
+    /// <summary>
+    /// The declaring key itself off the curve (Amendment 6 ruling 58, R6.62): 0 enrolled, 1 binding, 2 the post, 3 the declaration key's publication, 4 the declaration under it. The entry is of
+    /// the closed form (<c>x</c> and <c>y</c> each 43 <c>A</c>) and no point on P-256, which is asked at the signature alone.
+    /// </summary>
+    private static Case DeclarationKeyOffCurve(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "79");
+        AddDeclaration(log, decl, root, "compromise-declaration-key-off-curve");
+        return new Case("compromise-declaration-key-off-curve", "R6.62",
+            "The key set lists the declaration key at 3 with x and y of 43 A each: an entry of the closed form that is no point on its curve. Whether a point lies on its curve is asked of the declaring key at the signature alone (R6.62(a), (g)), so the declaration is failed for a signature that does not verify; a reader that treats the entry as unreadable reports could not be checked.",
+            log, post, [0, 1, 4], "failed", "declaration-signature-invalid")
+        {
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex, OffCurve: true)],
+        };
+    }
+
+    /// <summary>Another declaration key off the curve (Amendment 6 ruling 58): the declaring key at 3 and a copy of it under the kid <c>extra-decl</c>, off the curve, at 9, after the declaration.</summary>
+    private static Case OtherDeclarationKeyOffCurve(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "80");
+        AddDeclaration(log, decl, root, "compromise-other-declaration-key-off-curve");
+        return new Case("compromise-other-declaration-key-off-curve", "R6.62",
+            "The key set lists the declaration key at 3 and a copy of it under the kid extra-decl at 9 with x and y of 43 A each. The second entry is of the closed form and is read as a key whose point is not asked, so the key set supplies every member and the declaration at 4, valid under the first and the first the log published, disputes the post; a reader that finds the entry unusable reports could not be checked.",
+            log, post, [0, 1, 4], "disputed", "disputed")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(Renamed(ConformanceLogKeys.Declaration, "extra-decl"), LogKeyValidFrom, LogIndex: 9, OffCurve: true),
+            ],
+        };
+    }
+
+    /// <summary>A log key off the curve under another kid (Amendment 6 ruling 58): <c>keys</c> lists, beside the head key, a copy of the declaration key under <c>another-ec-key</c>, off the curve, at 5.</summary>
+    private static Case LogKeyOffCurve(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "81");
+        AddDeclaration(log, decl, root, "compromise-log-key-off-curve");
+        return new Case("compromise-log-key-off-curve", "R6.62",
+            "The keys member lists, beside the head key, an entry under the kid another-ec-key with x and y of 43 A each at 5, and declaration_keys lists the declaration key at 3. The entry is of the closed form and is not the declaring key's, so the declaration at 4 disputes the post; a reader that refuses the document or reads the entry as unreadable reports an error or could not be checked.",
+            log, post, [0, 1, 4], "disputed", "disputed")
+        {
+            ExtraLogKeys = [new ExtraLogKey(Renamed(ConformanceLogKeys.Declaration, "another-ec-key"), LogKeyValidFrom, LogIndex: 5, OffCurve: true)],
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex)],
+        };
+    }
+
+    /// <summary>A log key off the curve under the declaration key's own kid (Amendment 6 ruling 58): <c>keys</c> lists the declaration key's kid with x and y of 43 A at 5.</summary>
+    private static Case LogKeyOffCurveUnderDeclarationKid(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "82");
+        AddDeclaration(log, decl, root, "compromise-log-key-off-curve-under-declaration-kid");
+        return new Case("compromise-log-key-off-curve-under-declaration-kid", "R6.62",
+            "The keys member lists, beside the head key, an entry under the declaration key's own kid with x and y of 43 A each at 5, and declaration_keys lists the declaration key at 3. The declaring key's kid is a log key's by kid, so the declaration at 4 fails (R6.62(d)); a reader that compares public keys only finds no key in the entry and disputes.",
+            log, post, [0, 1, 4], "failed", "declaration-key-is-log-key")
+        {
+            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, LogIndex: 5, OffCurve: true)],
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex)],
+        };
+    }
+
+    /// <summary>The declaring key and a log key off the curve at the same points (Amendment 6 ruling 59): both entries state x and y of 43 A, so the declaring key is a log key by the key as stated.</summary>
+    private static Case DeclarationKeyAndLogKeyOffCurve(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "83");
+        AddDeclaration(log, decl, root, "compromise-declaration-key-and-log-key-off-curve");
+        return new Case("compromise-declaration-key-and-log-key-off-curve", "R6.62",
+            "The declaration key is listed at 3 with x and y of 43 A each, and the keys member lists, beside the head key, an entry under another kid with the same x and y at 5. A log key by public key is the key as the entry states it (kty, crv, x and y, as written), whether or not the point lies on its curve, and R6.62's order asks it before the signature, so the declaration fails as a log key; a reader that reads an entry with no usable point as no key skips the step and fails at the signature.",
+            log, post, [0, 1, 4], "failed", "declaration-key-is-log-key")
+        {
+            ExtraLogKeys = [new ExtraLogKey(Renamed(ConformanceLogKeys.Declaration, "another-ec-key"), LogKeyValidFrom, LogIndex: 5, OffCurve: true)],
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex, OffCurve: true)],
+        };
+    }
+
+    /// <summary>One kid listed twice at one position with the same key stated again under other members (Amendment 6 ruling 59): <c>use</c> <c>enc</c> and another <c>valid_from</c>.</summary>
+    private static Case DeclarationKidTwiceAtOnePositionSameKey(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "84");
+        AddDeclaration(log, decl, root, "compromise-declaration-kid-twice-at-one-position-same-key");
+        return new Case("compromise-declaration-kid-twice-at-one-position-same-key", "R6.62",
+            "The declaration key's kid is listed at 3 and again at 3 with the same kty, crv, x and y and use enc and another valid_from. Two listings that state one key are one key whatever else they say (R6.62(c)), so the earliest is at 3, the declaration at 4 is valid under it and disputes the post; a reader that compares every member reads two keys and no position, and reports could not be checked.",
+            log, post, [0, 1, 4], "disputed", "disputed")
+        {
+            DeclarationKeys =
+            [
+                new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex),
+                new ExtraLogKey(ConformanceLogKeys.Declaration, "2026-09-02T00:00:00Z", declarationKeyIndex, UseEnc: true),
+            ],
+        };
+    }
+
     /// <summary>The same key under another kid: its public key, private key and thumbprint-independent members unchanged, its <c>kid</c> and the JWK's replaced.</summary>
     private static P256LogKey Renamed(P256LogKey key, string kid) =>
         key with { Kid = kid, Jwk = JsonBuilders.WithField((JsonValue.Object)key.Jwk, "kid", Str(kid)) };
@@ -830,6 +928,19 @@ internal static partial class LifecycleCases
 
             if (extra.Rsa)
                 members = [("alg", Str("RS256")), ("kid", Str("conformance-rsa")), ("kty", Str("RSA")), ("x", Str(Jwk.Base64UrlEncode(extra.Key.X32)))];
+            if (extra.OffCurve)
+            {
+                members.RemoveAll(m => m.Item1 is "x" or "y");
+                members.Add(("x", Str(new string('A', 43))));
+                members.Add(("y", Str(new string('A', 43))));
+            }
+
+            if (extra.UseEnc)
+            {
+                members.RemoveAll(m => m.Item1 == "use");
+                members.Add(("use", Str("enc")));
+            }
+
             if (extra.OmitKid)
                 members.RemoveAll(m => m.Item1 == "kid");
             if (extra.LogIndex is { } index)

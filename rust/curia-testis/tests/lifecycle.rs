@@ -96,8 +96,8 @@ fn r6_54_every_lifecycle_case_reaches_its_verdict_and_names_its_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.lifecycle.len(),
-        75,
-        "conformance/lifecycle/ holds the 75 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key, the 6 of R6.62's undeclared decisions, the 6 of Amendment 4's and the 4 of Amendment 5's)"
+        81,
+        "conformance/lifecycle/ holds the 81 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key, the 6 of R6.62's undeclared decisions, the 6 of Amendment 4's, the 4 of Amendment 5's and the 6 of Amendment 6's)"
     );
 
     let mut failures = Vec::new();
@@ -557,8 +557,34 @@ fn the_compromise_cases_are_all_present_with_their_vocabulary() {
             "could-not-check",
             "declaration-key-position-unknown",
         ),
+        (
+            "compromise-declaration-key-off-curve",
+            "failed",
+            "declaration-signature-invalid",
+        ),
+        (
+            "compromise-other-declaration-key-off-curve",
+            "disputed",
+            "disputed",
+        ),
+        ("compromise-log-key-off-curve", "disputed", "disputed"),
+        (
+            "compromise-log-key-off-curve-under-declaration-kid",
+            "failed",
+            "declaration-key-is-log-key",
+        ),
+        (
+            "compromise-declaration-key-and-log-key-off-curve",
+            "failed",
+            "declaration-key-is-log-key",
+        ),
+        (
+            "compromise-declaration-kid-twice-at-one-position-same-key",
+            "disputed",
+            "disputed",
+        ),
     ];
-    assert_eq!(expected.len(), 38);
+    assert_eq!(expected.len(), 44);
     for (name, verdict, predicate) in expected {
         let vector = case(name);
         assert_eq!(

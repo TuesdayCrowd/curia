@@ -108,8 +108,8 @@ fn hsu18_the_families_hold_the_counts_of_the_declaration_key_vectors() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         (corpus.lifecycle.len(), corpus.acta.len()),
-        (75, 12),
-        "conformance/lifecycle/ holds 75 cases (the 58 of Amendment 1 ruling 26, the control of HSU22, the 6 of R6.62's undeclared decisions, the 6 of HSU49 and the 4 of HSU51) and conformance/acta/ 12"
+        (81, 12),
+        "conformance/lifecycle/ holds 81 cases (the 58 of Amendment 1 ruling 26, the control of HSU22, the 6 of R6.62's undeclared decisions, the 6 of HSU49, the 4 of HSU51 and the 6 of HSU52) and conformance/acta/ 12"
     );
 }
 
@@ -564,18 +564,36 @@ fn hsu51_an_entry_outside_the_closed_form_leaves_the_key_set_without_a_usable_me
     all_hold(&problems);
 }
 
-/// HSU51's measured row: an EC entry whose `x` and `y` are each 43 `A` is in the closed form and is not a point on the curve. R6.62 asks that of the declaring key
-/// alone, at the signature. It asserts nothing; run with `--nocapture` to read it.
+/// HSU52 (Amendment 6 rulings 58 to 60): the six vectors for an entry of the closed form that is no point on its curve, each reaching the verdict Amendment 6's table gives, written here by
+/// hand. One file for both readers; `tests/Curia.Client.Tests/DeclarationKeyConformanceTests.cs` holds the same table.
 #[test]
-fn hsu51_measured_an_entry_in_the_closed_form_that_is_not_a_point_on_the_curve() {
-    let (vector, base) = hsu50_base();
-    let off_curve: &dyn Fn(&mut serde_json::Value) = &|e| {
-        e["x"] = serde_json::json!("A".repeat(43));
-        e["y"] = serde_json::json!("A".repeat(43));
-    };
-    for member in ["declaration_keys", "keys"] {
-        let served = mutated_ec_key_set(&base, member, off_curve);
-        let (verdict, predicate) = judge_under(&vector, &served);
-        println!("hsu51 measured: {member}, x and y each 43 A: {verdict} {predicate}");
-    }
+fn hsu52_an_entry_of_the_closed_form_that_is_not_a_point_on_the_curve_holds_in_the_six_vectors() {
+    all_hold(&[
+        describe(
+            "compromise-declaration-key-off-curve",
+            "failed",
+            "declaration-signature-invalid",
+        ),
+        describe(
+            "compromise-other-declaration-key-off-curve",
+            "disputed",
+            "disputed",
+        ),
+        describe("compromise-log-key-off-curve", "disputed", "disputed"),
+        describe(
+            "compromise-log-key-off-curve-under-declaration-kid",
+            "failed",
+            "declaration-key-is-log-key",
+        ),
+        describe(
+            "compromise-declaration-key-and-log-key-off-curve",
+            "failed",
+            "declaration-key-is-log-key",
+        ),
+        describe(
+            "compromise-declaration-kid-twice-at-one-position-same-key",
+            "disputed",
+            "disputed",
+        ),
+    ]);
 }
