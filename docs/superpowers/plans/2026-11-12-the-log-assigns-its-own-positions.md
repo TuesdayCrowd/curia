@@ -372,6 +372,42 @@ New:
 and then the record's 500s (the -3 form) or, for the 0 form, a fresh token request `401 invalid_client` and an issued token's `503 curia/log/unreadable` (M-S2).
 ```
 
+## Amendment 2 (2026-11-12, the first cold read of the README block)
+
+**What happened.** Three fresh readers ran the pre-check, applied in one transaction as the owner, ran the post-check, said `seq` is not writable, deleted nothing. None said the event count was unchanged: nothing in the README asks for it. The gate's clause was met by no one, and the fault is the text's, not the readers'.
+
+### Rulings (17 to 21; decided, not asked)
+
+17. **The README changes; the controller's proposal is accepted in its aim and amended in its claim.** Proposed: print the count in the pre-check, print it again in the post-check, and say the two "must equal". Two defects. (a) **"Must equal" is false on the database this runbook is for.** The hosted Forum takes posts while the owner works (LS2 itself runs `curia ask` across the apply); a count that rose is an honest log. The true claim is that the migration changes grants and no row, so neither `events` nor `highest_seq` may be **lower** after, and both are equal if the Forum took nothing in between. A "must equal" instruction makes an honest owner report a finding on a busy log, or learn to ignore the sentence. (b) **The count does not belong inside the pre-check.** SEQ8 parses the pre-check as two numbers that must both be 0 (`PreCheckAsync` reads `(long, long)`); a third and fourth column there changes what "both numbers must be 0" means and the parse with it. The count is its own marked block, run twice, so the text run before and after is one text and cannot drift.
+
+18. **The exact README text.** (i) After step 1's "Both numbers must be `0`..." paragraph, add:
+
+> Then record how many events the log holds and its highest position, to compare in step 3. This is one text, run here and again there.
+>
+> ```
+> <!-- events-position-count -->
+> ```sql
+> SELECT count(*) AS events, coalesce(max(seq), 0) AS highest_seq FROM public.events;
+> ```
+> <!-- /events-position-count -->
+> ```
+> (the markers on their own lines around the fence, as the other three blocks are written; the outer fence above is only this amendment's quoting). Keep the output.
+
+(ii) At the end of step 3's first paragraph, after "It must say `seq_writable` `f` and `server_ts_writable` `t`." and its failure sentence, add a new paragraph:
+
+> **Then run step 1's count text again.** `events` and `highest_seq` must each be at least what you kept, and equal if the Forum took no post in between: the migration changes the role's grants and no row. If either is lower, stop, keep both outputs and report it; do not delete or re-insert anything.
+
+(iii) The intro sentence "runs the first and the third from this file" reads "runs the first and the third, and the count text, from this file". Steps 1 and 2's existing blocks and markers are unchanged.
+
+19. **SEQ8 changes (one test, three additions; its existing assertions stay).** (a) It parses a fourth block, `events-position-count`, with `ReadmeBlock` (red before the block exists: `no events-position-count block in README.md`). (b) On the planted database it runs the count text before the apply and after, and asserts `(5, 500)` both times (two honest rows, three planted), so a migration that moved a row would show. (c) **It shows the text can see a loss, which the readers' run cannot:** on the clean database the test connection, as the table's owner, deletes the one row (test-only; the application role has no `DELETE`, and no tree code deletes) and the count text reports `(0, 0)` against the `(1, 1)` it reported before. Without (c) the block could be `SELECT 0, 0` and every assertion about it hold (vacuity question 1). (d) It asserts the README contains the words `at least what you kept` and `no row` in step 3. That pin restates the README against itself and is stated as such; the check that the sentence does its work is the second cold read, not this assertion.
+
+20. **Two falsification rows.** FSEQ11: the step-3 count paragraph deleted from the README; must go red: SEQ8 (d); first form: an owner who is never asked to compare the count, which is the first pass's finding, and a test that passes while the text is absent. FSEQ12: the count block's `count(*)` replaced with `0`; must go red: SEQ8 (b) and (c); first form: a block that reports a log with no events as the same log as one that lost some. Task 5's rows become FSEQ1 to FSEQ12 and the counts recorded are for twelve.
+
+21. **The gate is rewritten, and the second pass is run on it.** The first gate's "the event count is unchanged" is replaced by: **the reader ran the count text before the apply and again after, and says the count and highest position are not lower (equal if nothing was posted), quoting both outputs.** A reader who states the clause without the two outputs in its report fails it: a sentence without a number behind it is the readers' guess, not the README's work. Every other clause stands. **Three fresh Sonnet 5.5 readers**, none from the first pass, each in an empty directory with the amended `readme-block.md` (same shape as before: the owner connection, the application role's name, the migration's path, a throwaway database that holds events and no planted row), not told what is tested. Pass is **three of three** on every clause; one reader short is a second finding to the architect and a third pass waits for a ruling. The 7008 readers are not re-run: that text is unchanged and both passed. **LS2's wording is corrected in the same edit:** "the event count, the maximum `seq` and a SHA-256 over the ordered `event_id` list are unchanged by the apply" contradicts its own running `curia ask` loop; it reads "the ordered `event_id` list taken before the apply is a prefix of the list after it, and no `event_id` is missing".
+
+### Edits to the plan body
+SEQ8's row in "Probes" gains (a) to (d); the falsification table gains FSEQ11 and FSEQ12 and "FSEQ1 to FSEQ10" becomes "FSEQ1 to FSEQ12" in Scope, Task 5 and the Gates; the cold-read gate and LS2 are replaced as ruling 21 says; Scope's README line names the count block's markers.
+
 ## The errata entry (G69), text to paste at Task 1 (status "specified; built" is written by Task 6 from the run)
 
 Task 1 pastes this at the end of the errata, after G68's slot is left as PR N's (or after G67 if N has not merged), with the index row for `R11.6 (add.)` and the `(add.)` mark in the Revisions table the way G13 did for R11.9; SEQ2 parses its column list.
