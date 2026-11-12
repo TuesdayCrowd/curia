@@ -48,7 +48,8 @@ namespace Curia.Application.Ports;
 public interface IEventReader
 {
     /// <summary>Every event recorded for one aggregate, in append (ascending <c>seq</c>) order.
-    /// An aggregate nothing has been appended to yields an empty list, not a failure.</summary>
+    /// An aggregate nothing has been appended to yields an empty list, not a failure.
+    /// Events at a position at or below zero are not in the log and are not returned.</summary>
     Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
         AggregateId aggregateId,
         CancellationToken cancellationToken = default);
