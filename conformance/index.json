@@ -56,6 +56,15 @@
       "count": 8
     },
     {
+      "name": "honoured",
+      "family": true,
+      "shape": "honoured",
+      "profiles": [
+        "honoured-log"
+      ],
+      "count": 44
+    },
+    {
       "name": "lifecycle",
       "family": true,
       "shape": "lifecycle",

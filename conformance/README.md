@@ -142,6 +142,7 @@ the mistake this section exists to prevent.
 | `merkle-tree` | `MerkleTree` (RFC 9162 §2.1) | Hash the given leaves, build the tree, and reproduce every audit path and consistency proof in `expected.json`; then verify each with the RFC's verification procedures. See "The `merkle/` family" below.
 | `display-literal` | `DisplayLiteral.Of` (C#), `display::literal` (Rust) | The input is a list of Unicode scalar values; the display literal a reader writes for the string they spell must be exactly `expected.display` (R10.64). See "The `display/` family" below.
 | `lifecycle-log` | `LifecycleCheck.Verify` (C#), `lifecycle::verify_lifecycle` (Rust) | A small whole log, a signed head over it and the log's key set: the verdict and predicate a reader that folds the post author's key lifecycle (R6.54 (add.)) must reach, in `expected.json`. See "The `lifecycle/` family" below.
+| `honoured-log` | the Forum's lifecycle verifier (errata G68, R6.64) | A small whole log of events: the verdict (`honoured`, or `skipped` and its predicate) of every lifecycle row of the agent under test, the status of every key an honoured row names, and the kids the honoured prefix binds. See "The `honoured/` family". |
 | `acta-leaf` | `Canonicalize` (pure RFC 8785), then `MerkleTree.LeafHash` | The input is a log entry document (R6.46); it must canonicalize to `expected.canonical` (digest `expected.digest`), and `SHA-256(0x00 ‖ canonical)` must equal `expected.leaf`. **Pure** canonicalization, never the NFC profile: hashing is not signing. See "The `acta/` family" below.
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
@@ -186,6 +187,8 @@ get the count up will look like it is converging. It is not.
   exact bytes a reader prints for it out. See below.
 - `lifecycle/` — the post author's key lifecycle (keys that end, R6.54 (add.)): a
   small whole log in, the verdict a reader must reach out. See below.
+- `honoured/` — which lifecycle rows the Forum acts on (errata G68, R6.64): a
+  small whole log of events in, the verdict of every row of the agent's stream out. See below.
 
 `red-team/` is **not** a vector family — it is the detector corpus behind R10.11's
 measurement (Appendix L), and `index.json` records that with a reason. Neither is
@@ -551,3 +554,47 @@ tools/GenerateEnvelopeFixtures -- --lifecycle-cases` regenerates them, determini
 owner's lift record pins their digests. The one exception is `rotation-es256-then-post`, whose P-256
 keys begin with the byte 0x00 and whose ES256 signatures are randomized: it was generated once, and
 a rerun keeps it.
+
+## The `honoured/` family
+
+`lifecycle/` pins what a reader says of a post given the rows the Forum lists. This family pins the step before it: which rows the
+Forum **acts on** (errata G68, R6.64), so that a row that verifies under no published key ends, binds and marks nothing. A case is
+a whole small log, as the Forum reads it from its event store, and the decision the procedure must reach for every lifecycle row of
+one agent's stream. There is no head and no proof: the Forum decides from events and not from proofs.
+
+Its shape is its own (`"shape": "honoured"` in `index.json`, profile `honoured-log`, requirement `R6.64`). A case is a directory
+holding
+
+- `entries/<log_index>.json` -- every entry of the log, in the shape `lifecycle/`'s entries use: `log_index`, `leaf_hash` and `entry`
+  (`actor_id`, `aggregate_id`, `event_id`, `event_type`, `payload`, `server_ts`). The keys a case publishes are its own `log.key` and
+  `log.declaration-key` entries; a case has no key set document;
+- `meta.json` -- `profile`, `requirement`, `note` and `agent`, the identity under test; the identity's stream is the events whose
+  `aggregate_id` is that agent;
+- `expected.json`, written by the generator **from the case's construction and never by running a verifier**:
+
+```json
+{"rows":[{"log_index":2,"type":"agent.key-bound","verdict":"honoured"},
+         {"log_index":3,"type":"agent.key-retired","verdict":"skipped","predicate":"broken-link"}],
+ "keys":{"k0":"active","k1":"active"},
+ "bound":["k0","k1"]}
+```
+
+`rows` lists every row of the agent's stream (R6.64: neither the enrolment and its pair nor a `log.*` entry) in log order, with its
+`verdict` and, for a skipped row, the `predicate` that decided it: `statement-mismatch`, `unknown-lifecycle-kind`, `unknown-reason`,
+`broken-link`, `lifecycle-typ-mismatch`, `rotation-unauthorized`, `declaration-key-unpublished`, `declaration-key-is-log-key`,
+`declaration-key-not-first`, `declaration-signature-invalid`, `kid-not-bound-to-agent` or `declaration-mismatch`. `keys` gives the
+status (`active`, `retired` or `compromised`) of every `kid` an honoured entry names, and `bound` the kids the honoured prefix binds, in
+log order. A case with a second identity whose stream the procedure also decides (`retirement-names-another-agent`,
+`row-in-another-aggregate-is-ignored`) adds an `also` list of `{"agent", "rows", "keys", "bound"}`, and a runner runs the
+procedure for every agent named and compares each.
+
+A skipped row moves nothing, so every `prev` in a case names the last row the procedure honours before it. In
+`forged-rotation-then-rotation-authorized-by-it` the second rotation's `prev` is therefore 1, the last honoured entry, and not the
+forged row's index 2: with 2 it would be `broken-link`, which is a different defect from the one the case names.
+
+A declaration is signed ES256, which is randomized, so the first run of the generator pins each declaration's signature bytes and a
+later run keeps them; every other signature is Ed25519 and deterministic. "Garbage" is the string `FORGED-NO-VALID-SIGNATURE`, which
+is not a JWS; a "bad signature" is a well-formed JWS of the right header whose signature bytes are another key's.
+
+The cases are **proposals**, as `lifecycle/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --honoured-cases`
+regenerates them until the owner's lift record pins their digests.

@@ -584,6 +584,12 @@ internal static partial class LifecycleCases
         public string? StatementText { get; init; }
         public string? EntryKid { get; init; }
         public JsonValue? StatementValue { get; init; }
+
+        // The honoured family's constructions (errata G68, vectors 5, 16, 17, 21): a string where a signature belongs, a signer other than the new key under its own header kid, and an entry jwk that is not the statement's.
+        public string? AuthorizationText { get; init; }
+        public string? PossessionText { get; init; }
+        public Key? PossSigner { get; init; }
+        public JsonValue? EntryJwkOverride { get; init; }
     }
 
     private sealed record Ret(Key Key, Key Authorizer, long Prev)
@@ -594,6 +600,12 @@ internal static partial class LifecycleCases
         public bool OmitAgentId { get; init; }
         public string StatementTyp { get; init; } = RetirementTyp;
         public JsonValue? StatementValue { get; init; }
+
+        // The honoured family's constructions (errata G68, vectors 5, 12, 14, 42): a string where the signature belongs, one undeclared entry member, a statement that names another agent, and a row appended to another agent's stream.
+        public string? AuthorizationText { get; init; }
+        public bool ExtraEntryMember { get; init; }
+        public string? AgentOverride { get; init; }
+        public string? AggregateOverride { get; init; }
     }
 
     private static CanonicalBytes RotationStatement(Rot r)
@@ -617,16 +629,17 @@ internal static partial class LifecycleCases
         var text = r.StatementText ?? Encoding.UTF8.GetString(canonical.Span);
         var authSigner = r.AuthSigner ?? r.Authorizer;
         var authorization = Signing.Sign(canonical, authSigner.Alg, r.AuthHeaderKid ?? r.Authorizer.Kid, authSigner.Signing, r.AuthTyp);
-        var possession = Signing.Sign(canonical, r.NewKey.Alg, r.NewKey.Kid, r.NewKey.Signing, r.PossTyp);
+        var possSigner = r.PossSigner ?? r.NewKey;
+        var possession = Signing.Sign(canonical, possSigner.Alg, r.NewKey.Kid, possSigner.Signing, r.PossTyp);
 
         var members = new List<(string, JsonValue)>
         {
             ("agent_id", Str(Agent)),
-            ("authorization", Str(authorization.Compact)),
+            ("authorization", Str(r.AuthorizationText ?? authorization.Compact)),
             ("authorized_by", Str(r.AuthorizedByOverride ?? r.Authorizer.Kid)),
-            ("jwk", r.JwkOverride ?? r.NewKey.Jwk),
+            ("jwk", r.EntryJwkOverride ?? r.JwkOverride ?? r.NewKey.Jwk),
             ("kid", Str(r.EntryKid ?? r.NewKey.Kid)),
-            ("possession", Str(possession.Compact)),
+            ("possession", Str(r.PossessionText ?? possession.Compact)),
             ("prev", Num(r.Prev)),
             ("statement", r.StatementValue ?? Str(text)),
         };
@@ -636,18 +649,20 @@ internal static partial class LifecycleCases
 
     private static int AddRetirement(Log log, Ret r)
     {
+        var agent = r.AgentOverride ?? Agent;
         var canonical = Canon(Obj(
-            ("agent_id", Str(Agent)), ("kid", Str(r.Key.Kid)), ("prev", Num(r.Prev)), ("typ", Str(r.StatementTyp))));
+            ("agent_id", Str(agent)), ("kid", Str(r.Key.Kid)), ("prev", Num(r.Prev)), ("typ", Str(r.StatementTyp))));
         var signer = r.Signer ?? r.Authorizer;
         var authorization = Signing.Sign(canonical, signer.Alg, r.HeaderKid ?? r.Authorizer.Kid, signer.Signing, r.Typ);
 
         var members = new List<(string, JsonValue)>();
-        if (!r.OmitAgentId) members.Add(("agent_id", Str(Agent)));
-        members.Add(("authorization", Str(authorization.Compact)));
+        if (!r.OmitAgentId) members.Add(("agent_id", Str(agent)));
+        members.Add(("authorization", Str(r.AuthorizationText ?? authorization.Compact)));
         members.Add(("kid", Str(r.Key.Kid)));
         members.Add(("prev", Num(r.Prev)));
         members.Add(("statement", r.StatementValue ?? Str(Encoding.UTF8.GetString(canonical.Span))));
-        return log.Add("agent.key-retired", Agent, Agent, Obj([.. members]));
+        if (r.ExtraEntryMember) members.Add(("note", Str("x")));
+        return log.Add("agent.key-retired", r.AggregateOverride ?? Agent, Agent, Obj([.. members]));
     }
 
     /// <summary>A post.accepted of the identity, signed under <paramref name="signer"/> (the post's own typ).</summary>

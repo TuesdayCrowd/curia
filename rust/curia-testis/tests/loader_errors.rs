@@ -68,6 +68,7 @@ fn scaffold_empty_corpus(root: &Path) {
         "acta",
         "display",
         "lifecycle",
+        "honoured",
     ] {
         fs::create_dir_all(root.join(family)).expect("can scaffold an empty family dir");
     }
@@ -342,7 +343,8 @@ const MATCHING_INDEX: &str = r#"{
     {"name": "merkle", "family": true, "shape": "merkle", "profiles": ["merkle-tree"], "count": 0},
     {"name": "acta", "family": true, "shape": "directory", "profiles": ["acta-leaf"], "count": 0},
     {"name": "display", "family": true, "shape": "display", "profiles": ["display-literal"], "count": 0},
-    {"name": "lifecycle", "family": true, "shape": "lifecycle", "profiles": ["lifecycle-log"], "count": 0}
+    {"name": "lifecycle", "family": true, "shape": "lifecycle", "profiles": ["lifecycle-log"], "count": 0},
+    {"name": "honoured", "family": true, "shape": "honoured", "profiles": ["honoured-log"], "count": 0}
   ]
 }"#;
 

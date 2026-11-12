@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "One key published at 2 as a declaration key and at 3 as a log key, and a declaration it signed at 4: a declaration key that is also a log key never declares. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

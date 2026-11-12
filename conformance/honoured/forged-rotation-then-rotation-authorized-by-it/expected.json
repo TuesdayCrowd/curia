@@ -1,0 +1,1 @@
+{"rows":[{"log_index":2,"type":"agent.key-bound","verdict":"skipped","predicate":"lifecycle-typ-mismatch"},{"log_index":3,"type":"agent.key-bound","verdict":"skipped","predicate":"rotation-unauthorized"}],"keys":{"conformance-ed25519-minimal":"active"},"bound":["conformance-ed25519-minimal"]}
