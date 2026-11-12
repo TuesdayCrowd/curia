@@ -152,6 +152,7 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
         var precheck = ReadmeBlock(readme, "events-position-precheck");
         var postcheck = ReadmeBlock(readme, "events-position-postcheck");
         var apply = ReadmeBlock(readme, "events-position-apply");
+        var count = ReadmeBlock(readme, "events-position-count");
         Assert.Contains(MigrationFile, apply, StringComparison.Ordinal);
         Assert.Contains("--single-transaction", apply, StringComparison.Ordinal);
         Assert.Contains("ON_ERROR_STOP", apply, StringComparison.Ordinal);
@@ -168,13 +169,27 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
                 await ExecuteAsync(planted, "INSERT INTO events (seq, event_id, event_type, aggregate_id, payload, server_ts) OVERRIDING SYSTEM VALUE VALUES (0, 's8-zero', 'test.event', 'agg', '{}', now()), (-3, 's8-neg', 'test.event', 'agg', '{}', now()), (500, 's8-ahead', 'test.event', 'agg', '{}', now());");
                 Assert.Equal((2L, 1L), await PreCheckAsync(planted, precheck));
                 Assert.Equal((true, true), await PostCheckAsync(planted, postcheck, databases[0].Item2));
+                Assert.Equal((5L, 500L), await CountAsync(planted, count));
                 await ExecuteAsync(planted, (await File.ReadAllTextAsync(Path.Combine(RepoRoot(), "db", MigrationFile), Ct)).Replace(RolePlaceholder, databases[0].Item2, StringComparison.Ordinal));
                 Assert.Equal((false, true), await PostCheckAsync(planted, postcheck, databases[0].Item2));
+                Assert.Equal((5L, 500L), await CountAsync(planted, count));
             }
 
             await using var clean = await OpenAsync(databases[1].Item1);
             await ExecuteAsync(clean, "INSERT INTO events (event_id, event_type, aggregate_id, payload, server_ts) VALUES ('s8-c', 'test.event', 'agg', '{}', now());");
             Assert.Equal((0L, 0L), await PreCheckAsync(clean, precheck));
+            Assert.Equal((1L, 1L), await CountAsync(clean, count));
+
+            // The count text must be able to see a loss, or every assertion above would hold of a block that reads "SELECT 0, 0".
+            // Test-only: the connection is the table's owner; the application role has no DELETE and no tree code deletes.
+            await ExecuteAsync(clean, "DELETE FROM events;");
+            Assert.Equal((0L, 0L), await CountAsync(clean, count));
+
+            // This restates the README against itself; whether the sentence does its work is the cold read's question.
+            var afterPostcheck = readme[(readme.IndexOf("<!-- /events-position-postcheck -->", StringComparison.Ordinal))..];
+            var step3 = afterPostcheck[..afterPostcheck.IndexOf("The issuer key", StringComparison.Ordinal)];
+            Assert.Contains("at least what you kept", step3, StringComparison.Ordinal);
+            Assert.Contains("no row", step3, StringComparison.Ordinal);
         }
         finally
         {
@@ -303,6 +318,14 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
         await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync(CancellationToken.None);
         Assert.True(await reader.ReadAsync(CancellationToken.None), "the pre-check returned no row");
+        return (Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture), Convert.ToInt64(reader.GetValue(1), CultureInfo.InvariantCulture));
+    }
+
+    private static async Task<(long Events, long HighestSeq)> CountAsync(NpgsqlConnection connection, string sql)
+    {
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(CancellationToken.None);
+        Assert.True(await reader.ReadAsync(CancellationToken.None), "the count text returned no row");
         return (Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture), Convert.ToInt64(reader.GetValue(1), CultureInfo.InvariantCulture));
     }
 

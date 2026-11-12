@@ -100,7 +100,7 @@ of its connections from the moment it is its agent's turn until its act has comm
 supplies, so `seq`, an event's position in the log, is the database's alone. **Merging it applies nothing**: a database built from `db/0001` to `db/0005` keeps
 the old grant until its owner runs this, and a Forum connected to such a database says so in its log at every start (`EventsSeqWritable`, EventId 7008, at Error).
 It is the table's owner (the role that ran `db/0001`, or a superuser) who applies it, never the application role. Three steps, in this order; each is text you paste,
-and `tests/Curia.Infrastructure.Tests/EventsPositionGrantTests.cs` runs the first and the third from this file.
+and `tests/Curia.Infrastructure.Tests/EventsPositionGrantTests.cs` runs the first and the third, and the count text, from this file.
 
 **1. Check, before anything is changed.** Read-only. It counts the rows no honest append makes: those at or below position 0, and those ahead of the next
 position the database will hand out.
@@ -117,6 +117,16 @@ FROM public.events;
 
 Both numbers must be `0`. **If either is not, stop.** Do not delete the row: the role has no `DELETE`, a signed head that already covers a row cannot be taken
 back, and the row is evidence of how it got there. Keep the output and report it; the migration can wait.
+
+Then record how many events the log holds and its highest position, to compare in step 3. This is one text, run here and again there.
+
+<!-- events-position-count -->
+```sql
+SELECT count(*) AS events, coalesce(max(seq), 0) AS highest_seq FROM public.events;
+```
+<!-- /events-position-count -->
+
+Keep the output.
 
 **2. Apply, in one transaction, as the owner.** Replace `curia_app` with the application role's name (the one in the Forum's connection string) and
 `OWNER_CONNECTION` with a connection string or `psql` arguments for the table's owner. It either applies both statements or neither, and it can be run again.
@@ -140,6 +150,8 @@ It must say `seq_writable` `f` and `server_ts_writable` `t`. If `seq_writable` i
 `INSERT` on the whole table: the migration cannot narrow a privilege that role holds some other way, and the Forum's log will keep saying so. Restore
 the grant this way and not another: a table-level `GRANT INSERT ON events` re-opens it (a restore from a backup that predates `db/0006` does, and so does the
 fault harness if it is not the one in this repository).
+
+**Then run step 1's count text again.** `events` and `highest_seq` must each be at least what you kept, and equal if the Forum took no post in between: the migration changes the role's grants and no row. If either is lower, stop, keep both outputs and report it; do not delete or re-insert anything.
 
 The issuer key is an EC P-256 private key in PEM:
 
