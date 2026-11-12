@@ -16,7 +16,7 @@ namespace Curia.Application.Credentials;
 /// R6.26 (rev.), R6.57: the operator declares a key compromised from a log index, out of band. The log is
 /// folded, <c>from_index</c> is held to the key's binding and to the index the declaration will take, the
 /// cascade is computed over rotation entries (transitively, from the compromised key, at or after
-/// <c>from_index</c>), and the statement is signed by a log key whose <c>log.key</c> entry the log already
+/// <c>from_index</c>), and the statement is signed by a declaration key (errata G67, R6.62: never a log key) whose <c>log.declaration-key</c> entry the log already
 /// holds, under <c>curia-key-compromise+jws</c> (KF1, KF2) and never R6.49's head <c>typ</c>.
 ///
 /// <para>The use case does not ask the lifecycle gate: the operator verb does, first, before it reads the
@@ -85,10 +85,12 @@ public sealed class DeclareCompromise
                 kids.Add(entry.Kid);
         }
 
-        // KF2: the signing key's log.key entry is in the log already. After the gate and the key read,
+        // R6.62: the signing key's log.declaration-key entry is in the log already, and the key is no log key. After the gate and the key read,
         // before anything is signed.
         if (!Published(read.Log, signer))
-            return Result<CompromiseRecorded>.Fail(KeyActErrors.LogKeyNotPublished());
+            return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyNotPublished());
+        if (read.Log.Keys.Any(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal)))
+            return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyIsLogKey());
 
         var statementObject = new JsonValue.Object(
         [
@@ -127,12 +129,12 @@ public sealed class DeclareCompromise
         return index.Map(i => new CompromiseRecorded(agent.Value, kids, i));
     }
 
-    /// <summary>Whether the folded log holds a <c>log.key</c> entry for the signer's kid with an equal public JWK.</summary>
+    /// <summary>Whether the folded log holds a <c>log.declaration-key</c> entry for the signer's kid with an equal public JWK.</summary>
     private static bool Published(ActaLog log, ILifecycleStatementSigner signer)
     {
         if (!CanonicalJson.CanonicalizeWithNfc(signer.PublicJwk()).TryGetValue(out var wanted, out _)) return false;
 
-        foreach (var key in log.Keys)
+        foreach (var key in log.DeclarationKeys)
         {
             if (!string.Equals(key.Kid, signer.Kid, StringComparison.Ordinal)) continue;
             if (CanonicalJson.CanonicalizeWithNfc(key.Jwk).TryGetValue(out var held, out _) && held!.Span.SequenceEqual(wanted!.Span))

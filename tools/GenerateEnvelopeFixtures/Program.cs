@@ -17,13 +17,14 @@ using JsonValue = Curia.Canon.Json.JsonValue;
 var repoRoot = FindRepoRoot();
 var outputRoot = Path.Combine(repoRoot, "conformance", "envelope");
 
-// `--log-key-fixture` prints the RFC 7638 thumbprints of the two fixed P-256 log-key fixtures (keys that end, Task 2.0),
+// `--log-key-fixture` prints the RFC 7638 thumbprints of the three fixed P-256 key fixtures (the log key, the unpublished signer and the declaration key) (keys that end, Task 2.0),
 // to pin as literals, and writes nothing.
 if (args.Contains("--log-key-fixture", StringComparer.Ordinal))
 {
-    var (logKid, unpublishedKid) = ConformanceLogKeys.ComputedKids();
+    var (logKid, unpublishedKid, declarationKid) = ConformanceLogKeys.ComputedKids();
     Console.WriteLine($"log:         {logKid}");
     Console.WriteLine($"unpublished: {unpublishedKid}");
+    Console.WriteLine($"declaration: {declarationKid}");
     return 0;
 }
 

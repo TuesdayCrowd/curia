@@ -92,11 +92,20 @@ public static class LogEntries
     /// <summary>A log signing key's publication. Payload: <c>{ kid, jwk, valid_from }</c>.</summary>
     public const string KeyType = "log.key";
 
+    /// <summary>
+    /// PR H (errata G67, R6.62): a declaration key's publication. Payload: <c>{ kid, jwk, valid_from }</c>, as <see cref="KeyType"/>'s.
+    /// Not a lifecycle act: it ends no agent's key, so the lifecycle guard does not classify it.
+    /// </summary>
+    public const string DeclarationKeyType = "log.declaration-key";
+
     /// <summary>The one aggregate every head lands in, so concurrent signers conflict rather than interleave.</summary>
     public const string HeadsAggregate = "log:heads";
 
     /// <summary>The one aggregate every key publication lands in.</summary>
     public const string KeysAggregate = "log:keys";
+
+    /// <summary>The one aggregate every declaration key's publication lands in.</summary>
+    public const string DeclarationKeysAggregate = "log:declaration-keys";
 
     public const string HeadMember = "head";
     public const string RootHashMember = "root_hash";

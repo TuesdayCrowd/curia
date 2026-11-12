@@ -98,12 +98,11 @@ public sealed class LifecycleConformanceTests
     }
 
     /// <summary>
-    /// R6.57: the fifteen cases of PR 2 and the one that closes the authorizer clause's exposure are all present and reach
-    /// the verdict and predicate the vocabulary names, one string at a time. The sixteen are named here so that a case
-    /// dropped from the family is a red fact and not a smaller count.
+    /// R6.57 and R6.62: the compromise cases (the fifteen of PR 2 that remain, the seven PR H adds under the declaration key, the six of Amendment 3, the six of Amendment 4, the four of Amendment 5 and the six of Amendment 6: errata G67) are all present and reach
+    /// the verdict and predicate the vocabulary names, one string at a time. They are named here so that a case dropped from the family is a red fact and not a smaller count.
     /// </summary>
     [Fact]
-    public void R6_57_TheSixteenCompromiseCasesAreAllPresentWithTheirVocabulary()
+    public void R6_57_TheCompromiseCasesAreAllPresentWithTheirVocabulary()
     {
         var expected = new Dictionary<string, (string Verdict, string Predicate)>(StringComparer.Ordinal)
         {
@@ -121,11 +120,39 @@ public sealed class LifecycleConformanceTests
             ["compromise-kid-of-other-identity"] = ("failed", "kid-not-bound-to-agent"),
             ["compromise-declaration-kid-not-valid-at-position"] = ("failed", "declaration-key-unpublished"),
             ["compromise-unknown-reason"] = ("could-not-check", "unknown-reason"),
-            ["compromise-declaration-kid-position-unknown"] = ("could-not-check", "log-key-position-unknown"),
-            ["compromise-v2-under-unknown-signer"] = ("could-not-check", "unknown-lifecycle-kind"),
+            ["compromise-declaration-kid-position-unknown"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-v1-statement"] = ("could-not-check", "unknown-lifecycle-kind"),
+            ["compromise-signed-by-log-key"] = ("failed", "declaration-key-unpublished"),
+            ["compromise-declaration-key-is-log-key"] = ("failed", "declaration-key-is-log-key"),
+            ["compromise-second-declaration-key"] = ("failed", "declaration-key-not-first"),
+            ["compromise-first-of-two-declaration-keys"] = ("disputed", "disputed"),
+            ["compromise-declaration-key-set-absent"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-keys-empty"] = ("failed", "declaration-key-unpublished"),
+            ["compromise-declaration-keys-null"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-keys-object"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-log-key-kid-position-unknown"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-declaration-key-is-log-key-under-another-kid"] = ("failed", "declaration-key-is-log-key"),
+            ["compromise-another-declaration-key-position-unknown"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-declaration-kid-published-twice"] = ("failed", "declaration-signature-invalid"),
+            ["compromise-declaration-kid-twice-one-unpositioned"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-declaration-key-without-kid"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-log-key-without-kid"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-keys-share-position"] = ("failed", "declaration-key-not-first"),
+            ["compromise-declaration-keys-entry-not-an-object"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-keys-entry-without-alg"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-key-without-y"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-key-x-not-base64url"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-log-key-kty-rsa"] = ("could-not-check", "declaration-key-set-not-supplied"),
+            ["compromise-declaration-kid-twice-at-one-position"] = ("could-not-check", "declaration-key-position-unknown"),
+            ["compromise-declaration-key-off-curve"] = ("failed", "declaration-signature-invalid"),
+            ["compromise-other-declaration-key-off-curve"] = ("disputed", "disputed"),
+            ["compromise-log-key-off-curve"] = ("disputed", "disputed"),
+            ["compromise-log-key-off-curve-under-declaration-kid"] = ("failed", "declaration-key-is-log-key"),
+            ["compromise-declaration-key-and-log-key-off-curve"] = ("failed", "declaration-key-is-log-key"),
+            ["compromise-declaration-kid-twice-at-one-position-same-key"] = ("disputed", "disputed"),
         };
 
-        Assert.Equal(16, expected.Count);
+        Assert.Equal(44, expected.Count);
         foreach (var (name, want) in expected)
         {
             Assert.Equal(want, Expected(name));
@@ -146,7 +173,7 @@ public sealed class LifecycleConformanceTests
             .GetProperty("count").GetInt32();
 
         Assert.Equal(declared, CaseNames().Count);
-        Assert.Equal(53, declared);
+        Assert.Equal(81, declared);
     }
 
     [Fact]
@@ -171,17 +198,20 @@ public sealed class LifecycleConformanceTests
         LogEntryDocument PostEntry,
         List<(LogEntryDocument Entry, InclusionProofDocument Proof)> Chain,
         SignedHeadDocument Head,
-        ImmutableArray<LogJwk> LogKeys);
+        LogKeySet LogKeys);
 
-    internal static CaseDocuments Load(string name)
+    internal static CaseDocuments Load(string name) => Load(name, File.ReadAllBytes(Path.Combine(Root, name, "log-jwks.json")));
+
+    /// <summary>A case read against a key set other than its own (HSU50 mutates one entry of a key set and reads the case again).</summary>
+    internal static CaseDocuments Load(string name, byte[] logJwks)
     {
         var dir = Path.Combine(Root, name);
         using var meta = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(dir, "meta.json")));
         var postIndex = meta.RootElement.GetProperty("post_index").GetInt64();
 
         var head = Read(Path.Combine(dir, "head.json"), ActaDocuments.ReadHead);
-        var keys = Read(Path.Combine(dir, "log-jwks.json"), ActaDocuments.ReadLogJwks);
-        Assert.Equal(CheckOutcome.Verified, ActaCheck.HeadSignature(head, keys).Outcome);
+        var keys = Read("the key set of " + name, logJwks, ActaDocuments.ReadLogJwks);
+        Assert.Equal(CheckOutcome.Verified, ActaCheck.HeadSignature(head, keys.Keys).Outcome);
 
         var indices = Directory.EnumerateFiles(Path.Combine(dir, "entries"), "*.json")
             .Select(f => long.Parse(Path.GetFileNameWithoutExtension(f), System.Globalization.CultureInfo.InvariantCulture))
@@ -222,11 +252,14 @@ public sealed class LifecycleConformanceTests
 
     internal static InclusionProofDocument ReadProofFile(string path) => Read(path, ActaDocuments.ReadInclusionProof);
 
-    internal static ImmutableArray<LogJwk> ReadLogKeys(string path) => Read(path, ActaDocuments.ReadLogJwks);
+    /// <summary>The <c>keys</c> member of a case's key set: the log keys, which sign heads.</summary>
+    internal static ImmutableArray<LogJwk> ReadLogKeys(string path) => Read(path, ActaDocuments.ReadLogJwks).Keys;
 
-    private static T Read<T>(string path, Func<JsonValue, Curia.Domain.Primitives.Result<T>> parse)
+    private static T Read<T>(string path, Func<JsonValue, Curia.Domain.Primitives.Result<T>> parse) => Read(path, File.ReadAllBytes(path), parse);
+
+    private static T Read<T>(string path, byte[] bytes, Func<JsonValue, Curia.Domain.Primitives.Result<T>> parse)
     {
-        var parsed = JsonReader.Parse(File.ReadAllBytes(path), AdmitLimits.Default);
+        var parsed = JsonReader.Parse(bytes, AdmitLimits.Default);
         Assert.True(parsed.TryGetValue(out var value, out var error), $"{path}: {error?.Type}");
         Assert.True(parse(value!).TryGetValue(out var read, out var readError), $"{path}: {readError?.Type}");
         return read!;

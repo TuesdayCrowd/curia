@@ -336,10 +336,10 @@ public sealed class ForumClient
             ct);
 
     /// <summary>
-    /// R6.50's log keys: every one ever published, forever. Separate from the agents' JWKS and from
+    /// R6.50's log keys: every one ever published, forever, and the declaration keys beside them (errata G67, R6.62). Separate from the agents' JWKS and from
     /// the issuer's on purpose -- one document holding both invites one rotation procedure (R11.7).
     /// </summary>
-    public Task<ForumResult<ImmutableArray<LogJwk>>> GetLogJwksAsync(CancellationToken ct) =>
+    public Task<ForumResult<LogKeySet>> GetLogJwksAsync(CancellationToken ct) =>
         GetAsync("/v1/log/jwks", ActaDocuments.ReadLogJwks, ct);
 
     /// <summary>

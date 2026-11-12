@@ -248,6 +248,9 @@ internal sealed class StubLog : IDisposable
     /// <summary>The size the served head covers. Set below the post's index to strand it (R6.48).</summary>
     internal int HeadTreeSize { get; set; }
 
+    /// <summary>The timestamp every head this log serves signs (R11.94's probes put a string here the client cannot read).</summary>
+    internal string HeadTimestamp { get; set; } = "1970-01-01T00:00:00Z";
+
     // ---- falsification knobs ------------------------------------------------------------------
 
     /// <summary>Answer <c>/v1/jwks</c> with a transport failure: the "could not check" case for R6.52's first check.</summary>
@@ -1370,7 +1373,7 @@ internal sealed class StubLog : IDisposable
             ? MerkleTree.LeafHash("a root from a tree that is not this one"u8)
             : RootAt(size);
 
-        var document = LogEntries.HeadDocument(root, "1970-01-01T00:00:00Z", size);
+        var document = LogEntries.HeadDocument(root, HeadTimestamp, size);
         var canonical = LogEntries.HeadCanonical(document).TryGetValue(out var bytes, out _)
             ? bytes
             : throw new InvalidOperationException("the head has no canonical form");
@@ -1395,7 +1398,7 @@ internal sealed class StubLog : IDisposable
             : throw new InvalidOperationException("the head would not sign");
 
         return $$"""
-        {"head":{"root_hash":"{{LogEntries.Prefixed(root)}}","timestamp":"1970-01-01T00:00:00Z",
+        {"head":{"root_hash":"{{LogEntries.Prefixed(root)}}","timestamp":"{{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(HeadTimestamp)}}",
         "tree_size":{{size}}},"kid":"{{kid}}","signature":"{{signature}}","log_index":{{size}},
         "signature_valid":true,"current_tree_size":{{Leaves.Length}}}
         """.ReplaceLineEndings(string.Empty);

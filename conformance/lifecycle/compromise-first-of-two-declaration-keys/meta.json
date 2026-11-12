@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "Two declaration keys are published, at 3 and 4, and the key set serves the second first. The declaration at 5 is signed under the first published, at 3: the first published is the one, by log_index and never by the order the set is served in, so the declaration holds and the post is disputed. The control of compromise-second-declaration-key: the same log, signed under the other key. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

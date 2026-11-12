@@ -338,7 +338,7 @@ public sealed partial class NameWordsToolTests : IDisposable
         var withoutIdentity = Fold(ToolText.ServerInstructions(null, names));
         var sentence = Fold(PublishedNameWords.InstructionsSentence());
 
-        var expected = "version 0.11.0; the instructions with an identity carry the published sentence; the instructions without one carry the published sentence";
+        var expected = "version 0.11.1; the instructions with an identity carry the published sentence; the instructions without one carry the published sentence";
         var actual = $"version {ToolCatalogue.Version}; the instructions with an identity {(withIdentity.Contains(sentence, StringComparison.Ordinal) ? "carry" : "do not carry")} the published sentence; the instructions without one {(withoutIdentity.Contains(sentence, StringComparison.Ordinal) ? "carry" : "do not carry")} the published sentence";
         if (!string.Equals(expected, actual, StringComparison.Ordinal)) throw new Xunit.Sdk.XunitException($"Expected: {expected}{Environment.NewLine}Actual:   {actual}");
     }

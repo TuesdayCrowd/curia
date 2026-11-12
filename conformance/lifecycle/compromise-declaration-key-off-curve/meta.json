@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The key set lists the declaration key at 3 with x and y of 43 A each: an entry of the closed form that is no point on its curve. Whether a point lies on its curve is asked of the declaring key at the signature alone (R6.62(a), (g)), so the declaration is failed for a signature that does not verify; a reader that treats the entry as unreadable reports could not be checked. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

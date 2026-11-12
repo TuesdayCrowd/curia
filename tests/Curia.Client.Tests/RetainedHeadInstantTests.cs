@@ -267,6 +267,22 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
 
     // ----- WAF22 -----
 
+    /// <summary>
+    /// The published closing past the head (R11.94 words) for a head of <paramref name="treeSize"/> leaves, with <c>&lt;signed&gt;</c> filled in by this test's own arithmetic and
+    /// never by <c>HeadSignedWords</c> (a restatement is not a check): the stub signs its heads at the epoch, <c>1970-01-01T00:00:00Z</c>, and every check here begins at <see cref="T0"/>,
+    /// so the head was signed that many whole seconds before it began.
+    /// </summary>
+    private static string PastHeadClosing(string treeSize)
+    {
+        var age = (long)(T0 - DateTimeOffset.UnixEpoch).TotalSeconds;
+        var signed = PublishedClientWords.SignedSecondsForm
+            .Replace("<instant>", "1970-01-01T00:00:00.000Z", StringComparison.Ordinal)
+            .Replace("<k>", age.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+        return PublishedClientWords.Fold(PublishedClientWords.PastHeadClosing
+            .Replace("<n>", treeSize, StringComparison.Ordinal)
+            .Replace("<signed>", signed, StringComparison.Ordinal));
+    }
+
     private static string ClosingOf(PostVerification verification)
     {
         var rendered = verification.Render();
@@ -298,7 +314,7 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
             var verification = await VerifyAsync(verifier);
 
             var closing = ClosingOf(verification);
-            var expected = PublishedClientWords.Fold(PublishedClientWords.PastHeadClosing.Replace("<n>", "6", StringComparison.Ordinal));
+            var expected = PastHeadClosing("6");
             if (!closing.Contains(expected, StringComparison.Ordinal)) problems.Add($"(a) lacks \"{expected}\"");
             if (!closing.Contains(PublishedClientWords.AnotherCheckSuffix, StringComparison.Ordinal)) problems.Add($"(a) lacks \"{PublishedClientWords.AnotherCheckSuffix}\"");
             if (verification.PastHeadTreeSize != 6) problems.Add($"(a) PastHeadTreeSize is {verification.PastHeadTreeSize?.ToString(CultureInfo.InvariantCulture) ?? "null"}, expected 6");
@@ -315,7 +331,7 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
             var verification = await VerifyAsync(verifier);
 
             var closing = ClosingOf(verification);
-            var expected = PublishedClientWords.Fold(PublishedClientWords.PastHeadClosing.Replace("<n>", "6", StringComparison.Ordinal));
+            var expected = PastHeadClosing("6");
             if (closing != expected) problems.Add($"(d) closing is \"{closing}\", expected exactly \"{expected}\"");
             if (verification.PastHeadTreeSize != 6) problems.Add($"(d) PastHeadTreeSize is {verification.PastHeadTreeSize?.ToString(CultureInfo.InvariantCulture) ?? "null"}, expected 6");
             if (verification.Consistency.Outcome is not CheckOutcome.Verified) problems.Add($"(d) the consistency check was {verification.Consistency.Outcome}, not verified, so the leg does not hold the case");
@@ -355,7 +371,7 @@ public sealed partial class RetainedHeadInstantTests : IDisposable
     public async Task R11_74_WAF37_TheSuffixFollowsTheVerdictsPredicateOverTheFourConsistencyOutcomes()
     {
         var problems = new List<string>();
-        var published = PublishedClientWords.Fold(PublishedClientWords.PastHeadClosing.Replace("<n>", "6", StringComparison.Ordinal));
+        var published = PastHeadClosing("6");
         var withSuffix = published + " " + PublishedClientWords.AnotherCheckSuffix.Trim();
 
         void Check(string leg, PostVerification verification, string? expectedClosing, CheckOutcome expectedConsistency, bool nothingToCompare)

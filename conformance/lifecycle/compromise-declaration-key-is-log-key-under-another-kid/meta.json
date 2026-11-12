@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The test log key is published at 3 as a log key and its public key at 4 as a declaration key under the kid k-other, and the key signs the declaration at 5 with k-other as its header kid. The kids differ and the key is one key (R6.62(d): by kid, or by public key under another kid), so it fails. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

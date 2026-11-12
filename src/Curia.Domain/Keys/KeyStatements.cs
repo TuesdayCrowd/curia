@@ -93,7 +93,7 @@ public static class KeyStatements
     public const string RetirementStatementTyp = "curia.key-retirement/1";
     public const string RotationHeaderTyp = "curia-key-rotation+jws";
     public const string RetirementHeaderTyp = "curia-key-retirement+jws";
-    public const string CompromiseStatementTyp = "curia.key-compromise/1";
+    public const string CompromiseStatementTyp = "curia.key-compromise/2";
     public const string CompromiseHeaderTyp = "curia-key-compromise+jws";
 
     private const double SafeMaxInteger = 9_007_199_254_740_991d;

@@ -72,7 +72,7 @@ public sealed partial class ReviseGuardEndToEndTests(KestrelForumFixture forum) 
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         Assert.Equal(0, await OperatorCommands.RunAsync(
-            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem));
+            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem));
     }
 
     private static string Flatten(CallToolResult result) =>

@@ -1,6 +1,5 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
-using Curia.Application.Credentials;
 using Curia.AuthN.Dpop;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
@@ -27,8 +26,12 @@ namespace Curia.OperatorTool;
 /// radii, and this type refuses nothing that would stop an operator reusing one -- the
 /// <c>typ</c> discipline in <see cref="DetachedJws"/> is what keeps a head from passing as a
 /// post even then.</para>
+///
+/// <para><b>The log key signs heads and nothing else (errata G67, R6.62, R12.18).</b> It is not an <c>ILifecycleStatementSigner</c> and has no
+/// <c>SignStatement</c>: a compromise declaration is signed by <see cref="DeclarationSigningKey"/>, which a person holds and no unattended process does, so
+/// that the key an unattended signer holds cannot also end an agent's keys. Making the wrong call a compile error is the strongest form of the split.</para>
 /// </summary>
-public sealed class LogSigningKey : IDisposable, ILifecycleStatementSigner
+public sealed class LogSigningKey : IDisposable
 {
     private readonly ECDsa _key;
 
@@ -92,11 +95,14 @@ public sealed class LogSigningKey : IDisposable, ILifecycleStatementSigner
     }
 
     /// <summary>
-    /// The port <see cref="DeclareCompromise"/> signs through (R6.26 rev.): ES256 in RFC 7518 section 3.4's
-    /// fixed-width R||S form over the JWS signing input, as <see cref="Es256Adapter"/> signs a head.
+    /// The public half of the key this tool holds, as a verifier takes it, derived from the PEM the tool loaded and from nothing the log says (errata G67, R6.63; Amendment 3
+    /// ruling 34): the signer knows a head to be its own only when it verifies under this, since <c>log.key</c> is an entry any holder of the Forum's credential can append.
     /// </summary>
-    public Result<byte[]> SignStatement(ReadOnlySpan<byte> signingInput) =>
-        Result<byte[]>.Ok(_key.SignData(signingInput, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+    public Result<PublicKeyMaterial> PublicMaterial()
+    {
+        var parameters = _key.ExportParameters(includePrivateParameters: false);
+        return new Jwk.EcP256(parameters.Q.X!, parameters.Q.Y!).ToPublicKeyMaterial(Kid);
+    }
 
     public void Dispose() => _key.Dispose();
 }

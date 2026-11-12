@@ -144,13 +144,21 @@ pub enum ActaError {
     LifecycleTooLong,
     /// R6.57, not established: a declaration states a `reason` outside the closed set (KF4). Never verified, never skipped.
     LifecycleUnknownReason { reason: String },
-    /// R6.57, not established: the log's key set gives the declaring key no usable `log_index` (absent, negative or not
-    /// an I-JSON integer), so it cannot be said the key was published before the declaration (KF2, KF4's rule).
-    LogKeyPositionUnknown { kid: String },
-    /// R6.57: the declaration's header `kid` is not a key the log's key set publishes, or was published at or after the
-    /// declaration (KF2).
+    /// R6.62(a), not established: the log's key set carries no `declaration_keys` member at all (an older Forum, or none said). An
+    /// absence says nothing and is not a denial.
+    DeclarationKeySetNotSupplied,
+    /// R6.62(c), not established: the log's key set gives the declaring declaration key no usable `log_index` (absent, negative or
+    /// not an I-JSON integer), so it cannot be said the key was published before the declaration (KF2, KF4's rule).
+    DeclarationKeyPositionUnknown { kid: String },
+    /// R6.62(b) and (f): the declaration's header `kid` is no declaration key the log's key set publishes (a served empty
+    /// `declaration_keys` names none), or was published at or after the declaration (KF2).
     DeclarationKeyUnpublished { at: u64, kid: String },
-    /// R6.57: the declaration does not verify under the log key its header names.
+    /// R6.62(d): the declaration's key is also a log key, and a log key never declares.
+    DeclarationKeyIsLogKey { at: u64, kid: String },
+    /// R6.62(e): the declaration's key is not the first declaration key the log published, by `log_index` and never by the order
+    /// the key set is served in.
+    DeclarationKeyNotFirst { at: u64, kid: String },
+    /// R6.62(g): the declaration does not verify under the declaration key its header names.
     DeclarationSignatureInvalid { at: u64 },
     /// R6.57, KF3 (1): a key the declaration names is bound to no entry of the author's stream as supplied.
     KidNotBoundToAgent { at: u64, kid: String },
@@ -206,8 +214,15 @@ impl ActaError {
             ActaError::LifecycleNotSupplied => "curia/acta/lifecycle-not-supplied",
             ActaError::LifecycleTooLong => "curia/acta/lifecycle-too-long",
             ActaError::LifecycleUnknownReason { .. } => "curia/acta/unknown-reason",
-            ActaError::LogKeyPositionUnknown { .. } => "curia/acta/log-key-position-unknown",
+            ActaError::DeclarationKeySetNotSupplied => {
+                "curia/acta/declaration-key-set-not-supplied"
+            }
+            ActaError::DeclarationKeyPositionUnknown { .. } => {
+                "curia/acta/declaration-key-position-unknown"
+            }
             ActaError::DeclarationKeyUnpublished { .. } => "curia/acta/declaration-key-unpublished",
+            ActaError::DeclarationKeyIsLogKey { .. } => "curia/acta/declaration-key-is-log-key",
+            ActaError::DeclarationKeyNotFirst { .. } => "curia/acta/declaration-key-not-first",
             ActaError::DeclarationSignatureInvalid { .. } => {
                 "curia/acta/declaration-signature-invalid"
             }
@@ -230,7 +245,8 @@ impl ActaError {
                 | ActaError::LifecycleNotSupplied
                 | ActaError::LifecycleTooLong
                 | ActaError::LifecycleUnknownReason { .. }
-                | ActaError::LogKeyPositionUnknown { .. }
+                | ActaError::DeclarationKeySetNotSupplied
+                | ActaError::DeclarationKeyPositionUnknown { .. }
         )
     }
 
@@ -380,19 +396,33 @@ impl fmt::Display for ActaError {
                 "the declaration states the reason {}, outside the closed set this verifier knows",
                 display::literal(reason)
             ),
-            ActaError::LogKeyPositionUnknown { kid } => write!(
+            ActaError::DeclarationKeySetNotSupplied => write!(
                 f,
-                "the log's key set gives kid {} no log index, so it cannot be said it was published before the declaration",
+                "the log's key set carries no declaration_keys member, so it cannot be said which key may declare"
+            ),
+            ActaError::DeclarationKeyPositionUnknown { kid } => write!(
+                f,
+                "the log's key set gives the declaration key {} no log index, so it cannot be said it was published before the declaration",
                 display::literal(kid)
             ),
             ActaError::DeclarationKeyUnpublished { at, kid } => write!(
                 f,
-                "the declaration at leaf {at} is signed under kid {}, which the log's key set does not publish before it",
+                "the declaration at leaf {at} is signed under kid {}, which the log's declaration keys do not publish before it",
+                display::literal(kid)
+            ),
+            ActaError::DeclarationKeyIsLogKey { at, kid } => write!(
+                f,
+                "the declaration at leaf {at} is signed under kid {}, which is also a log key",
+                display::literal(kid)
+            ),
+            ActaError::DeclarationKeyNotFirst { at, kid } => write!(
+                f,
+                "the declaration at leaf {at} is signed under kid {}, which is not the first declaration key the log published",
                 display::literal(kid)
             ),
             ActaError::DeclarationSignatureInvalid { at } => write!(
                 f,
-                "the declaration at leaf {at} does not verify under the log key its header names"
+                "the declaration at leaf {at} does not verify under the declaration key its header names"
             ),
             ActaError::KidNotBoundToAgent { at, kid } => write!(
                 f,
@@ -484,12 +514,16 @@ pub fn verify_head(head_json: &[u8], log_jwks: &[u8]) -> Result<VerifiedHead, Ac
     })
 }
 
-/// One key of the log's key set (R6.50) with where the log published it: the `log_index` member of its
-/// `GET /v1/log/jwks` entry, which names the `log.key` entry that publishes it (KF2).
+/// One key of the log's key set (R6.50, R6.62) with where the log published it: the `log_index` member of its
+/// `GET /v1/log/jwks` entry, which names the `log.key` or `log.declaration-key` entry that publishes it (KF2).
 #[derive(Debug, Clone)]
 pub struct LogKey {
     pub kid: String,
-    pub key: crate::jwk::Jwk,
+    /// The parsed public key, or `None` where the entry is a key the reader can read (R6.62's closed form) whose point does not lie on its
+    /// curve: R6.62 asks that of the declaring key alone, at the signature, so such an entry is a key that cannot verify anything.
+    pub key: Option<crate::jwk::Jwk>,
+    /// `alg`, `kty`, `crv`, `x` and `y` as the entry states them: two listings of a kid are the same key where these are equal.
+    pub material: [Option<String>; 5],
     /// `None` when the member is absent, negative, or not an I-JSON integer: the position is not given, and a
     /// declaration under this key cannot be said to follow its publication (KF2, KF4's rule).
     pub log_index: Option<u64>,
@@ -497,53 +531,157 @@ pub struct LogKey {
 
 /// The log's key set with each key's position, read from `GET /v1/log/jwks`'s body.
 ///
-/// The key material is parsed by [`JwkSet::parse`], the one JWK parser, so a key set this reads is a key set
-/// [`verify_head`] reads, byte for byte; the position of each key is read beside it from the same document. A key
-/// without a `kid` carries no position a declaration could name and is left out.
+/// An entry is a key the reader can read only in R6.62's closed form ([`is_readable_key_entry`]). A key set in which any entry of
+/// `keys` or of `declaration_keys` is not one carries no usable `declaration_keys` (R6.62), whatever else it holds.
 #[derive(Debug, Clone, Default)]
 pub struct LogKeys {
     keys: Vec<LogKey>,
+    /// The `declaration_keys` member (errata G67, R6.62): `None` where the document carries no such member, or a member that is not an array, or
+    /// an entry that is not a key the reader can read; `Some` of an empty list where the Forum served an empty one.
+    declaration_keys: Option<Vec<LogKey>>,
+}
+
+fn entry_member<'a>(entry: &'a crate::json::Value, name: &str) -> Option<&'a crate::json::Value> {
+    match entry {
+        crate::json::Value::Object(members) => {
+            members.iter().find(|(m, _)| m == name).map(|(_, v)| v)
+        }
+        _ => None,
+    }
+}
+
+fn entry_text<'a>(entry: &'a crate::json::Value, name: &str) -> Option<&'a str> {
+    match entry_member(entry, name) {
+        Some(crate::json::Value::String(s)) => Some(s),
+        _ => None,
+    }
+}
+
+fn root_member(log_jwks: &[u8], name: &str) -> Option<crate::json::Value> {
+    match crate::json::parse(log_jwks).ok()? {
+        crate::json::Value::Object(members) => {
+            members.into_iter().find(|(m, _)| m == name).map(|(_, v)| v)
+        }
+        _ => None,
+    }
+}
+
+fn read_entry(item: &crate::json::Value) -> LogKey {
+    let text = |n: &str| entry_text(item, n).map(str::to_string);
+    LogKey {
+        kid: text("kid").unwrap_or_default(),
+        key: crate::jwk::parse_key_entry(item).ok(),
+        material: [text("alg"), text("kty"), text("crv"), text("x"), text("y")],
+        log_index: log_index_of(item),
+    }
+}
+
+impl LogKey {
+    /// R6.62's "the same key": the same `kty`, `crv`, `x` and `y` as written (`alg` follows from them; `use` and the rest are not the key).
+    pub fn same_key(&self, other: &LogKey) -> bool {
+        self.material[1..] == other.material[1..]
+    }
 }
 
 impl LogKeys {
-    /// Parses the key set document. The same errors as `JwkSet::parse`.
+    /// Parses the key set document. An error only where the document is no key set at all (the errors of `JwkSet::parse`).
     pub fn parse(log_jwks: &[u8]) -> Result<Self, ActaError> {
-        let set = JwkSet::parse(log_jwks).map_err(ActaError::Jwks)?;
-        // `JwkSet::parse` has admitted this document, so it parses here and `keys` is an array of as many entries.
-        let positions: Vec<Option<u64>> = crate::json::parse(log_jwks)
-            .ok()
-            .and_then(|root| match root {
-                crate::json::Value::Object(members) => members
-                    .into_iter()
-                    .find(|(name, _)| name == "keys")
-                    .map(|(_, value)| value),
-                _ => None,
-            })
-            .and_then(|keys| match keys {
-                crate::json::Value::Array(items) => Some(items),
-                _ => None,
-            })
-            .map(|items| items.iter().map(log_index_of).collect())
-            .unwrap_or_default();
+        let Some(crate::json::Value::Array(raw_keys)) = root_member(log_jwks, "keys") else {
+            return Err(ActaError::Jwks(
+                JwkSet::parse(log_jwks)
+                    .err()
+                    .unwrap_or(crate::jwk::JwkError::KeysNotArray),
+            ));
+        };
+        let declared = root_member(log_jwks, "declaration_keys");
 
-        let keys = set
-            .keys()
+        // R6.62: a key set in which any entry of `keys` or of `declaration_keys` is not a key the reader can read says nothing usable about
+        // the declaration keys, and is read as a key set without the member.
+        let unreadable_entry = !raw_keys.iter().all(is_readable_key_entry)
+            || matches!(&declared, Some(crate::json::Value::Array(items)) if !items.iter().all(is_readable_key_entry));
+
+        // The log keys: every entry that is readable, whether or not its point is on its curve.
+        let keys: Vec<LogKey> = raw_keys
             .iter()
-            .enumerate()
-            .filter_map(|(i, jwk)| {
-                jwk.kid.clone().map(|kid| LogKey {
-                    kid,
-                    key: jwk.clone(),
-                    log_index: positions.get(i).copied().flatten(),
-                })
-            })
+            .filter(|e| is_readable_key_entry(e))
+            .map(read_entry)
             .collect();
-        Ok(LogKeys { keys })
+
+        let declaration_keys = match declared {
+            _ if unreadable_entry => None,
+            Some(crate::json::Value::Array(items)) => Some(items.iter().map(read_entry).collect()),
+            // R6.62: absent, or present and not an array (which says nothing usable and is read as absent).
+            _ => None,
+        };
+        Ok(LogKeys {
+            keys,
+            declaration_keys,
+        })
+    }
+
+    /// The declaration keys the log published, or `None` where the key set carried no usable `declaration_keys` member (R6.62(a)).
+    pub fn declaration_keys(&self) -> Option<&[LogKey]> {
+        self.declaration_keys.as_deref()
+    }
+
+    /// Whether a declaration key is a log key (R6.62): by `kid`, or by public key under another `kid`, the key as the entry states it: its
+    /// `kty`, `crv`, `x` and `y` compared as written, whether or not the point lies on its curve.
+    pub fn is_log_key(&self, declaration_key: &LogKey) -> bool {
+        self.keys
+            .iter()
+            .any(|k| k.kid == declaration_key.kid || k.same_key(declaration_key))
     }
 
     /// The key published under `kid`: the last one, as the head's own lookup takes the key set's last match.
     pub fn find(&self, kid: &str) -> Option<&LogKey> {
         self.keys.iter().rev().find(|k| k.kid == kid)
+    }
+}
+
+/// `log_jwks` with the entries of `keys` that are not keys the reader can read, or whose point is not on its curve, removed (R6.62(a)), or
+/// `None` where that changes nothing or the document is not a key set at all. A reader that must say what a key set holds, where one entry of
+/// it cannot be read, still reads the head's key from the entries that can.
+pub(crate) fn readable_keys_document(log_jwks: &[u8]) -> Option<Vec<u8>> {
+    let crate::json::Value::Array(items) = root_member(log_jwks, "keys")? else {
+        return None;
+    };
+    let keep: Vec<bool> = items
+        .iter()
+        .map(|e| is_readable_key_entry(e) && crate::jwk::parse_key_entry(e).is_ok())
+        .collect();
+    if keep.iter().all(|k| *k) {
+        return None;
+    }
+    let mut root: serde_json::Value = serde_json::from_slice(log_jwks).ok()?;
+    let list = root.get_mut("keys")?.as_array_mut()?;
+    let mut flags = keep.into_iter();
+    list.retain(|_| flags.next().unwrap_or(false));
+    serde_json::to_vec(&root).ok()
+}
+
+/// A coordinate of R6.62's closed form: the 43 characters of the base64url alphabet, the last one of `A E I M Q U Y c g k o s w 0 4 8`
+/// (which encode 32 octets without padding).
+fn is_coordinate(text: &str) -> bool {
+    text.len() == 43
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && text.ends_with(|c| "AEIMQUYcgkosw048".contains(c))
+}
+
+/// Whether a key entry is a key the reader can read (R6.62): an object carrying a string `kid` and the members of one of two keys, an
+/// Ed25519 key (`alg` `EdDSA`, `kty` `OKP`, `crv` `Ed25519`, a coordinate `x`) or an ES256 key (`alg` `ES256`, `kty` `EC`, `crv` `P-256`,
+/// coordinates `x` and `y`). Whether a point lies on its curve is not part of it.
+fn is_readable_key_entry(entry: &crate::json::Value) -> bool {
+    let text = |n: &str| entry_text(entry, n);
+    if text("kid").is_none() {
+        return false;
+    }
+    let coordinate = |n: &str| text(n).is_some_and(is_coordinate);
+    match (text("alg"), text("kty"), text("crv")) {
+        (Some("EdDSA"), Some("OKP"), Some("Ed25519")) => coordinate("x"),
+        (Some("ES256"), Some("EC"), Some("P-256")) => coordinate("x") && coordinate("y"),
+        _ => false,
     }
 }
 

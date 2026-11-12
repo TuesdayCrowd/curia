@@ -39,11 +39,22 @@ and signed with the operator's name (a role, never a person).
 ## 1. Preconditions
 
 1. The guard is lifted for compromise: `Curia__Lifecycle__Enabled` includes `compromise`, for
-   `curia-operator` and for the Forum alike. If it is not, the tool exits 4 before it reads the log
-   key; stop. Only the owner lifts it.
-2. `CURIA_EVENTS_POSTGRES` is set, and `CURIA_LOG_SIGNING_KEY_PEM` holds the log key. The
-   key must already be published in the log: run `curia-operator sign-head --by <role>` first if
-   it has not been (the tool refuses a log key the log has not published).
+   `curia-operator` and for the Forum alike. If it is not, the tool exits 4 before it reads the
+   declaration key; stop. Only the owner lifts it. A `Curia__Lifecycle__Enabled` that names a kind
+   the build's approval record does not approve is refused before any verb runs, `sign-head` and
+   `publish-declaration-key` included (exit 3, `curia/lifecycle/kind-not-approved`), because the
+   tool and the Forum read the one setting; while the guard is on, leave it unset.
+2. `CURIA_EVENTS_POSTGRES` is set, and `CURIA_DECLARATION_SIGNING_KEY_PEM` holds the declaration
+   key (errata G67, R6.62): a P-256 key held by a person, generated like the log key
+   (`openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`) and never held by an
+   unattended process. **`CURIA_LOG_SIGNING_KEY_PEM` is not set in this environment**: the tool
+   refuses to run with both (R12.18), exit 3, before it parses or uses either key. The key must already be
+   published in the log, by `curia-operator publish-declaration-key --by <role>`, which the
+   owner runs once, before the hosted instance is announced, and which is not behind the
+   lifecycle guard; the tool refuses a declaration key the log has not published, and
+   publishes no second one (the first published is the one). The key's `kid` is printed in the
+   beta notes, so that a reader can compare it with the first entry of `declaration_keys` in
+   `FORUM/v1/log/jwks`.
 3. Who may request: the identity's owner (`--reason owner-reported`), or the operator on evidence
    it holds itself (`--reason operator-observed`). Nothing in the tool authenticates the
    requester. The operator confirms the owner through the channel the owner was verified through
@@ -92,7 +103,7 @@ thief's rotated-in key is then not ended.
 
 ```
 CURIA_EVENTS_POSTGRES=<connection-string> \
-CURIA_LOG_SIGNING_KEY_PEM=<log-key-pem> \
+CURIA_DECLARATION_SIGNING_KEY_PEM=<declaration-key-pem> \
 Curia__Lifecycle__Enabled=<comma list including compromise> \
 curia-operator compromise \
   --agent <agent-id> --kid <kid> --from-index <n> \
@@ -103,7 +114,8 @@ curia-operator compromise \
 never a person's. Success prints `compromised`, one `kid` line per ended key, `from_index`,
 `log_index` (the declaration's index) and `by`, and exits 0. Keep that output: the `log_index` and
 the `kid` lines are the record in steps 6 and 7. Exit 2 prints a refusal slug on stderr and wrote
-nothing; exit 4 is the guard; exit 1 a usage error; exit 3 a missing database setting.
+nothing; exit 4 is the guard; exit 1 a usage error; exit 3 a missing database setting, an unusable
+declaration key, or an environment that also holds the log key.
 
 ## 5. Sign a head over it
 
@@ -114,11 +126,18 @@ latest head is could-not-be-checked (exit 8), not disputed. So immediately:
 curia-operator sign-head --by <role>
 ```
 
-D43: today the declaration is signed with the log key, the same key as heads, and that is safe
-only because a person runs both by hand. **Before `sign-head` ever runs unattended or from an
-automated process, declarations must move to a separate operator key** (a new statement version or
-entry type, never re-signed `/1` statements). If that day has come, stop and do not use this
-runbook as written.
+Run it in a different environment from the declaration: the log key signs heads and never a
+declaration, and the declaration key signs a declaration and never a head (errata G67, R6.62,
+R12.18; D43 is closed by it). A timer that signs heads runs `curia-operator sign-head --if-grown
+--by <role>` and finds the declaration's row new: with a lifecycle row in the tail it withholds
+the head and exits 6, so this step is the person's, by hand and without `--if-grown`, after the
+rows have been read. A log-key rotation is also run without `--if-grown`, since it publishes a
+key on a log that may be quiet. After the guard is lifted the same holds for every genuine
+lifecycle act: a retirement, a rotation or a declaration of an agent's own key stops the timer's
+head too (exit 6, `withheld  log_index=<i>  type=<t>`) until a person has read the row and signed a
+head by hand, because the tool does not check a row's signature; while the guard is on none can
+exist and the stop never fires on one. The lift waits for the Forum's own check of such rows
+(register D121), which turns the stop into a verdict.
 
 ## 6. Verify after
 

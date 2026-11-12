@@ -143,7 +143,7 @@ public sealed class AcceptedAnswerSupersededEndpointTests(ForumFixture forum) : 
         using (var stderr = new StringWriter())
         {
             Assert.Equal(0, await OperatorCommands.RunAsync(
-                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct, readLogSigningKeyPem: () => LogKeyPem));
+                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct, readLogSigningKeyPem: () => LogKeyPem));
         }
 
         async Task<HttpResponseMessage> GetAsync(string? ifNoneMatch)

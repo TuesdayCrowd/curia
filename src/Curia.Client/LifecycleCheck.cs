@@ -41,7 +41,7 @@ internal sealed record LifecycleVerdict(Check Check, string Predicate);
 /// </list>
 ///
 /// <para>No approval is consulted: a reader folds on the merits (spec section 4.8). A declaration
-/// (<c>agent.key-compromised</c>) is a statement the operator's log key signed (KF1, KF2) whose <c>kids</c>, bindings and
+/// (<c>agent.key-compromised</c>) is a statement the operator's declaration key signed (KF1, KF2; errata G67, R6.62: never a log key) whose <c>kids</c>, bindings and
 /// <c>from_index</c> the reader recomputes from the lifecycle (KF3); one that holds, and names the post's key from a log
 /// index at or below the post's, and follows the post, makes the post <i>disputed</i> (R6.57). Check (1) of KF3 is evaluated
 /// over the supplied stream only. A declaration that fails never disputes a post. An entry of an unknown kind is
@@ -86,15 +86,15 @@ public static class LifecycleCheck
     /// </param>
     /// <param name="head">A signed head this reader has verified.</param>
     /// <param name="logKeys">
-    /// The log's key set (R6.50), which a declaration is verified under (KF2): its <c>log_index</c> says where each key was
-    /// published, and a declaration is valid only under a key published before it.
+    /// The log's key set (R6.50, R6.62): a declaration is verified under a declaration key (KF2), never a log key, whose <c>log_index</c> says where it was
+    /// published; a declaration is valid only under the first declaration key published, and published before it. Null says no key set was supplied.
     /// </param>
     public static Check Verify(
         ProvenancePost post,
         LogEntryDocument postEntry,
         IReadOnlyList<(LogEntryDocument Entry, InclusionProofDocument Proof)> lifecycle,
         SignedHeadDocument head,
-        ImmutableArray<LogJwk> logKeys) =>
+        LogKeySet? logKeys) =>
         Fold(post, postEntry, lifecycle, head, logKeys).Check;
 
     internal static LifecycleVerdict Fold(
@@ -102,7 +102,7 @@ public static class LifecycleCheck
         LogEntryDocument postEntry,
         IReadOnlyList<(LogEntryDocument Entry, InclusionProofDocument Proof)> lifecycle,
         SignedHeadDocument head,
-        ImmutableArray<LogJwk> logKeys)
+        LogKeySet? logKeys)
     {
         ArgumentNullException.ThrowIfNull(post);
         ArgumentNullException.ThrowIfNull(postEntry);
@@ -179,7 +179,7 @@ public static class LifecycleCheck
     /// <summary>A declaration that held under KF1 to KF4 and KF3: where it sits, where it states the compromise from, and whom it names.</summary>
     private sealed record Declared(long Index, long FromIndex, IReadOnlyList<string> Kids);
 
-    private sealed class Folder(string author, SignedHeadDocument head, ImmutableArray<LogJwk> logKeys)
+    private sealed class Folder(string author, SignedHeadDocument head, LogKeySet? logKeys)
     {
         private bool _firstWasEnrolment;
         private string? _enrolmentKid;
@@ -392,8 +392,8 @@ public static class LifecycleCheck
 
         /// <summary>
         /// A declaration (R6.57, spec 4.5, 4.6), in KF4's order after its type, statement <c>typ</c> and reason: the closed member
-        /// set, the statement, the link, KF1 (header <c>typ</c>), KF2 (header <c>kid</c> in the log's key set, published before the
-        /// declaration), the signature, then KF3: (1) every kid is bound to the author in the supplied stream, (2) binding of
+        /// set, the statement, the link, KF1 (header <c>typ</c>), KF2 (R6.62: header <c>kid</c> a declaration key the log published, the first,
+        /// before the declaration, and no log key), the signature, then KF3: (1) every kid is bound to the author in the supplied stream, (2) binding of
         /// <c>kids[0]</c> at or below <c>from_index</c>, which is below the declaration's index, (3) <c>kids</c> equal, in order, the
         /// cascade recomputed from the lifecycle. A declaration that fails any of them never disputes a post.
         /// </summary>
@@ -425,22 +425,46 @@ public static class LifecycleCheck
             if (!DetachedJws.ReadProtectedHeader(declaration).TryGetValue(out var header, out _) || header!.Kid is null)
                 return Failed("declaration-key-unpublished", Text($"the declaration at log index {index} names no signing key"));
 
-            var logKey = logKeys.IsDefault ? null : logKeys.LastOrDefault(k => string.Equals(k.Key.Kid, header.Kid, StringComparison.Ordinal));
-            if (logKey is null)
-                return Failed("declaration-key-unpublished", Text(
-                    $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, which the log's key set does not publish (KF2)"));
-            if (logKey.LogIndex < 0)
-                return CouldNotCheck("log-key-position-unknown", Text(
-                    $"the log's key set gives kid={Check.Quote(header.Kid)} no log index, so this reader cannot say it was published before the declaration at {index} (KF2)"));
-            if (logKey.LogIndex >= index)
-                return Failed("declaration-key-unpublished", Text(
-                    $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, published at log index {logKey.LogIndex}, which is not before it (KF2)"));
+            // R6.62, in order, the first that fails deciding. (a) A key set that supplied no declaration_keys member says nothing: an absence is not a denial.
+            if (logKeys?.DeclarationKeys is not { } declarationKeys)
+                return CouldNotCheck("declaration-key-set-not-supplied", Text(
+                    $"the log's key set carries no usable declaration_keys member (absent, not an array, or listing an entry it cannot read as a key (R6.62)), so this reader cannot say which key may declare, and the declaration at log index {index} is not checked (R6.62)"));
 
-            if (!SignatureCheck.Material(logKey.Key).TryGetValue(out var logMaterial, out _)
+            // (b) The header's kid names a declaration key (a served empty array names none). The one with the lowest known position, when a kid is listed twice.
+            var declarationKey = declarationKeys
+                .Where(k => string.Equals(k.Key.Kid, header.Kid, StringComparison.Ordinal))
+                .OrderBy(k => k.LogIndex < 0 ? long.MaxValue : k.LogIndex)
+                .FirstOrDefault();
+            if (declarationKey is null)
+                return Failed("declaration-key-unpublished", Text(
+                    $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, which the log's declaration keys do not publish (R6.62)"));
+
+            // (c) Its position is given, and so is every other declaration key's: a listed key with no position might be the earliest, so "first" cannot be decided (Amendment 3 ruling 39 (c)).
+            if (declarationKeys.Any(k => k.LogIndex < 0))
+                return CouldNotCheck("declaration-key-position-unknown", Text(
+                    $"the log's key set gives a declaration key no log index, so this reader cannot say kid={Check.Quote(header.Kid)} was published before the declaration at {index} or is the first (R6.62)"));
+
+            // (d) A log key never declares: a log key by kid, or by public key under another kid (Amendment 3 ruling 39 (b)).
+            if (logKeys.Keys.Any(k => IsSameKey(k.Key, declarationKey.Key)))
+                return Failed("declaration-key-is-log-key", Text(
+                    $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, which is also a log key (R6.62)"));
+
+            // (e) The first declaration key published is the one, by log index and never by the order the set is served in: no other key is at or before it.
+            if (declarationKeys.Any(k => k.LogIndex >= 0 && k.LogIndex <= declarationKey.LogIndex && !string.Equals(k.Key.Kid, declarationKey.Key.Kid, StringComparison.Ordinal)))
+                return Failed("declaration-key-not-first", Text(
+                    $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, which is not the first declaration key the log published (R6.62)"));
+
+            // (f) Published before the declaration it signs.
+            if (declarationKey.LogIndex >= index)
+                return Failed("declaration-key-unpublished", Text(
+                    $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, published at log index {declarationKey.LogIndex}, which is not before it (R6.62)"));
+
+            // (g) The signature verifies under it.
+            if (!SignatureCheck.Material(declarationKey.Key).TryGetValue(out var logMaterial, out _)
                 || !CanonicalOf(text).TryGetValue(out var canonical, out _)
                 || !Signed(declaration, canonical, KeyStatements.CompromiseHeaderTyp, logMaterial!))
                 return Failed("declaration-signature-invalid", Text(
-                    $"the declaration at log index {index} does not verify under the log key kid={Check.Quote(header.Kid)}"));
+                    $"the declaration at log index {index} does not verify under the declaration key kid={Check.Quote(header.Kid)}"));
 
             // KF3 (1): every kid is bound to the author in the stream the reader holds. A kid with no binding there, and a kid
             // whose only binding is not supplied, are alike unbound: the reader is served the author's stream and no other.
@@ -528,6 +552,14 @@ public static class LifecycleCheck
         && root is JsonValue.Object o
             ? ClientJson.String(o, "typ")
             : null;
+
+    /// <summary>One key under one name or two: the same <c>kid</c>, or the same public key (<c>kty</c>, <c>crv</c>, <c>x</c>, <c>y</c>) under another (R6.62).</summary>
+    private static bool IsSameKey(ForumJwk a, ForumJwk b) =>
+        string.Equals(a.Kid, b.Kid, StringComparison.Ordinal)
+        || (string.Equals(a.Kty, b.Kty, StringComparison.Ordinal)
+            && string.Equals(a.Crv, b.Crv, StringComparison.Ordinal)
+            && string.Equals(a.X, b.X, StringComparison.Ordinal)
+            && string.Equals(a.Y, b.Y, StringComparison.Ordinal));
 
     private static bool HasHeaderTyp(JwsSignature signature, string typ) =>
         DetachedJws.ReadProtectedHeader(signature).TryGetValue(out var header, out _)

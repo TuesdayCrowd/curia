@@ -39,21 +39,28 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
         return (long)(await command.ExecuteScalarAsync(ct))!;
     }
 
-    private async Task<(int Exit, string Out, string Err)> OperatorAsync(string pem, CancellationToken ct, params string[] args)
+    /// <summary>A verb with the one key it signs with in its environment: <c>sign-head</c> the log key, <c>compromise</c> the declaration key (R12.18: never both).</summary>
+    private async Task<(int Exit, string Out, string Err)> OperatorAsync(string? logPem, string? declarationPem, CancellationToken ct, params string[] args)
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var exit = await OperatorCommands.RunAsync(
-            args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct,
-            readLogSigningKeyPem: () => pem);
+            args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+            readLogSigningKeyPem: () => logPem,
+            readDeclarationSigningKeyPem: () => declarationPem);
         return (exit, stdout.ToString(), stderr.ToString());
     }
 
     private Task<(int Exit, string Out, string Err)> SignHeadAsync(string pem, CancellationToken ct) =>
-        OperatorAsync(pem, ct, "sign-head", "--by", "ops");
+        OperatorAsync(pem, null, ct, "sign-head", "--by", "ops");
 
-    private Task<(int Exit, string Out, string Err)> CompromiseAsync(string pem, string agent, string kid, long fromIndex, CancellationToken ct) =>
-        OperatorAsync(pem, ct, "compromise", "--agent", agent, "--kid", kid, "--from-index", fromIndex.ToString(System.Globalization.CultureInfo.InvariantCulture),
+    /// <summary>
+    /// Declares under the Forum's one declaration key: the first the fixture's database publishes (errata G67, R6.62), which this call publishes when none is.
+    /// <paramref name="declarationPem"/> names another key to show the refusal of one the log has not published.
+    /// </summary>
+    private async Task<(int Exit, string Out, string Err)> CompromiseAsync(string agent, string kid, long fromIndex, CancellationToken ct, string? declarationPem = null) =>
+        await OperatorAsync(null, declarationPem ?? await DeclarationKeyHost.PemAsync(forum, ct), ct,
+            "compromise", "--agent", agent, "--kid", kid, "--from-index", fromIndex.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--reason", "owner-reported", "--operator", "ops");
 
     [Fact]
@@ -78,7 +85,7 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
         var boundAt = await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct);
         var pem = LogSigningKey.GeneratePem();
         var published = await SignHeadAsync(pem, ct);
-        var declared = await CompromiseAsync(pem, first.AgentId, second.Kid, boundAt, ct);
+        var declared = await CompromiseAsync(first.AgentId, second.Kid, boundAt, ct);
 
         var board = "board-" + Suffix();
         using var refused = await firstDpop.PostAsync(
@@ -109,7 +116,7 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
 
         var pem = LogSigningKey.GeneratePem();
         var published = await SignHeadAsync(pem, ct);
-        var declared = await CompromiseAsync(pem, agent.AgentId, agent.Kid, boundAt, ct);
+        var declared = await CompromiseAsync(agent.AgentId, agent.Kid, boundAt, ct);
 
         using var after = await dpop.PostAsync(
             client, $"http://localhost/v1/posts/{postId}/accept", token, TokenKeyLivenessTests.AcceptBody, forum.Now, ct, contentType: "application/json");
@@ -121,28 +128,28 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
     }
 
     [Fact]
-    public async Task R6_26_TheOperatorRefusesALogKeyTheLogHasNotPublished()
+    public async Task R6_62_TheOperatorRefusesADeclarationKeyTheLogHasNotPublished()
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
         var agent = ForumAgent.Create(Unique("unpublished"), "only-" + Suffix());
         await agent.AuthenticateAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
         var boundAt = await KeyActRequests.LatestLifecycleAsync(client, agent.AgentId, ct);
-        var pem = LogSigningKey.GeneratePem();
+        _ = await DeclarationKeyHost.PemAsync(forum, ct);
         var rows = await EventCountAsync(forum.ConnectionString, ct);
 
-        var refused = await CompromiseAsync(pem, agent.AgentId, agent.Kid, boundAt, ct);
-        var afterRefusal = await EventCountAsync(forum.ConnectionString, ct);
+        // A declaration key the log has not published (the fixture's is another one), and a log key, which is no declaration key either.
+        var stranger = await CompromiseAsync(agent.AgentId, agent.Kid, boundAt, ct, declarationPem: DeclarationSigningKey.GeneratePem());
+        var afterStranger = await EventCountAsync(forum.ConnectionString, ct);
 
-        // Control: the same call once sign-head has published the key appends.
-        var published = await SignHeadAsync(pem, ct);
+        // Control: the same call under the key the log published appends.
         var beforeControl = await EventCountAsync(forum.ConnectionString, ct);
-        var control = await CompromiseAsync(pem, agent.AgentId, agent.Kid, boundAt, ct);
+        var control = await CompromiseAsync(agent.AgentId, agent.Kid, boundAt, ct);
         var afterControl = await EventCountAsync(forum.ConnectionString, ct);
 
         Assert.Equal(
-            $"{ExitCode.Refused}, curia/keys/log-key-not-published: True; {rows}; {ExitCode.Ok}; {ExitCode.Ok}, {beforeControl + 1}",
-            $"{refused.Exit}, curia/keys/log-key-not-published: {refused.Err.Contains("curia/keys/log-key-not-published", StringComparison.Ordinal)}; {afterRefusal}; {published.Exit}; {control.Exit}, {afterControl}");
+            $"{ExitCode.Refused}, curia/keys/declaration-key-not-published: True; {rows}; {ExitCode.Ok}, {beforeControl + 1}",
+            $"{stranger.Exit}, curia/keys/declaration-key-not-published: {stranger.Err.Contains("curia/keys/declaration-key-not-published", StringComparison.Ordinal)}; {afterStranger}; {control.Exit}, {afterControl}");
     }
 
     [Fact]
@@ -156,7 +163,7 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
         var pem = LogSigningKey.GeneratePem();
         await SignHeadAsync(pem, ct);
 
-        var declared = await CompromiseAsync(pem, agent.AgentId, agent.Kid, boundAt, ct);
+        var declared = await CompromiseAsync(agent.AgentId, agent.Kid, boundAt, ct);
         using var keySet = await KeyActRequests.KeySetAsync(client, agent.AgentId, ct);
         var status = keySet.RootElement.GetProperty("keys").EnumerateArray().Single().GetProperty("curia_status").GetString();
 
@@ -190,7 +197,7 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
 
         var pem = LogSigningKey.GeneratePem();
         await SignHeadAsync(pem, ct);
-        var declared = await CompromiseAsync(pem, first.AgentId, first.Kid, boundAt, ct);
+        var declared = await CompromiseAsync(first.AgentId, first.Kid, boundAt, ct);
         var declarationAt = await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct);
 
         using var keySet = await KeyActRequests.KeySetAsync(client, first.AgentId, ct);
@@ -228,7 +235,7 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
 
         var pem = LogSigningKey.GeneratePem();
         Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
-        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(pem, agent.AgentId, agent.Kid, boundAt, ct)).Exit);
+        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(agent.AgentId, agent.Kid, boundAt, ct)).Exit);
 
         // A head that covers the declaration: the reader fetches it only under a head it holds.
         Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
@@ -276,7 +283,7 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
 
         var pem = LogSigningKey.GeneratePem();
         Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
-        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(pem, agent.AgentId, agent.Kid, boundAt, ct)).Exit);
+        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(agent.AgentId, agent.Kid, boundAt, ct)).Exit);
         var declarationAt = await KeyActRequests.LatestLifecycleAsync(client, agent.AgentId, ct);
 
         using var response = await client.PostAsJsonAsync("/v1/posts/batch", new { digests = new[] { digest } }, ct);
@@ -329,7 +336,7 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
 
         var pem = LogSigningKey.GeneratePem();
         Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
-        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(pem, first.AgentId, first.Kid, boundAt, ct)).Exit);
+        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(first.AgentId, first.Kid, boundAt, ct)).Exit);
         Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
 
         var home = Directory.CreateTempSubdirectory("curia-dry-run-heads-").FullName;
@@ -411,7 +418,7 @@ public sealed class CompromiseDeclarationGuardTests(GuardedForumFixture forum) :
         public string? Read()
         {
             KeyReads++;
-            return LogSigningKey.GeneratePem();
+            return DeclarationSigningKey.GeneratePem();
         }
 
         public Result<ILifecycleStatementSigner> Build(string pem)
@@ -429,12 +436,12 @@ public sealed class CompromiseDeclarationGuardTests(GuardedForumFixture forum) :
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var exit = await OperatorCommands.RunAsync(
-            args, forum.ConnectionString, forum.Clock, EmbeddedGate(), probes.Build, stdout, stderr, ct, readLogSigningKeyPem: probes.Read);
+            args, forum.ConnectionString, forum.Clock, EmbeddedGate(), probes.Build, stdout, stderr, ct, readDeclarationSigningKeyPem: probes.Read);
         return (exit, stdout.ToString(), stderr.ToString());
     }
 
     [Fact]
-    public async Task R4_38_TheOperatorVerbRefusesBeforeItReadsTheLogKey()
+    public async Task R4_38_TheOperatorVerbRefusesBeforeItReadsTheDeclarationKey()
     {
         var ct = TestContext.Current.CancellationToken;
         var probes = new Probes();
@@ -456,18 +463,18 @@ public sealed class CompromiseDeclarationGuardTests(GuardedForumFixture forum) :
         var agent = ForumAgent.Create("https://agents.example/control-" + Suffix(), "only-" + Suffix());
         await agent.AuthenticateAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
         var boundAt = await KeyActRequests.LatestLifecycleAsync(client, agent.AgentId, ct);
-        var pem = LogSigningKey.GeneratePem();
+        var declarationPem = DeclarationSigningKey.GeneratePem();
 
         async Task<int> RunAsync(string[] args)
         {
             using var stdout = new StringWriter();
             using var stderr = new StringWriter();
             return await OperatorCommands.RunAsync(
-                args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct,
-                readLogSigningKeyPem: () => pem);
+                args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+                readDeclarationSigningKeyPem: () => declarationPem);
         }
 
-        var published = await RunAsync(["sign-head", "--by", "ops"]);
+        var published = await RunAsync(["publish-declaration-key", "--by", "ops"]);
         var declared = await RunAsync(["compromise", "--agent", agent.AgentId, "--kid", agent.Kid, "--from-index",
             boundAt.ToString(System.Globalization.CultureInfo.InvariantCulture), "--reason", "owner-reported", "--operator", "ops"]);
 

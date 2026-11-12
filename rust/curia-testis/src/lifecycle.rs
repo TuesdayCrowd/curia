@@ -18,7 +18,7 @@
 //! * a rotation or a retirement is a canonical statement of a closed member set (KF4, KF5), whose
 //!   signatures carry its kind's header `typ` (KF1) and name their roles' members as `kid` (KF2), and
 //!   verify under a key that was bound and not retired at that point;
-//! * a declaration (R6.57) is a statement the operator's log key signed (KF1, KF2) whose `kids`, bindings and
+//! * a declaration (R6.57) is a statement the operator's declaration key signed (KF1, KF2; errata G67, R6.62: never a log key) whose `kids`, bindings and
 //!   `from_index` this verifier recomputes from the lifecycle (KF3); one that holds, names the post's key from a
 //!   leaf at or below the post's, and follows the post, makes the post disputed. Check (1) of KF3 is evaluated over
 //!   the supplied stream only. A declaration that fails never disputes a post;
@@ -32,8 +32,8 @@ use base64::Engine;
 use serde_json::{Map, Value};
 
 use crate::acta::{
-    self, entry_fields, head_covers, post_author_and_kid, str_at, ActaError, LogKeys, VerifiedHead,
-    ENROLLED, KEY_BOUND, POST_ACCEPTED,
+    self, entry_fields, head_covers, post_author_and_kid, str_at, ActaError, LogKey, LogKeys,
+    VerifiedHead, ENROLLED, KEY_BOUND, POST_ACCEPTED,
 };
 use crate::jwk::JwkSet;
 use crate::jws;
@@ -52,7 +52,7 @@ pub const ROTATION_HEADER_TYP: &str = "curia-key-rotation+jws";
 /// The header `typ` of a retirement's signature (KF1).
 pub const RETIREMENT_HEADER_TYP: &str = "curia-key-retirement+jws";
 /// A compromise statement's `typ`.
-pub const COMPROMISE_STATEMENT_TYP: &str = "curia.key-compromise/1";
+pub const COMPROMISE_STATEMENT_TYP: &str = "curia.key-compromise/2";
 /// The header `typ` of a declaration's signature (KF1).
 pub const COMPROMISE_HEADER_TYP: &str = "curia-key-compromise+jws";
 /// The reasons a declaration may state (KF4): a reason outside it is not established.
@@ -123,7 +123,15 @@ pub fn verify_lifecycle(
     head: &[u8],
     log_jwks: &[u8],
 ) -> Result<VerifiedLifecycle, ActaError> {
-    let head = acta::verify_head(head, log_jwks)?;
+    // R6.62(a): a key set with an entry of `keys` that is not readable as a key still carries the head's key among the entries that are, and
+    // says nothing usable about the declaration keys, which is decided at the declaration.
+    let head = match acta::verify_head(head, log_jwks) {
+        Err(first @ ActaError::Jwks(_)) => match acta::readable_keys_document(log_jwks) {
+            Some(readable) => acta::verify_head(head, &readable).map_err(|_| first)?,
+            None => return Err(first),
+        },
+        other => other?,
+    };
     let log_keys = LogKeys::parse(log_jwks)?;
     verify_lifecycle_under(post_entry, chain, &head, &log_keys)
 }
@@ -696,22 +704,74 @@ impl Fold {
                 kid: String::new(),
             });
         };
-        let Some(log_key) = log_keys.find(&header_kid) else {
+        // R6.62, in order, the first that fails deciding. (a) A key set with no `declaration_keys` member says nothing.
+        let Some(declaration_keys) = log_keys.declaration_keys() else {
+            return Err(ActaError::DeclarationKeySetNotSupplied);
+        };
+        // (b) The header's kid names a declaration key (a served empty array names none). A kid listed more than once is the key of its
+        // earliest listing, and a later entry under it is not a key: each kid below stands for its earliest listing, whose position is
+        // not given if any listing of the kid gives none (the earliest cannot then be said).
+        let mut keys: Vec<(&LogKey, Option<u64>)> = Vec::new();
+        for listed in declaration_keys {
+            match keys.iter_mut().find(|(k, _)| k.kid == listed.kid) {
+                None => keys.push((listed, listed.log_index)),
+                Some((earliest, at)) => {
+                    let before = *at;
+                    // R6.62: where two listings of a kid share a position and are not the same key, its earliest cannot be said.
+                    *at = match (before, listed.log_index) {
+                        (Some(x), Some(y)) if x == y && !earliest.same_key(listed) => None,
+                        (Some(x), Some(y)) => Some(x.min(y)),
+                        _ => None,
+                    };
+                    if listed.log_index.is_some() && listed.log_index == *at && before != *at {
+                        *earliest = listed;
+                    }
+                }
+            }
+        }
+        let Some(&(declaration_key, position)) = keys.iter().find(|(k, _)| k.kid == header_kid)
+        else {
             return Err(ActaError::DeclarationKeyUnpublished {
                 at: index,
                 kid: header_kid,
             });
         };
-        let Some(published_at) = log_key.log_index else {
-            return Err(ActaError::LogKeyPositionUnknown { kid: header_kid });
-        };
+        // (c) A position not given: the declaring key's or any other declaration key's.
+        if keys.iter().any(|(_, at)| at.is_none()) {
+            return Err(ActaError::DeclarationKeyPositionUnknown { kid: header_kid });
+        }
+        let published_at = position.unwrap_or(u64::MAX);
+        // (d) A log key never declares: by kid, or by public key under another kid.
+        if log_keys.is_log_key(declaration_key) {
+            return Err(ActaError::DeclarationKeyIsLogKey {
+                at: index,
+                kid: header_kid,
+            });
+        }
+        // (e) The first declaration key published is the one, by `log_index` and never by the order the key set is served in: no
+        // other key is at or before it.
+        if keys
+            .iter()
+            .any(|(k, at)| k.kid != header_kid && at.is_some_and(|at| at <= published_at))
+        {
+            return Err(ActaError::DeclarationKeyNotFirst {
+                at: index,
+                kid: header_kid,
+            });
+        }
+        // (f) Published before the declaration it signs.
         if published_at >= index {
             return Err(ActaError::DeclarationKeyUnpublished {
                 at: index,
                 kid: header_kid,
             });
         }
-        let signer = JwkSet::from_keys(vec![log_key.key.clone()]);
+        // (g) The signature verifies under it.
+        // A key whose point is not on its curve verifies nothing: asked of the declaring key alone, here (R6.62).
+        let Some(declaring_jwk) = declaration_key.key.clone() else {
+            return Err(ActaError::DeclarationSignatureInvalid { at: index });
+        };
+        let signer = JwkSet::from_keys(vec![declaring_jwk]);
         jws::verify_typed(
             declaration,
             &statement.bytes,

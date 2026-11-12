@@ -75,6 +75,7 @@
     <Compile Include="../Shared/PublishedLateCommitWords.cs" Link="Shared/PublishedLateCommitWords.cs" />
     <Compile Include="../Shared/ReceivedAct.cs" Link="Shared/ReceivedAct.cs" />
     <Compile Include="../Shared/ShortTimeoutHandler.cs" Link="Shared/ShortTimeoutHandler.cs" />
+    <Compile Include="../Shared/NoCadence.cs" Link="Shared/NoCadence.cs" />
     <Compile Include="../Shared/TimerManualTimeProvider.cs" Link="Shared/TimerManualTimeProvider.cs" />
     <!-- Errata G55 (the faulted-append PR): a Forum that reads a submission and says nothing, closes or resets. -->
     <Compile Include="../Shared/RawStubForum.cs" Link="Shared/RawStubForum.cs" />

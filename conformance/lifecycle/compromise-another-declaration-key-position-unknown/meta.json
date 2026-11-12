@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The key set lists the first declaration key at 3 and a second with no log_index, and the declaration at 4 is valid under the first. A reader cannot say the declaring key is the earliest when a listed key has no position (R6.62(c)), so the verdict is could not be checked and the post is not disputed. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}
