@@ -43,7 +43,7 @@ public sealed class ReaderVectorAgreementTests
 
     /// <summary>
     /// The log a reader vector describes, as the Forum would hold it: the entries at their indices, a filler where the vector holds none, and the keys <c>log-jwks.json</c> publishes as
-    /// <c>log.key</c> and <c>log.declaration-key</c> entries, each at its <c>log_index</c> when that slot is free and otherwise after the last entry (the same placement for every case).
+    /// <c>log.key</c> and <c>log.declaration-key</c> entries, each at its <c>log_index</c> when that slot is free and otherwise above the highest index of any entry and of any key's <c>log_index</c> (the same placement for every case).
     /// </summary>
     internal static IReadOnlyList<AppendedEvent> LogOf(ConformanceLog log)
     {
@@ -57,9 +57,12 @@ public sealed class ReaderVectorAgreementTests
         using var jwks = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(log.Directory, "log-jwks.json")));
         var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(jwks.RootElement.GetRawText()), AdmitLimits.Default);
         var published = new PublishedKeys(parsed.Match(v => v, e => throw new InvalidOperationException(e.Type)));
-        var tail = slots.Keys.Count == 0 ? 0 : slots.Keys.Max() + 1;
         var keys = published.LogKeys.Select(k => (Type: LogEntries.KeyType, k.LogIndex, k.Kid, k.Jwk, k.ValidFrom))
-            .Concat(published.DeclarationKeys.Select(k => (Type: LogEntries.DeclarationKeyType, k.LogIndex, k.Kid, k.Jwk, k.ValidFrom)));
+            .Concat(published.DeclarationKeys.Select(k => (Type: LogEntries.DeclarationKeyType, k.LogIndex, k.Kid, k.Jwk, k.ValidFrom)))
+            .ToList();
+
+        // One more than the highest index of any entry and of any key's log_index (ruling 54): a key that cannot take its own position goes after everything, in served order, and no later key's own slot is taken.
+        var tail = Math.Max(slots.Keys.Count == 0 ? -1 : slots.Keys.Max(), keys.Count == 0 ? -1 : keys.Max(k => k.LogIndex)) + 1;
         foreach (var key in keys)
         {
             var at = slots.ContainsKey(key.LogIndex) ? tail++ : key.LogIndex;
@@ -85,12 +88,17 @@ public sealed class ReaderVectorAgreementTests
     private static AppendedEvent Filler(long index) =>
         LogEvents.At(index, $"filler-{index.ToString(CultureInfo.InvariantCulture)}", DateTimeOffset.UnixEpoch, $"synthetic-filler-{index.ToString(CultureInfo.InvariantCulture)}", "synthetic.filler", "operator:synthetic", new JsonValue.Object([]));
 
+    /// <summary>The three vectors not asked (ruling 54), by name; each is asserted to be a directory of <c>conformance/lifecycle/</c>, since an exclusion of a name that does not exist excludes nothing.</summary>
+    private static readonly string[] NotAsked = ["foreign-identity-entry", "unknown-lifecycle-kind", "compromise-declaration-keys-share-position"];
+
     [Fact]
     public void LRV2_TheVerifierAgreesWithTheReaderVectors()
     {
         var failures = new List<string>();
         var classified = 0;
         var verifier = ConformanceLog.Verifier();
+        foreach (var excluded in NotAsked)
+            Assert.Contains(excluded, ConformanceLog.Names("lifecycle"));
         foreach (var name in ConformanceLog.Names("lifecycle"))
         {
             var log = ConformanceLog.Open("lifecycle", name);
@@ -102,7 +110,7 @@ public sealed class ReaderVectorAgreementTests
             // A third is a key set that no log can be: two declaration keys at one position. R6.64 reads "the log's own entries as the key set ... so that there is neither a key set that is not
             // supplied nor a position that is not given", and a log gives each entry a position of its own, so the nearest log (the second key after the last entry, the first key still first)
             // decides the row honoured and the reader's verdict, which the document's shape alone produces, has no log to agree with.
-            if (name is "foreign-identity-entry" or "unknown-lifecycle-kind" or "compromise-declaration-keys-share-position") { classified++; continue; }
+            if (NotAsked.Contains(name)) { classified++; continue; }
 
             var verified = verifier.OfLog(LogOf(log)).For(Typed.Agent(log.Agent));
             var skipped = verified.Refusal is null ? verified.Skipped : [];

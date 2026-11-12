@@ -138,10 +138,9 @@ internal sealed class LifecycleFold
     {
         _enrolled = true;
         _enrolmentKid = appended.Event.Payload is JsonValue.Object o ? Text(o, AgentStandingProjector.KeyIdField) : null;
-        Honour(index, appended);
 
-        // The enrolment binds its kid (and no key): a binding that follows it states the key (R4.34).
-        if (_enrolmentKid is not null) _bound[_enrolmentKid] = new Bound(index, null);
+        // The enrolment alone binds no kid and no key, and is the previous honoured entry (R6.64, ruling 55): the pair or a rotation binds.
+        Honour(index, appended);
     }
 
     /// <summary>R4.38: the enrolment's pair, or null when <paramref name="payload"/> is not it (the caller has established that the enrolment is the only lifecycle entry before it).</summary>

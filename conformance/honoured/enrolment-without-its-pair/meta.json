@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "An enrolment at 0 with no pair after it, the declaration key at 1, a log key at 2, a declaration of the enrolment's kid at 3 (prev 0) and a genuine retirement of it by itself at 4 (prev 0). The enrolment alone binds no kid and no key and is the previous honoured entry, so the rows' prev 0 reaches the predicates that name the missing binding and not broken-link: the declaration is skipped as kid-not-bound-to-agent and the retirement as rotation-unauthorized; a skipped row moves nothing, so the retirement's prev is still 0 (ruling 55, T10). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

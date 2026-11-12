@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "A log.declaration-key entry at 2 carrying the declaration key's kid and no jwk (no key, no position), the genuine declaration key under that kid at 3, a log key at 4, and a declaration signed by the genuine key at 5: the entry at 2 is no key and lists nothing, so the genuine key is the earliest listing of its kid and the declaration is honoured (ruling 57, T12). The other reading, in which the malformed entry displaces the genuine key, would skip it as declaration-key-unpublished and hand a credential holder a silencing primitive. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

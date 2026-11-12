@@ -125,6 +125,8 @@ internal static partial class LifecycleCases
             HDeclarationNamesARetiredKey(root, k0),
             HDeclarationKeyIsALogKeyPublishedAfterIt(root, k0),
             HDeclarationKeyEntryKidDiffersFromItsJwk(root, k0),
+            HEnrolmentWithoutItsPair(root, k0),
+            HMalformedKeyEntryDoesNotListTheGenuineKeysKid(root, k0),
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -645,6 +647,33 @@ internal static partial class LifecycleCases
             "A log.declaration-key entry at 2 whose kid is kd-entry and whose jwk is the declaration key under its own kid; a declaration at 4 signed by that key with the jwk's kid in its header, and the same declaration at 5 with the entry's kid in its header. The entry states two kids and is no key, so neither header names a published declaration key.",
             log, Agent_(rows: [HRow.Skipped(4, KeyCompromised, "declaration-key-unpublished"), HRow.Skipped(5, KeyCompromised, "declaration-key-unpublished")],
                 keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+    }
+
+    /// <summary>Vector 50 (errata G68, ruling 55): an enrolment with no pair after it is honoured and chained to, and binds no kid and no key.</summary>
+    private static HCase HEnrolmentWithoutItsPair(string root, Key k0)
+    {
+        var log = new Log();
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(k0.Kid))));
+        PublishDeclarationKey(log, ConformanceLogKeys.Declaration);
+        PublishLogKey(log, ConformanceLogKeys.Log);
+        AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid], FromIndex: 0, Prev: 0), root, "enrolment-without-its-pair");
+        AddRetirement(log, new Ret(k0, k0, Prev: 0));
+        return new HCase("enrolment-without-its-pair",
+            "An enrolment at 0 with no pair after it, the declaration key at 1, a log key at 2, a declaration of the enrolment's kid at 3 (prev 0) and a genuine retirement of it by itself at 4 (prev 0). The enrolment alone binds no kid and no key and is the previous honoured entry, so the rows' prev 0 reaches the predicates that name the missing binding and not broken-link: the declaration is skipped as kid-not-bound-to-agent and the retirement as rotation-unauthorized; a skipped row moves nothing, so the retirement's prev is still 0 (ruling 55, T10).",
+            log, Agent_(rows: [HRow.Skipped(3, KeyCompromised, "kid-not-bound-to-agent"), HRow.Skipped(4, KeyRetired, "rotation-unauthorized")], keys: [], bound: []));
+    }
+
+    /// <summary>Vector 51 (errata G68, ruling 57): an entry that is not a key lists nothing, so it does not displace the genuine key's earliest listing.</summary>
+    private static HCase HMalformedKeyEntryDoesNotListTheGenuineKeysKid(string root, Key k0)
+    {
+        var log = EnrolledAndBound(k0);
+        log.Add("log.declaration-key", "log:declaration-keys", OperatorRole, Obj(("kid", Str(ConformanceLogKeys.Declaration.Kid)), ("valid_from", Str(LogKeyValidFrom))));
+        PublishDeclarationKey(log, ConformanceLogKeys.Declaration);
+        PublishLogKey(log, ConformanceLogKeys.Log);
+        AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid], FromIndex: 1, Prev: 1), root, "malformed-key-entry-does-not-list-the-genuine-keys-kid");
+        return new HCase("malformed-key-entry-does-not-list-the-genuine-keys-kid",
+            "A log.declaration-key entry at 2 carrying the declaration key's kid and no jwk (no key, no position), the genuine declaration key under that kid at 3, a log key at 4, and a declaration signed by the genuine key at 5: the entry at 2 is no key and lists nothing, so the genuine key is the earliest listing of its kid and the declaration is honoured (ruling 57, T12). The other reading, in which the malformed entry displaces the genuine key, would skip it as declaration-key-unpublished and hand a credential holder a silencing primitive.",
+            log, Agent_(rows: [HRow.Honoured(5, KeyCompromised)], keys: [(k0.Kid, "compromised")], bound: [k0.Kid]));
     }
 
     // ---- construction helpers ----------------------------------------------------------------------

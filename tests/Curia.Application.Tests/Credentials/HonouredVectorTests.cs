@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Curia.Application.Credentials;
+using Curia.Application.Projections;
 using Curia.Domain.Primitives;
 using Xunit;
 using static Curia.Application.Tests.Credentials.LifecycleProbeSupport;
@@ -53,12 +54,14 @@ public sealed class HonouredVectorTests
 
         var keys = expected.GetProperty("keys").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
         var actualKeys = keys.Keys.ToDictionary(k => k, k => Word(verified.Honoured.StatusNow(k)), StringComparer.Ordinal);
-        var named = verified.Honoured.Entries.SelectMany(e => e.Kid is null ? [] : new[] { e.Kid }).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        // The enrolment names a kid and binds none (ruling 55): a key an honoured row names is one a pair, a rotation, a retirement or a declaration names.
+        var named = verified.Honoured.Entries.Where(e => e.Type != AgentStandingProjector.EnrolledType).SelectMany(e => e.Kid is null ? [] : new[] { e.Kid }).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (!keys.OrderBy(k => k.Key, StringComparer.Ordinal).SequenceEqual(actualKeys.OrderBy(k => k.Key, StringComparer.Ordinal)) || !keys.Keys.Order(StringComparer.Ordinal).SequenceEqual(named))
             yield return $"{log.Name} keys: Expected: {{{string.Join(", ", keys.OrderBy(k => k.Key, StringComparer.Ordinal).Select(k => k.Key + " " + k.Value))}}}  Actual: {{{string.Join(", ", named.Select(k => k + " " + Word(verified.Honoured.StatusNow(k))))}}}";
 
         var bound = expected.GetProperty("bound").EnumerateArray().Select(b => b.GetString()!).ToArray();
-        var actualBound = verified.Binding?.Keys.Select(k => k.Kid).ToArray() ?? [];
+        // `bound` is the kids the fold binds, by a pair or a rotation; the kid-only binding of R4.31 (no key: Jwk null) is the consumers' reading of an enrolment and is not the fold's.
+        var actualBound = verified.Binding?.Keys.Where(k => k.Jwk is not null).Select(k => k.Kid).ToArray() ?? [];
         if (!bound.SequenceEqual(actualBound))
             yield return $"{log.Name} bound: Expected: [{string.Join(", ", bound)}]  Actual: [{string.Join(", ", actualBound)}]";
     }

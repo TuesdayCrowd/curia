@@ -140,8 +140,8 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
 
     /// <summary>
     /// ULG16. The whole-log-only fault (a row-level-security policy raising on a poison row only a scan reaches): the readout, the flag listing, a single post,
-    /// the thread, a board listing and search are <c>503</c>; enrolment, which reads the agent's own stream only, is <c>201</c> and is the control that the host is
-    /// healthy and the fault whole-log.
+    /// the thread, a board listing, search and <c>POST /v1/agents</c> are <c>503</c> (enrolment decides a kid's binding from the honoured rows of the whole log, R5.24, errata G68); the routes that read no store
+    /// answer as they do healthy, which is the control that the host is up and the fault whole-log.
     /// </summary>
     [Fact]
     public async Task R9_52_ULG16_AFaultOnlyAWholeLogScanReachesIsAnUnreadableLogOnEveryRouteThatScans()
@@ -153,7 +153,7 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
             var swept = await FaultSweep.RunAsync(
                 forum, context, _ => true, () => forum.CreatePoisonPolicyAsync(Ct), () => forum.DropPoisonPolicyAsync(Ct), Ct);
 
-            Judged(swept, s => FaultSweep.ReadsNoStore(s) || FaultSweep.IsEnrolment(s));
+            Judged(swept, FaultSweep.ReadsNoStore);
         }
         finally
         {
@@ -198,12 +198,13 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
     }
 
     /// <summary>
-    /// ULG18. The token's <c>jti</c> is spent by a whole-log fault and not by a key-read fault (Task 0's M3). (a) A whole-log fault: <c>503</c>, then the same
-    /// assertion sent again is <c>401</c> <c>invalid_client</c> (a replay), then a new assertion is <c>200</c>. (b) <c>SELECT</c> revoked, a fault at the key read
-    /// before anything is consumed: <c>503</c>, and with the grant restored the same assertion is <c>200</c>.
+    /// ULG18. A fault at any read of the log is <c>503</c>, and the token's <c>jti</c> is not spent by it (errata G68: the key read and the whole-log read are one read, R5.24, and it comes before the
+    /// assertion's and the proof's jti are consumed, where the key read used to come first and the whole-log read after). (a) A whole-log fault: <c>503</c>, the same assertion sent again while the fault stands is <c>503</c>
+    /// again (not a replay), and once the fault is gone the same assertion is <c>200</c>. (b) <c>SELECT</c> revoked: <c>503</c>, and with the grant restored the same assertion is <c>200</c>. R5.23's sentence that a jti is
+    /// spent "when the store fault follows their consumption" stays true of a fault that does; none does at the log now (ruling 61 expected a spent jti here and the run showed otherwise).
     /// </summary>
     [Fact]
-    public async Task R5_23_ULG18_TheJtiIsSpentByAWholeLogFaultAndNotByAKeyReadFault()
+    public async Task R5_23_ULG18_AFaultAtTheLogReadDoesNotSpendTheJti()
     {
         await forum.AssertRestoredAsync(Ct);
         var actor = await AcceptedAnswerScene.EnrolAsync(forum, "jti", Ct);
@@ -213,12 +214,12 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
         var assertionA = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
         var proofA = actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now);
         Reply firstA;
-        Reply replayA;
+        Reply againA;
         try
         {
             await forum.CreatePoisonPolicyAsync(Ct);
             firstA = await TokenAsync(actor, assertionA, proofA);
-            replayA = await TokenAsync(actor, assertionA, proofA);
+            againA = await TokenAsync(actor, assertionA, proofA);
         }
         finally
         {
@@ -226,12 +227,11 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
         }
 
         if (!Unavailable(firstA)) problems.Add($"(a) the first call: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {firstA.Says}");
-        if (replayA.Status != (int)HttpStatusCode.Unauthorized || replayA.Error != "invalid_client")
-            problems.Add($"(a) the same assertion again: expected 401 invalid_client (a replay), actual {replayA.Says}");
-        var freshA = await TokenAsync(actor, actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
-        if (freshA.Status != 200) problems.Add($"(a) a new assertion: expected 200, actual {freshA.Says}");
+        if (!Unavailable(againA)) problems.Add($"(a) the same assertion again while the fault stands: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode} (not a replay), actual {againA.Says}");
+        var sameA = await TokenAsync(actor, assertionA, proofA);
+        if (sameA.Status != 200) problems.Add($"(a) the same assertion once the fault is gone: expected 200 (its jti was not spent), actual {sameA.Says}");
 
-        // (b) the key-read fault.
+        // (b) a revoked SELECT: the key read is the whole-log read now. A fresh assertion, since (a)'s is spent by its success.
         var assertionB = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
         var proofB = actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now);
         Reply firstB;
@@ -247,7 +247,7 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
 
         if (!Unavailable(firstB)) problems.Add($"(b) the first call: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {firstB.Says}");
         var restoredB = await TokenAsync(actor, assertionB, proofB);
-        if (restoredB.Status != 200) problems.Add($"(b) the same assertion with the grant restored: expected 200, actual {restoredB.Says}");
+        if (restoredB.Status != 200) problems.Add($"(b) the same assertion with the grant restored: expected 200 (its jti was not spent), actual {restoredB.Says}");
 
         Assert.True(problems.Count == 0, string.Join('\n', problems));
         await forum.AssertRestoredAsync(Ct);

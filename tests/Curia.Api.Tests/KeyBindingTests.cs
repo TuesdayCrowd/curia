@@ -210,8 +210,8 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
 
     /// <summary>
     /// A log that cannot be read decides nothing about a key, so it is the server's fault and never a
-    /// refusal of the key (R4.35; the spec's Decision 8). With a reader that refuses the identity's
-    /// stream, the token endpoint answers <c>temporarily_unavailable</c> (503, errata G52; <c>server_error</c> before), as it answers its own read of the log's
+    /// refusal of the key (R4.35; the spec's Decision 8). Every decision about a key reads the whole log once (R5.24, errata G68), so the fault is injected there
+    /// (a fault on the per-aggregate read lands nowhere any more, and a row that expected success from it is gone). With a reader that refuses the whole-log read, the token endpoint answers <c>temporarily_unavailable</c> (503, errata G52; <c>server_error</c> before), as it answers its own read of the log's
     /// failure, and ingest and the key set answer 503 <c>curia/log/unreadable</c>, where a 401 would
     /// tell an agent its key had been refused. With a reader that refuses the whole-log read the key
     /// set's positions are folded from, the key set answers 503 too, rather than serving its keys
@@ -220,9 +220,8 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
     /// the log (R11.33, errata G17).
     /// </summary>
     [Theory]
-    [InlineData("token", "stream", "token-unavailable")]
-    [InlineData("question", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
-    [InlineData("key set", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
+    [InlineData("token", "whole", "token-unavailable")]
+    [InlineData("question", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     [InlineData("key set", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     public async Task R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(string path, string refuses, string expected)
     {
@@ -282,10 +281,34 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
         Assert.Equal(expected, answer);
     }
 
+    /// <summary>The control for the theory above: the same host, reader and three requests with no fault injected succeed, so each 503 above is the fault and not the fixture.</summary>
+    [Fact]
+    public async Task R4_35_ALogThatCanBeReadAnswersTheSameRequests_Control()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var suffix = Suffix();
+        var agent = ForumAgent.Create($"https://agents.example/readable-{suffix}", $"readable-{suffix}");
+        var (dpop, token) = await agent.AuthenticateAsync(forum.Client, TokenEndpoint, forum.Now, ct);
+
+        var started = false;
+        await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton<IEventReader>(sp => new UnreadableLog(sp.GetRequiredService<IEventStore>(), "none", () => started))));
+        using var client = host.CreateClient();
+        started = true;
+
+        var (tokenStatus, _) = await DpopClient.For(agent, agent.AssertionKey).RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
+        using var asked = await dpop.PostAsync(
+            client, PostsUrl, token,
+            agent.SignQuestion("board-" + suffix, "Asked while the log can be read.", "Readable " + suffix, forum.Now),
+            forum.Now, ct);
+        using var served = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(agent.AgentId)}", UriKind.Relative), ct);
+
+        Assert.Equal("200 201 200", $"{(int)tokenStatus} {(int)asked.StatusCode} {(int)served.StatusCode}");
+    }
+
     /// <summary>
     /// A log reader that, once <paramref name="refusing"/> says so, refuses one kind of read and hands
-    /// the other to the host's own store: an identity's stream, which <c>LogBoundKeys</c> reads
-    /// (<c>stream</c>), or the forward read the Acta is folded from (<c>whole</c>). The Postgres reader
+    /// the other to the host's own store: the forward read the whole log is read by (<c>whole</c>), or none (<c>none</c>, the control). The Postgres reader
     /// throws rather than refusing, so only a reader such as this one reaches the refusal.
     /// </summary>
     private sealed class UnreadableLog(IEventReader store, string refuses, Func<bool> refusing) : IEventReader
@@ -294,9 +317,7 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
 
         public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
             AggregateId aggregateId, CancellationToken cancellationToken = default) =>
-            refuses is "stream" && refusing()
-                ? Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(Refused))
-                : store.ReadByAggregateAsync(aggregateId, cancellationToken);
+            store.ReadByAggregateAsync(aggregateId, cancellationToken);
 
         public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(
             EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
