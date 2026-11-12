@@ -50,11 +50,17 @@ public static class Jwks
     /// The guard's state (R4.38 (add.)): <c>{"approved":[...],"enabled":[...]}</c>, the kinds the build approves
     /// and the Forum enables, both empty until the lift.
     /// </param>
+    /// <param name="skipped">
+    /// The rows of the identity's stream the verifier does not honour (errata G68, R4.41), in log order; <see langword="null"/> when the log would not fold, when both <c>curia_skipped</c> and
+    /// <c>curia_skipped_total</c> are left out, so that "none skipped" (both present and empty) and "the Forum does not say" (neither) are different documents. At most
+    /// <see cref="MaxSkippedListed"/> are listed, each as exactly <c>{log_index, type, predicate}</c> and never a payload member, and the total counts them all.
+    /// </param>
     public static JsonObject ForAgent(
         IReadOnlyList<BoundKey> keys,
         Func<string, long?> logIndexOf,
         IReadOnlyList<long>? lifecycle,
-        JsonObject lifecycleKinds)
+        JsonObject lifecycleKinds,
+        IReadOnlyList<SkippedRow>? skipped = null)
     {
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(logIndexOf);
@@ -104,8 +110,22 @@ public static class Jwks
         }
 
         document["curia_lifecycle_kinds"] = lifecycleKinds;
+
+        if (skipped is not null)
+        {
+            var listed = new JsonArray();
+            foreach (var row in skipped.OrderBy(r => r.LogIndex).Take(MaxSkippedListed))
+                listed.Add(new JsonObject { ["log_index"] = row.LogIndex, ["type"] = row.Type, ["predicate"] = row.Predicate });
+
+            document["curia_skipped"] = listed;
+            document["curia_skipped_total"] = skipped.Count;
+        }
+
         return document;
     }
+
+    /// <summary>The most skipped rows a key set lists (R4.41): the first twenty in log order, then the total.</summary>
+    public const int MaxSkippedListed = 20;
 
     /// <summary>The wire spelling of a key's status (R4.35 rev.).</summary>
     private static string StatusName(KeyStatus status) => status switch

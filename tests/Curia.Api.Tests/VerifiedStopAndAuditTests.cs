@@ -74,13 +74,17 @@ public static class VerifiedStopSupport
         Assert.Equal(1, await insert.ExecuteNonQueryAsync(ct));
     }
 
-    internal static string ForgedRetirement(string agent, string kid) => new JsonObject
+    /// <summary>
+    /// A retirement with no signature. <paramref name="prev"/> is the log index of the identity's last honoured lifecycle entry; the default, 1, is the enrolment's own binding on a log the identity
+    /// enrolled at the start of, and a probe on a log other agents have written to passes the real one, so that the row fails on the header <c>typ</c> and not on the link before it (R6.64's order).
+    /// </summary>
+    internal static string ForgedRetirement(string agent, string kid, long prev = 1) => new JsonObject
     {
         ["agent_id"] = agent,
         ["authorization"] = "this-is-not-a-signature-qq7",
         ["kid"] = kid,
-        ["prev"] = 1,
-        ["statement"] = "{\"agent_id\":\"" + agent + "\",\"kid\":\"" + kid + "\",\"prev\":1,\"typ\":\"curia.key-retirement/1\"}",
+        ["prev"] = prev,
+        ["statement"] = "{\"agent_id\":\"" + agent + "\",\"kid\":\"" + kid + "\",\"prev\":" + prev.ToString(CultureInfo.InvariantCulture) + ",\"typ\":\"curia.key-retirement/1\"}",
     }.ToJsonString();
 
     internal static async Task<ForumAgent> EnrolAsync(ForumFixture forum, string stem, CancellationToken ct)

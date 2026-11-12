@@ -2159,7 +2159,8 @@ public static class ForumEndpoints
             keySet.Bound,
             acta is null ? _ => null : acta.IndexOf,
             lifecycle,
-            Jwks.LifecycleKinds(record!.Approved.Select(a => a.Kind), gate)));
+            Jwks.LifecycleKinds(record!.Approved.Select(a => a.Kind), gate),
+            decided is null ? null : (IReadOnlyList<SkippedRow>)decided.Skipped));
     }
 
     /// <summary>

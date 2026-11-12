@@ -39,8 +39,10 @@ public sealed class ServedSkippedMembersTests(ForumFixture forum) : IClassFixtur
         var ct = TestContext.Current.CancellationToken;
         var victim = await VerifiedStopSupport.EnrolAsync(forum, "lrv25a", ct);
         var first = await VerifiedStopSupport.CountAsync(forum, ct);
-        await VerifiedStopSupport.InsertRowAsync(forum, "agent.key-retired", victim.AgentId, VerifiedStopSupport.ForgedRetirement(victim.AgentId, victim.Kid), ct);
-        await VerifiedStopSupport.InsertRowAsync(forum, "agent.key-retired", victim.AgentId, VerifiedStopSupport.ForgedRetirement(victim.AgentId, victim.Kid), ct);
+
+        // The enrolment's binding is the entry just before the first row: prev names it, so that each row fails on its header typ and not on the link (a skipped row moves nothing, so the second names it too).
+        await VerifiedStopSupport.InsertRowAsync(forum, "agent.key-retired", victim.AgentId, VerifiedStopSupport.ForgedRetirement(victim.AgentId, victim.Kid, first - 1), ct);
+        await VerifiedStopSupport.InsertRowAsync(forum, "agent.key-retired", victim.AgentId, VerifiedStopSupport.ForgedRetirement(victim.AgentId, victim.Kid, first - 1), ct);
 
         var keySet = await KeySetOfAsync(victim.AgentId, ct);
 
