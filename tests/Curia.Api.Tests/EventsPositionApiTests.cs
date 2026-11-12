@@ -78,6 +78,7 @@ public sealed class EventsPositionApiTests(RoleForumFixture forum) : IClassFixtu
     [Fact]
     public async Task R11_6_SEQ7_AForumWhoseRoleCanNameSeqSaysSoOnceAndStarts()
     {
+        StartTheFixturesOwnServer();
         var found = await forum.HoldsTableLevelInsertOnEventsAsync(Ct);
         try
         {
@@ -107,6 +108,7 @@ public sealed class EventsPositionApiTests(RoleForumFixture forum) : IClassFixtu
     [Fact]
     public async Task R11_6_SEQ7_AForumWhoseRoleCannotNameSeqSaysNothing()
     {
+        StartTheFixturesOwnServer();
         var found = await forum.HoldsTableLevelInsertOnEventsAsync(Ct);
         try
         {
@@ -127,6 +129,7 @@ public sealed class EventsPositionApiTests(RoleForumFixture forum) : IClassFixtu
     [Fact]
     public async Task R11_6_SEQ7_AForumThatCannotAskStartsAndSaysSoAtWarning()
     {
+        StartTheFixturesOwnServer();
         using var log = new LogCapture();
         var failed = Result<bool>.Fail(new Error("curia/store/unavailable", "The store could not be asked", "NpgsqlException"));
         await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
@@ -174,6 +177,12 @@ public sealed class EventsPositionApiTests(RoleForumFixture forum) : IClassFixtu
             return $"expected 42501 'permission denied for table events', actual {ex.SqlState} '{ex.MessageText}'";
         }
     }
+
+    /// <summary>
+    /// A derived host's client is configured by the fixture, and the fixture refuses to configure one before its own server has started ("Server hasn't been initialized yet"),
+    /// which an earlier fact in the class used to do. Creating a client starts it, so each SEQ7 fact owns that step and does not depend on the order the facts run in.
+    /// </summary>
+    private void StartTheFixturesOwnServer() => forum.CreateClient().Dispose();
 
     private static string Short(string body) => body.Length > 160 ? body[..160] + "..." : body;
 }
