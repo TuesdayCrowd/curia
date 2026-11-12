@@ -70,6 +70,28 @@ public abstract class EventStorePortContractTests
     }
 
     /// <summary>
+    /// LRV39 (errata G68, PR N's ruling 72): <c>ReadByAggregateAsync</c> returns exactly the events appended to the aggregate, and the stream's version the store enforces equals that count.
+    /// This is a control of the contract, not a probe of the filter: an adapter cannot plant a row at a position at or below zero through the port (the in-memory adapter's <c>seq</c> is
+    /// <c>count + 1</c>, and the Postgres arm inherits this test and appends through the port too). The filter is pinned by <c>PostgresEventStorePositionRowTests</c> (LRV34, LRV35).
+    /// </summary>
+    [Fact]
+    public async Task LRV39_TheReadByAggregateIsTheAppendedEventsAndTheVersionIsTheirCount()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var aggregateId = Agg("agg-lrv39");
+        Require(await store.AppendAsync(aggregateId, AggregateVersion.New, [NewEvent("lrv39-1"), NewEvent("lrv39-2")], ct));
+
+        var read = Require(await store.ReadByAggregateAsync(aggregateId, ct));
+        var refused = await store.AppendAsync(aggregateId, Require(AggregateVersion.From(read.Count + 1)), [NewEvent("lrv39-stale")], ct);
+        var landed = await store.AppendAsync(aggregateId, Require(AggregateVersion.From(read.Count)), [NewEvent("lrv39-3")], ct);
+
+        Assert.Equal(
+            "lrv39-1,lrv39-2; version 3 refused; version 2 landed",
+            $"{string.Join(",", read.Select(e => e.Event.Id.Value))}; version {read.Count + 1} {(refused.IsOk ? "landed" : "refused")}; version {read.Count} {(landed.IsOk ? "landed" : "refused")}");
+    }
+
+    /// <summary>
     /// R6.56: stream B is read at v, then moves; an append to A conditioned on B@v is refused as
     /// <c>condition-conflict</c> and A is unchanged. Red when the overload drops its condition.
     /// </summary>

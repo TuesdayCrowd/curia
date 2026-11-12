@@ -10,7 +10,9 @@ using Xunit;
 namespace Curia.Api.Tests;
 
 /// <summary>
-/// LRV31 (errata G68, ruling 36): a row only the by-aggregate read can see (<c>seq</c> 0, which no forward read returns) is honoured by nobody. The row is planted as the administrator, because the
+/// LRV31 (errata G68, ruling 36): a row at <c>seq</c> 0, which no forward read returns, is honoured by nobody. Since PR N's ruling 72 the store counts and returns only the rows at <c>seq &gt; 0</c>,
+/// so no read sees it: it is inert, not detected. LRV36 are its siblings: the same at <c>seq</c> -1 (which answered a read fault before ruling 72) and two posts by the victim (a skew
+/// the store kept permanent showed on the second post too). The row is planted as the administrator, because the
 /// application role cannot plant it once <c>db/0006</c> is applied (PR S, errata G69). The victim's token request, an issued token's next request, a post, the key set and the audit
 /// all behave as if the row were absent; the audit's silence is asserted as the control that the detector of a shadow row is PR S's start-up check and not the audit (the row is invisible to the whole log).
 /// On the control build (<c>b348f6a9</c>, before the seam) the token request answers <c>401 invalid_client</c>, and no detector sees the row: the first form is the harm.
@@ -25,7 +27,17 @@ public sealed class ShadowRowTests(ForumFixture forum) : IClassFixture<ForumFixt
     private static string Suffix() => Guid.NewGuid().ToString("N")[..8];
 
     [Fact]
-    public async Task LRV31_ARowAtSeqZeroIsHonouredByNobody()
+    public async Task LRV31_ARowAtSeqZeroIsHonouredByNobody() => await ShadowAsync(0, 1);
+
+    /// <summary>LRV36: a row at seq -1, which the by-aggregate read answered as a fault before ruling 72.</summary>
+    [Fact]
+    public async Task LRV36_ARowAtSeqMinusOneIsHonouredByNobody() => await ShadowAsync(-1, 1);
+
+    /// <summary>LRV36: a permanent skew shows on the victim's second post too.</summary>
+    [Fact]
+    public async Task LRV36_TheVictimsSecondPostLandsToo() => await ShadowAsync(-2, 2);
+
+    private async Task ShadowAsync(long seq, int posts)
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
@@ -46,8 +58,9 @@ public sealed class ShadowRowTests(ForumFixture forum) : IClassFixture<ForumFixt
         {
             await admin.OpenAsync(ct);
             await using var insert = new NpgsqlCommand(
-                "INSERT INTO events (seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts) OVERRIDING SYSTEM VALUE VALUES (0, @id, 'agent.key-retired', @aggregate, 'operator:ops', @payload::jsonb, @ts);",
+                "INSERT INTO events (seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts) OVERRIDING SYSTEM VALUE VALUES (@seq, @id, 'agent.key-retired', @aggregate, 'operator:ops', @payload::jsonb, @ts);",
                 admin);
+            insert.Parameters.AddWithValue("seq", seq);
             insert.Parameters.AddWithValue("id", "shadow-" + Suffix());
             insert.Parameters.AddWithValue("aggregate", victim.AgentId);
             insert.Parameters.AddWithValue("payload", payload);
@@ -56,7 +69,13 @@ public sealed class ShadowRowTests(ForumFixture forum) : IClassFixture<ForumFixt
         }
 
         var (tokenStatus, tokenBody) = await dpop.RequestTokenAsync(client, KeyActRequests.TokenEndpoint, forum.Now, victim.AgentId, ct);
-        using var asked = await dpop.PostAsync(client, "http://localhost/v1/posts", token, victim.SignQuestion(board, "After the shadow row. " + Suffix(), "Shadow " + Suffix(), forum.Now), forum.Now, ct);
+        var askedStatuses = new List<int>();
+        for (var i = 0; i < posts; i++)
+        {
+            using var asked = await dpop.PostAsync(client, "http://localhost/v1/posts", token, victim.SignQuestion(board, $"After the shadow row {i}. " + Suffix(), $"Shadow {i} " + Suffix(), forum.Now), forum.Now, ct);
+            askedStatuses.Add((int)asked.StatusCode);
+        }
+
         using var keySetResponse = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(victim.AgentId)}", UriKind.Relative), ct);
         var keySetText = await keySetResponse.Content.ReadAsStringAsync(ct);
         var keySet = keySetResponse.StatusCode == HttpStatusCode.OK ? JsonDocument.Parse(keySetText).RootElement : default;
@@ -70,8 +89,8 @@ public sealed class ShadowRowTests(ForumFixture forum) : IClassFixture<ForumFixt
 
         var tokenWords = tokenStatus == HttpStatusCode.OK ? "200" : $"{(int)tokenStatus} {ErrorOf(tokenBody)}";
         WholeText.Same(
-            "token 200; issued-token ask 201; key set 200 key active; audit exit 0",
-            $"token {tokenWords}; issued-token ask {(int)asked.StatusCode}; key set {(int)keySetResponse.StatusCode} key {status}; audit exit {audit.ToString(CultureInfo.InvariantCulture)}");
+            $"token 200; issued-token ask {string.Join(", ", Enumerable.Repeat(201, posts))}; key set 200 key active; audit exit 0",
+            $"token {tokenWords}; issued-token ask {string.Join(", ", askedStatuses)}; key set {(int)keySetResponse.StatusCode} key {status}; audit exit {audit.ToString(CultureInfo.InvariantCulture)}");
     }
 
     private static string ErrorOf(string body)
