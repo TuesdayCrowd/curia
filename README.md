@@ -96,6 +96,51 @@ operator tools hold). Two Forum processes at the 80 above hold up to 160 connect
 excess. The agent write gate's pool is also the most agents that can be writing at once (20 at 80, 25 at 100): a write holds one
 of its connections from the moment it is its agent's turn until its act has committed.
 
+**Applying `db/0006` to a database that already holds events (errata G69).** `db/0006_events_insert_columns.sql` (errata G69, R11.6 (add.)) takes the application role's `INSERT` on `events` from the whole table to the six columns the Forum
+supplies, so `seq`, an event's position in the log, is the database's alone. **Merging it applies nothing**: a database built from `db/0001` to `db/0005` keeps
+the old grant until its owner runs this, and a Forum connected to such a database says so in its log at every start (`EventsSeqWritable`, EventId 7008, at Error).
+It is the table's owner (the role that ran `db/0001`, or a superuser) who applies it, never the application role. Three steps, in this order; each is text you paste,
+and `tests/Curia.Infrastructure.Tests/EventsPositionGrantTests.cs` runs the first and the third from this file.
+
+**1. Check, before anything is changed.** Read-only. It counts the rows no honest append makes: those at or below position 0, and those ahead of the next
+position the database will hand out.
+
+<!-- events-position-precheck -->
+```sql
+SELECT count(*) FILTER (WHERE seq < 1) AS at_or_below_zero,
+       count(*) FILTER (WHERE seq > coalesce((SELECT last_value FROM pg_sequences
+                                              WHERE schemaname = 'public'
+                                                AND sequencename = split_part(pg_get_serial_sequence('public.events', 'seq'), '.', 2)), 0)) AS ahead_of_the_identity
+FROM public.events;
+```
+<!-- /events-position-precheck -->
+
+Both numbers must be `0`. **If either is not, stop.** Do not delete the row: the role has no `DELETE`, a signed head that already covers a row cannot be taken
+back, and the row is evidence of how it got there. Keep the output and report it; the migration can wait.
+
+**2. Apply, in one transaction, as the owner.** Replace `curia_app` with the application role's name (the one in the Forum's connection string) and
+`OWNER_CONNECTION` with a connection string or `psql` arguments for the table's owner. It either applies both statements or neither, and it can be run again.
+
+<!-- events-position-apply -->
+```bash
+sed 's/__CURIA_APP_ROLE__/curia_app/g' db/0006_events_insert_columns.sql | psql -v ON_ERROR_STOP=1 --single-transaction -f - "$OWNER_CONNECTION"
+```
+<!-- /events-position-apply -->
+
+**3. Check it held.** Replace `curia_app` as above.
+
+<!-- events-position-postcheck -->
+```sql
+SELECT has_column_privilege('curia_app', 'public.events', 'seq', 'INSERT') AS seq_writable,
+       has_column_privilege('curia_app', 'public.events', 'server_ts', 'INSERT') AS server_ts_writable;
+```
+<!-- /events-position-postcheck -->
+
+It must say `seq_writable` `f` and `server_ts_writable` `t`. If `seq_writable` is `t` the migration did not run, or the role is a superuser, the table's owner, or a member of a role that holds
+`INSERT` on the whole table: the migration cannot narrow a privilege that role holds some other way, and the Forum's log will keep saying so. Restore
+the grant this way and not another: a table-level `GRANT INSERT ON events` re-opens it (a restore from a backup that predates `db/0006` does, and so does the
+fault harness if it is not the one in this repository).
+
 The issuer key is an EC P-256 private key in PEM:
 
 ```bash
