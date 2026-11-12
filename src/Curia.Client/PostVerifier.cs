@@ -263,8 +263,9 @@ public sealed class PostVerifier
         var head = await AnchorAsync(ct).ConfigureAwait(false);
         var inclusion = await InclusionAsync(post, head, began, ct).ConfigureAwait(false);
         var consistency = await ConsistencyAsync(head, ct).ConfigureAwait(false);
-        var keyBinding = await KeyBindingAsync(post, head, inclusion, signature, signingKey, ct).ConfigureAwait(false);
-        var lifecycle = await LifecycleAsync(post, head, inclusion, ct).ConfigureAwait(false);
+        var (bindingCheck, bindingSeen) = await KeyBindingAsync(post, head, inclusion, signature, signingKey, ct).ConfigureAwait(false);
+        var lifecycle = FollowTheMark(await LifecycleAsync(post, head, inclusion, ct).ConfigureAwait(false), post, head);
+        var keyBinding = FollowTheLifecycle(bindingCheck, bindingSeen, lifecycle);
 
         return new PostVerification(
             post.PostId,
@@ -280,6 +281,38 @@ public sealed class PostVerifier
             PastHead(inclusion, signature, consistency),
             inclusion.PastHeadTimestamp,
             began);
+    }
+
+    /// <summary>
+    /// Errata G68, ruling 15 (item 256), R11.95: a verification does not read the lifecycle line verified over a mark the Forum makes past its head. When the served post's
+    /// <c>disputed_by_log_index</c> is at or past the tree size of the head this client holds and the chain the head covers shows nothing (the line is verified), the line is could not be checked,
+    /// naming the index and the tree size: the Forum's mark is a claim, and a head that does not cover the declaration says nothing of it. A mark the chain already shows (the line is disputed) and a
+    /// line that failed or could not be checked are left as they are, and so is a mark inside the head that the chain does not show (the Forum contradicting its own chain: not made a verdict here).
+    /// </summary>
+    private static Check FollowTheMark(Check lifecycle, ProvenancePost post, Anchor anchor) =>
+        lifecycle.Outcome is CheckOutcome.Verified
+        && anchor.Head is { } head
+        && post.Provenance.DisputedByLogIndex is { } declaration
+        && declaration >= head.TreeSize
+            ? Check.CouldNotCheck(LifecycleLineWords.MarkPastHead(declaration, head.TreeSize))
+            : lifecycle;
+
+    /// <summary>
+    /// Errata G68, ruling 14, R11.95: the key line reads a leaf, and a rotation's leaf binds a kid by its shape; what makes it a binding is the signature chain the lifecycle line folds. So a key line that
+    /// read verified over a rotation follows the lifecycle line: failed when that failed, could not be checked when that could not. The enrolment's own binding is the root and is unchanged, and so is a key
+    /// line that was not verified (it already says as much as the lifecycle line could add). A disputed lifecycle line is a chain that held, so the binding stands.
+    /// </summary>
+    private static Check FollowTheLifecycle(Check keyBinding, BindingSeen? seen, Check lifecycle)
+    {
+        if (keyBinding.Outcome is not CheckOutcome.Verified || seen is not { Kind: BindingKind.Rotation } rotation) return keyBinding;
+
+        return lifecycle.Outcome switch
+        {
+            CheckOutcome.Failed => Check.Failed(LifecycleLineWords.KeyLineRotationLifecycleFailed(rotation.Leaf, rotation.Kid)),
+            CheckOutcome.CouldNotCheck => Check.CouldNotCheck(LifecycleLineWords.KeyLineRotationLifecycleCouldNot(rotation.Leaf, rotation.Kid)),
+            CheckOutcome.Verified or CheckOutcome.Disputed => keyBinding,
+            _ => keyBinding,
+        };
     }
 
     /// <summary>R11.74 (b): the head's tree size when the leaf lies past it and no check failed; otherwise <see langword="null"/>.</summary>
@@ -346,8 +379,17 @@ public sealed class PostVerifier
     /// absence is reported, so a proof the head does not commit to is failed whatever else is
     /// absent.</para>
     /// </summary>
-    private async Task<Check> KeyBindingAsync(
+    private async Task<(Check Check, BindingSeen? Seen)> KeyBindingAsync(
         ProvenancePost post, Anchor anchor, PostInclusion inclusion, Check signature, ForumJwk? signingKey, CancellationToken ct)
+    {
+        var seen = new System.Runtime.CompilerServices.StrongBox<BindingSeen?>();
+        var check = await KeyBindingCoreAsync(post, anchor, inclusion, signature, signingKey, seen, ct).ConfigureAwait(false);
+        return (check, seen.Value);
+    }
+
+    private async Task<Check> KeyBindingCoreAsync(
+        ProvenancePost post, Anchor anchor, PostInclusion inclusion, Check signature, ForumJwk? signingKey,
+        System.Runtime.CompilerServices.StrongBox<BindingSeen?> seen, CancellationToken ct)
     {
         // No head, or one that did not verify: the inclusion line's verdict, for the same reason.
         if (anchor.Head is not { } head) return anchor.Verdict;
@@ -393,7 +435,9 @@ public sealed class PostVerifier
                 : Check.CouldNotCheck(Invariant(
                     $"the key's binding entry at leaf {keyIndex} could not be fetched: {entryRefusal!.Summary}"));
 
-        return ActaCheck.KeyBinding(post, postEntry, postProof, keyEntry!, keyProof!, head);
+        var verdict = ActaCheck.KeyBinding(post, postEntry, postProof, keyEntry!, keyProof!, head);
+        seen.Value = verdict.Binding;
+        return verdict.Check;
     }
 
     /// <summary>

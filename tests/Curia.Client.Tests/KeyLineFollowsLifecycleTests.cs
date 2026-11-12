@@ -73,7 +73,7 @@ public sealed class KeyLineFollowsLifecycleTests : IDisposable
     {
         var (result, _) = await VerifyAsync(CaseDirectory("forged-rotation"));
         var (leaf, kid) = BindingOf(CaseDirectory("forged-rotation"), 2);
-        var words = Fill(PublishedClientWords.KeyLineRotationLifecycleFailed, ("<i>", leaf.ToString(CultureInfo.InvariantCulture)), ("<kid>", kid));
+        var words = Fill(PublishedClientWords.KeyLineRotationLifecycleFailed, ("<i>", leaf.ToString(CultureInfo.InvariantCulture)), ("<kid>", Curia.Canon.Json.DisplayLiteral.Of(kid)));
 
         WholeText.Same(
             "key Failed; lifecycle Failed; exit 6; the key line carries the published words",
@@ -89,7 +89,7 @@ public sealed class KeyLineFollowsLifecycleTests : IDisposable
         var directory = CaseDirectory("unknown-statement-typ");
         var (result, _) = await VerifyAsync(directory);
         var (leaf, kid) = BindingOf(directory, RotationLeaf(directory));
-        var words = Fill(PublishedClientWords.KeyLineRotationLifecycleCouldNot, ("<i>", leaf.ToString(CultureInfo.InvariantCulture)), ("<kid>", kid));
+        var words = Fill(PublishedClientWords.KeyLineRotationLifecycleCouldNot, ("<i>", leaf.ToString(CultureInfo.InvariantCulture)), ("<kid>", Curia.Canon.Json.DisplayLiteral.Of(kid)));
 
         WholeText.Same(
             "key CouldNotCheck; lifecycle CouldNotCheck; the key line carries the published words",
@@ -159,13 +159,76 @@ public sealed class KeyLineFollowsLifecycleTests : IDisposable
         var (leaf, kid) = BindingOf(CaseDirectory("forged-rotation"), 2);
         var (undecidedLeaf, undecidedKid) = BindingOf(unknown, RotationLeaf(unknown));
 
-        var failedWords = Fill(PublishedClientWords.KeyLineRotationLifecycleFailed, ("<i>", leaf.ToString(CultureInfo.InvariantCulture)), ("<kid>", kid));
-        var couldNotWords = Fill(PublishedClientWords.KeyLineRotationLifecycleCouldNot, ("<i>", undecidedLeaf.ToString(CultureInfo.InvariantCulture)), ("<kid>", undecidedKid));
+        var failedWords = Fill(PublishedClientWords.KeyLineRotationLifecycleFailed, ("<i>", leaf.ToString(CultureInfo.InvariantCulture)), ("<kid>", Curia.Canon.Json.DisplayLiteral.Of(kid)));
+        var couldNotWords = Fill(PublishedClientWords.KeyLineRotationLifecycleCouldNot, ("<i>", undecidedLeaf.ToString(CultureInfo.InvariantCulture)), ("<kid>", Curia.Canon.Json.DisplayLiteral.Of(undecidedKid)));
         var markWords = Fill(PublishedClientWords.LifecycleMarkPastHead, ("<d>", "6"), ("<n>", "5"));
 
         WholeText.Same(
             "published: held; failed: said; could not: said; mark: said",
             $"published: {(held ? "held" : "not held")}; failed: {(PublishedClientWords.Says(forged.Render(), failedWords) ? "said" : "not said")}; could not: {(PublishedClientWords.Says(undecided.Render(), couldNotWords) ? "said" : "not said")}; "
             + $"mark: {(PublishedClientWords.Says(marked.Render(), markWords) ? "said" : "not said")}");
+    }
+}
+
+/// <summary>
+/// HSU36's <c>curia verify</c> legs, moved to the client by Amendment 5 ruling 69 item 6 (errata G68): what a verification says of a post whose author's stream holds a forged declaration, before a head covers it
+/// and after. The Forum now skips the row (R4.40), so the key set it serves lists nothing for it; the client still fails a chain it is handed with a bad row (R6.54 (addendum)), so the two halves are the
+/// contrast. The case is <c>compromise-signed-by-log-key</c>: a declaration at log index 5 that no published declaration key signed, after the post at 2.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+[Collection("console")]
+public sealed class ForgedDeclarationVerifyTests : IDisposable
+{
+    private const string Case = "compromise-signed-by-log-key";
+    private const long ForgedRow = 5;
+
+    private readonly string _home = Directory.CreateTempSubdirectory("curia-hsu36-heads-").FullName;
+    private readonly List<LifecycleCaseForum> _forums = [];
+
+    public void Dispose()
+    {
+        foreach (var forum in _forums) forum.Dispose();
+        Directory.Delete(_home, recursive: true);
+        GC.SuppressFinalize(this);
+    }
+
+    private async Task<PostVerification> VerifyAsync(LifecycleCaseForum forum)
+    {
+        _forums.Add(forum);
+        return await new PostVerifier(forum.Client(), new HeadStore(_home)).VerifyAsync(forum.Post(), TestContext.Current.CancellationToken);
+    }
+
+    private static string CaseDirectory => Path.Combine(LifecycleConformanceTests.Root, Case);
+
+    private static string Show(PostVerification v) => $"overall {v.Overall}; lifecycle {v.Lifecycle.Outcome}; exit {ExitCode.ForOutcomes(v.Overall)}";
+
+    /// <summary>The before-head leg: a row after the head the client holds (listed by the key set, and fetched by nobody) does not move a verification: Verified, exit 0.</summary>
+    [Fact]
+    public async Task R6_57_HSU36_AForgedRowAfterTheHeadDoesNotMoveAVerification()
+    {
+        var result = await VerifyAsync(new LifecycleCaseForum(CaseDirectory) { Omit = new HashSet<long> { ForgedRow }, ExtraLifecycle = [9_999] });
+
+        WholeText.Same("overall Verified; lifecycle Verified; exit 0", Show(result));
+    }
+
+    /// <summary>The after-head leg: the head covers the row, and the Forum, which skips it, lists nothing for it: Verified, exit 0. The row is in the log and in no chain the client is handed.</summary>
+    [Fact]
+    public async Task R6_57_HSU36_AForgedRowTheHeadCoversAndTheForumSkipsDoesNotMoveAVerification()
+    {
+        var result = await VerifyAsync(new LifecycleCaseForum(CaseDirectory) { Omit = new HashSet<long> { ForgedRow } });
+
+        WholeText.Same("overall Verified; lifecycle Verified; exit 0", Show(result));
+    }
+
+    /// <summary>The control, and the client's own check: a chain handed over with the forged row, under a head that covers it, still fails (a Forum that lists what it does not verify is not believed): exit 6.</summary>
+    [Fact]
+    public async Task R6_57_HSU36_AChainHandedOverWithTheForgedRowStillFails_Control()
+    {
+        var result = await VerifyAsync(new LifecycleCaseForum(CaseDirectory));
+
+        WholeText.Same("overall Failed; lifecycle Failed; exit 6", Show(result));
     }
 }

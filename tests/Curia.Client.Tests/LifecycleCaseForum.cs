@@ -37,6 +37,15 @@ internal sealed class LifecycleCaseForum : HttpMessageHandler
     /// <summary>Members appended to the key set the Forum serves (LRV29: <c>curia_skipped</c> and <c>curia_skipped_total</c>), or null for the key set the case alone makes.</summary>
     internal string? SkippedMembers { get; init; }
 
+    /// <summary>
+    /// Log indices of entries the case holds that this Forum does not act on, as a Forum that honours only what verifies serves its key set (errata G68, R4.40): they are not in <c>curia_lifecycle</c>,
+    /// and a binding or declaration among them names no key. The entry and its proof are still served by their routes, as the log serves any entry.
+    /// </summary>
+    internal IReadOnlySet<long> Omit { get; init; } = new HashSet<long>();
+
+    /// <summary>Indices listed in <c>curia_lifecycle</c> that the case holds no entry for: a row appended after the head the client holds, which it cannot fetch and a head does not cover.</summary>
+    internal IReadOnlyList<long> ExtraLifecycle { get; init; } = [];
+
     internal string Author { get; }
 
     /// <summary>Every path asked of this Forum, in order.</summary>
@@ -47,7 +56,8 @@ internal sealed class LifecycleCaseForum : HttpMessageHandler
     [
         .. Directory.EnumerateFiles(Path.Combine(_directory, "entries"), "*.json")
             .Select(f => long.Parse(Path.GetFileNameWithoutExtension(f), System.Globalization.CultureInfo.InvariantCulture))
-            .Where(i => i != PostIndex)
+            .Where(i => i != PostIndex && !Omit.Contains(i))
+            .Concat(ExtraLifecycle)
             .Order(),
     ];
 
@@ -126,6 +136,7 @@ internal sealed class LifecycleCaseForum : HttpMessageHandler
         foreach (var file in Directory.EnumerateFiles(Path.Combine(_directory, "entries"), "*.json").Order(StringComparer.Ordinal))
         {
             var entry = JsonNode.Parse(await File.ReadAllTextAsync(file, ct).ConfigureAwait(false))!;
+            if (Omit.Contains(entry["log_index"]!.GetValue<long>())) continue;
             if (entry["entry"]!["event_type"]!.GetValue<string>() != "agent.key-bound") continue;
             if (entry["entry"]!["payload"]!["jwk"] is not JsonObject jwk) continue;
 
@@ -140,6 +151,7 @@ internal sealed class LifecycleCaseForum : HttpMessageHandler
         foreach (var file in Directory.EnumerateFiles(Path.Combine(_directory, "entries"), "*.json").Order(StringComparer.Ordinal))
         {
             var entry = JsonNode.Parse(await File.ReadAllTextAsync(file, ct).ConfigureAwait(false))!;
+            if (Omit.Contains(entry["log_index"]!.GetValue<long>())) continue;
             if (entry["entry"]!["event_type"]!.GetValue<string>() != "agent.key-compromised") continue;
 
             var payload = entry["entry"]!["payload"]!;
