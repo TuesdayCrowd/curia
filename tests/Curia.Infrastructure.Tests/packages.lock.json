@@ -36,6 +36,11 @@
           "xunit.v3.mtp-v1": "[3.2.2]"
         }
       },
+      "libsodium": {
+        "type": "Transitive",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
+      },
       "Microsoft.ApplicationInsights": {
         "type": "Transitive",
         "resolved": "2.23.0",
@@ -209,6 +214,7 @@
         "dependencies": {
           "CsCheck": "[4.8.0, )",
           "Curia.Application": "[1.0.0, )",
+          "Curia.Canon.Sodium": "[1.0.0, )",
           "Microsoft.NET.Test.Sdk": "[17.14.1, )",
           "xunit.runner.visualstudio": "[3.1.5, )",
           "xunit.v3": "[3.2.2, )"
@@ -225,6 +231,13 @@
         "type": "Project",
         "dependencies": {
           "Curia.Domain.Primitives": "[1.0.0, )"
+        }
+      },
+      "curia.canon.sodium": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Canon": "[1.0.0, )",
+          "NSec.Cryptography": "[26.4.0, )"
         }
       },
       "curia.domain": {

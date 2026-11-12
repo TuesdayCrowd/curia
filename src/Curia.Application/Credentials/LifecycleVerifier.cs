@@ -20,9 +20,7 @@ public sealed record SkippedRow(long LogIndex, string Type, string Aggregate, st
 /// <summary>
 /// What the Forum acts on of one identity's lifecycle (errata G68, ruling 19): the honoured entries, the binding the honoured bindings make, the rows skipped.
 ///
-/// <para><b>The seam.</b> Until the verifier's real fold is written, <see cref="Skipped"/> is empty (every row is honoured by shape) and <see cref="Refusal"/> carries today's
-/// refusal: the fold's error where <c>KeyLifecycle.Of</c> failed, which each consumer returns where it returned that error. The final form has no <see cref="Refusal"/>:
-/// no request is refused because of a row's content (ruling 4).</para>
+/// <para><see cref="Refusal"/> is the seam's and is always null now: no request is refused because of a row's content (ruling 4). Task 4 deletes it.</para>
 /// </summary>
 /// <param name="Honoured">The honoured entries in stream order; empty when <paramref name="Refusal"/> is set.</param>
 /// <param name="Binding">What the honoured bindings bind; null when the log records no enrolment of the identity.</param>
@@ -35,25 +33,24 @@ public sealed record VerifiedLifecycle(
     Error? Refusal = null);
 
 /// <summary>
-/// One log, verified once (errata G68, ruling 19): per identity, <see cref="For"/> decides that identity's stream; <see cref="Skipped()"/> and
+/// One log, verified once (errata G68, ruling 19): per identity, <see cref="For"/> decides that identity's stream by R6.64; <see cref="Skipped()"/> and
 /// <see cref="SkippedPast"/> list the rows the verifier does not honour, for the audit, the start-up scan and the head signer's stop.
 /// </summary>
 public sealed class VerifiedLog
 {
-    /// <summary>The seam's predicate for a row the stop withholds on today's structural test (<see cref="LifecycleRows"/>); the final verifier names R6.64's predicates instead.</summary>
-    internal const string StructuralPredicate = "structural-row";
-
     private readonly LifecycleVerifier _verifier;
     private readonly IReadOnlyList<AppendedEvent> _log;
-    private readonly ImmutableArray<SkippedRow> _skipped = [];
-    private readonly Lazy<IReadOnlyDictionary<string, List<AppendedEvent>>> _streams;
+    private readonly Lazy<IReadOnlyDictionary<string, List<(long Index, AppendedEvent Event)>>> _streams;
+    private readonly Lazy<LifecycleFold.KeyWorld> _world;
     private readonly Dictionary<string, VerifiedLifecycle> _memo = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LifecycleFold.Decided> _decided = new(StringComparer.Ordinal);
 
     internal VerifiedLog(LifecycleVerifier verifier, IReadOnlyList<AppendedEvent> log)
     {
         _verifier = verifier;
         _log = log;
-        _streams = new Lazy<IReadOnlyDictionary<string, List<AppendedEvent>>>(Streams);
+        _streams = new Lazy<IReadOnlyDictionary<string, List<(long Index, AppendedEvent Event)>>>(Streams);
+        _world = new Lazy<LifecycleFold.KeyWorld>(() => new LifecycleFold.KeyWorld(PublishedKeys.OfLog(log)));
     }
 
     /// <summary>The verifier this log was verified by.</summary>
@@ -62,7 +59,7 @@ public sealed class VerifiedLog
     /// <summary>The log this was made over, whole from its start (R6.47: leaf <i>i</i> is the <i>i</i>th event) or a prefix of it.</summary>
     public IReadOnlyList<AppendedEvent> Log => _log;
 
-    /// <summary>What the verifier decides of <paramref name="agent"/>'s stream. Memoised: asking twice is one decision.</summary>
+    /// <summary>What the verifier decides of <paramref name="agent"/>'s stream (R6.64). Memoised: asking twice is one decision.</summary>
     public VerifiedLifecycle For(AgentId agent)
     {
         ArgumentNullException.ThrowIfNull(agent);
@@ -71,39 +68,56 @@ public sealed class VerifiedLog
         {
             if (_memo.TryGetValue(agent.Value, out var known)) return known;
 
-            var stream = _streams.Value.TryGetValue(agent.Value, out var own) ? own : [];
-            var decided = KeyLifecycle.Of(stream, agent).TryGetValue(out var lifecycle, out var refusal)
-                ? new VerifiedLifecycle(lifecycle!, EnrollmentBinding.Find(stream, agent), [])
-                : new VerifiedLifecycle(new KeyLifecycle([]), EnrollmentBinding.Find(stream, agent), [], refusal);
-            _memo[agent.Value] = decided;
+            var decided = Decided(agent.Value);
+            var lifecycle = KeyLifecycle.Of(decided.Honoured, agent);
+
+            // Every event the fold honoured passed the checks the old reader makes and more, so the old reader reads it; a failure here is a defect in this assembly and is said as one.
+            var verified = new VerifiedLifecycle(
+                lifecycle.TryGetValue(out var honoured, out var unreadable) ? honoured! : throw new InvalidOperationException($"the honoured rows of a stream do not read as a lifecycle: {unreadable!.Type}"),
+                EnrollmentBinding.Find(decided.Honoured, agent),
+                decided.Skipped);
+            _memo[agent.Value] = verified;
+            return verified;
+        }
+    }
+
+    /// <summary>Every row the verifier does not honour, in log order: the rows of every stream, each by the predicate that skipped it.</summary>
+    public ImmutableArray<SkippedRow> Skipped() =>
+        [.. _streams.Value.Keys.SelectMany(aggregate => Decided(aggregate).Skipped).OrderBy(r => r.LogIndex)];
+
+    /// <summary>The rows at or past <paramref name="treeSize"/> that the verifier does not honour: what the head signer's stop withholds on (R6.63).</summary>
+    public ImmutableArray<SkippedRow> SkippedPast(long treeSize) => [.. Skipped().Where(r => r.LogIndex >= treeSize)];
+
+    /// <summary>
+    /// The stream's decision, once. The consumer-facing types are read from the honoured events alone, by the two readers of a lifecycle's shape that nothing else calls
+    /// (<c>KeyLifecycle.Of</c>, <c>EnrollmentBinding.Find</c>): a row the verifier skips is not among the events they are given.
+    /// </summary>
+    private LifecycleFold.Decided Decided(string aggregate)
+    {
+        lock (_memo)
+        {
+            if (_decided.TryGetValue(aggregate, out var known)) return known;
+
+            var stream = _streams.Value.TryGetValue(aggregate, out var own) ? own : [];
+            var decided = LifecycleFold.Of(aggregate, stream, _world.Value, _verifier.Verifiers);
+            _decided[aggregate] = decided;
             return decided;
         }
     }
 
-    /// <summary>Every row the verifier does not honour, in log order. Empty on the seam, which honours every row by shape.</summary>
-    public ImmutableArray<SkippedRow> Skipped() => _skipped;
-
-    /// <summary>
-    /// The rows at or past <paramref name="treeSize"/> the head signer's stop withholds on. On the seam this is today's structural test, every lifecycle row beyond an enrolment
-    /// pair (<see cref="LifecycleRows"/>), so that the stop behaves as it did; the final verifier lists the rows it skips.
-    /// </summary>
-    public ImmutableArray<SkippedRow> SkippedPast(long treeSize) =>
-        [.. LifecycleRows.Find(_log)
-            .Where(r => r.LogIndex >= treeSize)
-            .Select(r => new SkippedRow(r.LogIndex, r.Type.Value, r.Aggregate.Value, StructuralPredicate))];
-
-    private Dictionary<string, List<AppendedEvent>> Streams()
+    private Dictionary<string, List<(long Index, AppendedEvent Event)>> Streams()
     {
-        var streams = new Dictionary<string, List<AppendedEvent>>(StringComparer.Ordinal);
-        foreach (var appended in _log)
+        var streams = new Dictionary<string, List<(long Index, AppendedEvent Event)>>(StringComparer.Ordinal);
+        for (var i = 0; i < _log.Count; i++)
         {
+            var appended = _log[i];
             if (!KeyLifecycle.IsLifecycleKind(appended.Event.Type.Value)
                 && !string.Equals(appended.Event.Type.Value, AgentStandingProjector.EnrolledType, StringComparison.Ordinal))
                 continue;
 
             var key = appended.AggregateId.Value;
             if (!streams.TryGetValue(key, out var stream)) streams[key] = stream = [];
-            stream.Add(appended);
+            stream.Add((i, appended));
         }
 
         return streams;

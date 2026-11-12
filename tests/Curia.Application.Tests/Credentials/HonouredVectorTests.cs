@@ -37,7 +37,7 @@ public sealed class HonouredVectorTests
     /// <summary>The differences between what the verifier decides of <paramref name="agent"/> in <paramref name="log"/> and one expected block, or none.</summary>
     internal static IEnumerable<string> Differences(ConformanceLog log, string agent, JsonElement expected)
     {
-        var verified = new LifecycleVerifier(new Dictionary<string, Curia.Canon.Jws.IContentVerifier>()).OfLog(log.Log).For(Typed.Agent(agent));
+        var verified = ConformanceLog.Verifier().OfLog(log.Log).For(Typed.Agent(agent));
 
         var rows = expected.GetProperty("rows").EnumerateArray().ToArray();
         var indices = rows.Select(r => r.GetProperty("log_index").GetInt64()).ToArray();

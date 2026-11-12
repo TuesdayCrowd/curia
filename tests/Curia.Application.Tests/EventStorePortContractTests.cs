@@ -123,10 +123,10 @@ public abstract class EventStorePortContractTests
         var store = CreateStore();
         var key = TestKeys.Es256("alice-1");
         var agent = Typed.Agent("https://agents.example/alice");
-        Require(await new EnrollAgent(store, TestVerifier.Empty, TimeProvider.System).RecordAsync(agent, key, ct));
+        Require(await new EnrollAgent(store, TestVerifier.Es256, TimeProvider.System).RecordAsync(agent, key, ct));
         var author = Agg(agent.Value);
         var other = Agg("agg-condition-after-read-target");
-        var keys = new LogBoundKeys(new HeldKeyResolver(key), new InMemoryAuthorKeyRegistry(), new RetiringAfterFirstRead(store, author, agent.Value), TestVerifier.Empty);
+        var keys = new LogBoundKeys(new HeldKeyResolver(key), new InMemoryAuthorKeyRegistry(), new RetiringAfterFirstRead(store, author, agent.Value), TestVerifier.Es256);
 
         var live = Require(await keys.ResolveLiveAsync(agent, Typed.Kid("alice-1"), ServerTimestamp.At(DateTimeOffset.UtcNow.AddDays(1)), ct));
         var refused = await store.AppendAsync(other, AggregateVersion.New, [NewEvent("after-read-1")], new StreamCondition(author, live.AuthorStream), ct);
@@ -145,27 +145,31 @@ public abstract class EventStorePortContractTests
             Task.FromResult(Result<PublicKeyMaterial>.Ok(key));
     }
 
-    /// <summary>Reads through to the store and, after the first read of the author's stream, appends a retirement to it.</summary>
+    /// <summary>
+    /// Reads through to the store and, after the first read of the log that holds the author's stream, appends a retirement to it. The verifier is given the whole log (R6.47, R6.64), so the
+    /// read the decision is made on is a forward read, not the stream's own.
+    /// </summary>
     private sealed class RetiringAfterFirstRead(IEventStore store, AggregateId author, string agent) : IEventReader
     {
         private bool _retired;
 
-        public async Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default) =>
+            store.ReadByAggregateAsync(aggregateId, cancellationToken);
+
+        public async Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
         {
-            var read = await store.ReadByAggregateAsync(aggregateId, cancellationToken).ConfigureAwait(false);
-            if (_retired || aggregateId != author || !read.TryGetValue(out var history, out _)) return read;
+            var read = await store.ReadForwardAsync(afterSeq, maxCount, cancellationToken).ConfigureAwait(false);
+            if (_retired || !read.TryGetValue(out var page, out _) || !page!.Any(e => e.AggregateId == author)) return read;
 
             _retired = true;
+            var history = Require(await store.ReadByAggregateAsync(author, cancellationToken).ConfigureAwait(false));
             Require(await store.AppendAsync(
                 author,
-                Require(AggregateVersion.From(history!.Count)),
+                Require(AggregateVersion.From(history.Count)),
                 [new DomainEvent(Require(EventId.Create("retired-after-read")), Require(EventType.Create(LifecycleAppendGuard.KeyRetiredType)), Require(ActorId.Create(agent)), new JsonValue.Object([]))],
                 cancellationToken).ConfigureAwait(false));
             return read;
         }
-
-        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
-            store.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
 
     [Fact]

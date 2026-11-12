@@ -14,6 +14,14 @@ namespace Curia.Application.Tests.Credentials;
 /// </summary>
 internal sealed record ConformanceLog(string Name, string Directory, string Agent, IReadOnlyList<AppendedEvent> Log)
 {
+    /// <summary>The verifier the vector runners use: the production adapters, because the vectors carry real signatures.</summary>
+    internal static Curia.Application.Credentials.LifecycleVerifier Verifier() =>
+        new(new Dictionary<string, Curia.Canon.Jws.IContentVerifier>
+        {
+            ["ES256"] = new Curia.Canon.Sodium.Es256Adapter(),
+            ["EdDSA"] = new Curia.Canon.Sodium.Ed25519Adapter(),
+        });
+
     internal static string Root()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

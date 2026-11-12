@@ -81,16 +81,18 @@ public sealed class EnrollIdentity
         if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<AgentEnrollment>.Fail(aggregateError!);
 
-        var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
-        if (!read.TryGetValue(out var history, out var readError))
+        // The whole log, because the verifier decides a row by positions in it (R6.47, R6.64).
+        var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var log, out var readError))
             return Result<AgentEnrollment>.Fail(readError!);
 
-        var binding = _verifier.OfLog(history!).For(agentId).Binding;
+        var history = log!.Where(e => e.AggregateId.Value == aggregate.Value).ToList();
+        var binding = _verifier.OfLog(log!).For(agentId).Binding;
 
         // R4.33's second clause: the aggregate holds events and none is this identifier's enrollment,
         // so the log keeps it for something else and could never append the record. Refused here,
         // before the store, or the store would register a key no enrollment ever binds.
-        if (binding is null && history!.Count > 0)
+        if (binding is null && history.Count > 0)
             return Result<AgentEnrollment>.Fail(EnrollmentErrors.IdentifierReserved(agentId.Value));
 
         // R4.31 rev. (errata G16): an identifier the log records no enrollment of is bound by the first

@@ -114,7 +114,7 @@ public sealed class MarksSurviveAMalformedRowTests
         var standIn = log.Log[3].Event.Id.Value;
         var post = PostBy(harness, log.Agent, TestIdentity.New("conformance-ed25519-minimal"), standIn);
 
-        var disputed = DisputedPosts.Fold(new LifecycleVerifier(new Dictionary<string, Curia.Canon.Jws.IContentVerifier>()).OfLog(log.Log), ImmutableArray.Create(post));
+        var disputed = DisputedPosts.Fold(ConformanceLog.Verifier().OfLog(log.Log), ImmutableArray.Create(post));
 
         Assert.True(
             disputed.Count == 1 && disputed.DisputedByLogIndex(post) == 6 && disputed.KeyStatusOf(post) == "compromised",

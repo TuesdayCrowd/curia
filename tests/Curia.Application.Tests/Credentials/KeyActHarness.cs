@@ -25,9 +25,11 @@ internal sealed record TestIdentity(PublicKeyMaterial Material, SigningKey Signi
     internal static TestIdentity New(string kid)
     {
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        return new TestIdentity(
+        var identity = new TestIdentity(
             new PublicKeyMaterial("ES256", kid, ecdsa.ExportSubjectPublicKeyInfo()),
             new SigningKey("ES256", kid, ecdsa.ExportPkcs8PrivateKey()));
+        KnownKeys.Remember(identity.Material, identity.Signing.Private.ToArray());
+        return identity;
     }
 }
 
@@ -70,7 +72,7 @@ internal sealed class KeyActHarness
 
     internal IEventStore Writer => Store ?? Events;
 
-    internal LogBoundKeys KeysOver() => new(new RegistryResolver(Registry), Registry, Events, TestVerifier.Empty);
+    internal LogBoundKeys KeysOver() => new(new RegistryResolver(Registry), Registry, Events, new LifecycleVerifier(Verifiers));
 
     internal RotateKey Rotator() => new(Writer, Registry, KeysOver(), Verifiers, new LifecycleVerifier(Verifiers), Clock);
 
@@ -79,7 +81,7 @@ internal sealed class KeyActHarness
     /// <summary>Enrolls <paramref name="agent"/> with <paramref name="first"/> through the real use case.</summary>
     internal async Task EnrollAsync(string agent, TestIdentity first)
     {
-        var enroll = new EnrollIdentity(Events, Registry, new EnrollAgent(Events, TestVerifier.Empty, Clock), TestVerifier.Empty, Clock);
+        var enroll = new EnrollIdentity(Events, Registry, new EnrollAgent(Events, new LifecycleVerifier(Verifiers), Clock), new LifecycleVerifier(Verifiers), Clock);
         Require(await enroll.EnrollAsync(Typed.Agent(agent), Copy(first.Material), TestContext.Current.CancellationToken).ConfigureAwait(false));
     }
 

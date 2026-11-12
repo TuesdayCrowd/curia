@@ -209,13 +209,14 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out _))
             return Result<StreamRead>.Ok(new StreamRead(_verifier.OfLog([]).For(agentId), AggregateVersion.New));
 
-        var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
-        if (!read.TryGetValue(out var history, out var readError))
+        // The verifier is given the whole log, because a statement's prev and a declaration's from_index are positions in it (R6.47, R6.64); the stream's version is its own events' count.
+        var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var log, out var readError))
             return Result<StreamRead>.Fail(LogUnreadable(readError!));
 
-        if (!AggregateVersion.From(history!.Count).TryGetValue(out var version, out var versionError))
+        if (!AggregateVersion.From(log!.Count(e => e.AggregateId.Value == aggregate.Value)).TryGetValue(out var version, out var versionError))
             return Result<StreamRead>.Fail(LogUnreadable(versionError!));
 
-        return Result<StreamRead>.Ok(new StreamRead(_verifier.OfLog(history).For(agentId), version!));
+        return Result<StreamRead>.Ok(new StreamRead(_verifier.OfLog(log!).For(agentId), version!));
     }
 }

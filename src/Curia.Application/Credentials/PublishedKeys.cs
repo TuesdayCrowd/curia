@@ -46,7 +46,11 @@ public sealed class PublishedKeys
     /// <summary>The keys of the second class, in log order.</summary>
     public ImmutableArray<DeclarationKey> DeclarationKeys { get; }
 
-    /// <summary>The published keys in <paramref name="log"/>, in order, by log index.</summary>
+    /// <summary>
+    /// The published keys in <paramref name="log"/>, in order, by log index (R6.64): an entry is a key only when its payload is an object whose <c>kid</c> is a string and whose <c>jwk</c> is a key
+    /// in R6.62's closed form carrying that same <c>kid</c>; an entry that is not a key holds no position, and a <c>kid</c> that an earlier entry <i>that is a key</i> of the same class lists is not a
+    /// key again (the earliest listing), so a malformed entry naming a genuine key's <c>kid</c> cannot displace it.
+    /// </summary>
     public static PublishedKeys OfLog(IReadOnlyList<AppendedEvent> log)
     {
         ArgumentNullException.ThrowIfNull(log);
@@ -59,11 +63,13 @@ public sealed class PublishedKeys
             switch (appended.Event.Type.Value)
             {
                 case LogEntries.KeyType:
-                    if (ActaLog.ReadKey(i, appended.Event.Payload).TryGetValue(out var key, out _)) logKeys.Add(key!);
+                    if (ReadEntry(appended.Event.Payload) is { } key && !logKeys.Any(k => string.Equals(k.Kid, key.Kid, StringComparison.Ordinal)))
+                        logKeys.Add(new LogKey(i, key.Kid, key.Jwk, key.ValidFrom));
                     break;
 
                 case LogEntries.DeclarationKeyType:
-                    if (ActaLog.ReadDeclarationKey(i, appended.Event.Payload).TryGetValue(out var declarationKey, out _)) declarationKeys.Add(declarationKey!);
+                    if (ReadEntry(appended.Event.Payload) is { } declared && !declarationKeys.Any(k => string.Equals(k.Kid, declared.Kid, StringComparison.Ordinal)))
+                        declarationKeys.Add(new DeclarationKey(i, declared.Kid, declared.Jwk, declared.ValidFrom));
                     break;
 
                 default:
@@ -72,6 +78,18 @@ public sealed class PublishedKeys
         }
 
         return new PublishedKeys(logKeys.ToImmutable(), declarationKeys.ToImmutable());
+    }
+
+    /// <summary>The key a <c>log.key</c> or <c>log.declaration-key</c> payload states, or null when the entry is not a key (R6.64).</summary>
+    private static (string Kid, JsonValue.Object Jwk, string ValidFrom)? ReadEntry(JsonValue payload)
+    {
+        if (payload is not JsonValue.Object o
+            || Member(o, LogEntries.KidMember) is not JsonValue.String kid
+            || Member(o, LogEntries.JwkMember) is not JsonValue.Object jwk
+            || ClosedJwk.Read(jwk, kid.Value) is null)
+            return null;
+
+        return (kid.Value, jwk, Member(o, LogEntries.ValidFromMember) is JsonValue.String validFrom ? validFrom.Value : string.Empty);
     }
 
     private static ImmutableArray<T> Read<T>(JsonValue.Object document, string member, Func<long, string, JsonValue.Object, string, T> make)

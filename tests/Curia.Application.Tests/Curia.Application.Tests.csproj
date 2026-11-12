@@ -11,6 +11,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Curia.Application/Curia.Application.csproj" />
+    <!-- Errata G68: the conformance vectors are signed with real keys (Ed25519 agents, ES256 declaration keys), so the vector runners verify with the production adapters. -->
+    <ProjectReference Include="../../src/Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- R4.38 (add.): the test composition's gate, linked so each test assembly holds its own internal copy. -->

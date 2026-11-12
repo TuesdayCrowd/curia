@@ -62,24 +62,43 @@ public sealed class KeyLifecycleTests
             ("prev", Num(prev)),
             ("typ", Str(KeyStatements.RotationStatementTyp))));
 
-    private static JsonValue.Object RetirementPayload(string agent, string kid, long prev) =>
-        Obj(
+    /// <summary>A detached JWS over <paramref name="statement"/> under header <c>typ</c> <paramref name="headerTyp"/>, signed as the owner of <paramref name="key"/> does.</summary>
+    private static string SignedBy(string statement, string headerTyp, SigningKey key)
+    {
+        var canonical = Require(CanonicalJson.CanonicalizeWithNfc(Require(JsonReader.Parse(Encoding.UTF8.GetBytes(statement), AdmitLimits.Default))));
+        var crypto = new Curia.Application.Tests.Ingest.TestEs256();
+        var jws = new DetachedJws(new Dictionary<string, IContentSigner> { ["ES256"] = crypto }, new Dictionary<string, IContentVerifier> { ["ES256"] = crypto }, headerTyp);
+        return Require(jws.Sign(canonical, key)).Compact;
+    }
+
+    /// <summary>A retirement row of <paramref name="kid"/>, signed by the key made under that <c>kid</c>.</summary>
+    internal static JsonValue.Object RetirementPayload(string agent, PublicKeyMaterial key, long prev)
+    {
+        var kid = key.Kid;
+        var statement = RetirementStatement(agent, kid, prev);
+        return Obj(
             ("agent_id", Str(agent)),
-            ("authorization", Str("signature")),
+            ("authorization", Str(SignedBy(statement, KeyStatements.RetirementHeaderTyp, KnownKeys.Of(key)))),
             ("kid", Str(kid)),
             ("prev", Num(prev)),
-            ("statement", Str(RetirementStatement(agent, kid, prev))));
+            ("statement", Str(statement)));
+    }
 
-    internal static JsonValue.Object RotationPayload(string agent, string authorizedBy, PublicKeyMaterial key, long prev) =>
-        Obj(
+    /// <summary>A rotation row binding <paramref name="key"/>, authorized by the key made under <paramref name="authorizedBy"/> and possessed by <paramref name="key"/>'s owner.</summary>
+    internal static JsonValue.Object RotationPayload(string agent, PublicKeyMaterial authorizer, PublicKeyMaterial key, long prev)
+    {
+        var authorizedBy = authorizer.Kid;
+        var statement = RotationStatement(agent, authorizedBy, key, prev);
+        return Obj(
             ("agent_id", Str(agent)),
-            ("authorization", Str("signature")),
+            ("authorization", Str(SignedBy(statement, KeyStatements.RotationHeaderTyp, KnownKeys.Of(authorizer)))),
             ("authorized_by", Str(authorizedBy)),
             ("jwk", Require(PublicJwk.Of(key))),
             ("kid", Str(key.Kid)),
-            ("possession", Str("signature")),
+            ("possession", Str(SignedBy(statement, KeyStatements.RotationHeaderTyp, KnownKeys.Of(key)))),
             ("prev", Num(prev)),
-            ("statement", Str(RotationStatement(agent, authorizedBy, key, prev))));
+            ("statement", Str(statement)));
+    }
 
     private static PublicKeyMaterial Copy(PublicKeyMaterial key) => new(key.Alg, key.Kid, key.Public.ToArray());
 
@@ -101,7 +120,7 @@ public sealed class KeyLifecycleTests
     {
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(agent), first, TestContext.Current.CancellationToken).ConfigureAwait(false));
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(agent), first, TestContext.Current.CancellationToken).ConfigureAwait(false));
         return (events, clock);
     }
 
@@ -117,7 +136,7 @@ public sealed class KeyLifecycleTests
         }
     }
 
-    private static LogBoundKeys KeysOver(InMemoryEventStore events, InMemoryAuthorKeyRegistry registry) => new(new RegistryResolver(registry), registry, events, TestVerifier.Empty);
+    private static LogBoundKeys KeysOver(InMemoryEventStore events, InMemoryAuthorKeyRegistry registry) => new(new RegistryResolver(registry), registry, events, TestVerifier.Es256);
 
     private static async Task<InMemoryAuthorKeyRegistry> RegistryHoldingAsync(string agent, params PublicKeyMaterial[] keys)
     {
@@ -185,7 +204,7 @@ public sealed class KeyLifecycleTests
         var (first, second) = (TestKeys.Es256("alice-1"), TestKeys.Es256("alice-2"));
         var events = await StreamOfAsync(Alice,
             (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, BindingPayload(Alice, first)),
-            (KeyBound, RotationPayload(Alice, "alice-1", second, 1)), (KeyBound, BindingPayload(Alice, first)));
+            (KeyBound, RotationPayload(Alice, first, second, 1)), (KeyBound, BindingPayload(Alice, first)));
 
         Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
     }
@@ -196,7 +215,7 @@ public sealed class KeyLifecycleTests
         var first = TestKeys.Es256("alice-1");
         var events = await StreamOfAsync(Alice,
             (Enrolled, EnrolledPayload(Alice, "alice-1")),
-            (LifecycleAppendGuard.KeyRetiredType, RetirementPayload(Alice, "alice-1", 1)),
+            (LifecycleAppendGuard.KeyRetiredType, RetirementPayload(Alice, first, 1)),
             (KeyBound, BindingPayload(Alice, first)));
 
         Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
@@ -208,7 +227,7 @@ public sealed class KeyLifecycleTests
         // One entry before the binding, so only the type test on that entry (an enrolment) can refuse it.
         var first = TestKeys.Es256("alice-1");
         var events = await StreamOfAsync(Alice,
-            (LifecycleAppendGuard.KeyRetiredType, RetirementPayload(Alice, "alice-1", 1)),
+            (LifecycleAppendGuard.KeyRetiredType, RetirementPayload(Alice, first, 1)),
             (KeyBound, BindingPayload(Alice, first)));
 
         Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
@@ -323,7 +342,7 @@ public sealed class KeyLifecycleTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var registry = new InMemoryAuthorKeyRegistry();
-        Require(await new EnrollIdentity(events, registry, new EnrollAgent(events, TestVerifier.Empty, clock), TestVerifier.Empty, clock).EnrollAsync(Typed.Agent(Alice), first, TestContext.Current.CancellationToken));
+        Require(await new EnrollIdentity(events, registry, new EnrollAgent(events, TestVerifier.Es256, clock), TestVerifier.Es256, clock).EnrollAsync(Typed.Agent(Alice), first, TestContext.Current.CancellationToken));
 
         Assert.Equal($"ok: {Enrolled}@alice-1, {KeyBound}@alice-1", await FoldAsync(events, Alice));
     }
@@ -360,13 +379,13 @@ public sealed class KeyLifecycleTests
         var first = TestKeys.Es256("alice-1");
         var second = TestKeys.Es256("alice-2");
         var (events, _) = await EnrolledAsync(Alice, first);
-        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, "alice-1", second, 1));
+        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, first, second, 1));
         var keys = KeysOver(events, await RegistryHoldingAsync(Alice, first, second));
         var ct = TestContext.Current.CancellationToken;
 
         Assert.True((await keys.ResolveAsync(Typed.Agent(Alice), Typed.Kid("alice-1"), At, ct)).IsOk);
 
-        await AppendAsync(events, Alice, LifecycleAppendGuard.KeyRetiredType, "retirement-1", RetirementPayload(Alice, "alice-1", 2));
+        await AppendAsync(events, Alice, LifecycleAppendGuard.KeyRetiredType, "retirement-1", RetirementPayload(Alice, first, 2));
 
         Assert.Equal(
             "resolve: curia/keys/retired; live: curia/keys/retired; second: resolved",
@@ -393,8 +412,8 @@ public sealed class KeyLifecycleTests
         var first = TestKeys.Es256("alice-1");
         var second = TestKeys.Es256("alice-2");
         var (events, _) = await EnrolledAsync(Alice, first);
-        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, "alice-1", second, 1));
-        await AppendAsync(events, Alice, LifecycleAppendGuard.KeyRetiredType, "retirement-1", RetirementPayload(Alice, "alice-1", 2));
+        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, first, second, 1));
+        await AppendAsync(events, Alice, LifecycleAppendGuard.KeyRetiredType, "retirement-1", RetirementPayload(Alice, first, 2));
         var keys = KeysOver(events, await RegistryHoldingAsync(Alice, first, second));
 
         var set = Require(await keys.KeySetAsync(Typed.Agent(Alice), TestContext.Current.CancellationToken));
@@ -412,10 +431,10 @@ public sealed class KeyLifecycleTests
         var second = TestKeys.Es256("alice-2");
         var (events, clock) = await EnrolledAsync(Alice, first);
         clock.Advance(TimeSpan.FromHours(1));
-        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, "alice-1", second, 1));
+        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, first, second, 1));
         var boundAt = (await StreamAsync(events, Alice))[^1].ServerTimestamp.Value;
         var registry = await RegistryHoldingAsync(Alice, first);
-        var enroll = new EnrollIdentity(events, registry, new EnrollAgent(events, TestVerifier.Empty, clock), TestVerifier.Empty, clock);
+        var enroll = new EnrollIdentity(events, registry, new EnrollAgent(events, TestVerifier.Es256, clock), TestVerifier.Es256, clock);
 
         var restored = Require(await enroll.EnrollAsync(Typed.Agent(Alice), Copy(second), ct));
 
@@ -432,10 +451,10 @@ public sealed class KeyLifecycleTests
         var first = TestKeys.Es256("alice-1");
         var second = TestKeys.Es256("alice-2");
         var (events, clock) = await EnrolledAsync(Alice, first);
-        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, "alice-1", second, 1));
-        await AppendAsync(events, Alice, LifecycleAppendGuard.KeyRetiredType, "retirement-1", RetirementPayload(Alice, "alice-1", 2));
+        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, first, second, 1));
+        await AppendAsync(events, Alice, LifecycleAppendGuard.KeyRetiredType, "retirement-1", RetirementPayload(Alice, first, 2));
         var registry = await RegistryHoldingAsync(Alice, second);
-        var enroll = new EnrollIdentity(events, registry, new EnrollAgent(events, TestVerifier.Empty, clock), TestVerifier.Empty, clock);
+        var enroll = new EnrollIdentity(events, registry, new EnrollAgent(events, TestVerifier.Es256, clock), TestVerifier.Es256, clock);
 
         Require(await enroll.EnrollAsync(Typed.Agent(Alice), Copy(first), ct));
 
@@ -452,12 +471,12 @@ public sealed class KeyLifecycleTests
         var second = TestKeys.Es256("alice-2");
         var (events, clock) = await EnrolledAsync(Alice, first);
         clock.Advance(TimeSpan.FromHours(30));
-        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, "alice-1", second, 1));
+        await AppendAsync(events, Alice, AgentStandingProjector.KeyBoundType, "rotation-1", RotationPayload(Alice, first, second, 1));
         var lifecycle = Require(KeyLifecycle.Of(await StreamAsync(events, Alice), Typed.Agent(Alice)));
         var rotatedAt = lifecycle.Entries.Single(e => e.IsRotation).At;
 
         var before = $"{lifecycle.StatusNow("alice-1")} {lifecycle.StatusNow("alice-2")} {lifecycle.StatusNow("nobody")} live={lifecycle.LiveCount()}";
-        await AppendAsync(events, Alice, LifecycleAppendGuard.KeyRetiredType, "retirement-1", RetirementPayload(Alice, "alice-1", 2));
+        await AppendAsync(events, Alice, LifecycleAppendGuard.KeyRetiredType, "retirement-1", RetirementPayload(Alice, first, 2));
         var after = Require(KeyLifecycle.Of(await StreamAsync(events, Alice), Typed.Agent(Alice)));
 
         Assert.Equal(
@@ -471,7 +490,7 @@ public sealed class KeyLifecycleTests
     {
         const string Bob = "https://agents.example/bob";
         var (events, _) = await EnrolledAsync(Alice, TestKeys.Es256("alice-1"));
-        Require(await new EnrollAgent(events, TestVerifier.Empty, new ManualTimeProvider(Start)).RecordAsync(Typed.Agent(Bob), TestKeys.Es256("bob-1"), TestContext.Current.CancellationToken));
+        Require(await new EnrollAgent(events, TestVerifier.Es256, new ManualTimeProvider(Start)).RecordAsync(Typed.Agent(Bob), TestKeys.Es256("bob-1"), TestContext.Current.CancellationToken));
 
         var wide = Require(await events.ReadAllAsync(TestContext.Current.CancellationToken));
 

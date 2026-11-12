@@ -90,7 +90,7 @@ public sealed class ReaderVectorAgreementTests
     {
         var failures = new List<string>();
         var classified = 0;
-        var verifier = new LifecycleVerifier(new Dictionary<string, IContentVerifier>());
+        var verifier = ConformanceLog.Verifier();
         foreach (var name in ConformanceLog.Names("lifecycle"))
         {
             var log = ConformanceLog.Open("lifecycle", name);
@@ -99,7 +99,10 @@ public sealed class ReaderVectorAgreementTests
             var predicate = expected.RootElement.TryGetProperty("predicate", out var p) ? p.GetString()! : string.Empty;
 
             // The two cases with no row of the stream to decide are not asked (a foreign identity's entry; a kind no stream holds), as the Rust fold excludes them by name.
-            if (name is "foreign-identity-entry" or "unknown-lifecycle-kind") { classified++; continue; }
+            // A third is a key set that no log can be: two declaration keys at one position. R6.64 reads "the log's own entries as the key set ... so that there is neither a key set that is not
+            // supplied nor a position that is not given", and a log gives each entry a position of its own, so the nearest log (the second key after the last entry, the first key still first)
+            // decides the row honoured and the reader's verdict, which the document's shape alone produces, has no log to agree with.
+            if (name is "foreign-identity-entry" or "unknown-lifecycle-kind" or "compromise-declaration-keys-share-position") { classified++; continue; }
 
             var verified = verifier.OfLog(LogOf(log)).For(Typed.Agent(log.Agent));
             var skipped = verified.Refusal is null ? verified.Skipped : [];

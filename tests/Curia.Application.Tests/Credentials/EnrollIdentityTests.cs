@@ -43,14 +43,10 @@ public sealed class EnrollIdentityTests
     private static Error Refusal<T>(Result<T> result) =>
         result.Match(v => throw new InvalidOperationException($"expected a refusal, got {v}"), e => e);
 
-    private static PublicKeyMaterial NewKey(string kid)
-    {
-        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        return new PublicKeyMaterial("ES256", kid, ecdsa.ExportSubjectPublicKeyInfo());
-    }
+    private static PublicKeyMaterial NewKey(string kid) => TestKeys.Es256(kid);
 
     private static EnrollIdentity Enroll(InMemoryEventStore events, IAuthorKeyRegistry keys, TimeProvider clock) =>
-        new(events, keys, new EnrollAgent(events, TestVerifier.Empty, clock), TestVerifier.Empty, clock);
+        new(events, keys, new EnrollAgent(events, TestVerifier.Es256, clock), TestVerifier.Es256, clock);
 
     /// <summary>
     /// Holds every racer at the key store until all <paramref name="racers"/> are accounted for, so
@@ -206,7 +202,7 @@ public sealed class EnrollIdentityTests
     /// A rotation's <c>agent.key-bound</c> entry for <paramref name="key"/>, authorized by <c>alice-1</c>,
     /// appended to Alice's stream by hand, as no writer in this solution produces one yet.
     /// </summary>
-    private static async Task BindRotatedKeyAsync(InMemoryEventStore events, PublicKeyMaterial key, CancellationToken ct)
+    private static async Task BindRotatedKeyAsync(InMemoryEventStore events, PublicKeyMaterial authorizer, PublicKeyMaterial key, CancellationToken ct)
     {
         var stream = await StreamAsync(events, Alice, ct).ConfigureAwait(false);
         Require(await events.AppendAsync(
@@ -216,7 +212,7 @@ public sealed class EnrollIdentityTests
                 Require(EventId.Create("rotation-binding-" + key.Kid)),
                 Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
                 Require(ActorId.Create(Alice)),
-                KeyLifecycleTests.RotationPayload(Alice, "alice-1", key, stream.Count - 1))],
+                KeyLifecycleTests.RotationPayload(Alice, authorizer, key, stream.Count - 1))],
             ct).ConfigureAwait(false));
     }
 
@@ -399,7 +395,7 @@ public sealed class EnrollIdentityTests
         var bound = NewKey("alice-1");
         var unbound = NewKey("mallory-1");
 
-        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), bound, ct));
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Alice), bound, ct));
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(bound, Start, null), new RegisteredKey(unbound, Start.AddHours(1), null)]);
 
         var again = new PublicKeyMaterial(unbound.Alg, unbound.Kid, unbound.Public.ToArray());
@@ -415,7 +411,7 @@ public sealed class EnrollIdentityTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var log = new EnrollAgent(events, TestVerifier.Empty, clock);
+        var log = new EnrollAgent(events, TestVerifier.Es256, clock);
         var alice = NewKey("alice-1");
 
         Require(await log.RecordAsync(Typed.Agent(Alice), alice, ct));
@@ -436,7 +432,7 @@ public sealed class EnrollIdentityTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var log = new EnrollAgent(events, TestVerifier.Empty, clock);
+        var log = new EnrollAgent(events, TestVerifier.Es256, clock);
         var alice = NewKey("alice-1");
 
         Require(await log.RecordAsync(Typed.Agent(Alice), alice, ct));
@@ -475,7 +471,7 @@ public sealed class EnrollIdentityTests
 
         var keys = new InMemoryAuthorKeyRegistry();
         Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
         Assert.Empty(await keys.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Single(await StreamAsync(events, Alice, ct));
     }
@@ -574,7 +570,7 @@ public sealed class EnrollIdentityTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var oneAppend = new OneAppendEventStore(events);
-        var enroll = new EnrollIdentity(oneAppend, new InMemoryAuthorKeyRegistry(), new EnrollAgent(oneAppend, TestVerifier.Empty, clock), TestVerifier.Empty, clock);
+        var enroll = new EnrollIdentity(oneAppend, new InMemoryAuthorKeyRegistry(), new EnrollAgent(oneAppend, TestVerifier.Es256, clock), TestVerifier.Es256, clock);
 
         var answer = await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct);
 
@@ -619,8 +615,8 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var planted = NewKey("alice-2");
 
-        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
-        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Mallory), NewKey("mallory-1"), ct));
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Mallory), NewKey("mallory-1"), ct));
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Mallory)),
             Require(AggregateVersion.From(EnrollmentEntries.Length)),
@@ -656,7 +652,7 @@ public sealed class EnrollIdentityTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
-        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(
             Typed.Agent(Scriptor),
             new PublicKeyMaterial("EdDSA", "conformance-ed25519-minimal", Base64Url.DecodeFromChars("HRzJlnTufZYYTZyCDBpyP5ldQ38JlbCeDOQHgIozgg8")),
             ct));
@@ -704,14 +700,13 @@ public sealed class EnrollIdentityTests
     }
 
     /// <summary>
-    /// R4.31 rev. as R4.35 reads the log (errata G16): an <c>agent.key-bound</c> entry that names a
-    /// <c>kid</c> binds it, whatever else it carries. One whose <c>jwk</c> is not a key binds the
-    /// <c>kid</c> to no key, and the kid-only clause of the identity's <c>agent.enrolled</c> does not
-    /// stand for it, so after a lost row no bytes under that <c>kid</c> are registered. No writer in
-    /// this solution produces such an entry; this holds the reader to the log if one is ever there.
+    /// R4.31 rev. under R6.64 (errata G68; this fact was "an entry that names a kid binds it, whatever else it carries": one whose <c>jwk</c> is not a key bound the <c>kid</c> to no key, so after a lost
+    /// row no bytes under that <c>kid</c> were registered): the first binding after the enrolment is its pair only when its <c>jwk</c> is a key in R6.62's closed form. One that is not is skipped
+    /// (<c>statement-mismatch</c>) and binds nothing, so the identity's <c>agent.enrolled</c>, which names the <c>kid</c>, is the log's only binding, and it is the kid-only kind: after a lost row whatever
+    /// bytes arrive under the <c>kid</c> are registered (errata G14's fourth cost). No writer in this solution produces such an entry.
     /// </summary>
     [Fact]
-    public async Task R4_31_AKeyBindingThatCarriesNoKeyBindsNoBytesUnderItsKid()
+    public async Task R4_31_AKeyBindingThatCarriesNoKeyIsSkippedAndTheEnrolmentsKidAloneStands()
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
@@ -748,8 +743,8 @@ public sealed class EnrollIdentityTests
         clock.Advance(TimeSpan.FromDays(1));
         var lost = new InMemoryAuthorKeyRegistry();
 
-        Assert.Equal("curia/keys/material-immutable", Refusal(await Enroll(events, lost, clock).EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
-        Assert.Empty(await lost.KeysForAsync(Typed.Agent(Alice), ct));
+        Assert.True(Require(await Enroll(events, lost, clock).EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).WasAlreadyEnrolled);
+        Assert.Single(await lost.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
@@ -809,8 +804,8 @@ public sealed class EnrollIdentityTests
         var first = NewKey("alice-1");
         var second = NewKey("alice-2");
 
-        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), first, ct));
-        await BindRotatedKeyAsync(events, second, ct);
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Alice), first, ct));
+        await BindRotatedKeyAsync(events, first, second, ct);
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null), new RegisteredKey(second, Start, null)]);
         var enroll = Enroll(events, keys, clock);
 
@@ -860,12 +855,12 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var first = NewKey("alice-1");
         var second = NewKey("alice-2");
-        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), first, ct));
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Alice), first, ct));
         await BindAnotherKeyAsync(events, second, ct);
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null), new RegisteredKey(second, Start, null)]);
 
         var viaEnrol = Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).Type;
-        var viaRecord = Refusal(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).Type;
+        var viaRecord = Refusal(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).Type;
 
         Assert.Equal(
             "enrol: curia/enroll/already-enrolled; record: curia/enroll/already-enrolled; entries: 3; bound: alice-1; first still enrols: True",
@@ -875,18 +870,18 @@ public sealed class EnrollIdentityTests
     }
 
     /// <summary>
-    /// R4.35 (rev.), fail closed: a lifecycle entry in the identity's own stream that names no agent
-    /// cannot be attributed, so the log binds nothing to the identity while it is there, and no
-    /// re-announcement binds a key by it. The refusal is the use case's own 409 and appends nothing.
+    /// R4.40 and R6.64 (errata G68; this fact was R4.35 (rev.)'s "fail closed": an entry that names no agent made the log bind nothing and a re-announcement the use case's own 409,
+    /// <c>identifier-reserved</c>): a lifecycle entry in the identity's own stream that names no agent is skipped and inert. The log still binds the identity's key, a re-announcement of it is
+    /// answered as the enrolment it was, and nothing is appended.
     /// </summary>
     [Fact]
-    public async Task R4_35_AnUnattributableLifecycleEntryInTheStreamMakesTheLogBindNothing()
+    public async Task R4_40_AnUnattributableLifecycleEntryInTheStreamIsSkippedAndTheLogStillBindsTheKey()
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var first = NewKey("alice-1");
-        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), first, ct));
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Alice), first, ct));
         var stream = await StreamAsync(events, Alice, ct);
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Alice)),
@@ -900,9 +895,9 @@ public sealed class EnrollIdentityTests
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null)]);
 
         Assert.Equal(
-            "bound: none; enrol: curia/enroll/identifier-reserved; entries: 3",
-            $"bound: {(EnrollmentBinding.Find(await StreamAsync(events, Alice, ct), Typed.Agent(Alice)) is null ? "none" : "some")}; "
-            + $"enrol: {Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(first.Alg, first.Kid, first.Public.ToArray()), ct)).Type}; "
+            "bound: alice-1; enrol: re-announced; entries: 3",
+            $"bound: {string.Join(",", TestVerifier.Es256.OfLog(Require(await events.ReadAllAsync(ct))).For(Typed.Agent(Alice)).Binding!.Keys.Select(k => k.Kid))}; "
+            + $"enrol: {(Require(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(first.Alg, first.Kid, first.Public.ToArray()), ct)).WasAlreadyEnrolled ? "re-announced" : "enrolled")}; "
             + $"entries: {(await StreamAsync(events, Alice, ct)).Count}");
     }
 
