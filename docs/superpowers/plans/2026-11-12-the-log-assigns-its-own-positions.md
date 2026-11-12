@@ -4,11 +4,11 @@
 > Written by `curia-architect` on 2026-11-12 as **PR S**, the small `db/` PR the owner put **first** (Q-C, "Second round" of the memory record `owner-security-decisions-2026-11-11`), before PR N. **Planned against `origin/main` at `b348f6a9` (PR H merged as #152) and read against `origin/the-vector-channel-is-semantic` at `4d3cb47a` (PR #151, open, waiting on the owner's `ci.yml` merge; it carries `main`).** Every identifier below was computed with `git show <ref>:<path>` and `git grep <pattern> <ref>`, not `grep` over the GitButler workspace.
 > **Marks.** **[read]** is a fact read in the tree by the author of this plan. **[measured]** is a fact the author ran on a scratch database and role on the local PostgreSQL server (`psql` as the table owner and as the role; the database and role were dropped after, and the script is `.../scratchpad/planD/exp.sh`, `exp2.sh`, `exp3.sh`); **no Forum was started and no test was run.** **[record]** is a fact taken from PR N's Task 0 record (`.superpowers/sdd/2026-11-11-planN/n-task0.txt`), which the author read and did not re-run. **[unverified]** is a claim nothing has read or run, and each names the Task 0 measurement that settles it.
 > Read for this plan: `db/0001`, `db/0002:130-175`, `db/0005`; `src/Curia.Infrastructure/Migrations/SchemaMigrations.cs` and its `<EmbeddedResource>` glob in `Curia.Infrastructure.csproj`; `PostgresEventStore.cs` (the INSERT at `:441`, the guard's reads at `:288-320`, the paged read at `:374`, the by-aggregate read at `:340`); `Curia.Application/Ports/EventReaderExtensions.cs`; `LifecycleEntryScan.cs`; `PostgresStoreFaults.cs`; `tests/Curia.Infrastructure.Tests/PostgresDatabaseFixture.cs:60-330`, `AppRoleGrantRefusalTests.cs`, `SchemaMigrationsTests.cs`, `PostgresAppendGuardTests.cs` (head), `HarnessRehearsalTests.cs` (by grep); `tests/Curia.Api.Tests/RoleForumFixture.cs:10-125`; `tools/fault-harness/fault.sh` (whole); the errata's G67 (form) and the white paper's R11.6 and Appendix D `events`; `IMPLEMENTATION_PLAN.md:15` (the first-free line); PR N's plan and its Amendment 1.
-> **What a builder must not do with this plan:** treat a **[unverified]** as a fact. The two that carry the most weight are what a `seq` 0 row does to the token path and to every detector (M-S2), and what a planted `seq` ahead of the identity does through the Forum (M-S3): both are read from the code and consistent with the record, and neither has been run through a Forum.
+> **What a builder must not do with this plan:** treat a **[unverified]** as a fact. The two that carried the most weight were run by Task 0 on 2026-11-12: a planted `seq` ahead of the identity through the Forum (M-S3) held as read; a `seq` 0 row (M-S2) held in its blindness half (the head signer's stop and the start-up scan do not see it) and not in its honoured half (it made the victim's key set unreadable and was not honoured as a retirement, for the payload run): Amendment 1, ruling 12.
 
 ## Order against the neighbours, and why
 
-PR S is the first of the revised order (S, N, N2, PR O, the hosting join). It is small on purpose and independent of everything: it touches `db/`, one migration list, three test fixtures, one fault-harness script, one start-up service and its port, and the three documents. **It does not wait for #151, PR N or anything else, and PR N does not start its consumers (Task 4) until S has merged**, because N's probes run on fixtures that apply `db/0006`. The reasons it comes first are the owner's (Q-C) and one more that the reading found: **the chosen-`seq` hole is not only the denial of service Task 0 measured. A row at `seq` 0 or below is invisible to every forward read (all of them start at `seq > 0`) and visible to the by-aggregate read the token path uses today, so it is a forged lifecycle row that no head, proof, start-up scan, stop or audit can see** (M-S2). Every detective control the beta rests on (the 7006 scan, the stop, PR N's audit and 7007) reads forward from zero; this PR is what makes "forward from zero" the whole log.
+PR S is the first of the revised order (S, N, N2, PR O, the hosting join). It is small on purpose and independent of everything: it touches `db/`, one migration list, three test fixtures, one fault-harness script, one start-up service and its port, and the three documents. **It does not wait for #151, PR N or anything else, and PR N does not start its consumers (Task 4) until S has merged**, because N's probes run on fixtures that apply `db/0006`. The reasons it comes first are the owner's (Q-C) and one more that the reading found: **the chosen-`seq` hole is not only the denial of service Task 0 measured. A row at `seq` 0 or below is invisible to every forward read (all of them start at `seq > 0`) and visible to the by-aggregate read the token path uses today, so it is a forged row that the head signer's stop and the start-up scan do not see (measured, M-S2) and that, after PR N, the audit cannot see, and it makes its victim's key set unreadable (Amendment 1, ruling 12)**. Every detective control the beta rests on (the 7006 scan, the stop, PR N's audit and 7007) reads forward from zero; this PR is what makes "forward from zero" the whole log.
 
 **Files PR S shares with the open PRs.** `git diff --name-only origin/main origin/the-vector-channel-is-semantic` is 87 files; this plan's scope shares with it only the three documents (`IMPLEMENTATION_PLAN.md`, the errata, `README.md`, `CLAUDE.md`) and `src/Curia.Api/Program.cs` (#151 edits the embedder's registration; S adds one hosted-service registration: mechanical). It does **not** touch `.github/`, `Directory.Packages.props`, any `packages.lock.json`, `Curia.sln` or any csproj (the `db/*.sql` glob already embeds a new file), so **it is not the owner's `ci.yml` merge**. It **is** a deployment step the owner performs (Task 6's runbook), and its PR body says so.
 
@@ -26,8 +26,8 @@ PR S is the first of the revised order (S, N, N2, PR O, the hosting join). It is
 1 to 5 are the defect (one cause, four forms); 6 to 10 are what a migration alone would have got wrong.
 
 1. **The app role can name `seq`.** `db/0001` creates `seq BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY` and `GRANT INSERT, SELECT ON events` to the role [read]. A statement with `OVERRIDING SYSTEM VALUE` inserts at any `seq` the primary key allows, needing no privilege beyond `INSERT`; without it the statement is refused by the **identity rule** (`cannot insert a non-DEFAULT value into column "seq"`), which is not a grant [record; measured here: same message]. `server_ts` is a plain column the role also sets [record].
-2. **Negative `seq`** (record): accepted; every read that touches the aggregate then throws in `EventSequence.From` (`Corrupt events.seq`, `PostgresEventStore.cs:541`) and answers a bare `500 curia/server/fault` to an uninvolved legitimate agent (the real victim's `curia budget` in the record), to the token request, and to `curia verify`; the signing side tolerates it (`sign-head` exits 0). A forward read does not return the row (`seq > 0`), so no scan counts it. **Whether the Forum starts with such a row in the log is not recorded** (the start-up scan reads forward and does not see it; M-S1 runs it).
-3. **`seq` 0, a shadow row** [read; consistent with the record; M-S2 runs it through the Forum]. Every whole-log read starts at `EventSequence.Zero` and reads `WHERE seq > @after` (`EventReaderExtensions.ReadAllAsync`; `PostgresEventStore.cs:374`; `LifecycleEntryScan.cs:41`), so a row at `seq` 0 is returned by none of them: not the Acta (so no proof, no head commits to it), not any projection, not the 7006 scan, not `sign-head --if-grown`'s stop, not (after PR N) the audit. The by-aggregate read (`PostgresEventStore.cs:340`, no `seq` filter) returns it, and **that is the read the token path, ingest and the enrolment path use today** (N's finding 3). A forged `agent.key-retired` at `seq` 0 is therefore honoured by the token path and invisible to every detector. The record's own anomaly fits: after the `seq` 0 insert `curia verify` still printed the post at **leaf 4** and the binding at **log index 1** (a log that had shifted would print 5 and 2), though the report said every index shifted.
+2. **Negative `seq`** (record): accepted; every read that touches the aggregate then throws in `EventSequence.From` (`Corrupt events.seq`, `PostgresEventStore.cs:541`) and answers a bare `500 curia/server/fault` to an uninvolved legitimate agent (the real victim's `curia budget` in the record), to the token request, and to `curia verify`; the signing side tolerates it (`sign-head` exits 0). A forward read does not return the row (`seq > 0`), so no scan counts it. **The Forum starts with such a row in the log, logs nothing about it, and no hosted service stops it** [measured, Task 0 M-S1: after a restart there is no 7006 and no scan line; an agent whose aggregate holds no such row was unaffected before and after].
+3. **`seq` 0, a shadow row** [measured, Task 0 M-S2, against a control that inserted the same forged `agent.key-retired` (the same payload, a `prev` of 1) at an ordinary position]. Every whole-log read starts at `EventSequence.Zero` and reads `WHERE seq > @after` (`EventReaderExtensions.ReadAllAsync`; `PostgresEventStore.cs:374`; `LifecycleEntryScan.cs:41`), so a row at `seq` 0 is returned by none of them. **Two detectors were shown able to see the control row and not the `seq` 0 row:** `sign-head --if-grown` (exit 6 `curia/head/withheld` for the control; exit 0 `unchanged  tree_size=11 latest_head_log_index=10` for `seq` 0) and the start-up scan (one 7006 line for the control, none for `seq` 0). The head, an inclusion proof and `GET /v1/log/jwks?agent=` did not change for either row (no head was signed over the control), so they are not reflected and have no control; a plain `sign-head` over a `seq` 0 row was not run (ruling 16). The by-aggregate read (`PostgresEventStore.cs:340`, no `seq` filter) returns the row, and it is the read the token path, ingest and the enrolment path use today (N's finding 3). **The row was not honoured as a retirement; it made its victim's key set unreadable.** The control, at an ordinary position, was honoured (`key_status` `retired`, the `FOREIGN` line, a `401`). At `seq` 0 the same payload failed `curia/keys/statement-mismatch` (the fold's reason was not read): `GET /v1/jwks?agent=` `503`; `curia keys`, `curia verify` and `curia read` of the victim's post exit 8; `GET /v1/posts/<id>` still `key_status` `active`; a fresh token request `401 invalid_client` (the reason inferred from PR N's M3 record, not read) and an issued token's next request `503 curia/log/unreadable`. **For the one payload run:** whether a payload the fold accepts at position 0 is honoured is not measured (ruling 16). The record's own anomaly fits: after the `seq` 0 insert `curia verify` still printed the post at **leaf 4** and the binding at **log index 1** (a log that had shifted would print 5 and 2), though the report said every index shifted.
 4. **A positive `seq` ahead of the identity** [measured]: with rows 1 and 2 present, a planted `seq` 5, and three honest appends, the appends took 3, 4 and then **failed** on `events_pkey` (`Key (seq)=(5) already exists`), the fourth took 6: **one honest append refused per planted value**, each failure consuming the identity's value, so the cost to the attacker is one `INSERT` per refused append. The Forum classifies a `PostgresException` as a store fault (`PostgresStoreFaults.Is`, by type) so the author is told `curia/store/unavailable` and the act is kept for `curia resend` [read; M-S3 runs it]. A row planted at a `seq` the identity has already passed is **not detectable by its `seq`** (it looks like an ordinary row); only a signed head that predates it (R6.47) can show it. The append guard (R6.60, `PostgresEventStore.cs:288-320`) and every paged read key on `seq > @after`, so a row placed under a reader's cursor is invisible to that reader and to the guard.
 5. **All four forms are closed by one grant, and only by a grant.** A `CHECK (seq > 0)` closes the negative form only, and it is a table change the application's role cannot be held to by a test the way a grant can; a trigger would run code on the append path. The narrowest change is a **column-level `INSERT`** naming the six columns the Forum supplies, which PostgreSQL checks for any statement that lists `seq` [measured, all four statements on a scratch database after the migration]: `OVERRIDING SYSTEM VALUE` with `-6` refused `permission denied for table events` (42501); the same with a positive value refused the same way; `seq = DEFAULT` refused the same way; a normal append **with `RETURNING seq`** (the store's own shape, `PostgresEventStore.cs:441-466`) succeeds and returns the identity's value, because `SELECT` stays table-level; `UPDATE` and `DELETE` stay refused. **Why not only the negative form** (the owner asked): the other three forms are one cause and the closure costs the same; a rule that closed one and left the shadow row would leave the form that no detector sees.
 6. **`REVOKE INSERT ON events` is load-bearing** [measured; reasoned from PostgreSQL's ACL model]: a column `GRANT` is additive to a table-level one, so a migration that only granted columns would leave `seq` writable. The migration is two statements and both are the point (FSEQ10).
@@ -59,13 +59,14 @@ PR S is the first of the revised order (S, N, N2, PR O, the hosting join). It is
 ## What consumes what this PR changes (trap 171: answered by grep, re-grepped by Task 0 M-S4)
 
 Computed on `origin/main` `b348f6a9` [read]:
-- **Statements that INSERT into `events` (all name the six columns, none names `seq`):** `PostgresEventStore.cs:441`; tests `AgentWriteGateSupport.cs:224`, `BudgetReadoutEndpointTests.cs:654,661`, `BudgetReadoutSupport.cs:224,252`, `HeadsSignedUnattendedTests.cs:137`, `IndexRepairDeepGapEndpointTests.cs:35`, `LateCommitEndToEndTests.cs:932`, `RoleForumFixture.cs:64`, `AppRoleGrantRefusalTests.cs:71`, `ForksBodyDuplicateTests.cs:110`. None is edited; all keep working under the column grant [measured for the shape].
+- **Statements that INSERT into `events` (none names `seq`; each names the six columns or a subset of them):** `PostgresEventStore.cs:441`; tests `AgentWriteGateSupport.cs:224`, `BudgetReadoutEndpointTests.cs:654,661`, `BudgetReadoutSupport.cs:224,252`, `HeadsSignedUnattendedTests.cs:137`, `IndexRepairDeepGapEndpointTests.cs:35`, `LateCommitEndToEndTests.cs:932`, `RoleForumFixture.cs:64`, `AppRoleGrantRefusalTests.cs:71`, `ForksBodyDuplicateTests.cs:110`, and (Task 0 M-S4) `PostgresEventStoreContractTests.cs:94` (four columns, into the isolated schema; `AppRoleGrantRefusalTests.cs:71` names five). None is edited; all keep working under the column grant [measured for the shape].
 - **Statements that grant or revoke on `events`:** `db/0001:47-48` (the one this PR narrows); `PostgresDatabaseFixture.cs:218-219` (the copy); `fault.sh:39-42,64`; `RoleForumFixture.cs:54,56` (`SELECT` only, unaffected); `StoreFaultInfrastructureTests.cs:112,119` (`SELECT` only); `HeadsSignedUnattendedTests.cs:764` (`SELECT` only, a role that must not insert).
 - **Predicates over the grant:** `fault.sh:12-13,25-26` (`has_table_privilege`), `RoleForumFixture.cs:97-98`. No other site (`git grep has_table_privilege|has_column_privilege|has_any_column` over `src`, `tests`, `tools`).
+- **Sites that mention the grant or the statement and are unaffected (Task 0 M-S4, Amendment 1 ruling 15):** `RoleForumFixture.cs:72-73` (`CREATE POLICY ... FOR INSERT ... WITH CHECK (true)`: a row policy, which a column grant does not touch; Task 2 leaves it); `tools/fault-harness/pgproxy.py:4` and `tools/fault-harness/README.md:63,72` (they key on the store's `INSERT INTO "public".events` text, which ruling 9 leaves unchanged); `IMPLEMENTATION_PLAN.md:8017` (D121's dated measurement states the grant as "`INSERT, SELECT` on `events`": annotated by the docs task, not rewritten).
 - **Fixtures that apply the migration list:** `SchemaMigrations.RenderAll` is called by `PostgresDatabaseFixture.cs:96`, `ForumFixture.cs:435`, `ForksBodyDuplicateTests.cs:105`, `HarnessRehearsalTests.cs:77`; adding the file to `FileNames` is the whole change for all four. `SchemaMigrationsTests.FileNamesCoversEveryCheckedInMigrationInOrder` is what fails if the list entry is forgotten.
 - **Read-model rebuilds (R11.9):** `Projections/AggregateSummaryProjectionRebuildDrillTests.cs` appends through the store and replays; it names no `seq` and holds no grant [read]. It is run, not assumed (M-S7).
 
-## Rulings (decided, not asked)
+## Rulings (decided, not asked; 1 to 11 here, 12 to 16 in Amendment 1)
 
 1. **What PR S is, and is not.** It closes one cause (the application role can choose an event's position) in one place (the grant), and makes the closure checkable at every start. It is **not** the cure for `server_ts` (the Forum supplies it explicitly, CS-9, so the grant must allow it: PR N's item 274), for a role that can write `seq` by being a superuser or the table's owner (a person holding that credential can rewrite anything and only a signed head detects it), for rows already planted (append-only: nothing here deletes), or for the forged-lifecycle-row class (PR N).
 2. **The grant is the closure, column-level, in a new numbered migration.** `db/0006_events_insert_columns.sql`, forward-only, with `__CURIA_APP_ROLE__` as every migration since 0001 and **every name unqualified on purpose** (so a fixture renders it under a `search_path`, as 0002 and 0005 are). The body is the two statements of finding 6, in this order, with a header that says why each exists, why `server_ts` stays, why `SELECT` stays table-level (the store's `RETURNING seq`), and that **a later migration that adds a column the Forum supplies must grant `INSERT` on that column in the same file**: a missed grant fails loudly (`permission denied for table events` on the first append) and not silently, which is the right direction for a grant. The exact text is in Task 2.
@@ -79,6 +80,298 @@ Computed on `origin/main` `b348f6a9` [read]:
 10. **The replay drill is run, not assumed (R11.9).** M-S7 runs `AggregateSummaryProjectionRebuildDrillTests` and the Infrastructure suite before and after; Task 4's whole run does it again.
 11. **Alpha.** The beta order's "no owner merge" holds for this PR's merge (no `ci.yml`); the owner's act is the apply (ruling 8) and it is a precondition of the hosted announcement (the beta order's J5). Nothing about a retained database's migration path is weighed against it: the hosted database holds no post anyone depends on, and the pre-check finds out.
 
+## Amendment 1 (2026-11-12, Task 0's record)
+
+Written by `curia-architect` after reading `.superpowers/sdd/2026-11-12-planS/task-0-report.md` and `s-task0.txt` (sha256 prefix `625178ee`; `.superpowers/sdd/` is git-ignored, so the numbers this amendment rules on are written here and the record is not the evidence a reader can open), then checking each fact against the record's raw lines and against the tree at `a6ab37d0` (this plan's commit on `main` `b348f6a9`; `origin/main` is still `b348f6a9` as a local ref, not fetched): `IMPLEMENTATION_PLAN.md:7418` and `:8017`, `AppRoleGrantRefusalTests.cs:71`, `PostgresEventStoreContractTests.cs:94`, `PostgresEventStore.cs:441`, `Help.cs:191`, `Program.cs:186-190`, and `m2.py`'s two plant lines. The plan body is changed only by the in-place edits at the end, each printed by the build.
+
+### What was checked, and what it found
+
+- **M-S1 held.** A row at `seq` -3 under the victim's aggregate: the victim's `curia budget` and `curia ask` exit 8, `GET /v1/jwks?agent=` answers `500 curia/server/fault`, the victim's `curia verify` of its own post exits 8; an agent whose aggregate holds no such row is unaffected before and after. **The restart: the Forum starts, logs nothing about the row (no 7006, no scan line), and no hosted service stops it.** (The scan reads forward and does not see the row.) This was the plan's one unknown; finding 2 now states it.
+- **M-S2 held in its blindness half and not in its honoured half.** Same payload both runs (`retire_payload(home, 'alice', 1)`, a `prev` of 1, a garbage `authorization`); the only difference is the position, `seq` 0 against the identity's next value (12).
+
+  | | row at `seq` 0 | control, ordinary position |
+  |---|---|---|
+  | `sign-head --if-grown` | exit 0 `unchanged tree_size=11 latest_head_log_index=10` | exit 6 `curia/head/withheld` |
+  | 7006 after a restart | 0 lines | 1 line |
+  | `curia keys` of the victim | exit 8 `curia/keys/statement-mismatch` | exit 6, the `FOREIGN` line |
+  | `GET /v1/jwks?agent=` | `503` | `200` (retired) |
+  | `GET /v1/posts/<id>` `key_status` | `active` | `retired` |
+  | fresh token request | `401 invalid_client` | `401 invalid_client` (with the `FOREIGN` line) |
+  | issued token's next request | `503 curia/log/unreadable` | `401 invalid_client` |
+  | `GET /v1/log/head`, inclusion proof, `GET /v1/log/jwks?agent=` | unchanged, `200` | **unchanged, `200`** |
+
+  The last row is the correction to the report and to the task's summary: **the control does not differ from the shadow row on the head, the proof or the log's key set**, because no head was signed over the control row (the stop refused) and `lifecycle` is absent from that document in both. Those three reads are "not reflected" with no control, and they are not detectors this record has shown able to see a row. The two that were shown to see an ordinary row and not a `seq` 0 row are the head signer's stop and the start-up scan. A plain `sign-head` (no `--if-grown`) over a `seq` 0 row was not run.
+- **M-S3 held.** Rows planted at the identity's `+1` to `+3`; five honest asks by five agents: #1 to #3 `503 curia/store/unavailable` (exit 8, "has not confirmed that the act was recorded and has not refused it"), #4 and #5 succeeded; the sequence's `last_value` went 19, 20, 21, 22 against planted 20, 21, 22, one value consumed per refused append; `curia resend` of all three succeeded (exit 0, each agent's budget used 1). No `500`.
+- **M-S4 held, and the plan's own sentence was wrong.** The report found `PostgresEventStoreContractTests.cs:94` (four columns). It missed that the plan's "all name the six columns" is also false of `AppRoleGrantRefusalTests.cs:71` (`event_id, event_type, aggregate_id, payload, server_ts`: five). Both are subsets of the six and work under the column grant; the sentence is corrected (E06). Zero hits for `has_column_privilege`, `has_any_column_privilege` and `OVERRIDING SYSTEM VALUE` anywhere in `src`, `tests`, `tools`.
+- **M-S5: the baseline is not green, and the register already says so.** The whole Infrastructure run is 229 passed and 1 failed of 230, twice; the failure is `PostgresAppendGuardTests.R6_60_LCB22_EveryExitReleasesTheConnectionAndTheLock` ("locks held 1, idle in transaction 1"), which passed alone 3 of 3. **The report says item 163 names four other tests and proposes adding this one. `IMPLEMENTATION_PLAN.md:7418` (item 163, "Amended 2026-11-05 (the PR 6 PR, #149)") already names it, with these two counts and the same cause hypothesis.** Other controls: Release build 0 warnings 0 errors; `AggregateSummaryProjectionRebuildDrillTests` 2 of 2 alone and inside the whole run (M-S7 held); `HarnessRehearsalTests` 1 of 1; Api `StoreFaultRoleTests` 5 of 5, `HeadsSignedUnattendedTests` 21 of 21, the closed fuzz 8 of 8 (25 m 45 s); `check-spec` clean; `falsify-spec-checks` 4 of 4 red.
+- **M-S6 held**, no difference from the architect's run: after `0006` the four statements (`OVERRIDING SYSTEM VALUE` at -6, 0 and 999, and `seq = DEFAULT`) are `permission denied for table events`; the `RETURNING seq` append returns 3; `UPDATE` and `DELETE` refused; re-apply rc 0; `has_*_privilege` `f|t|f|t`; a pre-0006 row at -5 survives; the `fault.sh` shape (`REVOKE INSERT`, table-level `GRANT INSERT`) reopens the hole.
+- **M-S8: about 115 to 125 lines of production code, about 185 to 215 with the two probes**, counted by analogy with `LifecycleEntryScan` (78 lines, 35 of them remark), not written. No new test assembly (`CapturedForum`, `LogCapture`, `GuardedForumFixture` are in `Curia.Api.Tests`); the port has no string parameter, so `PortStringFenceTests` is untouched. `git grep` over `tests` at `a6ab37d0` finds no `LogLevel.Error` or `Level.Error` assertion, so a 7008 at every default-fixture start (the owner's connection can name `seq`) is noise and not a failure.
+- **`curia verify` takes `--forum` and no `--agent`** (`Help.cs:191`; Task 0's first call: `error: unknown flag "--agent"`, exit 1). The brief's "`--agent` on every call" was wrong for it.
+
+### Rulings (12 to 16; decided, not asked)
+
+12. **Finding 2 and finding 3 are restated, with the report's numbers and three corrections. Accepted, amended.** The texts are E03, E04 and E09 below. What the report proposed stands: "honoured by the token path" goes; the numbers go in; M-S1's restart joins finding 2. Three changes to what it proposed: (a) the detectors named are the two shown against a control (the head signer's stop and the start-up scan), and the head, the proof and the log's key set are said to be "not reflected, with no control", since the control does not differ (above); (b) "not honoured as a retirement" is **for the payload run** (a `prev` naming a later position than the row's own, the fold reading the row first and failing `statement-mismatch`), not for every payload at `seq` 0: whether a payload the fold accepts at position 0 is honoured is **not measured** (ruling 16); (c) the token path's `401` reason is **inferred** from PR N's M3 record, and the finding says so. **The urgency stands and its form changes:** a forged row at `seq` 0 locks one agent out of its own key set (`401` on a fresh token, `503` on an issued one) and the head signer does not stop for it, so the operator's one automatic guard against a forged lifecycle row says nothing.
+13. **Task 0's proposed ruling 13 is not accepted as written; its control is restated and no item is filed. Rejected in its first half, accepted in its second.** Its premise is that item 163 does not name LCB22. It does (`IMPLEMENTATION_PLAN.md:7418`, amended 2026-11-05, #149), with the same two counts. No fifth member is added and no item is filed (item 273 is PR N's). **Task 4's control is not a count.** It is (E15): every Infrastructure test passes except at most `R6_60_LCB22_...`, which when it fails reads exactly `locks held 1, idle in transaction 1`, and which then passes **alone**; the tip's total is 230 plus the tests this PR adds, computed by `--list-tests` on both trees and not remembered. A different count in LCB22's text, or any other failure, is a finding about this PR's fixture change (LCB22 reads `pg_locks` and `pg_stat_activity` over the whole database and Task 2 changes `CreateIsolatedSchemaAsync`). Task 6 adds a dated sentence to item 163 only if LCB22 fails in a PR's CI, which item 163's own rule says.
+14. **Task 3 stays in the PR; the 200-line rule counts production code. Accepted, amended.** The rule's consequence is to return with ruling 7's severable alternative, and what ruling 7 severs is the port, the adapter, the hosted service and its registration; their tests are not what the rule weighs, and an estimate by analogy that straddles the line with them included cannot decide it. **The tripwire is measured and not estimated:** when Task 3's code is written, `git diff --numstat origin/main -- src/` over the port, the adapter, `PostgresAdapters.cs`, the hosted service and `Program.cs`, remarks included, is at most 200 lines (the estimate leaves about 80 of margin); over 200, Task 3 stops and returns to the architect. Three things Task 3 does (E14): SEQ7's quiet arm and SEQ9 run on a role-connected fixture (the default fixture connects as the owner and logs 7008 at every start, which is expected and is not read as a defect); `LateCommitEndToEndTests` LCB18, whose text check reads every log line (item 163), is run with the service in place; the 7008 message is asserted to carry no connection string and no role name.
+15. **Four consumer sites ruled on, one line each. Accepted, amended.** (a) `PostgresEventStoreContractTests.cs:94` and `AppRoleGrantRefusalTests.cs:71` join "What consumes what": subsets of the six columns, no edit, covered by ruling 5 (E06). (b) `RoleForumFixture.cs:72-73`'s `FOR INSERT ... WITH CHECK (true)` is a row policy and a column grant does not touch it: stated in the list so that Task 2 does not "fix" it (E07). (c) `pgproxy.py` and `tools/fault-harness/README.md` key on the store's `INSERT INTO "public".events` text, which ruling 9 leaves unchanged (E07). (d) **`IMPLEMENTATION_PLAN.md:8017` is annotated, not rewritten**: it sits inside D121's dated measurement ("Measured on `main` at 2708d826") and its "`INSERT, SELECT` on `events`" was true of `db/0001` then; the docs task adds a dated bracket after it stating the column grant from `db/0006` (E16). The report's "rewritten" would have turned a measurement into a claim about the tree it was not made on. The LS1 note that `curia verify` takes no `--agent` is E18.
+16. **Two measurements are added to Task 1, on the control build, before finding 3 is pasted as G69's.** They are what ruling 12 (b) leaves unmeasured. (a) **A `seq` 0 payload the fold accepts:** Task 1 reads `KeyLifecycle`'s fold for what it accepts at the first position (a `prev` of the row's own position, or none), then runs the forged `agent.key-retired` at `seq` 0 with each shape it finds. *Rule:* a variant that is honoured (the victim's key `retired`, the `FOREIGN` line) changes finding 3's "not honoured" sentence to say so with the variant, raises the urgency text, and is **reported to the architect before G69 is pasted**, as M-S2's own rule says; none honoured is recorded as "none of N shapes". (b) **A plain `sign-head` over a `seq` 0 row** on the control build: does the head's `tree_size` count it, and does a proof of it exist. SEQ9 plants **both** forms (-3 and 0) and each is refused `42501` (E19); its red text on the tree for the `seq` 0 form is recorded verbatim (a fresh token `401 invalid_client`, an issued token `503 curia/log/unreadable`).
+
+### What Task 1 onward now do
+
+- **Task 0 is done**; its rules are history and keep their words. "As run / Task 0" points here (E17).
+- **Task 1** runs ruling 16's two measurements first, then pastes G69 **with the restated findings 2 and 3 (E09)**, then the probes; SEQ9 as E19. `check-spec` and `falsify-spec-checks` are clean before the probes, as before.
+- **Task 2** unchanged; it does not touch `RoleForumFixture.cs:72-73`, `pgproxy.py` or the `PostgresEventStore.cs` INSERT.
+- **Task 3** as ruling 14: the numstat tripwire, the role-connected fixture, LCB18, the message assertion.
+- **Task 4's control** is ruling 13's (E15).
+- **LS1's control leg** records the issued-token `503` and the plain `sign-head` (E18).
+- **Task 6's docs** annotate `IMPLEMENTATION_PLAN.md:8017` (E16) and file no item for LCB22.
+
+### Seam with PR N (not edited here)
+
+PR N's LRV31 and ruling 36 predict, on the control build, only "the token request is `401 invalid_client`". M-S2 adds, for the control build, an issued token's `503 curia/log/unreadable`, `curia keys` exit 8 `curia/keys/statement-mismatch`, and the sentence that the row is not honoured as a retirement. Those are PR N's to take in its own amendment; its Task 1 records them verbatim as it already must.
+
+### Allocations
+
+None new, none moved. Recomputed on 2026-11-12 against `a6ab37d0` and `origin/main` `b348f6a9` (local ref): `IMPLEMENTATION_PLAN.md:15` on `origin/main` still reads "First free: D123, D61 item 272, trap 245; errata G66 is D10b's, G64 PR 8's and G68 PR N's (provisional)"; `git grep -E 'G69|G70|7008|SEQ[0-9]|FSEQ' origin/main` outside `docs/superpowers/plans` is empty; `gh pr list --state all --limit 4` shows #152 merged and #151 open, so #153 is still the next number. Rulings 12 to 16 are this plan's own and are not requirement numbers. Item 163 is amended only by a dated sentence if LCB22 fails again in CI; no item is filed.
+
+### Edits to the plan body (the in-place edits)
+
+Each `Old` is exact text of the plan outside this amendment, matched by script and printed by the build (`build.py` beside this file; a miss is printed and does not stop the others).
+
+#### E01
+Old:
+```text
+The two that carry the most weight are what a `seq` 0 row does to the token path and to every detector (M-S2), and what a planted `seq` ahead of the identity does through the Forum (M-S3): both are read from the code and consistent with the record, and neither has been run through a Forum.
+```
+New:
+```text
+The two that carried the most weight were run by Task 0 on 2026-11-12: a planted `seq` ahead of the identity through the Forum (M-S3) held as read; a `seq` 0 row (M-S2) held in its blindness half (the head signer's stop and the start-up scan do not see it) and not in its honoured half (it made the victim's key set unreadable and was not honoured as a retirement, for the payload run): Amendment 1, ruling 12.
+```
+
+#### E02
+Old:
+```text
+so it is a forged lifecycle row that no head, proof, start-up scan, stop or audit can see** (M-S2).
+```
+New:
+```text
+so it is a forged row that the head signer's stop and the start-up scan do not see (measured, M-S2) and that, after PR N, the audit cannot see, and it makes its victim's key set unreadable (Amendment 1, ruling 12)**.
+```
+
+#### E03
+Old:
+```text
+**Whether the Forum starts with such a row in the log is not recorded** (the start-up scan reads forward and does not see it; M-S1 runs it).
+```
+New:
+```text
+**The Forum starts with such a row in the log, logs nothing about it, and no hosted service stops it** [measured, Task 0 M-S1: after a restart there is no 7006 and no scan line; an agent whose aggregate holds no such row was unaffected before and after].
+```
+
+#### E04
+Old:
+```text
+3. **`seq` 0, a shadow row** [read; consistent with the record; M-S2 runs it through the Forum]. Every whole-log read starts at `EventSequence.Zero` and reads `WHERE seq > @after` (`EventReaderExtensions.ReadAllAsync`; `PostgresEventStore.cs:374`; `LifecycleEntryScan.cs:41`), so a row at `seq` 0 is returned by none of them: not the Acta (so no proof, no head commits to it), not any projection, not the 7006 scan, not `sign-head --if-grown`'s stop, not (after PR N) the audit. The by-aggregate read (`PostgresEventStore.cs:340`, no `seq` filter) returns it, and **that is the read the token path, ingest and the enrolment path use today** (N's finding 3). A forged `agent.key-retired` at `seq` 0 is therefore honoured by the token path and invisible to every detector. The record's own anomaly fits: after the `seq` 0 insert `curia verify` still printed the post at **leaf 4** and the binding at **log index 1** (a log that had shifted would print 5 and 2), though the report said every index shifted.
+```
+New:
+```text
+3. **`seq` 0, a shadow row** [measured, Task 0 M-S2, against a control that inserted the same forged `agent.key-retired` (the same payload, a `prev` of 1) at an ordinary position]. Every whole-log read starts at `EventSequence.Zero` and reads `WHERE seq > @after` (`EventReaderExtensions.ReadAllAsync`; `PostgresEventStore.cs:374`; `LifecycleEntryScan.cs:41`), so a row at `seq` 0 is returned by none of them. **Two detectors were shown able to see the control row and not the `seq` 0 row:** `sign-head --if-grown` (exit 6 `curia/head/withheld` for the control; exit 0 `unchanged  tree_size=11 latest_head_log_index=10` for `seq` 0) and the start-up scan (one 7006 line for the control, none for `seq` 0). The head, an inclusion proof and `GET /v1/log/jwks?agent=` did not change for either row (no head was signed over the control), so they are not reflected and have no control; a plain `sign-head` over a `seq` 0 row was not run (ruling 16). The by-aggregate read (`PostgresEventStore.cs:340`, no `seq` filter) returns the row, and it is the read the token path, ingest and the enrolment path use today (N's finding 3). **The row was not honoured as a retirement; it made its victim's key set unreadable.** The control, at an ordinary position, was honoured (`key_status` `retired`, the `FOREIGN` line, a `401`). At `seq` 0 the same payload failed `curia/keys/statement-mismatch` (the fold's reason was not read): `GET /v1/jwks?agent=` `503`; `curia keys`, `curia verify` and `curia read` of the victim's post exit 8; `GET /v1/posts/<id>` still `key_status` `active`; a fresh token request `401 invalid_client` (the reason inferred from PR N's M3 record, not read) and an issued token's next request `503 curia/log/unreadable`. **For the one payload run:** whether a payload the fold accepts at position 0 is honoured is not measured (ruling 16). The record's own anomaly fits: after the `seq` 0 insert `curia verify` still printed the post at **leaf 4** and the binding at **log index 1** (a log that had shifted would print 5 and 2), though the report said every index shifted.
+```
+
+#### E05
+Old:
+```text
+## Rulings (decided, not asked)
+
+```
+New:
+```text
+## Rulings (decided, not asked; 1 to 11 here, 12 to 16 in Amendment 1)
+
+```
+
+#### E06
+Old:
+```text
+(all name the six columns, none names `seq`):**
+```
+New:
+```text
+(none names `seq`; each names the six columns or a subset of them):**
+```
+
+#### E06b
+Old:
+```text
+`ForksBodyDuplicateTests.cs:110`. None is edited;
+```
+New:
+```text
+`ForksBodyDuplicateTests.cs:110`, and (Task 0 M-S4) `PostgresEventStoreContractTests.cs:94` (four columns, into the isolated schema; `AppRoleGrantRefusalTests.cs:71` names five). None is edited;
+```
+
+#### E07: inserted before the line below
+New (inserted line):
+```text
+- **Sites that mention the grant or the statement and are unaffected (Task 0 M-S4, Amendment 1 ruling 15):** `RoleForumFixture.cs:72-73` (`CREATE POLICY ... FOR INSERT ... WITH CHECK (true)`: a row policy, which a column grant does not touch; Task 2 leaves it); `tools/fault-harness/pgproxy.py:4` and `tools/fault-harness/README.md:63,72` (they key on the store's `INSERT INTO "public".events` text, which ruling 9 leaves unchanged); `IMPLEMENTATION_PLAN.md:8017` (D121's dated measurement states the grant as "`INSERT, SELECT` on `events`": annotated by the docs task, not rewritten).
+```
+Before:
+```text
+- **Fixtures that apply the migration list:** `SchemaMigrations.RenderAll` is called by `PostgresDatabaseFixture.cs:96`, `ForumFixture.cs:435`, `ForksBodyDuplicateTests.cs:105`, `HarnessRehearsalTests.cs:77`; adding the file to `FileNames` is the whole change for all four. `SchemaMigrationsTests.FileNamesCoversEveryCheckedInMigrationInOrder` is what fails if the list entry is forgotten.
+```
+
+#### E08
+Old:
+```text
+(a forged row no head, proof, scan or stop can see), below zero
+```
+New:
+```text
+(a forged row that neither the start-up scan nor the head signer's stop sees, and that can make every read of its aggregate fail), below zero
+```
+
+#### E09
+Old:
+```text
+fatal to every by-aggregate read of the aggregate (an unhandled `500`).
+```
+New:
+```text
+fatal to every by-aggregate read of the aggregate (an unhandled `500`); the Forum restarts over such a row silently (no 7006, no scan line, no hosted service stops it; Task 0 M-S1).
+```
+
+#### E09b
+Old:
+```text
+3. **`seq` 0:** accepted and invisible to every forward read (the Acta, every projection, the start-up scan, the head signer's stop) and returned by the by-aggregate read, so a row the token path honours and no head can commit to.
+```
+New:
+```text
+3. **`seq` 0:** accepted and invisible to every forward read. **Measured (Task 0, M-S2) against a control at an ordinary position:** the head signer's stop did not see it (`sign-head --if-grown` exited 0 `unchanged`; the control exited 6) and the start-up scan did not log it (no 7006; the control logged one). The by-aggregate read returns it, and the forged `agent.key-retired` that was run was **not honoured as a retirement: it made its victim's key set unreadable**: a fresh token request answered `401 invalid_client` (the reason inferred), an issued token's next request `503 curia/log/unreadable`, the served key set `503 curia/keys/statement-mismatch`, `curia keys`, `curia verify` and `curia read` of the victim's post exit 8, and the post was still served `key_status` `active`. For the one payload run; a payload the fold accepts at position 0 is not measured.
+```
+
+#### E10
+Old:
+```text
+The architect's scratch run measured the third form (a `seq` ahead of the identity makes an honest append fail) and the shape of the closure (a column grant).
+```
+New:
+```text
+The architect's scratch run measured the third form (a `seq` ahead of the identity makes an honest append fail) and the shape of the closure (a column grant). Task 0 of this PR then ran all three through a Forum (M-S1, M-S2, M-S3); the numbers are in the finding.
+```
+
+#### E11
+Old:
+```text
+a negative seq (PR N's Task 0 M4: a 500 on every read of the aggregate, an uninvolved agent's included); a seq of 0 (read: invisible to every forward read, returned by the by-aggregate read: M-S2); a seq ahead of the identity (measured at the database: one honest append refused per planted value: M-S3)
+```
+New:
+```text
+a negative seq (PR N's Task 0 M4: a 500 on every read of the aggregate, the legitimate agent's included; the Forum restarts over the row silently: M-S1); a seq of 0 (measured, M-S2, for one payload: not seen by the head signer's stop or the start-up scan, and not honoured as a retirement but breaking the victim's key set: a fresh token request 401, an issued token 503 curia/log/unreadable, the served key set 503); a seq ahead of the identity (measured at the database and through a Forum: one honest append refused per planted value, three asks answered 503 curia/store/unavailable and recovered by curia resend: M-S3)
+```
+
+#### E12
+Old:
+```text
+- **The forward-read blindness is read, not run** (finding 3). If M-S2 contradicts it, the PR is still right (the 500s and the collision are measured) and its urgency text is rewritten.
+```
+New:
+```text
+- **The forward-read blindness was run (M-S2). It held for the head signer's stop and the start-up scan; the by-aggregate half did not hold as written (Amendment 1, ruling 12).** Not measured, and stated so in finding 3: a plain `sign-head` over a `seq` 0 row, and a `seq` 0 payload the fold accepts; Task 1 measures both on the control build (ruling 16).
+```
+
+#### E13
+Old:
+```text
+SEQ3, SEQ4 (the part that does not need the fixture change), SEQ9 and SEQ10 are controls on the tree (green by design) where the probes' own list says so.
+```
+New:
+```text
+SEQ3, SEQ4 (the part that does not need the fixture change), SEQ9 and SEQ10 are controls on the tree (green by design) where the probes' own list says so. **Before step (1), Task 1 runs ruling 16's two measurements on the control build and records them verbatim.**
+```
+
+#### E14
+Old:
+```text
+the port-string fence is unaffected. SEQ7 and SEQ9.
+```
+New:
+```text
+the port-string fence is unaffected. SEQ7 and SEQ9. **Amendment 1, ruling 14:** the 200-line rule counts production code, measured when written (`git diff --numstat origin/main -- src/` over the port, the adapter, `PostgresAdapters.cs`, the service and `Program.cs`, remarks included; over 200, stop and return with ruling 7's severable alternative); SEQ7's quiet arm and SEQ9 run on a role-connected fixture, because the default fixture connects as the owner and logs 7008 at every start (expected, not a defect); `LateCommitEndToEndTests` LCB18, whose text check reads every log line (item 163), is run with the service in place; a test asserts the 7008 message carries no connection string and no role name.
+```
+
+#### E15
+Old:
+```text
+the Infrastructure suite including the replay drill (M-S7); the screening-cost step;
+```
+New:
+```text
+the Infrastructure suite including the replay drill (M-S7), **whose control is Task 0's and is not a count (Amendment 1, ruling 13): every test passes except at most `PostgresAppendGuardTests.R6_60_LCB22_EveryExitReleasesTheConnectionAndTheLock`, which when it fails reads exactly `locks held 1, idle in transaction 1` (register item 163) and then passes alone; at `b348f6a9` the whole run is 229 passed and 1 failed of 230, and the tip's total is 230 plus the tests this PR adds, computed by `--list-tests` on both trees; Task 4 records the failing set, requires it to be within that one test and its text unchanged, and runs LCB22 alone**; the screening-cost step;
+```
+
+#### E16
+Old:
+```text
+- `IMPLEMENTATION_PLAN.md`: "Current work",
+```
+New:
+```text
+- `IMPLEMENTATION_PLAN.md` (Amendment 1, rulings 13 and 15: the sentence at `:8017` inside D121 that states the grant as "`INSERT, SELECT` on `events`" is a dated measurement of `2708d826` and gets a dated bracket after it stating the column grant, not a rewrite; item 163 already names LCB22, so no item is filed and it gains a dated sentence only if LCB22 fails again in a PR's CI): "Current work",
+```
+
+#### E17
+Old:
+```text
+### Task 0: the unmodified tree (M-S1 to M-S8, each rule and its result)
+```
+New:
+```text
+### Task 0: the unmodified tree (M-S1 to M-S8, each rule and its result)
+
+Done 2026-11-12 (record `s-task0.txt` and `task-0-report.md`, sha256 prefixes `625178ee` and `a0a0c366`; `.superpowers/sdd/` is git-ignored, so the numbers are in Amendment 1's "What was checked"). M-S1, M-S3, M-S4, M-S6, M-S7 held; M-S2 held in its blindness half and not its honoured half; M-S5's baseline carries LCB22 (item 163 already names it); M-S8's estimate straddles 200 only with the probes counted (ruling 14).
+```
+
+#### E18
+Old:
+```text
+*Control (`b348f6a9`):* the records' 500s, the shadow row's `401`, the refused honest appends.
+```
+New:
+```text
+*Control (`b348f6a9`):* the records' 500s, the shadow row's `401` (fresh token) and `503 curia/log/unreadable` (issued token), `curia keys` exit 8 `curia/keys/statement-mismatch`, a plain `sign-head` over a `seq` 0 row (ruling 16 (b)), the refused honest appends (`503 curia/store/unavailable`, recovered by `curia resend`).
+```
+
+#### E18b
+Old:
+```text
+five honest asks succeed.
+```
+New:
+```text
+five honest asks succeed. `curia verify` takes `--forum` and no `--agent` (Task 0's first call: `error: unknown flag "--agent"`, exit 1); every other `curia` call passes `--agent`.
+```
+
+#### E19
+Old:
+```text
+With the app role, the insert at -3 is refused 42501;
+```
+New:
+```text
+With the app role, the inserts at -3 and at 0 are each refused 42501;
+```
+
+#### E19b
+Old:
+```text
+and then the 500s of the record.
+```
+New:
+```text
+and then the record's 500s (the -3 form) or, for the 0 form, a fresh token request `401 invalid_client` and an issued token's `503 curia/log/unreadable` (M-S2).
+```
+
 ## The errata entry (G69), text to paste at Task 1 (status "specified; built" is written by Task 6 from the run)
 
 Task 1 pastes this at the end of the errata, after G68's slot is left as PR N's (or after G67 if N has not merged), with the index row for `R11.6 (add.)` and the `(add.)` mark in the Revisions table the way G13 did for R11.9; SEQ2 parses its column list.
@@ -87,15 +380,15 @@ Task 1 pastes this at the end of the errata, after G68's slot is left as PR N's 
 
 **Location.** §11.2, R11.6 (annotated by R11.6 (add.)); R6.47 (a leaf index is a position in the whole log), R6.60 (the append guard keys on `seq > cursor`); Appendix D `events` (unchanged); register D123, D61 item 272; PR N's plan (its Task 0 M4, its finding 10 and ruling 21, superseded).
 
-**How it surfaced.** PR N's Task 0 (2026-11-11, M4) inserted rows into `events` as the application role: `OVERRIDING SYSTEM VALUE` at `seq` 0, -2 and -3 was accepted, a negative `seq` answered `500 curia/server/fault` to every read of the aggregate, including a legitimate agent's, and `server_ts` was stored verbatim. The report called a non-negative `seq` "benign"; the same record's `curia verify` still printed the post at leaf 4 after the insert. Reading why (every whole-log read is `WHERE seq > 0`; the by-aggregate read has no filter) turned "benign" into the form no detector sees. The architect's scratch run measured the third form (a `seq` ahead of the identity makes an honest append fail) and the shape of the closure (a column grant).
+**How it surfaced.** PR N's Task 0 (2026-11-11, M4) inserted rows into `events` as the application role: `OVERRIDING SYSTEM VALUE` at `seq` 0, -2 and -3 was accepted, a negative `seq` answered `500 curia/server/fault` to every read of the aggregate, including a legitimate agent's, and `server_ts` was stored verbatim. The report called a non-negative `seq` "benign"; the same record's `curia verify` still printed the post at leaf 4 after the insert. Reading why (every whole-log read is `WHERE seq > 0`; the by-aggregate read has no filter) turned "benign" into the form no detector sees. The architect's scratch run measured the third form (a `seq` ahead of the identity makes an honest append fail) and the shape of the closure (a column grant). Task 0 of this PR then ran all three through a Forum (M-S1, M-S2, M-S3); the numbers are in the finding.
 
 **Class.** A protection that does not cover the column that defines the order. The grant R11.6 asks for (`INSERT` and `SELECT`, never `UPDATE` or `DELETE`) was applied to the whole table, so it protected every row from rewriting and no row from being placed.
 
 ### The finding
 
 1. **The role names `seq`.** An `INSERT` with `OVERRIDING SYSTEM VALUE` is accepted at any value the key allows; the same without it is refused by the identity rule, not by a grant.
-2. **Negative `seq`:** accepted, invisible to forward reads, fatal to every by-aggregate read of the aggregate (an unhandled `500`).
-3. **`seq` 0:** accepted and invisible to every forward read (the Acta, every projection, the start-up scan, the head signer's stop) and returned by the by-aggregate read, so a row the token path honours and no head can commit to.
+2. **Negative `seq`:** accepted, invisible to forward reads, fatal to every by-aggregate read of the aggregate (an unhandled `500`); the Forum restarts over such a row silently (no 7006, no scan line, no hosted service stops it; Task 0 M-S1).
+3. **`seq` 0:** accepted and invisible to every forward read. **Measured (Task 0, M-S2) against a control at an ordinary position:** the head signer's stop did not see it (`sign-head --if-grown` exited 0 `unchanged`; the control exited 6) and the start-up scan did not log it (no 7006; the control logged one). The by-aggregate read returns it, and the forged `agent.key-retired` that was run was **not honoured as a retirement: it made its victim's key set unreadable**: a fresh token request answered `401 invalid_client` (the reason inferred), an issued token's next request `503 curia/log/unreadable`, the served key set `503 curia/keys/statement-mismatch`, `curia keys`, `curia verify` and `curia read` of the victim's post exit 8, and the post was still served `key_status` `active`. For the one payload run; a payload the fold accepts at position 0 is not measured.
 4. **A `seq` ahead of the identity:** accepted, and one honest append later fails on the primary key for each planted value.
 5. **The remedy is a column grant** for the six columns the Forum supplies; `server_ts` stays in it because the Forum supplies it (CS-9).
 
@@ -108,7 +401,7 @@ Task 1 pastes this at the end of the errata, after G68's slot is left as PR N's 
 
 ### Requirement text
 
-**R11.6 (add.)** The `INSERT` that R11.6 grants on `events` SHALL be a grant on the columns the Forum supplies, `event_id`, `event_type`, `aggregate_id`, `actor_id`, `payload` and `server_ts`, and SHALL NOT include `seq`: an event's position in the log is assigned by the database, in the order its transactions take the append lock, and no statement of the application's role may name it, with or without `OVERRIDING SYSTEM VALUE` and as `DEFAULT`. A migration that adds a column the Forum supplies SHALL grant `INSERT` on that column in the same file. The Forum SHALL log at Error level, at every start, when the role it connects as can name `seq`, and SHALL start either way. The reason: a position is a leaf index (R6.47), and every paged read and the append guard (R6.60) are keyed on `seq > cursor`, so a row the role places at a position of its own choosing is not a row the Forum appended; at `seq` 0 or below it is invisible to every forward read while the by-aggregate read returns it (a forged row no head, proof, scan or stop can see), below zero it makes every read of its aggregate fail with a `500`, and above the identity's next value it makes an honest append fail on the primary key. R11.6's own reason is that append-only is held by the grant and not by the code's intentions; this is the same sentence for the column that orders the log.
+**R11.6 (add.)** The `INSERT` that R11.6 grants on `events` SHALL be a grant on the columns the Forum supplies, `event_id`, `event_type`, `aggregate_id`, `actor_id`, `payload` and `server_ts`, and SHALL NOT include `seq`: an event's position in the log is assigned by the database, in the order its transactions take the append lock, and no statement of the application's role may name it, with or without `OVERRIDING SYSTEM VALUE` and as `DEFAULT`. A migration that adds a column the Forum supplies SHALL grant `INSERT` on that column in the same file. The Forum SHALL log at Error level, at every start, when the role it connects as can name `seq`, and SHALL start either way. The reason: a position is a leaf index (R6.47), and every paged read and the append guard (R6.60) are keyed on `seq > cursor`, so a row the role places at a position of its own choosing is not a row the Forum appended; at `seq` 0 or below it is invisible to every forward read while the by-aggregate read returns it (a forged row that neither the start-up scan nor the head signer's stop sees, and that can make every read of its aggregate fail), below zero it makes every read of its aggregate fail with a `500`, and above the identity's next value it makes an honest append fail on the primary key. R11.6's own reason is that append-only is held by the grant and not by the code's intentions; this is the same sentence for the column that orders the log.
 
 ### Revisions this entry carries
 
@@ -144,7 +437,7 @@ Task 1 pastes this at the end of the errata, after G68's slot is left as PR N's 
 
 ### Task 1: The errata and the probes (red on the unmodified tree)
 
-**Order:** (1) G69 pasted as specified, with the index row and the `(add.)` mark, `check-spec.py` and `falsify-spec-checks.py` clean (SEQ2 parses it); (2) the probes below, each red on the tree without `db/0006`, its text recorded in "As run" before its fix. SEQ3, SEQ4 (the part that does not need the fixture change), SEQ9 and SEQ10 are controls on the tree (green by design) where the probes' own list says so.
+**Order:** (1) G69 pasted as specified, with the index row and the `(add.)` mark, `check-spec.py` and `falsify-spec-checks.py` clean (SEQ2 parses it); (2) the probes below, each red on the tree without `db/0006`, its text recorded in "As run" before its fix. SEQ3, SEQ4 (the part that does not need the fixture change), SEQ9 and SEQ10 are controls on the tree (green by design) where the probes' own list says so. **Before step (1), Task 1 runs ruling 16's two measurements on the control build and records them verbatim.**
 
 ### Task 2: The migration and the fixtures
 
@@ -229,11 +522,11 @@ New:            ... "original: events SELECT + INSERT on the six columns (never 
 
 ### Task 3: The start-up detector (severable; ruling 7)
 
-`IEventsPositionGrant` (Application port; `Task<Result<bool>> RoleCanNameSeqAsync(CancellationToken)`; no string parameter; an in-memory adapter returns the value it was built with), `PostgresEventsPositionGrant` (Infrastructure: `SELECT has_column_privilege(current_user, @table, 'seq', 'INSERT')` with the store's own qualified table name, through the data source the event store uses, a fault classified by `PostgresStoreFaults` and returned as the port's error), `EventsSeqWritableCheck` (`IHostedService` in `Curia.Api/Adapters/`, registered once in `Program.cs`): on start it asks, logs EventId 7008 `EventsSeqWritable` at Error through a `[LoggerMessage]` when the answer is `true`, logs nothing when `false`, and **starts either way** (a port error is logged at Warning as "could not be checked" and also starts: a check that stops the Forum is the refusal ruling 7 declined). The message names the fact and the remedy and carries no connection string. CS-7 holds (Npgsql stays in Infrastructure); the port-string fence is unaffected. SEQ7 and SEQ9.
+`IEventsPositionGrant` (Application port; `Task<Result<bool>> RoleCanNameSeqAsync(CancellationToken)`; no string parameter; an in-memory adapter returns the value it was built with), `PostgresEventsPositionGrant` (Infrastructure: `SELECT has_column_privilege(current_user, @table, 'seq', 'INSERT')` with the store's own qualified table name, through the data source the event store uses, a fault classified by `PostgresStoreFaults` and returned as the port's error), `EventsSeqWritableCheck` (`IHostedService` in `Curia.Api/Adapters/`, registered once in `Program.cs`): on start it asks, logs EventId 7008 `EventsSeqWritable` at Error through a `[LoggerMessage]` when the answer is `true`, logs nothing when `false`, and **starts either way** (a port error is logged at Warning as "could not be checked" and also starts: a check that stops the Forum is the refusal ruling 7 declined). The message names the fact and the remedy and carries no connection string. CS-7 holds (Npgsql stays in Infrastructure); the port-string fence is unaffected. SEQ7 and SEQ9. **Amendment 1, ruling 14:** the 200-line rule counts production code, measured when written (`git diff --numstat origin/main -- src/` over the port, the adapter, `PostgresAdapters.cs`, the service and `Program.cs`, remarks included; over 200, stop and return with ruling 7's severable alternative); SEQ7's quiet arm and SEQ9 run on a role-connected fixture, because the default fixture connects as the owner and logs 7008 at every start (expected, not a defect); `LateCommitEndToEndTests` LCB18, whose text check reads every log line (item 163), is run with the service in place; a test asserts the 7008 message carries no connection string and no role name.
 
 ### Task 4: The whole run once, the gates, the review
 
-The whole solution as CI runs it: `dotnet build Curia.sln -c Release`; the all-but-Api test step; the Debug Architecture step (D16: `Curia.Architecture.Tests` in both configurations; the port and hosted-service additions read IL); the Api suite once (`EventsPositionApiTests`, `StoreFaultRoleTests`, `HeadsSignedUnattendedTests` and the closed fuzz (R14.10); no route changes, so the fuzz's ledger stays empty); the Infrastructure suite including the replay drill (M-S7); the screening-cost step; `check-spec` and `falsify-spec-checks`; the locked restore; `preflight.py --api "<the new and changed Api classes>"`. **Review, three lenses, each told the premises above:** (1) spec compliance against G69 line by line; (2) **the harness and the fixtures** (does any other fixture, script or doc grant or read `events` INSERT at table level; does any probe in the repository pass because its fixture is table-level); (3) the words (the log message, the README's pre- and post-check, `fault.sh`'s status line) read cold.
+The whole solution as CI runs it: `dotnet build Curia.sln -c Release`; the all-but-Api test step; the Debug Architecture step (D16: `Curia.Architecture.Tests` in both configurations; the port and hosted-service additions read IL); the Api suite once (`EventsPositionApiTests`, `StoreFaultRoleTests`, `HeadsSignedUnattendedTests` and the closed fuzz (R14.10); no route changes, so the fuzz's ledger stays empty); the Infrastructure suite including the replay drill (M-S7), **whose control is Task 0's and is not a count (Amendment 1, ruling 13): every test passes except at most `PostgresAppendGuardTests.R6_60_LCB22_EveryExitReleasesTheConnectionAndTheLock`, which when it fails reads exactly `locks held 1, idle in transaction 1` (register item 163) and then passes alone; at `b348f6a9` the whole run is 229 passed and 1 failed of 230, and the tip's total is 230 plus the tests this PR adds, computed by `--list-tests` on both trees; Task 4 records the failing set, requires it to be within that one test and its text unchanged, and runs LCB22 alone**; the screening-cost step; `check-spec` and `falsify-spec-checks`; the locked restore; `preflight.py --api "<the new and changed Api classes>"`. **Review, three lenses, each told the premises above:** (1) spec compliance against G69 line by line; (2) **the harness and the fixtures** (does any other fixture, script or doc grant or read `events` INSERT at table level; does any probe in the repository pass because its fixture is table-level); (3) the words (the log message, the README's pre- and post-check, `fault.sh`'s status line) read cold.
 
 ### Task 5: Falsification FSEQ1 to FSEQ10
 
@@ -259,7 +552,7 @@ See "The live run and the cold read". Then "Docs owed" and "Register text to pas
 - **SEQ6** *(Api, `StoreFaultRoleTests`/`RoleForumFixture`)* **the catalogue check is strict.** `RestorationProblemsAsync` returns "" at rest on a migrated database; names "INSERT on the columns the Forum supplies is not granted" after `REVOKE INSERT ON events`; names "INSERT on events.seq is granted" after a table-level `GRANT INSERT ON events` (a red-by-design control that proves the predicate can fail the wrong way). Red on the tree: `Expected: ""  Actual: "INSERT on events is not granted to the role"` at rest.
 - **SEQ7** *(Api, a Forum started with a log capture, GF10's pattern)* **the start-up log.** On a role holding table-level `INSERT` (the fixture's admin-provisioned variant) the Forum logs EventId 7008 once at Error, names the fact and the remedy, carries no connection string, and starts and serves; on the migrated role it logs nothing; a port error logs a Warning and starts. Red on the tree: `Expected: a log entry with EventId 7008  Actual: none`.
 - **SEQ8** **the owner's text is run.** The pre-check and post-check SQL are parsed out of the README (between `<!-- events-position-precheck -->` and `<!-- /events-position-precheck -->`, and the post-check's pair) and run against a database holding a row at `seq` 0, one at -3 and one ahead of the identity: the pre-check reports them (counts 2 and 1), and against a clean one reports 0 and 0; after the apply the post-check says `seq` not writable, `server_ts` writable. Red before the README block exists: `no events-position-precheck block in README.md`; red under FSEQ9 (a `seq < 0` predicate).
-- **SEQ9** *(Api, control)* **a forged row cannot be planted through the Forum's own role and the victim is unaffected.** With the app role, the insert at -3 is refused 42501; the victim's token request, `curia budget` and `curia verify` are as with no attempt. Red on the tree: `Expected: 42501  Actual: row inserted` and then the 500s of the record.
+- **SEQ9** *(Api, control)* **a forged row cannot be planted through the Forum's own role and the victim is unaffected.** With the app role, the inserts at -3 and at 0 are each refused 42501; the victim's token request, `curia budget` and `curia verify` are as with no attempt. Red on the tree: `Expected: 42501  Actual: row inserted` and then the record's 500s (the -3 form) or, for the 0 form, a fresh token request `401 invalid_client` and an issued token's `503 curia/log/unreadable` (M-S2).
 - **SEQ10** *(Infrastructure, control)* **the replay drill and the event-store contract suite pass on the migrated schema** (M-S7's drill and `PostgresEventStoreContractTests` run on isolated schemas that now carry the column grant). Green on the tree by design; it is the control that the fixture change broke nothing.
 
 ## Falsification rows (the first form is the harm)
@@ -283,7 +576,7 @@ Counts to record: rows run; first forms red (all); controls (none: every row is 
 
 Throwaway Postgres (`curia_s_*`, dropped after, never mid-run); the built Forum, `curia`, `curia-operator`; hostname, user and paths appear in no record. **Every leg runs first on the `b348f6a9` build and the control's result is recorded before the leg is run on S's tip.**
 
-- **LS1 (the three forms are refused through the Forum, and the victim is unaffected).** The M-S1 to M-S3 plants as the app role. *Control (`b348f6a9`):* the records' 500s, the shadow row's `401`, the refused honest appends. *Rule on S:* each plant is refused `42501`; the victim's token, budget and verify are as with no attempt; five honest asks succeed.
+- **LS1 (the three forms are refused through the Forum, and the victim is unaffected).** The M-S1 to M-S3 plants as the app role. *Control (`b348f6a9`):* the records' 500s, the shadow row's `401` (fresh token) and `503 curia/log/unreadable` (issued token), `curia keys` exit 8 `curia/keys/statement-mismatch`, a plain `sign-head` over a `seq` 0 row (ruling 16 (b)), the refused honest appends (`503 curia/store/unavailable`, recovered by `curia resend`). *Rule on S:* each plant is refused `42501`; the victim's token, budget and verify are as with no attempt; five honest asks succeed. `curia verify` takes `--forum` and no `--agent` (Task 0's first call: `error: unknown flag "--agent"`, exit 1); every other `curia` call passes `--agent`.
 - **LS2 (the owner's apply, rehearsed on a database that holds rows).** A database built with `db/0001` to `db/0005` only (the shape the hosted database is in), a Forum on it (it logs 7008 at start: recorded), 30 events, three agents. Run the README's **pre-check** (expect zero planted rows), then the **apply** as the table owner while a loop of `curia ask` runs once a second from another process (**no ask fails across the apply**, recorded), then the **post-check**; the event count, the maximum `seq` and a SHA-256 over the ordered `event_id` list are **unchanged** by the apply. Restart the Forum: **no 7008**. Then simulate a restore: `GRANT INSERT ON events TO <role>`, restart: **7008 appears** (ruling 7, non-property (d)).
 - **LS3 (the pre-check finds a plant).** On a copy of LS2's database, as the owner, plant one row at `seq` 0 and one ahead of the identity: the README's pre-check reports both with the counts; the runbook says stop and do not delete; **nothing in the tree deletes**.
 - **LS4 (the harness).** The fault harness's `insert-on`, `insert-off`, `all-off`, `status` on S's tip (`HarnessRehearsalTests` is this leg's test; the live run does it once by hand): `status` exits 0 at rest and after each restore, and the role still cannot name `seq`.
@@ -315,7 +608,7 @@ Task 4's whole run as CI runs it; the closed fuzz (R14.10); preflight (green bef
 ## Docs owed before the PR
 
 - `curia-whitepaper-ERRATA-AND-ADDENDUM.md`: G69 with its status from the run (probe and falsification counts), the index row for `R11.6 (add.)`, the `(add.)` mark. **The white paper is not edited.**
-- `IMPLEMENTATION_PLAN.md`: "Current work", "Next stage" (PR N next, then N2, PR O, the join; PR S built), the PR table, the Beta section (item 9's preconditions: the apply), the register (below), the first-free line (**"First free: D124, D61 item 273, trap 248; errata G68 is PR N's, G70 PR N2's (provisional)"**), traps 245 to 247.
+- `IMPLEMENTATION_PLAN.md` (Amendment 1, rulings 13 and 15: the sentence at `:8017` inside D121 that states the grant as "`INSERT, SELECT` on `events`" is a dated measurement of `2708d826` and gets a dated bracket after it stating the column grant, not a rewrite; item 163 already names LCB22, so no item is filed and it gains a dated sentence only if LCB22 fails again in a PR's CI): "Current work", "Next stage" (PR N next, then N2, PR O, the join; PR S built), the PR table, the Beta section (item 9's preconditions: the apply), the register (below), the first-free line (**"First free: D124, D61 item 273, trap 248; errata G68 is PR N's, G70 PR N2's (provisional)"**), traps 245 to 247.
 - `README.md`: the operator runbook's new step and its pre-check/apply/post-check block (marked for SEQ8), the sentence "Apply `db/*.sql` in order first" gains "and `db/0006` narrows the role's `INSERT`", the Beta notes' one sentence (a database that has not applied it can be reordered by its credential).
 - `CLAUDE.md`: the status paragraph (a clause: the application role names no `seq`, errata G69), and the Build-and-test note that the fixtures render `db/0006`.
 - `tools/fault-harness/README.md`: `insert-off` and `status` restore and read the column grant.
@@ -323,7 +616,7 @@ Task 4's whole run as CI runs it; the closed fuzz (R14.10); preflight (green bef
 
 ## Register text to paste (Task 6 writes the ones the run confirms)
 
-**D123.** `The application role can name an event's seq (db/0001 granted INSERT on every column). Fixed by errata G69 (PR S, #153): db/0006 grants INSERT on the six columns the Forum supplies and not seq; the Forum logs EventId 7008 at every start when its role can still name it. The measured numbers stay as the record: a negative seq (PR N's Task 0 M4: a 500 on every read of the aggregate, an uninvolved agent's included); a seq of 0 (read: invisible to every forward read, returned by the by-aggregate read: M-S2); a seq ahead of the identity (measured at the database: one honest append refused per planted value: M-S3). What it does not close: server_ts (PR N's item 274), a role that can write seq by being a superuser or the table's owner, rows already planted, and a restore from a backup that predates the migration.` Status `fixed`, with the legs that show it, when the owner has applied it to the hosted database (the PR's status line says "built, not applied").
+**D123.** `The application role can name an event's seq (db/0001 granted INSERT on every column). Fixed by errata G69 (PR S, #153): db/0006 grants INSERT on the six columns the Forum supplies and not seq; the Forum logs EventId 7008 at every start when its role can still name it. The measured numbers stay as the record: a negative seq (PR N's Task 0 M4: a 500 on every read of the aggregate, the legitimate agent's included; the Forum restarts over the row silently: M-S1); a seq of 0 (measured, M-S2, for one payload: not seen by the head signer's stop or the start-up scan, and not honoured as a retirement but breaking the victim's key set: a fresh token request 401, an issued token 503 curia/log/unreadable, the served key set 503); a seq ahead of the identity (measured at the database and through a Forum: one honest append refused per planted value, three asks answered 503 curia/store/unavailable and recovered by curia resend: M-S3). What it does not close: server_ts (PR N's item 274), a role that can write seq by being a superuser or the table's owner, rows already planted, and a restore from a backup that predates the migration.` Status `fixed`, with the legs that show it, when the owner has applied it to the hosted database (the PR's status line says "built, not applied").
 
 **D61 item 272.** `The Forum's start-up check of the events grant is a log (EventId 7008), not a refusal: a database that has not applied db/0006, a superuser connection and a restore from an older backup all start and say so once. PR O's readiness check alarms on it; whether the Forum should refuse to start is the owner's call after the drill.`
 
@@ -336,7 +629,7 @@ PR N (lifecycle rows are honoured only if they verify; errata G68; re-based onto
 ## Open risks (named so the reviewer can look)
 
 - **Task 3 is the part that is not obviously "small".** It is severable (ruling 7). Its estimate is Task 0 M-S8's.
-- **The forward-read blindness is read, not run** (finding 3). If M-S2 contradicts it, the PR is still right (the 500s and the collision are measured) and its urgency text is rewritten.
+- **The forward-read blindness was run (M-S2). It held for the head signer's stop and the start-up scan; the by-aggregate half did not hold as written (Amendment 1, ruling 12).** Not measured, and stated so in finding 3: a plain `sign-head` over a `seq` 0 row, and a `seq` 0 payload the fold accepts; Task 1 measures both on the control build (ruling 16).
 - **A role that is not the application's** (the head signer's copy of the credential, PR N's item 257) is outside the start-up check and outside this grant: it can hold whatever grants its host gave it.
 - **`has_column_privilege(current_user, ...)` follows role inheritance and superuser**: a Forum connected as a superuser logs 7008 on every start. That is the intended signal (ruling 7), and a developer's local superuser connection sees it; the log says why.
 - **The hosted database may already hold a planted row.** The pre-check finds it and the owner stops (ruling 8); the PR cannot remove one (R11.6).
@@ -356,6 +649,8 @@ PR N (lifecycle rows are honoured only if they verify; errata G68; re-based onto
 ### Commits
 
 ### Task 0: the unmodified tree (M-S1 to M-S8, each rule and its result)
+
+Done 2026-11-12 (record `s-task0.txt` and `task-0-report.md`, sha256 prefixes `625178ee` and `a0a0c366`; `.superpowers/sdd/` is git-ignored, so the numbers are in Amendment 1's "What was checked"). M-S1, M-S3, M-S4, M-S6, M-S7 held; M-S2 held in its blindness half and not its honoured half; M-S5's baseline carries LCB22 (item 163 already names it); M-S8's estimate straddles 200 only with the probes counted (ruling 14).
 
 ### Task 1: the errata and the probes (red text, verbatim)
 
