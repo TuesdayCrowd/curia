@@ -162,7 +162,8 @@ fn check_canonicalize<E: std::fmt::Display>(
         Ok(actual) => problems.push(format!(
             "digest mismatch: got {actual}, want {expected_digest}"
         )),
-        Err(e) => problems.push(e.to_string()),
+        // `Infallible` has no values; Rust 1.100's `unreachable_code` rejects a call on it.
+        Err(never) => match never {},
     }
 
     if problems.is_empty() {
