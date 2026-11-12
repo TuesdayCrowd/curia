@@ -154,7 +154,7 @@ public sealed class HeadWorld : IAsyncLifetime
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        var exit = await OperatorCommands.RunAsync(["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct, readLogSigningKeyPem: () => pem);
+        var exit = await OperatorCommands.RunAsync(["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct, readLogSigningKeyPem: () => pem);
         Assert.Equal(0, exit);
     }
 
@@ -278,7 +278,7 @@ public sealed class RetainedHeadOperatorTests(HeadWorld world) : IClassFixture<H
         if (world.B3.TreeSize != world.A3.TreeSize) problems.Add($"the heads' sizes differ ({world.A3.TreeSize} and {world.B3.TreeSize})");
         if (world.B3.RootHash == world.A3.RootHash) problems.Add("the two forums' roots at one size are equal, so the plant is no fork");
         foreach (var (name, head) in new[] { ("A3", world.A3), ("B3", world.B3), ("B2", world.B2) })
-            if (ActaCheck.HeadSignature(head, published).Outcome != CheckOutcome.Verified) problems.Add($"{name} does not verify under the log's published keys");
+            if (ActaCheck.HeadSignature(head, published.Keys).Outcome != CheckOutcome.Verified) problems.Add($"{name} does not verify under the log's published keys");
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 

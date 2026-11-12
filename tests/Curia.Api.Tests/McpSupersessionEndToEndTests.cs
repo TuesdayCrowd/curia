@@ -142,7 +142,7 @@ public sealed partial class McpSupersessionEndToEndTests(KestrelForumFixture for
         using (var stderr = new StringWriter())
         {
             Assert.Equal(0, await OperatorCommands.RunAsync(
-                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem));
+                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem));
         }
 
         string[][] CliVerbs(string id) =>

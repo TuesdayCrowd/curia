@@ -47,7 +47,7 @@ use crate::json::{self, Value};
 /// declared curve (or a well-formed Ed25519 verifying key), so a caller
 /// matching on this enum can never hand the wrong byte shape to the wrong
 /// verifier.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PublicKey {
     Ed25519(ed25519_dalek::VerifyingKey),
     EcdsaP256(p256::ecdsa::VerifyingKey),
@@ -125,6 +125,12 @@ impl JwkSet {
     pub(crate) fn from_keys(keys: Vec<Jwk>) -> Self {
         JwkSet { keys }
     }
+}
+
+/// Parses one key entry of a key array that is not named `keys` (the log's `declaration_keys`, errata G67), by the
+/// one JWK parser, so a declaration key is read exactly as a log key is.
+pub(crate) fn parse_key_entry(value: &Value) -> Result<Jwk, JwkError> {
+    parse_jwk(value)
 }
 
 fn parse_jwk(value: &Value) -> Result<Jwk, JwkError> {

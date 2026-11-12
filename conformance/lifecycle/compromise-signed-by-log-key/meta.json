@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "A /2 declaration whose header kid is the test log key, published at 3 as a log key: the log has published a declaration key (at 4) and this is not it, so the declaration is under no declaration key the log published (R6.62(b)). It fails, which is not could-not-check and is never disputed: a log key never declares, and a head's signer is no declaration's. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

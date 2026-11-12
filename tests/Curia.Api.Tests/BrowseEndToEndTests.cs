@@ -218,14 +218,17 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
     {
         AdvanceClock();
         var pem = LogSigningKey.GeneratePem();
+        var declarationPem = await DeclarationKeyHost.PemAsync(forum, ct);
 
         async Task<int> OperatorAsync(params string[] args)
         {
             using var stdout = new StringWriter();
             using var stderr = new StringWriter();
+            var declares = args[0] == "compromise";
             var exit = await OperatorCommands.RunAsync(
-                args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct,
-                readLogSigningKeyPem: () => pem);
+                args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+                readLogSigningKeyPem: () => declares ? null : pem,
+                readDeclarationSigningKeyPem: () => declares ? declarationPem : null);
             Assert.True(exit == 0, stdout.ToString() + stderr);
             return exit;
         }

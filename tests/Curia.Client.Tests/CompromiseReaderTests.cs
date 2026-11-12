@@ -14,8 +14,8 @@ using Xunit;
 namespace Curia.Client.Tests;
 
 /// <summary>
-/// R6.57 and R6.26 (revised), at the fold: what a reader does with a declaration the operator's log key did not sign, one
-/// that precedes the post it names, and a log key whose published position it cannot read. The cases are
+/// R6.57 and R6.26 (revised), at the fold: what a reader does with a declaration the operator's declaration key did not sign (errata G67), one
+/// that precedes the post it names, and a declaration key whose published position it cannot read. The cases are
 /// <c>conformance/lifecycle/</c>'s, handed to <see cref="LifecycleCheck"/> as documents; the rest of the family is
 /// <see cref="LifecycleConformanceTests"/>.
 /// </summary>
@@ -32,7 +32,7 @@ public sealed class CompromiseReaderTests
     /// because it has no signer, and the fact below holds both to this one.
     /// </summary>
     internal const string AgentSignedDeclaration =
-        "eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLWVkMjU1MTktbWluaW1hbCIsInR5cCI6ImN1cmlhLWtleS1jb21wcm9taXNlXHUwMDJCandzIiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiXX0..xLupPvseTID4h-fbaeplsDeGQPgvQkkgNcWUet2XdkKa-6J3KCOEK5t615VlPlFrfCRXIAEzq1blWb6NW80oAw";
+        "eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLWVkMjU1MTktbWluaW1hbCIsInR5cCI6ImN1cmlhLWtleS1jb21wcm9taXNlXHUwMDJCandzIiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiXX0..UOTxSo10Q0nvFcqky46ix4VBVk-phJ2MCS2x9JDm4dZoet4TcilI5reClUWplsmbVAvBHeB4Wa-QNwF5H2BnCw";
 
     private const string Case = "compromised-before-post";
 
@@ -78,10 +78,10 @@ public sealed class CompromiseReaderTests
     }
 
     /// <summary>
-    /// R6.26 (revised), F2-25, F2-26: a log key whose <c>log_index</c> is negative is a position this reader cannot read, as an
+    /// R6.26 (revised), F2-25, F2-26, R6.62(c): a declaration key whose <c>log_index</c> is negative is a position this reader cannot read, as an
     /// absent one is, and the declaration is could not be checked, never verified. The key set is
     /// <c>compromise-declaration-kid-position-unknown</c>'s with the declaring key's position set to -1, and again to -5; the
-    /// control gives it the position its <c>log.key</c> entry has (3, before the declaration at 4), and the declaration holds.
+    /// control gives it the position its <c>log.declaration-key</c> entry has (3, before the declaration at 4), and the declaration holds.
     /// </summary>
     [Theory]
     [InlineData(-1L)]
@@ -90,13 +90,14 @@ public sealed class CompromiseReaderTests
     {
         const string Unknown = "compromise-declaration-kid-position-unknown";
         var documents = LifecycleConformanceTests.Load(Unknown);
-        Assert.Equal(("could-not-check", "log-key-position-unknown"), LifecycleConformanceTests.Judge(documents));
+        Assert.Equal(("could-not-check", "declaration-key-position-unknown"), LifecycleConformanceTests.Judge(documents));
 
-        ImmutableArray<LogJwk> WithPosition(long at) =>
-            [.. documents.LogKeys.Select(k => k.LogIndex == -1 && k.Key.Alg == "ES256" ? k with { LogIndex = at } : k)];
+        // The declaring key is a declaration key (errata G67, R6.62): its position is the one the key set's declaration_keys member gives.
+        LogKeySet WithPosition(long at) =>
+            documents.LogKeys with { DeclarationKeys = [.. documents.LogKeys.DeclarationKeys!.Value.Select(k => k.LogIndex == -1 && k.Key.Alg == "ES256" ? k with { LogIndex = at } : k)] };
 
         Assert.Equal(("disputed", "disputed"), LifecycleConformanceTests.Judge(documents with { LogKeys = WithPosition(3) }));
-        Assert.Equal(("could-not-check", "log-key-position-unknown"), LifecycleConformanceTests.Judge(documents with { LogKeys = WithPosition(position) }));
+        Assert.Equal(("could-not-check", "declaration-key-position-unknown"), LifecycleConformanceTests.Judge(documents with { LogKeys = WithPosition(position) }));
     }
 
     /// <summary>The case's declaration statement signed by the agent key <c>conformance-ed25519-minimal</c>.</summary>
@@ -121,7 +122,7 @@ public sealed class CompromiseReaderTests
     /// <summary>
     /// <paramref name="documents"/> with its declaration replaced by <paramref name="declaration"/>: the entry's leaf is
     /// recomputed, and so are the tree and every proof and the head's root, from the leaves the case holds. This case's
-    /// log has five leaves; the one it does not supply, the <c>log.key</c> entry at 3, is the first node of the post's
+    /// log has five leaves; the one it does not supply, the <c>log.declaration-key</c> entry at 3, is the first node of the post's
     /// audit path.
     /// </summary>
     private static LifecycleConformanceTests.CaseDocuments WithDeclaration(LifecycleConformanceTests.CaseDocuments documents, string declaration)

@@ -27,6 +27,11 @@ public sealed record SignedHead(
 /// <summary>A log signing key as published to the log (R6.50). Never retired here: R12.16's history is append-only.</summary>
 public sealed record LogKey(long LogIndex, string Kid, JsonValue.Object Jwk, string ValidFrom);
 
+/// <summary>
+/// A declaration key as published to the log (errata G67, R6.62): the key that signs compromise declarations and never a head.
+/// </summary>
+public sealed record DeclarationKey(long LogIndex, string Kid, JsonValue.Object Jwk, string ValidFrom);
+
 /// <summary>An audit path and everything a verifier needs to check it (R6.48).</summary>
 public sealed record InclusionProof(
     long LogIndex,
@@ -67,12 +72,14 @@ public sealed class ActaLog
         ImmutableArray<ImmutableArray<byte>> leaves,
         ImmutableArray<SignedHead> heads,
         ImmutableArray<LogKey> keys,
+        ImmutableArray<DeclarationKey> declarationKeys,
         ImmutableDictionary<string, long> indexByEventId)
     {
         Events = events;
         Leaves = leaves;
         Heads = heads;
         Keys = keys;
+        DeclarationKeys = declarationKeys;
         IndexByEventId = indexByEventId;
         Root = MerkleTree.Root(leaves);
     }
@@ -95,6 +102,54 @@ public sealed class ActaLog
 
     /// <summary>Every log key ever published, in log order (R12.16: the full history, forever).</summary>
     public ImmutableArray<LogKey> Keys { get; }
+
+    /// <summary>Every declaration key published to the log, in log order (errata G67, R6.62). A reader holds a declaration to the first.</summary>
+    public ImmutableArray<DeclarationKey> DeclarationKeys { get; }
+
+    /// <summary>
+    /// The latest head for which <paramref name="signedByTheSigner"/> holds, or <see langword="null"/> when none does (errata G67, R6.63; Amendment 3 ruling 34). <see cref="LatestHead"/>
+    /// is the latest by shape, which a holder of the Forum's database credential can write; the signer's growth test and its stop start from the latest head it can verify as its own
+    /// (the <b>anchor</b>) and read no other, so the caller names how a head is verified and this fold does not decide it.
+    /// </summary>
+    public SignedHead? LatestHeadWhere(Func<SignedHead, bool> signedByTheSigner)
+    {
+        ArgumentNullException.ThrowIfNull(signedByTheSigner);
+
+        for (var i = Heads.Length - 1; i >= 0; i--)
+            if (signedByTheSigner(Heads[i]))
+                return Heads[i];
+
+        return null;
+    }
+
+    /// <summary>
+    /// Errata G67, R6.63: whether an entry other than <c>log.head</c> and <c>log.key</c> follows <paramref name="anchor"/> (any entry, with none). The test is over the log's own
+    /// order and measured from the anchor's signed <c>tree_size</c>, never from its log index: a head covers the first <c>tree_size</c> leaves and is itself appended at an index no
+    /// lower than that, so the entries it did not cover are those at an index at or past its <c>tree_size</c>, including any between the two numbers. An empty log is not grown.
+    /// A head is a leaf, so a signer that counted its own output would find every log grown (register trap 232).
+    /// </summary>
+    public bool GrownPast(SignedHead? anchor)
+    {
+        for (var i = anchor?.TreeSize ?? 0; i < Events.Count; i++)
+        {
+            var type = Events[(int)i].Event.Type.Value;
+            if (!string.Equals(type, LogEntries.HeadType, StringComparison.Ordinal)
+                && !string.Equals(type, LogEntries.KeyType, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The lifecycle rows <paramref name="anchor"/> does not cover, by the one predicate (<see cref="LifecycleRows"/>), at or past its signed <c>tree_size</c> or all of them with no
+    /// anchor: what the signer's stop looks at (Amendment 3 ruling 34).
+    /// </summary>
+    public ImmutableArray<LifecycleRow> LifecycleRowsPast(SignedHead? anchor)
+    {
+        var from = anchor?.TreeSize ?? 0;
+        return [.. LifecycleRows.Find(Events).Where(r => r.LogIndex >= from)];
+    }
 
     /// <summary>The leaf index of the event with a given <c>event_id</c>, for R6.18's per-item <c>log_index</c>.</summary>
     public ImmutableDictionary<string, long> IndexByEventId { get; }
@@ -154,6 +209,7 @@ public sealed class ActaLog
         var leaves = ImmutableArray.CreateBuilder<ImmutableArray<byte>>(log.Count);
         var heads = ImmutableArray.CreateBuilder<SignedHead>();
         var keys = ImmutableArray.CreateBuilder<LogKey>();
+        var declarationKeys = ImmutableArray.CreateBuilder<DeclarationKey>();
         var index = ImmutableDictionary.CreateBuilder<string, long>(StringComparer.Ordinal);
 
         for (var i = 0; i < log.Count; i++)
@@ -179,12 +235,18 @@ public sealed class ActaLog
                     keys.Add(key!);
                     break;
 
+                case LogEntries.DeclarationKeyType:
+                    if (!ReadDeclarationKey(i, appended.Event.Payload).TryGetValue(out var declarationKey, out var declarationKeyError))
+                        return Result<ActaLog>.Fail(declarationKeyError!);
+                    declarationKeys.Add(declarationKey!);
+                    break;
+
                 default:
                     break;
             }
         }
 
-        return Result<ActaLog>.Ok(new ActaLog(log, leaves.ToImmutable(), heads.ToImmutable(), keys.ToImmutable(), index.ToImmutable()));
+        return Result<ActaLog>.Ok(new ActaLog(log, leaves.ToImmutable(), heads.ToImmutable(), keys.ToImmutable(), declarationKeys.ToImmutable(), index.ToImmutable()));
     }
 
     private static Result<SignedHead> ReadHead(long logIndex, JsonValue payload)
@@ -214,6 +276,17 @@ public sealed class ActaLog
         return Result<LogKey>.Ok(new LogKey(logIndex, kid.Value, jwk, validFrom.Value));
     }
 
+    private static Result<DeclarationKey> ReadDeclarationKey(long logIndex, JsonValue payload)
+    {
+        if (payload is not JsonValue.Object o
+            || Member(o, LogEntries.KidMember) is not JsonValue.String kid
+            || Member(o, LogEntries.JwkMember) is not JsonValue.Object jwk
+            || Member(o, LogEntries.ValidFromMember) is not JsonValue.String validFrom)
+            return Result<DeclarationKey>.Fail(ActaErrors.MalformedDeclarationKey(logIndex));
+
+        return Result<DeclarationKey>.Ok(new DeclarationKey(logIndex, kid.Value, jwk, validFrom.Value));
+    }
+
     private static JsonValue? Member(JsonValue.Object o, string name)
     {
         foreach (var m in o.Members)
@@ -238,6 +311,11 @@ public static class ActaErrors
     public static Error MalformedHead(long logIndex) => new(
         "curia/acta/malformed-head",
         "A log.head entry does not carry { head: { root_hash, timestamp, tree_size }, kid, signature } with a size the log had reached",
+        $"log_index={logIndex}");
+
+    public static Error MalformedDeclarationKey(long logIndex) => new(
+        "curia/acta/malformed-declaration-key",
+        "A log.declaration-key entry does not carry { kid, jwk, valid_from }",
         $"log_index={logIndex}");
 
     public static Error MalformedKey(long logIndex) => new(

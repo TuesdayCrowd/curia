@@ -171,7 +171,7 @@ public sealed partial class RevisionRaceEndToEndTests(KestrelForumFixture forum)
         using (var stderr = new StringWriter())
         {
             Assert.Equal(0, await OperatorCommands.RunAsync(
-                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem));
+                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem));
         }
 
         var pair = await Task.WhenAll(
@@ -206,7 +206,7 @@ public sealed partial class RevisionRaceEndToEndTests(KestrelForumFixture forum)
         using (var stderr = new StringWriter())
         {
             Assert.Equal(0, await OperatorCommands.RunAsync(
-                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem));
+                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, Ct, readLogSigningKeyPem: () => LogKeyPem));
         }
 
         var first = await TryReviseAsync(tools, postId, "First correction " + Unrelated());

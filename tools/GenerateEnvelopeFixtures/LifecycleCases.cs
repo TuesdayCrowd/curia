@@ -63,12 +63,28 @@ internal static partial class LifecycleCases
     private sealed record Case(
         string Name, string Requirement, string Note, Log Log, int Post, int[] Supplied, string Verdict, string Predicate)
     {
-        /// <summary>Log keys beside the head key, each with the log index of its <c>log.key</c> entry (PR 2's declarations).</summary>
+        /// <summary>Log keys beside the head key, each with the log index of its <c>log.key</c> entry.</summary>
         public IReadOnlyList<ExtraLogKey> ExtraLogKeys { get; init; } = [];
+
+        /// <summary>
+        /// The declaration keys the case's key set serves, in the order it serves them (errata G67, R6.62), each with the log index of its <c>log.declaration-key</c> entry;
+        /// null serves no <c>declaration_keys</c> member at all, and an empty list serves an empty one.
+        /// </summary>
+        public IReadOnlyList<ExtraLogKey>? DeclarationKeys { get; init; }
+
+        /// <summary>
+        /// The key set's <c>declaration_keys</c> member as raw JSON text, for a member that is present and is not an array (errata G67, R6.62, Amendment 3 ruling 38); it wins
+        /// over <see cref="DeclarationKeys"/>.
+        /// </summary>
+        public string? DeclarationKeysRawJson { get; init; }
     }
 
-    /// <summary>A log key the case's key set lists beside the head key; a null <paramref name="LogIndex"/> gives no position (KF2).</summary>
-    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex);
+    /// <summary>
+    /// A log key the case's key set lists beside the head key; a null <paramref name="LogIndex"/> gives no position (KF2). <paramref name="OmitKid"/> and <paramref name="OmitAlg"/> write
+    /// the entry without that member, an entry no reader can read as a key (Amendment 4 rulings 47 and 48, R6.62). <paramref name="OmitY"/>, <paramref name="StarX"/> and <paramref name="Rsa"/> write an entry
+    /// outside the closed form that carries the four strings (without <c>y</c>; an <c>x</c> that begins with an asterisk; a <c>kty</c> of RSA: Amendment 5 ruling 52).
+    /// </summary>
+    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex, bool OmitKid = false, bool OmitAlg = false, bool OmitY = false, bool StarX = false, bool Rsa = false, bool OffCurve = false, bool UseEnc = false);
 
     public static int Run(string repoRoot)
     {
@@ -721,7 +737,7 @@ internal static partial class LifecycleCases
 
         File.WriteAllText(
             Path.Combine(dir, "log-jwks.json"),
-            $"{{\"keys\":[{{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"alg\":\"EdDSA\",\"kid\":\"{LogKid}\",\"x\":\"{Jwk.Base64UrlEncode(logPublic)}\",\"valid_from\":\"2026-09-01T00:00:00Z\",\"log_index\":0}}{ExtraLogKeysJson(c)}]}}\n");
+            $"{{\"keys\":[{{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"alg\":\"EdDSA\",\"kid\":\"{LogKid}\",\"x\":\"{Jwk.Base64UrlEncode(logPublic)}\",\"valid_from\":\"2026-09-01T00:00:00Z\",\"log_index\":0}}{ExtraLogKeysJson(c.ExtraLogKeys)}]{DeclarationKeysJson(c)}}}\n");
         File.WriteAllText(
             Path.Combine(dir, "expected.json"),
             $"{{\"verdict\":\"{c.Verdict}\",\"predicate\":\"{c.Predicate}\"}}\n");

@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The key set is served with \"declaration_keys\":[], a declaration key that no entry publishes signed the declaration at 3: the log says it published none, so the declaration is under no declaration key (R6.62(b)) and fails. The absent member's pair: an absence is could not be checked, an empty member is a denial. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

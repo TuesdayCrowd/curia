@@ -7,6 +7,7 @@ using Curia.Application.Tests.InMemory;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
+using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
 using Curia.Tests.Shared;
 using Xunit;
@@ -50,6 +51,9 @@ public abstract class LifecycleChokepointShapes
         Require(EventType.Create(type)),
         Require(ActorId.Create("actor:" + stream)),
         new JsonValue.Object([new("agent_id", new JsonValue.String(stream))]));
+
+    /// <summary>An event of <paramref name="type"/> on <paramref name="stream"/>, for the append the guard must not refuse (HSU5).</summary>
+    protected static DomainEvent UnguardedEvent(string type, string stream) => Event(type, stream);
 
     /// <summary>The stream every shape is appended to, and the number of events it already holds.</summary>
     protected sealed record Shaped(AggregateId Stream, AggregateVersion Expected, IReadOnlyList<DomainEvent> Events, long PriorLength);
@@ -118,6 +122,23 @@ public abstract class LifecycleRefusalContract : LifecycleChokepointShapes
         Assert.Equal(DomainErrors.LifecycleAppendRefusedType, appended.Match(_ => string.Empty, e => e.Type));
         var stream = await store.ReadByAggregateAsync(shaped.Stream, ct);
         Assert.Equal(shaped.PriorLength, stream.Match(s => (long)s.Count, e => -1));
+    }
+
+    /// <summary>
+    /// HSU5 (PR H, errata G67, Amendment 2 ruling 29): the declaration key's entry is no lifecycle kind, so the store appends it under the refusing gate, in each
+    /// adapter. A control on the seam, which classifies nothing new; red under FHSU5, where <c>Classify</c> returns a kind for it.
+    /// </summary>
+    [Fact]
+    public async Task R4_38_HSU5_TheDeclarationKeysEntryIsAppendedUnderTheProductionGate()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(RefusingGate());
+        var stream = Require(AggregateId.Create(LogEntries.DeclarationKeysAggregate));
+
+        var appended = await store.AppendAsync(stream, AggregateVersion.New, [UnguardedEvent(LogEntries.DeclarationKeyType, LogEntries.DeclarationKeysAggregate)], ct);
+
+        Assert.True(appended.IsOk, "the log.declaration-key append was refused: " + appended.Match(_ => string.Empty, e => e.Type));
+        Assert.Single(Require(await store.ReadByAggregateAsync(stream, ct)));
     }
 
     /// <summary>

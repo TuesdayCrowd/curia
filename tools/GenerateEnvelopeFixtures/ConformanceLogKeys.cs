@@ -8,7 +8,7 @@ namespace GenerateEnvelopeFixtures;
 internal sealed record P256LogKey(string Kid, byte[] X32, byte[] Y32, byte[] EcPrivateKeyDer, byte[] Spki, JsonValue Jwk);
 
 /// <summary>
-/// The conformance log key and the unpublished signer (keys that end, Task 2.0). A compromise declaration is ES256 by
+/// The conformance log key, the declaration key and the unpublished signer (keys that end, Task 2.0; errata G67 adds the declaration key). A compromise declaration is ES256 by
 /// construction: the operator's log key is P-256 only (<c>LogSigningKey.FromPem</c> refuses anything else), so no Ed25519
 /// seed and not the <c>acta/head-entry</c> vector's kid.
 ///
@@ -31,20 +31,29 @@ internal static class ConformanceLogKeys
     // Test key only. SHA-256 of the ASCII text "curia-conformance-unpublished-signer-p256". No log.key entry publishes it.
     private const string UnpublishedScalarHex = "d58f9906b827d3c0c5a7b0040fc10192b48745b192ba5c3d61e2ca46971b5305";
 
+    // Test key only. SHA-256 of the ASCII text "curia-conformance-declaration-key-p256". The declaration key (errata G67, R6.62) is published by a
+    // log.declaration-key entry and signs compromise declarations; it is a different key from the log key, which is published by a log.key entry.
+    private const string DeclarationScalarHex = "dc27beb3e8027661442e36efdc20b6af32f1b22f224fb6ee05475c9ee7c6d92c";
+
     private const string PinnedLogKid = "qHPbhs_9o0jxVndzhwI7c3RLiGYoec5rTmfEtwT5j30";
     private const string PinnedUnpublishedKid = "NxiuQ5uF-fNn1_evbt7401ASmUe19wBeG7z7An5fXlk";
+    private const string PinnedDeclarationKid = "vlVAjPXVQPZ1hfwS2AykgPssJNaemQK33uwVM1Vm1Ls";
 
     // Lazy, so that --log-key-fixture can print the thumbprints before the literals are pinned.
     private static readonly Lazy<P256LogKey> LogKey = new(() => Build(LogScalarHex, PinnedLogKid));
     private static readonly Lazy<P256LogKey> UnpublishedKey = new(() => Build(UnpublishedScalarHex, PinnedUnpublishedKid));
+    private static readonly Lazy<P256LogKey> DeclarationKey = new(() => Build(DeclarationScalarHex, PinnedDeclarationKid));
 
     public static P256LogKey Log => LogKey.Value;
 
     public static P256LogKey Unpublished => UnpublishedKey.Value;
 
+    /// <summary>The key a compromise declaration is signed by in the vectors (errata G67, R6.62), and the first declaration key their logs publish.</summary>
+    public static P256LogKey Declaration => DeclarationKey.Value;
+
     /// <summary>The RFC 7638 thumbprints, for pinning the literals above: printed by <c>--log-key-fixture</c>.</summary>
-    public static (string Log, string Unpublished) ComputedKids() =>
-        (Thumbprint(Derive(LogScalarHex)), Thumbprint(Derive(UnpublishedScalarHex)));
+    public static (string Log, string Unpublished, string Declaration) ComputedKids() =>
+        (Thumbprint(Derive(LogScalarHex)), Thumbprint(Derive(UnpublishedScalarHex)), Thumbprint(Derive(DeclarationScalarHex)));
 
     private static P256LogKey Build(string scalarHex, string pinnedKid)
     {

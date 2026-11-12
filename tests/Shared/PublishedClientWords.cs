@@ -110,10 +110,30 @@ internal static partial class PublishedClientWords
     internal static string MillisecondInstantExample => One(Group(MillisecondInstantPhrase(), Paragraph("R11.74 words"), "R11.74's instant form"));
 
     /// <summary>The closing line past the head with <c>&lt;n&gt;</c> left in.</summary>
-    internal static string PastHeadClosing => One(Group(ClosingPhrase(), Paragraph("R11.74 words"), "R11.74's closing"));
+    internal static string PastHeadClosing => One(Group(ClosingPhrase(), Paragraph("R11.94 words"), "R11.94's closing"));
 
     /// <summary>The suffix that says another check could not be made.</summary>
-    internal static string AnotherCheckSuffix => One(Group(AnotherCheckPhrase(), Paragraph("R11.74 words"), "R11.74's another-check suffix"));
+    internal static string AnotherCheckSuffix => One(Group(AnotherCheckPhrase(), Paragraph("R11.94 words"), "R11.94's another-check suffix"));
+
+    // ----- R11.94 words (errata G67): when the latest head was signed -----
+
+    /// <summary>The <c>&lt;signed&gt;</c> form for a head signed a second or more before the check began, with <c>&lt;instant&gt;</c> and <c>&lt;k&gt;</c> left in.</summary>
+    internal static string SignedSecondsForm => One(Group(SignedSecondsPhrase(), Paragraph("R11.94 words"), "R11.94's seconds form"));
+
+    /// <summary>The <c>&lt;signed&gt;</c> form for a head signed less than a second before the check began.</summary>
+    internal static string SignedRecentForm => One(Group(SignedRecentPhrase(), Paragraph("R11.94 words"), "R11.94's less-than-a-second form"));
+
+    /// <summary>The <c>&lt;signed&gt;</c> form for a head stamped after the check began.</summary>
+    internal static string SignedAfterForm => One(Group(SignedAfterPhrase(), Paragraph("R11.94 words"), "R11.94's after-began form"));
+
+    /// <summary>The <c>&lt;signed&gt;</c> form for a timestamp the client cannot read.</summary>
+    internal static string SignedNotStatedForm => One(Group(SignedNotStatedPhrase(), Paragraph("R11.94 words"), "R11.94's NOT STATED form"));
+
+    /// <summary>The sentence the inclusion line gains, <c>That head was &lt;signed&gt;.</c></summary>
+    internal static string ThatHeadSentence => One(Group(ThatHeadPhrase(), Paragraph("R11.94 words"), "R11.94's inclusion sentence"));
+
+    /// <summary>The published form of the head's signed instant, from "UTC to the millisecond, truncated and not rounded, in the form `...`".</summary>
+    internal static string SignedInstantExample => One(Group(SignedInstantPhrase(), Paragraph("R11.94 words"), "R11.94's instant form"));
 
     /// <summary>The two inclusion fragments, folded: "leaf &lt;n&gt; is not covered by the signed head at tree size &lt;m&gt;" and "no published head commits to it yet".</summary>
     internal static string[] InclusionFragments()
@@ -137,6 +157,7 @@ internal static partial class PublishedClientWords
     internal static string[] AllPublished() =>
     [
         UnknownLine, StoreSentence, EqualHeadLine, NotStatedLine, PastHeadClosing, AnotherCheckSuffix, TokenSentence, WhoamiExpired,
+        SignedSecondsForm, SignedRecentForm, SignedAfterForm, SignedNotStatedForm, ThatHeadSentence,
         .. UnknownClauses(), .. WhenForms(),
     ];
 
@@ -232,4 +253,22 @@ internal static partial class PublishedClientWords
 
     [GeneratedRegex(@"The `whoami` line for an expired cached token: `([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex WhoamiPhrase();
+
+    [GeneratedRegex(@"The `<signed>` is `([^`]+)` for a head signed a second or more", RegexOptions.CultureInvariant)]
+    private static partial Regex SignedSecondsPhrase();
+
+    [GeneratedRegex(@"`([^`]+)` for one signed less than a second before", RegexOptions.CultureInvariant)]
+    private static partial Regex SignedRecentPhrase();
+
+    [GeneratedRegex(@"`([^`]+)` for one stamped after", RegexOptions.CultureInvariant)]
+    private static partial Regex SignedAfterPhrase();
+
+    [GeneratedRegex(@"and `(signed at NOT STATED[^`]+)` where the timestamp is absent", RegexOptions.CultureInvariant)]
+    private static partial Regex SignedNotStatedPhrase();
+
+    [GeneratedRegex(@"between its first sentence and its second, the sentence `(That head was <signed>\.)`", RegexOptions.CultureInvariant)]
+    private static partial Regex ThatHeadPhrase();
+
+    [GeneratedRegex(@"UTC to the millisecond, truncated and not rounded, in the form `(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z)`", RegexOptions.CultureInvariant)]
+    private static partial Regex SignedInstantPhrase();
 }

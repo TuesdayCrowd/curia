@@ -272,13 +272,16 @@ public sealed class NameMatchesNothingEndToEndTests(PassThroughGateForumFixture 
         Said($"200, nothing echoed", $"{(int)reply.Status}, {(found.Count == 0 ? "nothing echoed" : string.Join(" and ", found) + " echoed")}");
     }
 
-    private async Task<int> OperatorAsync(string pem, params string[] args)
+    /// <summary>A verb with the one key it signs with in its environment: <c>compromise</c> the declaration key, <c>sign-head</c> the log key (R12.18: never both).</summary>
+    private async Task<int> OperatorAsync(string pem, string declarationPem, params string[] args)
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
+        var declares = args[0] == "compromise";
         return await Curia.OperatorTool.OperatorCommands.RunAsync(
-            args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), Curia.OperatorTool.OperatorCommands.LoadLogSigner, stdout, stderr, Ct,
-            readLogSigningKeyPem: () => pem);
+            args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), Curia.OperatorTool.OperatorCommands.LoadDeclarationSigner, stdout, stderr, Ct,
+            readLogSigningKeyPem: () => declares ? null : pem,
+            readDeclarationSigningKeyPem: () => declares ? declarationPem : null);
     }
 
     /// <summary>
@@ -309,8 +312,9 @@ public sealed class NameMatchesNothingEndToEndTests(PassThroughGateForumFixture 
         var beforeBoard = await SearchAsync(forum.Client, $"q={term}&board={board}", Ct);
 
         var pem = Curia.OperatorTool.LogSigningKey.GeneratePem();
-        Assert.Equal(0, await OperatorAsync(pem, "sign-head", "--by", "ops"));
-        Assert.Equal(0, await OperatorAsync(pem, "compromise", "--agent", thief.AgentId, "--kid", thief.Kid, "--from-index", logIndex.ToString(System.Globalization.CultureInfo.InvariantCulture), "--reason", "owner-reported", "--operator", "ops"));
+        var declarationPem = await DeclarationKeyHost.PemAsync(forum, Ct);
+        Assert.Equal(0, await OperatorAsync(pem, declarationPem, "sign-head", "--by", "ops"));
+        Assert.Equal(0, await OperatorAsync(pem, declarationPem, "compromise", "--agent", thief.AgentId, "--kid", thief.Kid, "--from-index", logIndex.ToString(System.Globalization.CultureInfo.InvariantCulture), "--reason", "owner-reported", "--operator", "ops"));
 
         var byBoard = await SearchAsync(forum.Client, $"q={term}&board={board}", Ct);
         var byAuthor = await SearchAsync(forum.Client, $"q={term}&author={author}", Ct);

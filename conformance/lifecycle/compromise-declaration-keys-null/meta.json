@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The key set is served with \"declaration_keys\":null: the member is present and is not an array, which says nothing usable about declaration keys and is read as an absent member (Amendment 3 ruling 38, R6.62(a)). The declaration at 4 is under the published declaration key and the verdict is could not be checked, not failed and not an error. A different JSON type for each of this case and its twin, so that a reader that tests only one of them is caught. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

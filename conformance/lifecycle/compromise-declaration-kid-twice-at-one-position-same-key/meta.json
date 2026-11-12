@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.62",
+  "note": "The declaration key's kid is listed at 3 and again at 3 with the same kty, crv, x and y and use enc and another valid_from. Two listings that state one key are one key whatever else they say (R6.62(c)), so the earliest is at 3, the declaration at 4 is valid under it and disputes the post; a reader that compares every member reads two keys and no position, and reports could not be checked. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

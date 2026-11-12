@@ -192,7 +192,18 @@ public static class ActaEndpoints
             keys.Add(node);
         }
 
-        return Results.Ok(new JsonObject { ["keys"] = keys });
+        // Errata G67, R6.62: the declaration keys are a member of their own, always present on a Forum of this build (empty when none is published), and never
+        // in "keys": no key that signs a head can sign a declaration, and no key that signs a declaration can sign a head.
+        var declarationKeys = new JsonArray();
+        foreach (var key in acta.DeclarationKeys)
+        {
+            var node = ToObject(key.Jwk);
+            node["valid_from"] = key.ValidFrom;
+            node["log_index"] = key.LogIndex;
+            declarationKeys.Add(node);
+        }
+
+        return Results.Ok(new JsonObject { ["keys"] = keys, ["declaration_keys"] = declarationKeys });
     }
 
     /// <summary>

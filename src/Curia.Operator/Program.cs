@@ -40,13 +40,25 @@ public static class ExitCode
     /// signed anything. Nothing was written.
     /// </summary>
     public const int LifecycleNotEnabled = 4;
+
+    /// <summary>
+    /// The Forum's store could not complete the verb (a fault, not a refusal): what the verb appended, if anything, is not known, and a verb that only
+    /// reads and signs is safe to run again. Errata G67 (R12.18, Amendment 1 ruling 23).
+    /// </summary>
+    public const int StoreFault = 5;
+
+    /// <summary>
+    /// <c>sign-head --if-grown</c> withheld the head because a lifecycle row follows the latest head and this tool does not check its signature. Nothing was
+    /// written. Errata G67 (Amendment 2 ruling 28).
+    /// </summary>
+    public const int HeadWithheld = 6;
 }
 
 /// <summary>
-/// Loads the log key a verb signs with from its PEM. The delegate lives here and not in
-/// <c>Curia.Application</c> because it is the operator tool's seam: a test hands one that records or throws.
+/// Loads the declaration key a verb signs a compromise declaration with from its PEM (errata G67, R6.62: it is never the log key). The delegate lives here and
+/// not in <c>Curia.Application</c> because it is the operator tool's seam: a test hands one that records or throws.
 /// </summary>
-public delegate Result<ILifecycleStatementSigner> LogSignerFactory(string pem);
+public delegate Result<ILifecycleStatementSigner> DeclarationSignerFactory(string pem);
 
 /// <summary>
 /// <c>curia-operator</c>: the Forum operator's out-of-band verbs. Four today: <c>attest-owner</c>,
@@ -94,11 +106,12 @@ public static class Program
                 connectionString,
                 TimeProvider.System,
                 lifecycleGate!,
-                OperatorCommands.LoadLogSigner,
+                OperatorCommands.LoadDeclarationSigner,
                 Console.Out,
                 Console.Error,
                 CancellationToken.None,
-                readLogSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_LOG_SIGNING_KEY_PEM"))
+                readLogSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_LOG_SIGNING_KEY_PEM"),
+                readDeclarationSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_DECLARATION_SIGNING_KEY_PEM"))
             .ConfigureAwait(false);
     }
 }
@@ -114,24 +127,45 @@ public static class OperatorCommands
         """
         curia-operator -- the Forum operator's out-of-band verbs
 
-          curia-operator sign-head --by <operator-name>
+          curia-operator sign-head --by <operator-name> [--if-grown]
 
               Signs the Acta's current root with the log key (CURIA_LOG_SIGNING_KEY_PEM) and
               appends it to the log as a log.head entry, publishing the key (log.key) first
               if the log has not seen it. R6.24: run this on a schedule of at most 60 minutes.
+              Refused, exit 3, in an environment that also holds the declaration key (R12.18).
+              --if-grown (R6.63) signs only when an entry other than log.head and log.key
+              follows the latest head this tool signed (the latest head that verifies under the
+              key it holds; a head it cannot verify as its own moves nothing); otherwise it
+              publishes no key, signs no head, appends nothing, prints "unchanged" and exits 0, so
+              a timer does not grow the log by its own output. It also withholds the head, exit 6
+              and nothing written, when a lifecycle row (a retirement, a compromise declaration or
+              a key binding beyond an enrolment) follows that head: this tool does not check such
+              a row's signature, and a head over a forged row cannot be taken back. A first run
+              after a log-key rotation has no such head and measures from the start of the log. A person reads the rows named on stderr, and
+              signs by hand without --if-grown (which prints "covers" for each row). Run a log-key
+              rotation without --if-grown: it publishes a key on a log that may be quiet.
 
           curia-operator compromise --agent <agent-id> --kid <kid> --from-index <n>
                                     --reason owner-reported|operator-observed --operator <role>
 
               Declares <kid> of <agent-id> compromised from log index <n> (R6.26, R6.57), signed with
-              the log key (CURIA_LOG_SIGNING_KEY_PEM, which sign-head must have published first). The
-              declaration ends <kid> and every key it bound by a rotation at or after <n>, and marks
+              the declaration key (CURIA_DECLARATION_SIGNING_KEY_PEM, which publish-declaration-key
+              must have published first; refused, exit 3, in an environment that also holds the log
+              key, R12.18). The declaration ends <kid> and every key it bound by a rotation at or after <n>, and marks
               the agent's posts under them from <n> disputed. <role> is a role name, never a person's
               name. Pass --from-index no later than the first index the owner's client reports as
               FOREIGN (their lifecycle_acts are the evidence); a later --from-index leaves live any key
               the compromised key bound before it (R6.57 cascades only at or after from_index).
-              Refused with exit 4, before the log key is read, while the lifecycle guard is on:
-              compromise must be enabled by Curia__Lifecycle__Enabled (R4.38 (add.)).
+              Refused with exit 4, before the declaration key is read, while the lifecycle guard is
+              on: compromise must be enabled by Curia__Lifecycle__Enabled (R4.38 (add.)).
+
+          curia-operator publish-declaration-key --by <role>
+
+              Publishes the declaration key (CURIA_DECLARATION_SIGNING_KEY_PEM) to the log as a
+              log.declaration-key entry (R6.62). Run it once, before the hosted instance is
+              announced: the first declaration key published is the one, a second is refused, and a
+              key that is also a log key is refused. It ends no agent's key, so the lifecycle guard
+              does not govern it. Refused, exit 3, in an environment that also holds the log key.
 
           curia-operator attest-owner --agent <agent-id> --owner <owner-id> --by <operator-name>
                                       [--method domain|email|attestation|manual] [--reason <text>]
@@ -163,15 +197,31 @@ public static class OperatorCommands
 
         ENVIRONMENT
           CURIA_EVENTS_POSTGRES      the Forum's events database (required)
-          CURIA_LOG_SIGNING_KEY_PEM  the Acta's ES256 signing key (sign-head and compromise only)
+          CURIA_LOG_SIGNING_KEY_PEM  the Acta's ES256 signing key (sign-head only; never in the same
+                                     environment as the declaration key)
+          CURIA_DECLARATION_SIGNING_KEY_PEM
+                                     the declaration key (publish-declaration-key and compromise
+                                     only; never in the same environment as the log key)
           Curia__Lifecycle__Enabled  none, or a comma list over rotation, retirement and compromise
+                                     that this build's approval record approves; it is read before
+                                     any verb runs, so a kind the record does not approve refuses
+                                     every verb (exit 3), sign-head and publish-declaration-key
+                                     among them
 
         EXIT CODES
           0  recorded
           1  usage error -- nothing was written
           2  refused -- the reason's slug is on stderr; nothing was written
-          3  CURIA_EVENTS_POSTGRES is not set
+          3  CURIA_EVENTS_POSTGRES is not set, a key is unusable, Curia__Lifecycle__Enabled names a
+             kind this build does not approve, or the environment holds the key the verb does not
+             run with (R12.18): the declaration key for sign-head, the log key for
+             publish-declaration-key and compromise
           4  the lifecycle guard refuses this verb -- nothing was read, signed or written
+          5  the Forum's store could not complete the verb (curia/store/unavailable) -- what it
+             appended, if anything, is not known: read the log before running it again; sign-head
+             re-reads and re-signs, so it is safe to run again
+          6  sign-head --if-grown withheld the head: a lifecycle row follows the latest head this tool signed --
+             nothing was written; stderr names the log indices and types
         """;
 
     /// <summary>
@@ -189,31 +239,74 @@ public static class OperatorCommands
     /// R4.38 (add.): the gate every append this tool makes passes. Required, with no default;
     /// <see cref="Program.Main"/> builds it from <c>Curia__Lifecycle__Enabled</c>.
     /// </param>
-    /// <param name="logSigner">
-    /// Loads the log key a verb signs a declaration with from its PEM (R6.26 rev.). Required, with no
-    /// default; <see cref="Program.Main"/> passes <see cref="LoadLogSigner"/>.
+    /// <param name="declarationSigner">
+    /// Loads the declaration key a verb signs a declaration with from its PEM (R6.26 rev., R6.62). Required, with no
+    /// default; <see cref="Program.Main"/> passes <see cref="LoadDeclarationSigner"/>.
     /// </param>
     /// <param name="readLogSigningKeyPem">
-    /// <c>CURIA_LOG_SIGNING_KEY_PEM</c>: the Acta's signing key, needed by <c>sign-head</c> and
-    /// <c>compromise</c>, and read only at the point a verb needs it. A reader rather than a value so a
-    /// verb the guard refuses never calls it, and so the end-to-end suite can hand in a throwaway key;
-    /// <see cref="Program.Main"/> is the one place that reads the variable.
+    /// <c>CURIA_LOG_SIGNING_KEY_PEM</c>: the Acta's signing key, needed by <c>sign-head</c> alone, and read only at the point the verb needs it. A reader rather
+    /// than a value so a verb the guard refuses never calls it, and so the end-to-end suite can hand in a throwaway key; <see cref="Program.Main"/> is the one
+    /// place that reads the variable. <c>publish-declaration-key</c> and <c>compromise</c> read it only to refuse an environment that holds it (R12.18).
+    /// </param>
+    /// <param name="readDeclarationSigningKeyPem">
+    /// <c>CURIA_DECLARATION_SIGNING_KEY_PEM</c> (errata G67, R6.62): the key that signs compromise declarations, needed by <c>publish-declaration-key</c> and
+    /// <c>compromise</c>. <c>sign-head</c> reads it only to refuse an environment that holds it (R12.18). Read by the same rule as the log key's.
     /// </param>
     public static async Task<int> RunAsync(
         IReadOnlyList<string> args,
         string connectionString,
         TimeProvider clock,
         ILifecycleAppendGate lifecycleGate,
-        LogSignerFactory logSigner,
+        DeclarationSignerFactory declarationSigner,
         TextWriter stdout,
         TextWriter stderr,
         CancellationToken cancellationToken,
-        Func<string?>? readLogSigningKeyPem = null)
+        Func<string?>? readLogSigningKeyPem = null,
+        Func<string?>? readDeclarationSigningKeyPem = null)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(stderr);
+
+        // Errata G67 (Amendment 1 ruling 23): the one place every verb passes through answers a fault of the Forum's store as a worded refusal and never as an
+        // unhandled exception. The caller's own cancellation is not a fault.
+        try
+        {
+            return await RunVerbAsync(args, connectionString, clock, lifecycleGate, declarationSigner, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OperationCanceledException && !cancellationToken.IsCancellationRequested
+                                  && (e is LogUnreadableException || PostgresStoreFaults.Is(e)))
+        {
+            // The cause is the type name and, for a Postgres fault, its SQLSTATE (R11.71): never the driver's message, which can hold what it read. What the
+            // verb appended before the fault is not known, so the refusal is not "nothing was written" and has a code of its own.
+            var cause = e is LogUnreadableException unreadable ? unreadable.Cause : PostgresStoreFaults.Cause(e);
+            await stderr.WriteLineAsync(
+                $"error: {StoreUnavailableType}: the Forum's store could not complete this verb (cause: {TerminalText.Line(cause)}); " +
+                "what it appended, if anything, is not known: read the log before running it again")
+                .ConfigureAwait(false);
+            return ExitCode.StoreFault;
+        }
+    }
+
+    /// <summary>The refusal a store fault is answered with (R11.71's type, spelled as the Forum spells it).</summary>
+    private const string StoreUnavailableType = "curia/store/unavailable";
+
+    private static async Task<int> RunVerbAsync(
+        IReadOnlyList<string> args,
+        string connectionString,
+        TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
+        DeclarationSignerFactory declarationSigner,
+        TextWriter stdout,
+        TextWriter stderr,
+        Func<string?>? readLogSigningKeyPem,
+        Func<string?>? readDeclarationSigningKeyPem,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(lifecycleGate);
-        ArgumentNullException.ThrowIfNull(logSigner);
+        ArgumentNullException.ThrowIfNull(declarationSigner);
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
 
@@ -224,11 +317,15 @@ public static class OperatorCommands
         }
 
         if (args[0] == "sign-head")
-            return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, cancellationToken)
+            return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "publish-declaration-key")
+            return await PublishDeclarationKeyAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "compromise")
-            return await CompromiseAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, logSigner, stdout, stderr, readLogSigningKeyPem, cancellationToken)
+            return await CompromiseAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, declarationSigner, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "moderate")
@@ -306,13 +403,19 @@ public static class OperatorCommands
         TextWriter stdout,
         TextWriter stderr,
         Func<string?>? readLogSigningKeyPem,
+        Func<string?>? readDeclarationSigningKeyPem,
         CancellationToken cancellationToken)
     {
         string? byValue = null;
+        var ifGrown = false;
         for (var i = 0; i < argv.Length; i++)
         {
             if (argv[i] == "--by" && i + 1 < argv.Length) { byValue = argv[++i]; continue; }
-            await stderr.WriteLineAsync($"error: unexpected argument '{argv[i]}'. sign-head takes --by <operator-name>.").ConfigureAwait(false);
+
+            // Errata G67 (R6.63): sign only when the log has grown past the latest head. Given once; a repeat is a usage error, as an unknown flag is.
+            if (argv[i] == "--if-grown" && !ifGrown) { ifGrown = true; continue; }
+
+            await stderr.WriteLineAsync($"error: unexpected argument '{argv[i]}'. sign-head takes --by <operator-name> and, once, --if-grown.").ConfigureAwait(false);
             return ExitCode.Usage;
         }
 
@@ -328,6 +431,10 @@ public static class OperatorCommands
             await stderr.WriteLineAsync("error: " + actorError!.Title).ConfigureAwait(false);
             return ExitCode.Usage;
         }
+
+        // Errata G67, R12.18: before either key is parsed or used. The host that signs heads holds the log key and no declaration key.
+        if (!string.IsNullOrWhiteSpace(readDeclarationSigningKeyPem?.Invoke()))
+            return await SharedEnvironmentAsync(stderr, "sign-head", "CURIA_DECLARATION_SIGNING_KEY_PEM", "the declaration key", DeclarationKeyHeldWhy).ConfigureAwait(false);
 
         var logSigningKeyPem = readLogSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(logSigningKeyPem))
@@ -357,6 +464,26 @@ public static class OperatorCommands
                 if (!folded.TryGetValue(out var acta, out var foldError))
                     return await RefuseAsync(stderr, foldError!).ConfigureAwait(false);
 
+                // The anchor is the latest head this tool can verify as its own, under the key it holds and no key the log lists; the growth test, the stop and the covers lines read it and
+                // nothing else (Amendment 3 ruling 34). `log.key` is unsigned, so a head by shape is not one.
+                var signer = SignerOf(key);
+                var measured = Measure(acta!, signer);
+
+                if (ifGrown)
+                {
+                    // R6.63: the growth test runs before the key is published, so that a first run on a quiet log publishes no key it never uses.
+                    if (!measured.Grown)
+                    {
+                        var latest = measured.Anchor is { } head0 ? $"latest_head_log_index={head0.LogIndex.ToString(CultureInfo.InvariantCulture)}" : "latest_head none";
+                        await stdout.WriteLineAsync($"unchanged  tree_size={acta!.TreeSize.ToString(CultureInfo.InvariantCulture)}  {latest}").ConfigureAwait(false);
+                        return ExitCode.Ok;
+                    }
+
+                    // The stop: this tool does not check a lifecycle row's signature, and a head signed over a forged row cannot be taken back. Nothing is written.
+                    if (!measured.Tail.IsEmpty)
+                        return await WithheldAsync(stderr, measured.Tail).ConfigureAwait(false);
+                }
+
                 // First use of this key: publish it before anything is signed with it, so the key
                 // history (R12.16) precedes every head it explains.
                 if (!acta!.Keys.Any(k => string.Equals(k.Kid, key.Kid, StringComparison.Ordinal)))
@@ -378,6 +505,12 @@ public static class OperatorCommands
                     folded = await FoldAsync(store, cancellationToken).ConfigureAwait(false);
                     if (!folded.TryGetValue(out acta, out foldError))
                         return await RefuseAsync(stderr, foldError!).ConfigureAwait(false);
+
+                    // The race (Amendment 3 ruling 40): a row may have been appended between the two folds, and the head is built from this one, so the stop is applied to what this one
+                    // holds. No head was signed; the one log.key just published stays (it is not a head and not growth, and the next run finds it published).
+                    measured = Measure(acta!, signer);
+                    if (ifGrown && !measured.Tail.IsEmpty)
+                        return await WithheldAsync(stderr, measured.Tail).ConfigureAwait(false);
                 }
 
                 var timestamp = LogLeaf.RenderServerTimestamp(ServerTimestamp.At(clock.GetUtcNow()));
@@ -411,35 +544,160 @@ public static class OperatorCommands
                 await stdout.WriteLineAsync($"log_index      {acta.TreeSize.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
                 await stdout.WriteLineAsync($"by             {actor.Value}").ConfigureAwait(false);
                 await stdout.WriteLineAsync($"at             {timestamp}").ConfigureAwait(false);
+
+                // The resume path (Amendment 2 ruling 28 (c)): a head signed by hand over lifecycle rows says which, so that the run leaves a record.
+                foreach (var covered in measured.Tail)
+                    await stdout.WriteLineAsync($"covers  log_index={covered.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(covered.Type.Value)}").ConfigureAwait(false);
+
                 return ExitCode.Ok;
             }
         }
     }
 
-    /// <summary>The production <see cref="LogSignerFactory"/>: the PEM loaded as <see cref="LogSigningKey"/>.</summary>
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The key is handed to the caller, which disposes it (CompromiseAsync's using).")]
-    public static Result<ILifecycleStatementSigner> LoadLogSigner(string pem)
+    /// <summary>What one fold says about where the signer stands: the anchor, whether the log grew past it, and the lifecycle rows it does not cover (Amendment 3 ruling 40).</summary>
+    private readonly record struct HeadMeasure(SignedHead? Anchor, bool Grown, ImmutableArray<LifecycleRow> Tail);
+
+    /// <summary>The three answers from one fold, so that the stop and the head built from that fold cannot disagree about which rows the head covers.</summary>
+    private static HeadMeasure Measure(ActaLog acta, Func<SignedHead, bool> signedByTheSigner)
     {
-        var key = LoadKey(pem, out var problem);
+        var anchor = acta.LatestHeadWhere(signedByTheSigner);
+        return new HeadMeasure(anchor, acta.GrownPast(anchor), acta.LifecycleRowsPast(anchor));
+    }
+
+    /// <summary>
+    /// Whether a head is this tool's own: it names the <c>kid</c> of the key the tool holds and verifies, over its signed document's canonical form and under a head's header
+    /// <c>typ</c>, under that key's public half derived from the PEM the tool loaded (Amendment 3 ruling 34: no key the log lists is asked).
+    /// </summary>
+    private static Func<SignedHead, bool> SignerOf(LogSigningKey key)
+    {
+        if (!key.PublicMaterial().TryGetValue(out var material, out _))
+            return _ => false;
+
+        var es256 = new Es256Adapter();
+        var jws = new DetachedJws(
+            new Dictionary<string, IContentSigner>(StringComparer.Ordinal),
+            new Dictionary<string, IContentVerifier>(StringComparer.Ordinal) { ["ES256"] = es256 },
+            DetachedJws.HeadTyp);
+        return head => string.Equals(head.Kid, key.Kid, StringComparison.Ordinal)
+            && LogEntries.HeadCanonical(head.Document).TryGetValue(out var canonical, out _)
+            && jws.Verify(canonical, new JwsSignature(head.Signature), material!).Match(_ => true, _ => false);
+    }
+
+    /// <summary>How many withheld rows the refusal lists before it says how many more there are.</summary>
+    private const int WithheldListed = 20;
+
+    /// <summary>
+    /// Errata G67, Amendment 2 ruling 28: <c>sign-head --if-grown</c> found a lifecycle row the latest head does not cover and signed nothing. Stdout is empty;
+    /// stderr says why and lists the log indices and types (never a payload member), up to <see cref="WithheldListed"/>, then how many more. Exit 6.
+    /// </summary>
+    private static async Task<int> WithheldAsync(TextWriter stderr, ImmutableArray<LifecycleRow> rows)
+    {
+        await stderr.WriteLineAsync(
+            $"error: curia/head/withheld: {rows.Length.ToString(CultureInfo.InvariantCulture)} lifecycle row(s) follow the latest head and this tool does not check their signatures, so no head was signed. " +
+            "A head over a forged row cannot be taken back: the log is append-only and clients retain the heads they have seen, so a restore to before the row forks the log for any client that retained a later head. " +
+            "Read the rows, and restore to before them if they are not genuine. " +
+            "If they are genuine, sign by hand with 'sign-head --by <name>' (without --if-grown); that head covers them.")
+            .ConfigureAwait(false);
+        foreach (var row in rows.Take(WithheldListed))
+            await stderr.WriteLineAsync($"withheld  log_index={row.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(row.Type.Value)}").ConfigureAwait(false);
+
+        if (rows.Length > WithheldListed)
+            await stderr.WriteLineAsync($"and {(rows.Length - WithheldListed).ToString(CultureInfo.InvariantCulture)} more").ConfigureAwait(false);
+
+        return ExitCode.HeadWithheld;
+    }
+
+    /// <summary>
+    /// Errata G67, R6.62: the operator publishes the declaration key (<c>log.declaration-key</c>), out of band. Not a lifecycle act, so the verb does not ask
+    /// the gate (Amendment 2 ruling 29); it refuses a key that is a log key and a second key (the first published wins), and an environment that holds the
+    /// log key (R12.18).
+    /// </summary>
+    private static async Task<int> PublishDeclarationKeyAsync(
+        string[] argv,
+        string connectionString,
+        TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
+        TextWriter stdout,
+        TextWriter stderr,
+        Func<string?>? readLogSigningKeyPem,
+        Func<string?>? readDeclarationSigningKeyPem,
+        CancellationToken cancellationToken)
+    {
+        string? byValue = null;
+        for (var i = 0; i < argv.Length; i++)
+        {
+            if (argv[i] == "--by" && i + 1 < argv.Length) { byValue = argv[++i]; continue; }
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[i]}'. publish-declaration-key takes --by <role>.").ConfigureAwait(false);
+        }
+
+        if (string.IsNullOrWhiteSpace(byValue))
+            return await UsageErrorAsync(stderr, "--by <role> is required.").ConfigureAwait(false);
+
+        var actorValue = byValue.StartsWith(ApplyModeration.OperatorPrefix, StringComparison.Ordinal) ? byValue : ApplyModeration.OperatorPrefix + byValue;
+        if (!ActorId.Create(actorValue).TryGetValue(out var actor, out _))
+            return await UsageErrorAsync(stderr, "--by <role> is required.").ConfigureAwait(false);
+
+        // Errata G67, R12.18: before either key is parsed or used. A declaration key is never published or used in an environment that holds the log key.
+        if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
+            return await SharedEnvironmentAsync(stderr, "publish-declaration-key", "CURIA_LOG_SIGNING_KEY_PEM", "the log key", LogKeyHeldWhy).ConfigureAwait(false);
+
+        var pem = readDeclarationSigningKeyPem?.Invoke();
+        if (string.IsNullOrWhiteSpace(pem))
+        {
+            await stderr.WriteLineAsync("error: CURIA_DECLARATION_SIGNING_KEY_PEM is not set.").ConfigureAwait(false);
+            return ExitCode.Environment;
+        }
+
+        using var key = LoadDeclarationKey(pem, out var keyProblem);
+        if (key is null)
+        {
+            await stderr.WriteLineAsync("error: CURIA_DECLARATION_SIGNING_KEY_PEM is not a usable P-256 key: " + keyProblem).ConfigureAwait(false);
+            return ExitCode.Environment;
+        }
+
+        {
+            Result<long> result;
+            var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+            await using (adapters.ConfigureAwait(false))
+            {
+                result = await new PublishDeclarationKey(adapters.EventStore, clock).PublishAsync(key, actor!, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!result.TryGetValue(out var logIndex, out var error))
+                return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+            await stdout.WriteLineAsync($"published declaration key  {key.Kid}").ConfigureAwait(false);
+            await stdout.WriteLineAsync($"log_index                  {logIndex.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            return ExitCode.Ok;
+        }
+    }
+
+    /// <summary>The production <see cref="DeclarationSignerFactory"/>: the PEM loaded as <see cref="DeclarationSigningKey"/>.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The key is handed to the caller, which disposes it (CompromiseAsync's using).")]
+    public static Result<ILifecycleStatementSigner> LoadDeclarationSigner(string pem)
+    {
+        var key = LoadDeclarationKey(pem, out var problem);
         return key is null
-            ? Result<ILifecycleStatementSigner>.Fail(new Error("curia/keys/log-key-unusable", "The log signing key is not a usable P-256 key", problem))
+            ? Result<ILifecycleStatementSigner>.Fail(new Error("curia/keys/declaration-key-unusable", "The declaration signing key is not a usable P-256 key", problem))
             : Result<ILifecycleStatementSigner>.Ok(key);
     }
 
     /// <summary>
     /// R6.26 (rev.), R6.57: the operator's compromise declaration. <b>The gate is the first act after the
     /// arguments parse</b> (R4.38 add., GF2): a guarded build exits <see cref="ExitCode.LifecycleNotEnabled"/>
-    /// before the log key is read, the signer is built, or anything is signed or appended.
+    /// before the declaration key is read, the signer is built, or anything is signed or appended. The declaration is signed by the declaration key
+    /// (errata G67, R6.62), in an environment that holds no log key (R12.18).
     /// </summary>
     private static async Task<int> CompromiseAsync(
         string[] argv,
         string connectionString,
         TimeProvider clock,
         ILifecycleAppendGate lifecycleGate,
-        LogSignerFactory logSigner,
+        DeclarationSignerFactory declarationSigner,
         TextWriter stdout,
         TextWriter stderr,
         Func<string?>? readLogSigningKeyPem,
+        Func<string?>? readDeclarationSigningKeyPem,
         CancellationToken cancellationToken)
     {
         if (argv.Any(a => a is "--help" or "-h"))
@@ -495,19 +753,23 @@ public static class OperatorCommands
             return ExitCode.LifecycleNotEnabled;
         }
 
-        var pem = readLogSigningKeyPem?.Invoke();
+        // Errata G67, R12.18: after the gate, before either key is parsed or used.
+        if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
+            return await SharedEnvironmentAsync(stderr, "compromise", "CURIA_LOG_SIGNING_KEY_PEM", "the log key", LogKeyHeldWhy).ConfigureAwait(false);
+
+        var pem = readDeclarationSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(pem))
         {
             await stderr.WriteLineAsync(
-                "error: CURIA_LOG_SIGNING_KEY_PEM is not set. Declarations are signed with the log key, which the " +
-                "Forum does not hold (R11.7); this tool needs it and does not sign without it.")
+                "error: CURIA_DECLARATION_SIGNING_KEY_PEM is not set. Declarations are signed with the declaration key, which no unattended process " +
+                "holds and the Forum does not hold (R6.62, R12.18); this tool needs it and does not sign without it.")
                 .ConfigureAwait(false);
             return ExitCode.Environment;
         }
 
-        if (!logSigner(pem).TryGetValue(out var signer, out var signerError))
+        if (!declarationSigner(pem).TryGetValue(out var signer, out var signerError))
         {
-            await stderr.WriteLineAsync($"error: CURIA_LOG_SIGNING_KEY_PEM is not a usable P-256 key: {signerError!.Detail}").ConfigureAwait(false);
+            await stderr.WriteLineAsync($"error: CURIA_DECLARATION_SIGNING_KEY_PEM is not a usable P-256 key: {signerError!.Detail}").ConfigureAwait(false);
             return ExitCode.Environment;
         }
 
@@ -698,6 +960,24 @@ public static class OperatorCommands
         return ExitCode.Ok;
     }
 
+    /// <summary>
+    /// Errata G67, R12.18: the refusal of an environment that holds the key the verb does not run with. It names the variable to unset and the verb, never a value, and is made before
+    /// either key is parsed or used (two keys in one environment are one key to whatever reads that environment); the other side's variable is tested for emptiness and held by nothing after.
+    /// Nothing was written.
+    /// </summary>
+    private static async Task<int> SharedEnvironmentAsync(TextWriter stderr, string verb, string variable, string held, string why)
+    {
+        await stderr.WriteLineAsync(
+            $"error: {variable} is set in this environment, and {verb} does not run in an environment that holds {held} (R12.18): {why} " +
+            $"Unset {variable} and run {verb} again. No key was parsed or used, and nothing was signed or written.")
+            .ConfigureAwait(false);
+        return ExitCode.Environment;
+    }
+
+    private const string DeclarationKeyHeldWhy = "the key that signs heads is held by an unattended process, and the declaration key is held where none can read it.";
+
+    private const string LogKeyHeldWhy = "the log key is the one an unattended process holds, and a declaration key is published and used only where none can read it.";
+
     private static async Task<int> UsageErrorAsync(TextWriter stderr, string message)
     {
         await stderr.WriteLineAsync("error: " + message).ConfigureAwait(false);
@@ -710,6 +990,20 @@ public static class OperatorCommands
         {
             problem = null;
             return LogSigningKey.FromPem(pem);
+        }
+        catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or ArgumentException or InvalidOperationException)
+        {
+            problem = e.Message;
+            return null;
+        }
+    }
+
+    private static DeclarationSigningKey? LoadDeclarationKey(string pem, out string? problem)
+    {
+        try
+        {
+            problem = null;
+            return DeclarationSigningKey.FromPem(pem);
         }
         catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or ArgumentException or InvalidOperationException)
         {
