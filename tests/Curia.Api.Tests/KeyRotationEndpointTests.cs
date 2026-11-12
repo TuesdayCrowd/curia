@@ -187,6 +187,13 @@ internal static class KeyActRequests
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
     }
 
+    /// <summary>The key set the Forum publishes for <paramref name="agentId"/>, or null when it does not answer <c>200</c>: for a probe that reads what a Forum with a row it cannot read serves.</summary>
+    internal static async Task<JsonDocument?> KeySetAsyncOrNull(HttpClient client, string agentId, CancellationToken ct)
+    {
+        using var response = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", UriKind.Relative), ct);
+        return response.StatusCode == HttpStatusCode.OK ? JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)) : null;
+    }
+
     internal static long[] LifecycleOf(JsonDocument keySet) =>
         keySet.RootElement.GetProperty("curia_lifecycle").EnumerateArray().Select(i => i.GetInt64()).ToArray();
 

@@ -34,6 +34,9 @@ internal sealed class LifecycleCaseForum : HttpMessageHandler
 
     internal long PostIndex { get; }
 
+    /// <summary>Members appended to the key set the Forum serves (LRV29: <c>curia_skipped</c> and <c>curia_skipped_total</c>), or null for the key set the case alone makes.</summary>
+    internal string? SkippedMembers { get; init; }
+
     internal string Author { get; }
 
     /// <summary>Every path asked of this Forum, in order.</summary>
@@ -153,11 +156,13 @@ internal sealed class LifecycleCaseForum : HttpMessageHandler
         var lifecycle = new JsonArray();
         foreach (var index in Lifecycle()) lifecycle.Add(index);
 
-        return new JsonObject
+        var document = new JsonObject
         {
             ["keys"] = keys,
             ["curia_lifecycle"] = lifecycle,
             ["curia_lifecycle_kinds"] = new JsonObject { ["approved"] = new JsonArray(), ["enabled"] = new JsonArray() },
         }.ToJsonString();
+        document = SkippedMembers is null ? document : document[..^1] + "," + SkippedMembers + "}";
+        return document;
     }
 }

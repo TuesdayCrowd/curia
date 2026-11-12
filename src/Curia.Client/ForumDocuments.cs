@@ -384,11 +384,21 @@ public sealed record ForumJwk(
 /// </param>
 /// <param name="ApprovedKinds">The lifecycle kinds the Forum's build approves, or null when the key set names none.</param>
 /// <param name="EnabledKinds">The lifecycle kinds the Forum enables (<c>curia_lifecycle_kinds</c>), or null when the key set names none.</param>
+/// <param name="Skipped">
+/// The rows of the identity's stream the Forum does not act on (errata G68, R4.41: <c>curia_skipped</c>), in log order; <see langword="null"/> when the key set does not say. On the seam this is never read
+/// from the document, so it is always null; Task 5 parses it strictly.
+/// </param>
+/// <param name="SkippedTotal">How many rows the Forum skips in all (<c>curia_skipped_total</c>), or null when the key set does not say.</param>
 public sealed record KeySetDocument(
     ImmutableArray<ForumJwk> Keys,
     ImmutableArray<long>? Lifecycle,
     ImmutableArray<string>? ApprovedKinds,
-    ImmutableArray<string>? EnabledKinds);
+    ImmutableArray<string>? EnabledKinds,
+    ImmutableArray<SkippedRowDocument>? Skipped = null,
+    long? SkippedTotal = null);
+
+/// <summary>One row the Forum does not act on, as the key set names it (R4.41): its log index, its type and the predicate that failed. Never a payload member.</summary>
+public sealed record SkippedRowDocument(long LogIndex, string Type, string Predicate);
 
 /// <summary>§10.7's contract as served, clause by clause.</summary>
 public sealed record ReaderContractClause(int Number, string Force, string Text, bool ClientMustImplement);
