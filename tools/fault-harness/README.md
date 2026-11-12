@@ -48,7 +48,7 @@ admin (pgvector is needed by `db/0003`).
 
 - `fault.sh status | vector-on | vector-off | insert-on | insert-off | log-on | log-off | cut-on <p> | cut-off | hold-on <seconds> <name> | hold-off <name> | all-off`
   - `vector-on`: revoke `INSERT, UPDATE` on `post_embeddings` (a post commits, its vector cannot be stored). `insert-on`: revoke `INSERT` on
-    `events` (a write is refused before it commits; PostgreSQL's table-level `REVOKE` also revokes the column grants). `insert-off` grants the six columns back. `log-on`: revoke `SELECT` on `events` (the log cannot be read). `*-off` grant back.
+    `events` (a write is refused before it commits; PostgreSQL's table-level `REVOKE` also revokes the column grants). `insert-off` grants the six columns back. `all-off` does not heal a database that has not applied `db/0006` (it grants the columns without a table-level `REVOKE`): `status` then reads `seq` as writable and exits 1 with `FAULT OPEN`, which is honest, and the remedy is the migration. `log-on`: revoke `SELECT` on `events` (the log cannot be read). `*-off` grant back.
   - `cut-on <p>` (0 < p <= 1): proxy mode `cutcommit:<p>`; `cut-off`: back to `passthru`. `all-off` restores every grant and the mode, then
     prints `status`.
   - `hold-on <seconds> <name>` (0 < seconds <= 900; the name is lower-case letters and digits): proxy mode `delaycommit:<seconds>`, marks
