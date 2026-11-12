@@ -592,6 +592,20 @@ A skipped row moves nothing, so every `prev` in a case names the last row the pr
 `forged-rotation-then-rotation-authorized-by-it` the second rotation's `prev` is therefore 1, the last honoured entry, and not the
 forged row's index 2: with 2 it would be `broken-link`, which is a different defect from the one the case names.
 
+The family holds 49 cases. Vectors 45 to 49 (errata G68, Amendment 3) pin what R6.64's text gained: `rotation-authorized-by-compromised-key` and
+`retirement-of-a-compromised-key` (a key an honoured declaration names authorizes nothing from the declaration's index), `declaration-names-a-retired-key`
+(the declaration is honoured and `compromised` outranks `retired`), `declaration-key-is-a-log-key-published-after-it` (R6.62's log-key check reads the whole
+key set, so a `log.key` entry after the declaration still skips it; this pins today's reading) and `declaration-key-entry-kid-differs-from-its-jwk` (an entry
+is a key only when its `kid` and its `jwk`'s `kid` are both strings and equal, whichever of the two a header names). `rotation-self-authorized` pins KF5
+(`authorized_by` equals `kid`: `statement-mismatch`).
+
+**What these 49 do not pin, on purpose:** each is decided by R6.64's text alone, and a fold that differs is found by reading it and not by a case. They are the
+`statement-mismatch` versus `broken-link` order for a statement-less binding of the right position and wrong members; a declaration whose header carries no
+`kid` (`declaration-key-unpublished`); a log key entry that is not a key under R6.62's closed form (R6.62's own vectors pin the closed form; here only the two
+malformed declaration-key entries); the pair's `agent_id` and `jwk` members; a row before the stream's first `agent.enrolled` (an empty honoured prefix, so a
+`prev` names no honoured entry); the declaration statement's closed form (`from_index` an integer, `kids` a non-empty array of strings, `reason` a string); a
+`reason` read from a statement with no `typ`; and the cascade's root being `kids[0]`.
+
 A declaration is signed ES256, which is randomized, so the first run of the generator pins each declaration's signature bytes and a
 later run keeps them; every other signature is Ed25519 and deterministic. "Garbage" is the string `FORGED-NO-VALID-SIGNATURE`, which
 is not a JWS; a "bad signature" is a well-formed JWS of the right header whose signature bytes are another key's.

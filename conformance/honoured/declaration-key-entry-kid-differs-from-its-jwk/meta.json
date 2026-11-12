@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "A log.declaration-key entry at 2 whose kid is kd-entry and whose jwk is the declaration key under its own kid; a declaration at 4 signed by that key with the jwk's kid in its header, and the same declaration at 5 with the entry's kid in its header. The entry states two kids and is no key, so neither header names a published declaration key. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

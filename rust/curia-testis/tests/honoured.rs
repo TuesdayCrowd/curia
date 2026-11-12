@@ -30,12 +30,9 @@ const NOT_A_ROW_OF_THE_STREAM: &[(&str, &str)] = &[
     ),
 ];
 
-/// Reader vectors where the reader's predicate and R6.64's text disagree. Quoted in the report.
-const READER_DISAGREEMENTS: &[(&str, &str)] = &[(
-    "rotation-self-authorized",
-    "the reader (KF5) names statement-mismatch for authorized_by == kid; R6.64 has no such step and names \
-     rotation-unauthorized (the authorizing key is not bound), as honoured/rotation-self-authorized pins",
-)];
+/// Reader vectors where the reader's predicate and R6.64's text disagree. Empty since Amendment 3 (ruling 44): R6.64 states KF5, so the reader
+/// vector `rotation-self-authorized` and `honoured/rotation-self-authorized` agree on `statement-mismatch`.
+const READER_DISAGREEMENTS: &[(&str, &str)] = &[];
 
 fn read_entries(dir: &Path) -> Vec<LogEntry> {
     let entries = dir.join("entries");
@@ -117,8 +114,8 @@ fn r6_64_every_honoured_case_reaches_its_rows_keys_and_bound() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.honoured.len(),
-        44,
-        "conformance/honoured/ holds 44 cases"
+        49,
+        "conformance/honoured/ holds 49 cases"
     );
 
     let mut failures = Vec::new();
@@ -250,17 +247,12 @@ fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_p
         checked >= 40,
         "only {checked} reader vectors were comparable"
     );
-    // A named disagreement must still disagree, so the list cannot go stale, and nothing else may.
-    for (case, why) in READER_DISAGREEMENTS {
-        let at = failures
-            .iter()
-            .position(|f| f.starts_with(&format!("{case}:")));
-        assert!(
-            at.is_some(),
-            "{case} is listed as a disagreement ({why}) but agrees"
-        );
-        failures.remove(at.unwrap());
-    }
+    // No reader vector may disagree with R6.64 (ruling 44): the list is empty and every failure is a failure.
+    let disagreements: &[(&str, &str)] = READER_DISAGREEMENTS;
+    assert!(
+        disagreements.is_empty(),
+        "READER_DISAGREEMENTS must be empty: {disagreements:?}"
+    );
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 

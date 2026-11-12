@@ -55,6 +55,9 @@ internal static partial class LifecycleCases
         public P256LogKey? SignWith { get; init; }
 
         public bool IsGarbage { get; init; }
+
+        /// <summary>The kid the header states when it is not the signer's: the signature is the signer's, over a header naming another kid (vector 49). Its signature is pinned by log index.</summary>
+        public string? HeaderKid { get; init; }
     }
 
     public static int RunHonoured(string repoRoot)
@@ -117,6 +120,11 @@ internal static partial class LifecycleCases
             HRowInAnotherAggregateIsIgnored(k0, ky),
             HRetirementOfTheLastLiveKeyIsHonoured(k0),
             HMalformedRowBeforeGenuineDeclaration(root, k0, k1),
+            HRotationAuthorizedByCompromisedKey(root, k0, k2),
+            HRetirementOfACompromisedKey(root, k0),
+            HDeclarationNamesARetiredKey(root, k0),
+            HDeclarationKeyIsALogKeyPublishedAfterIt(root, k0),
+            HDeclarationKeyEntryKidDiffersFromItsJwk(root, k0),
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -305,8 +313,8 @@ internal static partial class LifecycleCases
         var log = EnrolledAndBound(k0);
         AddRotation(log, new Rot(k0, k1, Prev: 1) { AuthorizedByOverride = k1.Kid, AuthSigner = k1, AuthHeaderKid = k1.Kid });
         return new HCase("rotation-self-authorized",
-            "A rotation to the second key whose authorized_by is the second key itself, signed by it: the authorizing key is not bound by the honoured prefix.",
-            log, Agent_(rows: [HRow.Skipped(2, KeyBound, "rotation-unauthorized")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+            "A rotation to the second key whose authorized_by is the second key itself, signed by it: KF5, a key does not authorize its own binding.",
+            log, Agent_(rows: [HRow.Skipped(2, KeyBound, "statement-mismatch")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
     }
 
     private static HCase HRotationAuthorizedByRetiredKey(Key k0, Key k1, Key k2)
@@ -575,6 +583,70 @@ internal static partial class LifecycleCases
                 keys: [(k0.Kid, "compromised"), (k1.Kid, "compromised")], bound: [k0.Kid, k1.Kid]));
     }
 
+    /// <summary>Vector 45 (errata G68, ruling 49): a compromised key authorizes nothing at or after its declaration.</summary>
+    private static HCase HRotationAuthorizedByCompromisedKey(string root, Key k0, Key k2)
+    {
+        var (log, _) = DeclarationBase(k0);
+        AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid], FromIndex: 1, Prev: 1), root, "rotation-authorized-by-compromised-key");
+        AddRotation(log, new Rot(k0, k2, Prev: 4));
+        return new HCase("rotation-authorized-by-compromised-key",
+            "The enrolled key is declared compromised at 4 (honoured); a genuine rotation of it to a third key at 5, prev 4, valid signatures by both keys: a compromised key authorizes nothing at or after its declaration (R6.57).",
+            log, Agent_(rows: [HRow.Honoured(4, KeyCompromised), HRow.Skipped(5, KeyBound, "rotation-unauthorized")],
+                keys: [(k0.Kid, "compromised")], bound: [k0.Kid]));
+    }
+
+    /// <summary>Vector 46 (errata G68, ruling 49): a retirement of a compromised key is skipped.</summary>
+    private static HCase HRetirementOfACompromisedKey(string root, Key k0)
+    {
+        var (log, _) = DeclarationBase(k0);
+        AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid], FromIndex: 1, Prev: 1), root, "retirement-of-a-compromised-key");
+        AddRetirement(log, new Ret(k0, k0, Prev: 4));
+        return new HCase("retirement-of-a-compromised-key",
+            "The enrolled key is declared compromised at 4 (honoured); a genuine retirement of it by itself at 5, prev 4: a compromised key authorizes nothing after its declaration, and its status stays compromised.",
+            log, Agent_(rows: [HRow.Honoured(4, KeyCompromised), HRow.Skipped(5, KeyRetired, "rotation-unauthorized")],
+                keys: [(k0.Kid, "compromised")], bound: [k0.Kid]));
+    }
+
+    /// <summary>Vector 47 (errata G68, ruling 49): a declaration naming a retired key is honoured, and compromised outranks retired.</summary>
+    private static HCase HDeclarationNamesARetiredKey(string root, Key k0)
+    {
+        var (log, _) = DeclarationBase(k0);
+        AddRetirement(log, new Ret(k0, k0, Prev: 1));
+        AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid], FromIndex: 1, Prev: 4), root, "declaration-names-a-retired-key");
+        return new HCase("declaration-names-a-retired-key",
+            "The enrolled key retires itself at 4 (honoured); a declaration naming it at 5, prev 4, is honoured, and the key is compromised: a key's status is compromised, else retired, else active.",
+            log, Agent_(rows: [HRow.Honoured(4, KeyRetired), HRow.Honoured(5, KeyCompromised)],
+                keys: [(k0.Kid, "compromised")], bound: [k0.Kid]));
+    }
+
+    /// <summary>Vector 48 (errata G68, ruling 47): R6.62's log-key check reads the key set, not a position.</summary>
+    private static HCase HDeclarationKeyIsALogKeyPublishedAfterIt(string root, Key k0)
+    {
+        var (log, _) = DeclarationBase(k0);
+        AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid], FromIndex: 1, Prev: 1), root, "declaration-key-is-a-log-key-published-after-it");
+        PublishLogKey(log, ConformanceLogKeys.Declaration);
+        return new HCase("declaration-key-is-a-log-key-published-after-it",
+            "The declaration key is published at 2, a log key at 3, and a declaration it signs is at 4; at 5 a log.key entry carries the declaration key itself. R6.62 reads the log key set, not a position, so the declaration is skipped as declaration-key-is-log-key although the entry that makes it so comes after it. This pins today's reading so that the lead of ruling 47 (a log.key appended after a genuine declaration silences it) is a decision and not a drift.",
+            log, Agent_(rows: [HRow.Skipped(4, KeyCompromised, "declaration-key-is-log-key")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+    }
+
+    /// <summary>Vector 49 (errata G68, ruling 46): a key entry is a key only if its kid and its jwk's kid are both strings and equal.</summary>
+    private static HCase HDeclarationKeyEntryKidDiffersFromItsJwk(string root, Key k0)
+    {
+        var log = EnrolledAndBound(k0);
+        var declarationKey = ConformanceLogKeys.Declaration;
+        const string entryKid = "kd-entry";
+        log.Add("log.declaration-key", "log:declaration-keys", OperatorRole, Obj(
+            ("jwk", declarationKey.Jwk), ("kid", Str(entryKid)), ("valid_from", Str(LogKeyValidFrom))));
+        PublishLogKey(log, ConformanceLogKeys.Log);
+        AddHonouredDeclaration(log, new HonouredDeclaration(declarationKey, [k0.Kid], FromIndex: 1, Prev: 1), root, "declaration-key-entry-kid-differs-from-its-jwk");
+        AddHonouredDeclaration(log, new HonouredDeclaration(declarationKey, [k0.Kid], FromIndex: 1, Prev: 1) { HeaderKid = entryKid }, root, "declaration-key-entry-kid-differs-from-its-jwk");
+        return new HCase("declaration-key-entry-kid-differs-from-its-jwk",
+            "A log.declaration-key entry at 2 whose kid is kd-entry and whose jwk is the declaration key under its own kid; a declaration at 4 signed by that key with the jwk's kid in its header, and the same declaration at 5 with the entry's kid in its header. The entry states two kids and is no key, so neither header names a published declaration key.",
+            log, Agent_(rows: [HRow.Skipped(4, KeyCompromised, "declaration-key-unpublished"), HRow.Skipped(5, KeyCompromised, "declaration-key-unpublished")],
+                keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+    }
+
     // ---- construction helpers ----------------------------------------------------------------------
 
     private static HAgent Agent_(IReadOnlyList<HRow> rows, IReadOnlyList<(string, string)> keys, IReadOnlyList<string> bound) => new(Agent, rows, keys, bound);
@@ -618,9 +690,12 @@ internal static partial class LifecycleCases
         }
         else
         {
-            declaration = FindPinned(Path.Combine(root, caseName), "entries", text)
-                ?? Signing.Sign(canonical, "ES256", d.Signer.Kid, (d.SignWith ?? d.Signer).EcPrivateKeyDer, CompromiseHeaderTyp).Compact;
-            var verifies = Signing.Verify(canonical, new JwsSignature(declaration), "ES256", d.Signer.Kid, d.Signer.Spki, CompromiseHeaderTyp).IsOk;
+            var headerKid = d.HeaderKid ?? d.Signer.Kid;
+            declaration = (d.HeaderKid is null
+                    ? FindPinned(Path.Combine(root, caseName), "entries", text)
+                    : FindPinnedAtIndex(Path.Combine(root, caseName), log.Entries.Count, text))
+                ?? Signing.Sign(canonical, "ES256", headerKid, (d.SignWith ?? d.Signer).EcPrivateKeyDer, CompromiseHeaderTyp).Compact;
+            var verifies = Signing.Verify(canonical, new JwsSignature(declaration), "ES256", headerKid, d.Signer.Spki, CompromiseHeaderTyp).IsOk;
             if (verifies == (d.SignWith is not null))
             {
                 throw new InvalidOperationException($"{caseName}: the declaration {(verifies ? "verifies" : "does not verify")} under its header key, which is not what the case constructs");
@@ -635,6 +710,17 @@ internal static partial class LifecycleCases
             ("prev", Num(d.Prev)),
             ("reason", Str(d.Reason)),
             ("statement", Str(text))));
+    }
+
+    /// <summary>The declaration already written at this log index of the case, when it states this statement: the pin for a case that holds two declarations of one statement.</summary>
+    private static string? FindPinnedAtIndex(string dir, int index, string statementText)
+    {
+        var file = Path.Combine(dir, "entries", $"{index}.json");
+        if (!File.Exists(file)) return null;
+        using var document = JsonDocument.Parse(File.ReadAllBytes(file));
+        var payload = document.RootElement.GetProperty("entry").GetProperty("payload");
+        return payload.TryGetProperty("statement", out var statement) && statement.GetString() == statementText
+            && payload.TryGetProperty("declaration", out var declaration) ? declaration.GetString() : null;
     }
 
     // ---- writing -----------------------------------------------------------------------------------
