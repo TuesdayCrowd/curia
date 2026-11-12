@@ -57,6 +57,9 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
     public string AppRoleConnectionString => _appRoleConnectionString
         ?? throw new InvalidOperationException($"{nameof(PostgresDatabaseFixture)} was not initialized.");
 
+    /// <summary>The throwaway application role's name, for a test that reads its grants from the catalogue.</summary>
+    internal string RoleName => _roleName;
+
     [SuppressMessage(
         "Security",
         "CA2100:Review SQL queries for security vulnerabilities",
@@ -157,10 +160,11 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Provisions a brand-new Postgres schema containing its own <c>events</c> table and its
-    /// own grant of INSERT/SELECT (and REVOKE of UPDATE/DELETE) to the fixture's throwaway
-    /// application role, then returns the schema's name for <see cref="PostgresEventStore"/>'s
-    /// <c>schema</c> constructor parameter.
+    /// Provisions a brand-new Postgres schema containing its own <c>events</c> table, a
+    /// <c>SELECT</c> grant to the fixture's throwaway application role, the <c>INSERT</c> grant of
+    /// the real <c>db/0006</c> (rendered under the schema's <c>search_path</c>, not typed here:
+    /// errata G69, finding 9) and a REVOKE of UPDATE/DELETE, then returns the schema's name for
+    /// <see cref="PostgresEventStore"/>'s <c>schema</c> constructor parameter.
     ///
     /// This exists because <c>EventStorePortContractTests</c>' <c>CreateStore</c> contract --
     /// "a fresh, empty store... once per generated case" -- turned out to need genuine
@@ -182,7 +186,9 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
     /// about to disappear, not a leak.
     ///
     /// Known duplication, not an oversight: the <c>events</c> table columns below are a second
-    /// copy of db/0001_create_events.sql's DDL rather than a re-render of that same template.
+    /// copy of db/0001_create_events.sql's DDL rather than a re-render of that same template (the
+    /// <c>INSERT</c> grant is not: it is db/0006 itself, because a hand-typed grant here was a copy that
+    /// ran the contract tests against a table-level grant no deployment has once the migration narrowed it).
     /// The template also issues <c>CREATE ROLE</c>, which must run exactly once per role, not
     /// once per schema -- reusing it here would mean either re-templating it to skip the role
     /// statement (a second templating dimension for a test-only concern) or running a
@@ -196,7 +202,8 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
         "CA2100:Review SQL queries for security vulnerabilities",
         Justification = "Every interpolated identifier is QuoteIdentifier applied to schemaName " +
             "(generated on the line above from a literal prefix plus a GUID's hex digits) or " +
-            "_roleName (generated once in InitializeAsync the same way) -- never external input.")]
+            "_roleName (generated once in InitializeAsync the same way), and the rendered db/0006 " +
+            "template is a checked-in file whose only substituted value is _roleName -- never external input.")]
     public async Task<string> CreateIsolatedSchemaAsync(CancellationToken cancellationToken = default)
     {
         var schemaName = $"t{Guid.NewGuid():N}";
@@ -215,7 +222,10 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
               server_ts       TIMESTAMPTZ NOT NULL DEFAULT now()
             );
             GRANT USAGE ON SCHEMA {quotedSchema} TO {quotedRole};
-            GRANT INSERT, SELECT ON {quotedSchema}.events TO {quotedRole};
+            GRANT SELECT ON {quotedSchema}.events TO {quotedRole};
+            SET search_path TO {quotedSchema};
+            {SchemaMigrations.Render(SchemaMigrations.EventInsertColumnsFile, _roleName)}
+            RESET search_path;
             REVOKE UPDATE, DELETE ON {quotedSchema}.events FROM {quotedRole};
             """;
 

@@ -178,4 +178,96 @@ public sealed class HarnessRehearsalTests
         if (bad.Count > 0)
             throw new Xunit.Sdk.XunitException($"Expected: every rehearsal row as expected{Environment.NewLine}Actual:   {string.Join(" | ", bad)}");
     }
+
+    /// <summary>
+    /// SEQ5 (errata G69, R11.6 (add.), trap 245): the harness heals a faulted database into what the migration made. <c>insert-on</c> then <c>insert-off</c>, and <c>all-off</c>, each leave
+    /// <c>status</c> exiting 0 and the role still unable to name <c>seq</c> (an <c>OVERRIDING SYSTEM VALUE</c> insert is refused <c>42501</c>) while an ordinary append still works; a harness
+    /// that restored the table-level grant would say "original" over a database in which <c>seq</c> is writable.
+    /// </summary>
+    [Fact]
+    public async Task R11_6_SEQ5_TheHarnessHealsIntoWhatTheMigrationMade()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..10];
+        var db = "curia_seq5_" + suffix;
+        var role = db + "_app";
+        var password = Guid.NewGuid().ToString("N");
+        var state = Path.Combine(Path.GetTempPath(), "curia-seq5-" + suffix);
+        Directory.CreateDirectory(state);
+        var said = new List<string>();
+        try
+        {
+            await using (var admin = await _fixture.AdminDataSource.OpenConnectionAsync(Ct))
+            {
+                await using var create = new NpgsqlCommand($"CREATE DATABASE \"{db}\"", admin);
+                await create.ExecuteNonQueryAsync(Ct);
+            }
+
+            var target = new NpgsqlConnectionStringBuilder(PostgresTestEnvironment.ResolveAdminConnectionString()) { Database = db };
+            await using (var source = new NpgsqlDataSourceBuilder(target.ConnectionString).Build())
+            await using (var apply = source.CreateCommand(SchemaMigrations.RenderAll(role, password)))
+                await apply.ExecuteNonQueryAsync(Ct);
+
+            var env = new Dictionary<string, string> { ["FH_DB"] = db, ["FH_ROLE"] = role, ["FH_DIR"] = state };
+            var asRole = new NpgsqlConnectionStringBuilder(target.ConnectionString) { Username = role, Password = password }.ConnectionString;
+
+            async Task Status(string label, params string[] script)
+            {
+                var (code, output) = await RunAsync("fault.sh", script, env);
+                var tail = output.Length > 1200 ? output[^1200..] : output;
+                said.Add(code == 0 ? $"{label}: as expected" : $"{label}: exit {code}, expected 0; output: {tail}");
+            }
+
+            async Task SeqStaysShut(string label, int seq)
+            {
+                await using var connection = new NpgsqlConnection(asRole);
+                await connection.OpenAsync(Ct);
+                await using var named = new NpgsqlCommand("INSERT INTO events (seq, event_id, event_type, aggregate_id, payload, server_ts) OVERRIDING SYSTEM VALUE VALUES (" + seq + ", 'seq5-neg-" + seq + "', 'test.event', 'agg', '{}', now());", connection);
+                try
+                {
+                    await named.ExecuteNonQueryAsync(Ct);
+                    said.Add($"{label}: the role named seq (an insert at {seq} was accepted)");
+                }
+                catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InsufficientPrivilege)
+                {
+                    await using var ordinary = new NpgsqlCommand("INSERT INTO events (event_id, event_type, aggregate_id, payload, server_ts) VALUES ('seq5-ok-" + Guid.NewGuid().ToString("N")[..8] + "', 'test.event', 'agg', '{}', now());", connection);
+                    try
+                    {
+                        await ordinary.ExecuteNonQueryAsync(Ct);
+                        said.Add($"{label}: as expected");
+                    }
+                    catch (PostgresException refused)
+                    {
+                        said.Add($"{label}: an ordinary append was refused after the restore: {refused.SqlState} {refused.MessageText}");
+                    }
+                }
+                catch (PostgresException ex)
+                {
+                    said.Add($"{label}: expected 42501, actual {ex.SqlState} {ex.MessageText}");
+                }
+            }
+
+            await Status("status at rest", "status");
+            await SeqStaysShut("seq at rest", -9);
+            await Status("insert-on", "insert-on");
+            var (open, openOutput) = await RunAsync("fault.sh", ["status"], env);
+            said.Add(open == 1 && openOutput.Contains("FAULT OPEN", StringComparison.Ordinal) ? "status while insert-on: as expected" : $"status while insert-on: exit {open}, expected 1 with FAULT OPEN; output: {openOutput}");
+            await Status("insert-off", "insert-off");
+            await Status("status after insert-off", "status");
+            await SeqStaysShut("seq after insert-off", -10);
+            await Status("insert-on again", "insert-on");
+            await Status("all-off", "all-off");
+            await SeqStaysShut("seq after all-off", -11);
+        }
+        finally
+        {
+            await using var admin = await _fixture.AdminDataSource.OpenConnectionAsync(CancellationToken.None);
+            await using (var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)", admin)) await drop.ExecuteNonQueryAsync(CancellationToken.None);
+            await using (var dropRole = new NpgsqlCommand($"DROP ROLE IF EXISTS \"{role}\"", admin)) await dropRole.ExecuteNonQueryAsync(CancellationToken.None);
+            Directory.Delete(state, recursive: true);
+        }
+
+        var bad = said.Where(s => !s.EndsWith("as expected", StringComparison.Ordinal)).ToList();
+        if (bad.Count > 0)
+            throw new Xunit.Sdk.XunitException($"Expected: every restore leaves status 0 and seq unnamable{Environment.NewLine}Actual:   {string.Join(" | ", bad)}");
+    }
 }

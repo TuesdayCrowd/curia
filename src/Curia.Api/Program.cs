@@ -193,6 +193,8 @@ public sealed class Program
             sp.GetRequiredService<IndexBacklog>(),
             sp.GetRequiredService<IndexSweep>(),
             sp.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventsPositionGrant);
+        builder.Services.AddHostedService<EventsSeqWritableCheck>();
         builder.Services.AddHostedService<EmbeddingReconcileService>();
         builder.Services.AddHostedService<EmbeddingCatchUpService>();
         builder.Services.AddHostedService<LifecycleEntryScan>();

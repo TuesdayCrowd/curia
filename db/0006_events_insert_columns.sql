@@ -1,0 +1,21 @@
+-- Migration 0006, forward-only, applied after db/0005_protect_agent_key_material.sql: an event's position in the log is the
+-- database's, never the application role's (errata G69; R11.6 (add.)).
+--
+-- __CURIA_APP_ROLE__ is the placeholder 0001 introduces, substituted by Curia.Infrastructure.Migrations.SchemaMigrations.Render*
+-- before execution. Every name below is unqualified on purpose, as in 0002 and 0005: a test fixture renders this file under a
+-- search_path to put it in an isolated schema beside that schema's own events table.
+--
+-- WHY A COLUMN GRANT. 0001 granted INSERT on the whole of events, so the application role could name seq with OVERRIDING SYSTEM
+-- VALUE and place a row anywhere the primary key allows: below zero (every read of the row's aggregate then fails), at zero (the
+-- row is invisible to every read that starts at seq > 0, which is every whole-log read, and visible to the by-aggregate read), or
+-- ahead of the identity (an honest append later fails on the primary key). R11.6's reasoning says where a guarantee belongs: in
+-- the grant, "not merely in the code's intentions". The role keeps INSERT on the six columns Curia.Infrastructure.PostgresEventStore
+-- supplies, server_ts among them (the Forum stamps it explicitly through the Clock port, CS-9), and loses it on seq.
+--
+-- WHY THE REVOKE. A column GRANT is additive to a table-level one; without the REVOKE the role would still hold INSERT on seq.
+-- SELECT stays table-level (the store's INSERT ... RETURNING reads seq), and UPDATE and DELETE stay revoked (0001).
+--
+-- A LATER MIGRATION that adds a column the Forum supplies must GRANT INSERT on that column in the same file; a missed grant fails
+-- loudly (permission denied for table events on the first append), which is the right direction for a grant to fail in.
+REVOKE INSERT ON events FROM __CURIA_APP_ROLE__;
+GRANT INSERT (event_id, event_type, aggregate_id, actor_id, payload, server_ts) ON events TO __CURIA_APP_ROLE__;   -- R11.6 (add.): never seq

@@ -17,7 +17,10 @@ on the named tables for the named role, or a mode file read by the proxy.
   must be a plain lowercase identifier, must already exist, must not be `postgres` or `pg_*`, and must not be a superuser or the
   admin session's own user.
 - SQL issued: `REVOKE`/`GRANT` of `INSERT`/`UPDATE`/`SELECT` on `events` and `post_embeddings` to `FH_ROLE`, and reads. `psql` is the admin
-  connection (the standard `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`), never through the proxy.
+  connection (the standard `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`), never through the proxy. **`INSERT` on `events` is the six columns the Forum
+  supplies and never `seq`** (`db/0006`, errata G69, R11.6 (add.)): `insert-off` and `all-off` grant that column list back, never a table-level
+  `INSERT`, which would re-open the role's power to name an event's position; `status` reads each of the six columns and `seq`, not
+  `has_table_privilege`, which is false on a migrated database.
 - `proxy.sh stop` signals the pid in the pid file only if that process's command line is `pgproxy.py`. The state directory is created
   with mode 700.
 - `fault.sh status` exits 0 only when the grants and the proxy mode are the originals; run `fault.sh all-off` before you leave.
@@ -45,7 +48,7 @@ admin (pgvector is needed by `db/0003`).
 
 - `fault.sh status | vector-on | vector-off | insert-on | insert-off | log-on | log-off | cut-on <p> | cut-off | hold-on <seconds> <name> | hold-off <name> | all-off`
   - `vector-on`: revoke `INSERT, UPDATE` on `post_embeddings` (a post commits, its vector cannot be stored). `insert-on`: revoke `INSERT` on
-    `events` (a write is refused before it commits). `log-on`: revoke `SELECT` on `events` (the log cannot be read). `*-off` grant back.
+    `events` (a write is refused before it commits; PostgreSQL's table-level `REVOKE` also revokes the column grants). `insert-off` grants the six columns back. `all-off` does not heal a database that has not applied `db/0006` (it grants the columns without a table-level `REVOKE`): `status` then reads `seq` as writable and exits 1 with `FAULT OPEN`, which is honest, and the remedy is the migration. `log-on`: revoke `SELECT` on `events` (the log cannot be read). `*-off` grant back.
   - `cut-on <p>` (0 < p <= 1): proxy mode `cutcommit:<p>`; `cut-off`: back to `passthru`. `all-off` restores every grant and the mode, then
     prints `status`.
   - `hold-on <seconds> <name>` (0 < seconds <= 900; the name is lower-case letters and digits): proxy mode `delaycommit:<seconds>`, marks

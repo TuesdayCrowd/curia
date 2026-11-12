@@ -55,6 +55,39 @@ public sealed class RoleForumFixture : ForumFixture
 
     internal Task GrantSelectOnEventsAsync(CancellationToken ct) => AdminAsync($"GRANT SELECT ON events TO \"{RoleName}\";", ct);
 
+    /// <summary>The connection string the host uses, which is the application role's: the attacker of errata G69 is a holder of exactly this credential.</summary>
+    internal string RoleConnectionString => HostConnectionString;
+
+    internal Task RevokeInsertOnEventsAsync(CancellationToken ct) => AdminAsync($"REVOKE INSERT ON events FROM \"{RoleName}\";", ct);
+
+    /// <summary>The table-level grant of <c>db/0001</c>: the shape errata G69 closes, which a restore from an older backup or a harness that heals at table level re-opens.</summary>
+    internal Task GrantInsertOnEventsTableLevelAsync(CancellationToken ct) => AdminAsync($"GRANT INSERT ON events TO \"{RoleName}\";", ct);
+
+    /// <summary>The grant of <c>db/0006</c>: the six columns the Forum supplies, never <c>seq</c> (R11.6 (add.)).</summary>
+    internal Task GrantInsertOnEventsColumnsAsync(CancellationToken ct) => AdminAsync(
+        $"GRANT INSERT (event_id, event_type, aggregate_id, actor_id, payload, server_ts) ON events TO \"{RoleName}\";", ct);
+
+    /// <summary>Whether the role holds <c>INSERT</c> on the whole of <c>events</c>, so a fact can put the grant back as it found it.</summary>
+    internal async Task<bool> HoldsTableLevelInsertOnEventsAsync(CancellationToken ct)
+    {
+        await using var admin = new NpgsqlConnection(ConnectionString);
+        await admin.OpenAsync(ct);
+        await using var command = new NpgsqlCommand("SELECT has_table_privilege(@role, 'events', 'INSERT');", admin);
+        command.Parameters.AddWithValue("role", RoleName);
+        return (bool)(await command.ExecuteScalarAsync(ct))!;
+    }
+
+    /// <summary>Puts <c>INSERT</c> on <c>events</c> back as a fact found it: the whole table, or the Forum's six columns.</summary>
+    internal async Task RestoreInsertOnEventsAsync(bool tableLevel, CancellationToken ct)
+    {
+        await RevokeInsertOnEventsAsync(ct);
+        if (tableLevel) await GrantInsertOnEventsTableLevelAsync(ct);
+        else await GrantInsertOnEventsColumnsAsync(ct);
+    }
+
+    /// <summary>Deletes the rows a fact planted, by the prefix of their event ids, as the owner (the application role cannot).</summary>
+    internal Task RemovePlantedRowsAsync(string eventIdPrefix, CancellationToken ct) => AdminAsync($"DELETE FROM events WHERE event_id LIKE '{eventIdPrefix}%';", ct);
+
     /// <summary>
     /// A row-level-security fault on the role's reads: a poison row exists that only a whole-log scan reaches, and a select policy for the role calls a function
     /// that raises for it. A read of one aggregate (an index on <c>aggregate_id</c>) never evaluates the function on the row.
@@ -95,7 +128,9 @@ public sealed class RoleForumFixture : ForumFixture
         await using var command = new NpgsqlCommand(
             """
             SELECT has_table_privilege(@role, 'events', 'SELECT'),
-                   has_table_privilege(@role, 'events', 'INSERT'),
+                   (SELECT bool_and(has_column_privilege(@role, 'public.events', c, 'INSERT'))
+                      FROM unnest(ARRAY['event_id', 'event_type', 'aggregate_id', 'actor_id', 'payload', 'server_ts']) AS c),
+                   has_column_privilege(@role, 'public.events', 'seq', 'INSERT'),
                    (SELECT count(*) FROM pg_policies WHERE tablename = 'events'),
                    (SELECT relrowsecurity FROM pg_class WHERE relname = 'events' AND relnamespace = 'public'::regnamespace),
                    (SELECT count(*) FROM events WHERE aggregate_id = @poison);
@@ -107,10 +142,11 @@ public sealed class RoleForumFixture : ForumFixture
         await reader.ReadAsync(ct);
         var problems = new List<string>();
         if (!reader.GetBoolean(0)) problems.Add("SELECT on events is not granted to the role");
-        if (!reader.GetBoolean(1)) problems.Add("INSERT on events is not granted to the role");
-        if (reader.GetInt64(2) != 0) problems.Add("a policy remains on events");
-        if (reader.GetBoolean(3)) problems.Add("row security remains enabled on events");
-        if (reader.GetInt64(4) != 0) problems.Add("the poison row remains");
+        if (!reader.GetBoolean(1)) problems.Add("INSERT on the columns the Forum supplies is not granted to the role");
+        if (reader.GetBoolean(2)) problems.Add("INSERT on events.seq is granted to the role");
+        if (reader.GetInt64(3) != 0) problems.Add("a policy remains on events");
+        if (reader.GetBoolean(4)) problems.Add("row security remains enabled on events");
+        if (reader.GetInt64(5) != 0) problems.Add("the poison row remains");
         return string.Join("; ", problems);
     }
 
