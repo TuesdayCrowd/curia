@@ -1,6 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
+using Curia.Application.Ports;
+using Curia.Domain.Primitives;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using Xunit;
@@ -117,6 +121,26 @@ public sealed class EventsPositionApiTests(RoleForumFixture forum) : IClassFixtu
         {
             await forum.RestoreInsertOnEventsAsync(found, CancellationToken.None);
         }
+    }
+
+    /// <summary>SEQ7, the unchecked arm: the port cannot ask, so the Forum says so once at Warning (7009), says nothing at Error, and starts and serves.</summary>
+    [Fact]
+    public async Task R11_6_SEQ7_AForumThatCannotAskStartsAndSaysSoAtWarning()
+    {
+        using var log = new LogCapture();
+        var failed = Result<bool>.Fail(new Error("curia/store/unavailable", "The store could not be asked", "NpgsqlException"));
+        await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton<ILoggerProvider>(log);
+            services.AddSingleton<IEventsPositionGrant>(new InMemoryEventsPositionGrant(failed));
+        }));
+        using var client = host.CreateClient();
+
+        var unchecked7009 = log.Single(0, 7009);
+        Assert.Equal(LogLevel.Warning, unchecked7009.Level);
+        Assert.DoesNotContain(log.All, e => e.EventId == EventsSeqWritable);
+        using var health = await client.GetAsync(new Uri("/health", UriKind.Relative), Ct);
+        Assert.Equal(200, (int)health.StatusCode);
     }
 
     /// <summary>Plants a forged <c>agent.key-retired</c> under the agent's aggregate at <paramref name="seq"/>, as the application role. Null when the insert was refused <c>42501</c>.</summary>

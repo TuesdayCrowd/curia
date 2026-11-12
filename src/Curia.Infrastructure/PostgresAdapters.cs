@@ -69,6 +69,9 @@ public sealed class PostgresAdapters : IAsyncDisposable
     /// </summary>
     public IEventReader EventReader => new PostgresEventStore(_dataSource, _clock, _lifecycleGate);
 
+    /// <summary>Errata G69: whether the Forum's own role can name an event's <c>seq</c>, asked at every start.</summary>
+    public IEventsPositionGrant EventsPositionGrant => new PostgresEventsPositionGrant(_dataSource);
+
     /// <summary>R5.17's replay cache, shared across instances rather than per process.</summary>
     public IReplayCache ReplayCache => new PostgresReplayCache(_dataSource, _clock);
 
