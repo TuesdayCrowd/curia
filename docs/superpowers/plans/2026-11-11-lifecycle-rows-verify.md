@@ -928,6 +928,23 @@ The sweeps (Old to New, each asserted to occur exactly once in the plan body):
 - every remaining `0.11.2` to `0.12.0` (4 occurrence(s) in the plan body)
 - trap lines `- **245 (new)` to `- **252 (new)` to `- **248 (new)` to `- **255 (new)`, and trap 256 added after 255
 
+
+## Amendment 2 (2026-11-12, the architect's rulings on Task 1a's two returns)
+
+Both claims in `task-1a-report.md` were checked against `lifecycle-rows-verify` (errata at 5477e3ec; `tools/GenerateEnvelopeFixtures/LifecycleCases.Honoured.cs`; `ToolText.cs`; `ToolDescriptionTests.PairFor`). Rulings continue from 41.
+
+42. **M19: the basis is not sufficient as it stands; G68's R11.30 (rev.) annotation is made normative, with this text (an edit to G68's entry, Task 8's pass or Task 5 at the latest, before `curia_keys` is written).** The builder is right that R11.30 (rev.) says nothing about a tier sentence for a tool with no Table 10 pair: it states admission only. Admission itself is sound (first limb: `curia_keys` invokes no Forum authority, the key-set route is anonymous and no admitted tool reads it). What is missing is the description rule, and a precedent plus an index-row parenthetical is a convention nobody's build breaks over. Add to G68's text, as the body of the `R11.30 (rev.)` annotation, and keep the index row:
+
+    > **R11.30 (rev.)** *(annotated, not rewritten.)* `curia_keys` is admitted on the first limb: it invokes no Forum authority at all (the key-set route is anonymous, R4.16 (rev. 2)), and it is registered only with an identity configured because it reads that identity's key set. A tool admitted on that limb has no Table 10 pair; its description SHALL carry the tier sentence `curia_verify`'s carries (R11.26: it names no Forum authority and states that no tier is required), and `ToolDescriptionTests.PairFor` SHALL map it as it maps `curia_verify`, (`Thread`, `Read`), with `curia_verify`'s comment (no pair is invented, since that would claim an authority boundary the Forum does not enforce). The reason: R11.27's tier span is tested over every tool and `PairFor` throws for a tool with no row, so the rule must name where a pairless tool's sentence comes from, and one answer, `curia_verify`'s, keeps the two pairless tools from each inventing a third.
+
+    Task 5's probe: `curia_keys`' description contains `curia_verify`'s tier sentence by shared constant (not a copy), and deleting `curia_keys`' `PairFor` row turns `ToolDescriptionTests` red. Falsify both.
+
+43. **Vector 24: the builder is right; the vector is built correctly and the plan's table row is wrong.** R6.64 as pasted: the statement's `prev` "is not the log index of the previous **honoured** lifecycle entry of the stream: `broken-link`" is decided in step 6 before the header-`kid` and key checks (`rotation-unauthorized`), and a skipped row "is not the entry before the next". Row 2 is skipped, so the previous honoured entry of row 3 is the enrolment binding at 1; `prev` 2 gives `broken-link`, not the table's `rotation-unauthorized`. `prev` 1 isolates the one defect the vector names (the authorizing key `ka` is not bound by the honoured prefix), is what vectors 25 and the forged-declaration case (`prev` 1 after a skipped row) already do, and the generator's case text says so. Expected rows stand: 2 skipped `lifecycle-typ-mismatch`, 3 skipped `rotation-unauthorized`; k0 active / [k0]. The blind Rust builder starts from the vector as built.
+
+    Edit to the plan's table (Task 8 or any later pass; the vectors need none): row 24's cell reads "`3` rotation ka to kb with **valid** signatures by ka and kb (**prev 1**, the last honoured entry; prev 2 would be `broken-link`)". Because a `prev` 2 variant is a different, real vector (a rotation chained to a skipped row), the builder SHOULD NOT add it to the 44; if wanted it is a 45th and moves ruling 39's counts, so it is not added here. Vector 25's row ("prev 1") is unchanged and consistent.
+
+Nothing else changes. No vector is regenerated.
+
 ## Tasks
 
 ### Task 0: Re-read, operate the unmodified tree, write the rules first
