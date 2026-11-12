@@ -2146,7 +2146,7 @@ public static class ForumEndpoints
         // R4.35 (rev.): the identity's lifecycle indices, from the same fold; left out when the log would
         // not fold, as the keys' own positions are, so an absence never reads as an empty lifecycle.
         var decided = acta is null ? null : verifier.OfLog(acta.Events).For(agentId!);
-        var lifecycle = decided is { Refusal: null }
+        var lifecycle = decided is not null
             ? decided.Honoured.Entries.Select(e => acta!.IndexOf(e.EventId)).Where(i => i is not null).Select(i => i!.Value).ToList()
             : null;
 

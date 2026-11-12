@@ -71,6 +71,45 @@ public sealed class StoreFaultTokenTests(FaultableForumFixture forum) : IClassFi
     }
 
     /// <summary>
+    /// ULG18 (c) (errata G68, R5.23 (rev.), ruling 64). A fault at the second whole-log read of the request, the read of the agent's standing, follows the consumption of the
+    /// assertion's and the proof's <c>jti</c> (the first whole-log read, the key's, precedes it) and so spends both. The first call is <c>503</c>
+    /// <c>temporarily_unavailable</c> and mints nothing; the same assertion and proof sent again with the fault gone is not <c>200</c> (a replay, which the run names below);
+    /// a fresh pair is <c>200</c>. Falsified by moving the standings read above the validator (Task 7): this goes red and (a) of the role host's ULG18 stays green.
+    /// </summary>
+    [Fact]
+    public async Task R5_23_ULG18c_AFaultAtTheStandingsReadFollowsTheConsumptionAndSpendsTheJti()
+    {
+        var actor = await AcceptedAnswerScene.EnrolAsync(forum, "token-standing", Ct);
+        var assertion = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
+        var proof = actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now);
+
+        Reply first;
+        forum.Store.Arm(EventStoreFault.ReportWholeLogFromSecondRead);
+        try
+        {
+            first = await DpopClient.RequestTokenReplyAsync(forum.Client, actor.Agent.AgentId, assertion, proof, Ct);
+        }
+        finally
+        {
+            forum.Store.Disarm();
+        }
+
+        var again = await DpopClient.RequestTokenReplyAsync(forum.Client, actor.Agent.AgentId, assertion, proof, Ct);
+        var fresh = await DpopClient.RequestTokenReplyAsync(
+            forum.Client, actor.Agent.AgentId, actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now), Ct);
+
+        var problems = new List<string>();
+        if (!FaultSweep.IsOAuthError(first, PublishedStoreFaults.TokenStatus, PublishedStoreFaults.TokenCode))
+            problems.Add($"the first call: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {first.Says}");
+        if (first.Body.Contains("access_token", StringComparison.Ordinal)) problems.Add("the first call minted a token");
+        if (again.Status != 401 || again.Error != "invalid_client")
+            problems.Add($"the same assertion and proof with the fault gone: expected 401 invalid_client (a replay: the assertion's jti was spent), actual {again.Says}");
+        if (fresh.Status != 200) problems.Add($"a fresh assertion and proof: expected 200, actual {fresh.Says}");
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    /// <summary>
     /// ULG43 (R5.23's second sentence). An exception nothing names, thrown from a store the token endpoint reads, is the Forum's own fault: <c>500</c>
     /// <c>server_error</c> with the published description, no <c>detail</c>, none of the exception's text and no <c>Retry-After</c>; it is not
     /// <c>temporarily_unavailable</c>. (The posture that will not fold is the other own fault and cannot be built here, above.)

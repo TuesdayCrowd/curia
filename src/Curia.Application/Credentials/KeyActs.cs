@@ -114,9 +114,9 @@ public static class KeyActErrors
 }
 
 /// <summary>
-/// The steps rotation and retirement share (spec section 4.4): the stream read for the version, the log
-/// folded for the latest lifecycle index, a signature held to its kind's header and verified, and the
-/// entry appended on the version read first.
+/// The steps rotation and retirement share (spec section 4.4): the whole log read once for the stream's version
+/// and the latest honoured lifecycle index, a signature held to its kind's header and verified, and the
+/// entry appended on the version that read gave.
 /// </summary>
 internal static class KeyActs
 {
@@ -124,47 +124,39 @@ internal static class KeyActs
 
     internal sealed record Stream(AggregateId Aggregate, ActorId Actor, AggregateVersion Version);
 
-    internal sealed record LifecycleRead(KeyLifecycle Lifecycle, ActaLog Log, long? LatestIndex);
-
-    /// <summary>The identity's stream and its version (step 4), read before the log is.</summary>
-    internal static async Task<Result<Stream>> ReadStreamAsync(IEventReader events, AgentId agent, CancellationToken ct)
-    {
-        if (!AggregateId.Create(agent.Value).TryGetValue(out var aggregate, out var aggregateError))
-            return Result<Stream>.Fail(aggregateError!);
-        if (!ActorId.Create(agent.Value).TryGetValue(out var actor, out var actorError))
-            return Result<Stream>.Fail(actorError!);
-
-        var read = await events.ReadByAggregateAsync(aggregate, ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var history, out var readError))
-            return Result<Stream>.Fail(LogBoundKeys.LogUnreadable(readError!));
-        if (!AggregateVersion.From(history!.Count).TryGetValue(out var version, out var versionError))
-            return Result<Stream>.Fail(LogBoundKeys.LogUnreadable(versionError!));
-
-        return Result<Stream>.Ok(new Stream(aggregate, actor, version!));
-    }
+    /// <summary>
+    /// What one read of the whole log says of an identity: its honoured lifecycle, the log folded as an Acta, the index of the latest honoured entry, and the stream
+    /// (the version a conditioned append is made on). The version is counted from the same entries the decision is drawn from, so there is no second instant (R6.56).
+    /// </summary>
+    internal sealed record LifecycleRead(KeyLifecycle Lifecycle, ActaLog Log, long? LatestIndex, Stream Stream);
 
     /// <summary>
-    /// The log folded through <see cref="ActaLog"/> (step 5) and the identity's lifecycle read from the
-    /// same entries, with the index of its latest entry. A log that will not fold is
-    /// <see cref="LogBoundKeys.LogUnreadable"/>; a stream the lifecycle fold refuses passes its own refusal.
+    /// The log read once (errata G68, ruling 36: a statement's <c>prev</c> and a declaration's <c>from_index</c> are positions in the whole log, so no decision reads an aggregate by itself),
+    /// folded through <see cref="ActaLog"/> (step 5), and the identity's honoured lifecycle read from the same entries, with the index of its latest honoured entry and the stream's version
+    /// (step 4). A log that will not read or fold is <see cref="LogBoundKeys.LogUnreadable"/>; a row that does not verify is skipped, and moves nothing.
     /// </summary>
     internal static async Task<Result<LifecycleRead>> ReadLifecycleAsync(IEventReader events, LifecycleVerifier verifier, AgentId agent, CancellationToken ct)
     {
+        if (!AggregateId.Create(agent.Value).TryGetValue(out var aggregate, out var aggregateError))
+            return Result<LifecycleRead>.Fail(aggregateError!);
+        if (!ActorId.Create(agent.Value).TryGetValue(out var actor, out var actorError))
+            return Result<LifecycleRead>.Fail(actorError!);
+
         var all = await events.ReadAllAsync(ct).ConfigureAwait(false);
         if (!all.TryGetValue(out var log, out var readError))
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(readError!));
+        if (!AggregateVersion.From(log!.Count(e => e.AggregateId.Value == aggregate!.Value)).TryGetValue(out var version, out var versionError))
+            return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(versionError!));
         if (!ActaLog.Fold(log!).TryGetValue(out var acta, out var foldError))
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(foldError!));
-        var verified = verifier.OfLog(log!).For(agent);
-        if (verified.Refusal is { } lifecycleError)
-            return Result<LifecycleRead>.Fail(lifecycleError);
 
-        var lifecycle = verified.Honoured;
-        if (lifecycle.Entries.IsEmpty) return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta!, null));
+        var stream = new Stream(aggregate!, actor!, version!);
+        var lifecycle = verifier.OfLog(log!).For(agent).Honoured;
+        if (lifecycle.Entries.IsEmpty) return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta!, null, stream));
         if (acta!.IndexOf(lifecycle.Entries[^1].EventId) is not { } latest)
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(KeyStatementErrors.Mismatch("entry")));
 
-        return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta, latest));
+        return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta, latest, stream));
     }
 
     /// <summary>The canonical bytes of a statement already read as its own canonical form.</summary>

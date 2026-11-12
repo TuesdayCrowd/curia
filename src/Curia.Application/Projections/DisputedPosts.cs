@@ -113,12 +113,10 @@ public sealed class DisputedPosts
         {
             if (!lifecycles.TryGetValue(post.Author, out var lifecycle))
             {
-                lifecycle = null;
-
-                // The seam reproduces today's fold, and with it today's discard: a refusal leaves no lifecycle, so no mark (LRV30 is red on it).
-                if (AgentId.Parse(post.Author).TryGetValue(out var agent, out _)
-                    && verified.For(agent!) is { Refusal: null } decided)
-                    lifecycle = decided.Honoured;
+                // An author that is no identity has no lifecycle and so no mark; every identity has one, the honoured rows of its stream.
+                lifecycle = AgentId.Parse(post.Author).TryGetValue(out var agent, out _)
+                    ? verified.For(agent!).Honoured
+                    : null;
 
                 lifecycles[post.Author] = lifecycle;
             }

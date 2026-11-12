@@ -78,11 +78,11 @@ public sealed class WritersRoundTripTests
         var skipped = verified.Skipped().Select(r => r.LogIndex).Concat(alice.Skipped.Select(r => r.LogIndex)).Concat(bob.Skipped.Select(r => r.LogIndex)).ToArray();
 
         var actual =
-            $"skipped [{string.Join(", ", skipped)}]; refusals {alice.Refusal?.Type ?? "none"}/{bob.Refusal?.Type ?? "none"}; "
+            $"skipped [{string.Join(", ", skipped)}]; "
             + $"alice-1 {alice.Honoured.StatusNow(a1.Kid)}, alice-2 {alice.Honoured.StatusNow(a2.Kid)}, bob-1 {bob.Honoured.StatusNow(b1.Kid)}, bob-2 {bob.Honoured.StatusNow(b2.Kid)}; "
             + $"honoured rows {alice.Honoured.Entries.Length}+{bob.Honoured.Entries.Length}";
         WholeText.Same(
-            "skipped []; refusals none/none; alice-1 Retired, alice-2 Active, bob-1 Compromised, bob-2 Compromised; honoured rows 4+4",
+            "skipped []; alice-1 Retired, alice-2 Active, bob-1 Compromised, bob-2 Compromised; honoured rows 4+4",
             actual);
         _ = written;
     }

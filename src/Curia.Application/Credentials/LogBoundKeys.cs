@@ -58,7 +58,7 @@ public sealed record AgentKeySet(int Stored, IReadOnlyList<BoundKey> Bound);
 ///
 /// <para><b>A log that cannot be read refuses nothing.</b> Whether it binds the key is then unknown,
 /// so the answer is <see cref="LogUnreadable"/>, a server fault, and never the reader's refusal
-/// handed on as if it were the key's (a log that reads but will not fold is as unreadable, for the status read): ingest answers it 503 and the token endpoint
+/// handed on as if it were the key's: ingest answers it 503 and the token endpoint
 /// <c>server_error</c>, where a 401 would tell an agent its key had been refused.</para>
 /// </summary>
 public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
@@ -116,9 +116,6 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (stream!.Verified.Binding?.For(kid) is not { } bound || !bound.Holds(key!))
             return Result<LiveKey>.Fail(AuthorKeyErrors.NotBoundByTheLog(agentId.Value, kid.Value));
 
-        if (stream.Verified.Refusal is { } foldError)
-            return Result<LiveKey>.Fail(foldError);
-
         return stream.Verified.Honoured.StatusNow(kid.Value) switch
         {
             KeyStatus.Active => Result<LiveKey>.Ok(new LiveKey(key!, stream.Version)),
@@ -131,9 +128,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
     /// <summary>
     /// What the log says of <paramref name="kid"/> of <paramref name="agentId"/> now (R5.22): <see cref="KeyStatus.Unbound"/>
     /// when no entry binds it to the identity, otherwise the lifecycle's answer. Read from the log on every
-    /// call; <see cref="LogUnreadable"/> when it cannot be read, which is never an answer about the key. A log
-    /// that reads but will not fold into a lifecycle is as unreadable as one that does not read, since no
-    /// answer about the key can be drawn from it.
+    /// call; <see cref="LogUnreadable"/> when it cannot be read, which is never an answer about the key.
     /// </summary>
     public async Task<Result<KeyStatus>> StatusAsync(AgentId agentId, Kid kid, CancellationToken cancellationToken = default)
     {
@@ -146,9 +141,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
 
         if (stream!.Verified.Binding?.For(kid) is null) return Result<KeyStatus>.Ok(KeyStatus.Unbound);
 
-        return stream.Verified.Refusal is { } foldError
-            ? Result<KeyStatus>.Fail(LogUnreadable(foldError))
-            : Result<KeyStatus>.Ok(stream.Verified.Honoured.StatusNow(kid.Value));
+        return Result<KeyStatus>.Ok(stream.Verified.Honoured.StatusNow(kid.Value));
     }
 
     /// <summary>The keys the store holds for <paramref name="agentId"/> that the log binds to it, each with its binding.</summary>
@@ -163,10 +156,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (!read.TryGetValue(out var stream, out var readError))
             return Result<AgentKeySet>.Fail(readError!);
 
-        if (stream!.Verified.Refusal is { } foldError)
-            return Result<AgentKeySet>.Fail(foldError);
-
-        var lifecycle = stream.Verified.Honoured;
+        var lifecycle = stream!.Verified.Honoured;
         var bound = new List<BoundKey>();
         foreach (var registered in held)
         {

@@ -391,6 +391,7 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
         using var retired = await victim.Dpop.PostAsync(
             client, KeyActRequests.RetireUrl(victim.Agent.AgentId, victim.Agent.Kid), victim.Token, KeyActRequests.RetirementBody(victim.Agent.AgentId, old, rotatedAt), forum.Now, ct, contentType: "application/json");
 
-        WholeText.Same("rotate 201; retire 200", $"rotate {(int)rotated.StatusCode}; retire {(int)retired.StatusCode}");
+        // A retirement answers 201 Created, as KeyRotationEndpointTests pins (the probe was written with 200 on the seam, where it was never green).
+        WholeText.Same("rotate 201; retire 201", $"rotate {(int)rotated.StatusCode}; retire {(int)retired.StatusCode}");
     }
 }

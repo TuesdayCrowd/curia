@@ -19,18 +19,15 @@ public sealed record SkippedRow(long LogIndex, string Type, string Aggregate, st
 
 /// <summary>
 /// What the Forum acts on of one identity's lifecycle (errata G68, ruling 19): the honoured entries, the binding the honoured bindings make, the rows skipped.
-///
-/// <para><see cref="Refusal"/> is the seam's and is always null now: no request is refused because of a row's content (ruling 4). Task 4 deletes it.</para>
+/// No request is refused because of a row's content (ruling 4), so there is no refusal here: a row is honoured or it is in <paramref name="Skipped"/>.
 /// </summary>
-/// <param name="Honoured">The honoured entries in stream order; empty when <paramref name="Refusal"/> is set.</param>
+/// <param name="Honoured">The honoured entries in stream order.</param>
 /// <param name="Binding">What the honoured bindings bind; null when the log records no enrolment of the identity.</param>
 /// <param name="Skipped">The rows the verifier does not honour, ascending by log index.</param>
-/// <param name="Refusal">The seam's refusal; null when the fold read the stream.</param>
 public sealed record VerifiedLifecycle(
     KeyLifecycle Honoured,
     EnrollmentBinding? Binding,
-    ImmutableArray<SkippedRow> Skipped,
-    Error? Refusal = null);
+    ImmutableArray<SkippedRow> Skipped);
 
 /// <summary>
 /// One log, verified once (errata G68, ruling 19): per identity, <see cref="For"/> decides that identity's stream by R6.64; <see cref="Skipped()"/> and

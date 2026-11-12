@@ -19,8 +19,8 @@ namespace Curia.Application.Credentials;
 /// <item>Read the statement: from its exact bytes, its <c>typ</c> first (KF4), its canonical form, its closed member set, and KF5.</item>
 /// <item>Its <c>agent_id</c> is the route's agent.</item>
 /// <item>Its <c>kid</c> is a <see cref="Kid"/> that holds no control or separator character (R4.37), and its <c>jwk</c> renders exactly (spec section 4.5).</item>
-/// <item>Read the identity's stream, for its version. The version is read before the log, so an entry that joins between is seen at step 5 or by step 9's check, never bound over.</item>
-/// <item>Fold the log for the identity's latest lifecycle index, which must equal <c>prev</c>.</item>
+/// <item>Read the whole log once: the identity's stream version, and from the same entries its latest honoured lifecycle index, which must equal <c>prev</c> (a skipped row moves nothing). An entry that joins after is seen by step 9's check, never bound over.</item>
+/// <item>(Step 5 is step 4's read.)</item>
 /// <item>The authorizing key is live.</item>
 /// <item>The authorization verifies under the authorizing key and the possession under the new one, each under the rotation's header <c>typ</c> and its role's <c>kid</c> (KF1, KF2).</item>
 /// <item>The <c>kid</c> is not taken, then R7.23's live-key cap, daily budget and lifetime ceiling.</item>
@@ -93,11 +93,7 @@ public sealed class RotateKey
         if (!Kid.Parse(rotation.AuthorizedBy, "authorized_by").TryGetValue(out var authorizedBy, out var authorizedByError))
             return Result<KeyActRecorded>.Fail(authorizedByError!);
 
-        // 4. The stream's version, before the log is read.
-        if (!(await KeyActs.ReadStreamAsync(_events, agent, ct).ConfigureAwait(false)).TryGetValue(out var stream, out var streamError))
-            return Result<KeyActRecorded>.Fail(streamError!);
-
-        // 5. The latest lifecycle index, which prev must equal.
+        // 4 and 5. The stream's version and the latest honoured lifecycle index, from one read of the log; prev must equal the index.
         if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
             return Result<KeyActRecorded>.Fail(lifecycleError!);
         if (read!.LatestIndex is not { } latest)
@@ -148,11 +144,11 @@ public sealed class RotateKey
             new("prev", new JsonValue.Number(rotation.Prev)),
             new("statement", new JsonValue.String(statement.Value)),
         ]);
-        if (!KeyActs.NewEvent(_ids, AgentStandingProjector.KeyBoundType, stream!.Actor, payload).TryGetValue(out var entry, out var entryError))
+        if (!KeyActs.NewEvent(_ids, AgentStandingProjector.KeyBoundType, read.Stream.Actor, payload).TryGetValue(out var entry, out var entryError))
             return Result<KeyActRecorded>.Fail(entryError!);
 
         // 10. A conflict is the lifecycle moving; the store row stays for the retry.
-        var index = await KeyActs.AppendAsync(_events, _verifier, agent, stream, entry!, ct).ConfigureAwait(false);
+        var index = await KeyActs.AppendAsync(_events, _verifier, agent, read.Stream, entry!, ct).ConfigureAwait(false);
         return index.Map(i => new KeyActRecorded(agent.Value, rotation.Kid, i, rotation.AuthorizedBy));
     }
 }

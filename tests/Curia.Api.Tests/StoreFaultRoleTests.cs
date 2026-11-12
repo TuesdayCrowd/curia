@@ -198,10 +198,11 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
     }
 
     /// <summary>
-    /// ULG18. A fault at any read of the log is <c>503</c>, and the token's <c>jti</c> is not spent by it (errata G68: the key read and the whole-log read are one read, R5.24, and it comes before the
-    /// assertion's and the proof's jti are consumed, where the key read used to come first and the whole-log read after). (a) A whole-log fault: <c>503</c>, the same assertion sent again while the fault stands is <c>503</c>
-    /// again (not a replay), and once the fault is gone the same assertion is <c>200</c>. (b) <c>SELECT</c> revoked: <c>503</c>, and with the grant restored the same assertion is <c>200</c>. R5.23's sentence that a jti is
-    /// spent "when the store fault follows their consumption" stays true of a fault that does; none does at the log now (ruling 61 expected a spent jti here and the run showed otherwise).
+    /// ULG18. A fault at the read that resolves the key precedes the consumption of the client assertion's and the proof's <c>jti</c> and spends neither (errata G68, R5.23 (rev.), ruling 64: the key read
+    /// is the whole-log read, R5.24, and the validator makes it before it consumes the assertion's <c>jti</c>). (a) A whole-log fault: <c>503</c>, the same assertion sent again while the fault stands is
+    /// <c>503</c> again (not a replay), and once the fault is gone the same assertion is <c>200</c>. (b) <c>SELECT</c> revoked: <c>503</c>, and with the grant restored the same assertion is <c>200</c>.
+    /// The read of the agent's standing follows the consumption and spends both: that half is ULG18 (c), in <c>StoreFaultTokenTests</c>, where the fixture can fail from the second read (this host's
+    /// faults are persistent, so each fails at the first read).
     /// </summary>
     [Fact]
     public async Task R5_23_ULG18_AFaultAtTheLogReadDoesNotSpendTheJti()

@@ -116,7 +116,5 @@ internal static class LifecycleProbeSupport
     }
 
     internal static string Describe(VerifiedLifecycle verified) =>
-        verified.Refusal is { } refusal
-            ? $"Refusal {refusal.Type}"
-            : $"honoured [{string.Join(", ", verified.Honoured.Entries.Select(e => e.Type + ":" + e.Kid))}] skipped [{string.Join(", ", verified.Skipped.Select(r => $"{r.LogIndex} {r.Predicate}"))}]";
+        $"honoured [{string.Join(", ", verified.Honoured.Entries.Select(e => e.Type + ":" + e.Kid))}] skipped [{string.Join(", ", verified.Skipped.Select(r => $"{r.LogIndex} {r.Predicate}"))}]";
 }

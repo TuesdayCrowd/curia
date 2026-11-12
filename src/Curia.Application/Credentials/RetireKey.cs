@@ -70,11 +70,7 @@ public sealed class RetireKey
         if (!string.Equals(retirement.Kid, kid.Value, StringComparison.Ordinal))
             return Result<KeyActRecorded>.Fail(KeyStatementErrors.Mismatch("kid"));
 
-        // 4. The stream's version, before the log is read.
-        if (!(await KeyActs.ReadStreamAsync(_events, agent, ct).ConfigureAwait(false)).TryGetValue(out var stream, out var streamError))
-            return Result<KeyActRecorded>.Fail(streamError!);
-
-        // 5. The latest lifecycle index, which prev must equal.
+        // 4 and 5. The stream's version and the latest honoured lifecycle index, from one read of the log; prev must equal the index.
         if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
             return Result<KeyActRecorded>.Fail(lifecycleError!);
         if (read!.LatestIndex is not { } latest)
@@ -110,10 +106,10 @@ public sealed class RetireKey
             new("prev", new JsonValue.Number(retirement.Prev)),
             new("statement", new JsonValue.String(statement.Value)),
         ]);
-        if (!KeyActs.NewEvent(_ids, LifecycleAppendGuard.KeyRetiredType, stream!.Actor, payload).TryGetValue(out var entry, out var entryError))
+        if (!KeyActs.NewEvent(_ids, LifecycleAppendGuard.KeyRetiredType, read.Stream.Actor, payload).TryGetValue(out var entry, out var entryError))
             return Result<KeyActRecorded>.Fail(entryError!);
 
-        var index = await KeyActs.AppendAsync(_events, _verifier, agent, stream, entry!, ct).ConfigureAwait(false);
+        var index = await KeyActs.AppendAsync(_events, _verifier, agent, read.Stream, entry!, ct).ConfigureAwait(false);
         return index.Map(i => new KeyActRecorded(agent.Value, retirement.Kid, i, null));
     }
 }

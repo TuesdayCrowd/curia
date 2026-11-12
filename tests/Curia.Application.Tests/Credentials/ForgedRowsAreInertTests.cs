@@ -110,8 +110,8 @@ public sealed class ForgedRowsAreInertTests
         var verified = VerifierOf(harness).OfLog(await LogAsync(harness).ConfigureAwait(true)).For(Typed.Agent(Alice));
 
         Assert.True(
-            verified.Refusal is null && verified.Skipped.Any(r => r.LogIndex == index && r.Predicate == predicate) && verified.Honoured.StatusNow(victim.Kid) == KeyStatus.Active,
-            $"Expected: a lifecycle, row {index} skipped {predicate}, {victim.Kid} Active  Actual: {Describe(verified)} ({victim.Kid} {(verified.Refusal is null ? verified.Honoured.StatusNow(victim.Kid) : "n/a")})");
+            verified.Skipped.Any(r => r.LogIndex == index && r.Predicate == predicate) && verified.Honoured.StatusNow(victim.Kid) == KeyStatus.Active,
+            $"Expected: a lifecycle, row {index} skipped {predicate}, {victim.Kid} Active  Actual: {Describe(verified)} ({victim.Kid} {verified.Honoured.StatusNow(victim.Kid)})");
     }
 
     private static async Task<(KeyActHarness Harness, TestIdentity Victim, TestIdentity Attacker, LogBoundKeys Keys)> WithAttackerKeyHeldAsync()

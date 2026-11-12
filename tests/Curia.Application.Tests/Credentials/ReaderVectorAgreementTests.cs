@@ -113,8 +113,8 @@ public sealed class ReaderVectorAgreementTests
             if (NotAsked.Contains(name)) { classified++; continue; }
 
             var verified = verifier.OfLog(LogOf(log)).For(Typed.Agent(log.Agent));
-            var skipped = verified.Refusal is null ? verified.Skipped : [];
-            var described = verified.Refusal is { } refusal ? $"Refusal {refusal.Type}" : $"{(skipped.Length == 0 ? "no row skipped" : string.Join(", ", skipped.Select(r => $"{r.LogIndex} {r.Predicate}")))}";
+            var skipped = verified.Skipped;
+            var described = skipped.Length == 0 ? "no row skipped" : string.Join(", ", skipped.Select(r => $"{r.LogIndex} {r.Predicate}"));
 
             if (verdict == "failed" && RowLevel.Contains(predicate, StringComparer.Ordinal))
             {
@@ -131,7 +131,7 @@ public sealed class ReaderVectorAgreementTests
             else if (verdict is "verified" or "disputed")
             {
                 classified++;
-                if (verified.Refusal is not null || skipped.Length > 0)
+                if (skipped.Length > 0)
                     failures.Add($"{name}: Expected: no row skipped  Actual: {described}");
             }
             else if (About.Contains(predicate, StringComparer.Ordinal))

@@ -28,12 +28,10 @@ public sealed class HonouredVectorTests
     };
 
     internal static string Rows(VerifiedLifecycle verified, IEnumerable<long> indices, ConformanceLog log) =>
-        verified.Refusal is { } refusal
-            ? $"[Refusal {refusal.Type}]"
-            : "[" + string.Join(", ", indices.Select(i =>
-                verified.Skipped.FirstOrDefault(r => r.LogIndex == i) is { } skipped
-                    ? $"{i} skipped {skipped.Predicate}"
-                    : $"{i} honoured")) + "]";
+        "[" + string.Join(", ", indices.Select(i =>
+            verified.Skipped.FirstOrDefault(r => r.LogIndex == i) is { } skipped
+                ? $"{i} skipped {skipped.Predicate}"
+                : $"{i} honoured")) + "]";
 
     /// <summary>The differences between what the verifier decides of <paramref name="agent"/> in <paramref name="log"/> and one expected block, or none.</summary>
     internal static IEnumerable<string> Differences(ConformanceLog log, string agent, JsonElement expected)
@@ -46,11 +44,9 @@ public sealed class HonouredVectorTests
             ? $"{r.GetProperty("log_index").GetInt64()} skipped {r.GetProperty("predicate").GetString()}"
             : $"{r.GetProperty("log_index").GetInt64()} honoured")) + "]";
         var actualRows = Rows(verified, indices, log);
-        var extra = verified.Refusal is null ? verified.Skipped.Where(s => !indices.Contains(s.LogIndex)).Select(s => s.LogIndex).ToArray() : [];
+        var extra = verified.Skipped.Where(s => !indices.Contains(s.LogIndex)).Select(s => s.LogIndex).ToArray();
         if (expectedRows != actualRows || extra.Length > 0)
             yield return $"{log.Name} rows: Expected rows: {expectedRows}  Actual: {actualRows}{(extra.Length > 0 ? " and skipped beyond the expected: " + string.Join(", ", extra) : string.Empty)}";
-
-        if (verified.Refusal is not null) yield break;
 
         var keys = expected.GetProperty("keys").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
         var actualKeys = keys.Keys.ToDictionary(k => k, k => Word(verified.Honoured.StatusNow(k)), StringComparer.Ordinal);
