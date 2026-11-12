@@ -82,6 +82,9 @@ public sealed class VerifiedLog
     public ImmutableArray<SkippedRow> Skipped() =>
         [.. _streams.Value.Keys.SelectMany(aggregate => Decided(aggregate).Skipped).OrderBy(r => r.LogIndex)];
 
+    /// <summary>How many lifecycle rows the verifier honours, over every stream: the audit's first number (errata G68, ruling 13).</summary>
+    public long HonouredCount() => _streams.Value.Keys.Sum(aggregate => (long)Decided(aggregate).Honoured.Length);
+
     /// <summary>The rows at or past <paramref name="treeSize"/> that the verifier does not honour: what the head signer's stop withholds on (R6.63).</summary>
     public ImmutableArray<SkippedRow> SkippedPast(long treeSize) => [.. Skipped().Where(r => r.LogIndex >= treeSize)];
 

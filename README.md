@@ -201,8 +201,11 @@ The first run that signs publishes the key to the log; every run that signs appe
 (errata G67, R6.63) a run signs only when the log has grown past the latest head this tool signed (the latest head that verifies
 under the key it holds; a head it cannot verify as its own, whatever keys the log lists, moves nothing) by an entry that is neither
 `log.head` nor `log.key`, and otherwise prints `unchanged`, appends nothing and exits 0, so a timer does not grow the log by its own output;
-it withholds the head and exits 6, naming the log indices, when a lifecycle row follows that head, which a person reads and
-covers by hand. Run it without the flag for a log-key rotation, which publishes a key on a log that may be quiet; the first run
+it withholds the head and exits 6, naming each log index, type and predicate, when a lifecycle row the Forum does not honour (R6.64: one
+that verifies under no published key) follows that head, which a person reads and covers by hand; a row the Forum honours does not stop it.
+Before covering one by hand, and after a restore, run `CURIA_EVENTS_POSTGRES=... curia-operator lifecycle-audit` (errata G68): it reads the whole
+log, reads no key and writes nothing, prints `honoured <h>  skipped <n>` and one line per skipped row (the first 100, never a payload member),
+and exits 7 when any row is skipped. Run it without the flag for a log-key rotation, which publishes a key on a log that may be quiet; the first run
 after a rotation has no head signed under the new key and measures from the start of the log.
 `GET /v1/log/head` shows the latest head and how far the log has grown past it.
 
