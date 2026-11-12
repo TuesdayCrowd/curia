@@ -58,6 +58,40 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
         await forum.AssertRestoredAsync(Ct);
     }
 
+    /// <summary>
+    /// SEQ6 (errata G69, R11.6 (add.)): the catalogue check reads the grant strictly. At rest on a migrated database it is empty; after <c>REVOKE INSERT</c> it names the columns
+    /// the Forum supplies; after a table-level <c>GRANT INSERT</c> (the shape <c>db/0001</c> had and a harness that heals at table level re-creates) it names <c>seq</c>, so a
+    /// predicate that reads a table-level grant as fine is red here. The grant is put back as the fact found it.
+    /// </summary>
+    [Fact]
+    public async Task R11_6_SEQ6_TheCatalogueCheckIsStrict()
+    {
+        var found = await forum.HoldsTableLevelInsertOnEventsAsync(Ct);
+        var problems = new List<string>();
+        try
+        {
+            await forum.RestoreInsertOnEventsAsync(tableLevel: false, Ct);
+            var rest = await forum.RestorationProblemsAsync(Ct);
+            if (rest.Length != 0) problems.Add($"at rest on the migrated grant: expected \"\", actual \"{rest}\"");
+
+            await forum.RevokeInsertOnEventsAsync(Ct);
+            var revoked = await forum.RestorationProblemsAsync(Ct);
+            if (!revoked.Contains("INSERT on the columns the Forum supplies is not granted", StringComparison.Ordinal))
+                problems.Add($"after REVOKE INSERT: expected 'INSERT on the columns the Forum supplies is not granted', actual \"{revoked}\"");
+
+            await forum.GrantInsertOnEventsTableLevelAsync(Ct);
+            var wide = await forum.RestorationProblemsAsync(Ct);
+            if (!wide.Contains("INSERT on events.seq is granted", StringComparison.Ordinal))
+                problems.Add($"after a table-level GRANT INSERT: expected 'INSERT on events.seq is granted', actual \"{wide}\"");
+        }
+        finally
+        {
+            await forum.RestoreInsertOnEventsAsync(found, CancellationToken.None);
+        }
+
+        Assert.True(problems.Count == 0, $"Expected: the check strict in both directions{System.Environment.NewLine}Actual:   {string.Join(" | ", problems)}");
+    }
+
     private static string Expected(SweptReply s, Func<SweptReply, bool> healthy) =>
         healthy(s)
             ? "2xx"

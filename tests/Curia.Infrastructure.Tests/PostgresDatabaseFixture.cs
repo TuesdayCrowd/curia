@@ -57,6 +57,9 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
     public string AppRoleConnectionString => _appRoleConnectionString
         ?? throw new InvalidOperationException($"{nameof(PostgresDatabaseFixture)} was not initialized.");
 
+    /// <summary>The throwaway application role's name, for a test that reads its grants from the catalogue.</summary>
+    internal string RoleName => _roleName;
+
     [SuppressMessage(
         "Security",
         "CA2100:Review SQL queries for security vulnerabilities",
