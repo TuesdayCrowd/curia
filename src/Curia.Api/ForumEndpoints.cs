@@ -3244,14 +3244,14 @@ public static class ForumEndpoints
             error.Type == BudgetErrors.GateUnavailableType ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status409Conflict,
             error);
 
+    /// <summary>The lifecycle verifier every decision from an agent's lifecycle goes through (errata G68, ruling 2), from the request's own services.</summary>
+    private static LifecycleVerifier VerifierOf(HttpRequest http) => http.HttpContext.RequestServices.GetRequiredService<LifecycleVerifier>();
+
     /// <summary>
     /// R9.52, R8.82 (errata G52): the one factory every route calls, and the one place the two store-fault types are given their status. Either type is
     /// <c>503</c> whatever status the caller chose, so a site that answers a use case's failed result <c>500</c> or a flag refusal <c>400</c> by default
     /// still serves a fault of a store as one.
     /// </summary>
-    /// <summary>The lifecycle verifier every decision from an agent's lifecycle goes through (errata G68, ruling 2), from the request's own services.</summary>
-    private static LifecycleVerifier VerifierOf(HttpRequest http) => http.HttpContext.RequestServices.GetRequiredService<LifecycleVerifier>();
-
     private static IResult Problem(int status, Error error)
     {
         if (StoreFaults.IsStoreFaultType(error.Type)) status = StatusCodes.Status503ServiceUnavailable;
