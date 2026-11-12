@@ -134,7 +134,7 @@ public sealed class KeysCommandSkippedTests
         var atIndex = stdout.Split('\n').Count(l => l.Contains($"log index {at.ToString(System.Globalization.CultureInfo.InvariantCulture)} ", StringComparison.Ordinal));
 
         WholeText.Same(
-            "exit 6; the second words; 1 line at the index; no MISSING",
+            "exit 6; the second words; 1 line(s) at the index; no MISSING",
             $"exit {exit}; {(PublishedClientWords.Says(stdout, words) ? "the second words" : "no such line: " + Lines(stdout, "SKIPPED"))}; {atIndex} line(s) at the index; "
             + (stdout.Contains("MISSING", StringComparison.Ordinal) ? "MISSING printed: " + Lines(stdout, "MISSING") : "no MISSING"));
     }

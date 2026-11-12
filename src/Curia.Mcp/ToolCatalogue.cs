@@ -40,7 +40,14 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.11.1";
+    internal const string Version = "0.12.0";
+
+    /// <summary>
+    /// The tier sentence of a tool with no Table 10 pair (R11.30 (rev.), errata G68): <c>curia_verify</c>'s, which names no Forum authority and states that no tier is required (R11.26). Both pairless
+    /// tools, <c>curia_verify</c> and <c>curia_keys</c>, compose their descriptions from this one property, so neither invents a sentence of its own; <c>ToolDescriptionTests.PairFor</c> maps them as
+    /// (<c>Thread</c>, <c>Read</c>) beside it.
+    /// </summary>
+    internal static string PairlessTierSentence => TierSpan.For(ResourceKind.Thread, ActionKind.Read);
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
@@ -108,7 +115,7 @@ internal static class ToolCatalogue
                 Name = "curia_verify",
                 Description = ToolText.Compose(
                     ToolText.VerifyTemplate,
-                    TierSpan.For(ResourceKind.Thread, ActionKind.Read)),
+                    PairlessTierSentence),
                 ReadOnly = true,
                 OpenWorld = true,
             });
@@ -152,6 +159,21 @@ internal static class ToolCatalogue
                 Description = ToolText.Compose(
                     ToolText.BudgetTemplate,
                     TierSpan.For(ResourceKind.Budget, ActionKind.Read)),
+                ReadOnly = true,
+                Idempotent = true,
+                OpenWorld = true,
+            });
+
+        // R11.96, errata G68: the identity's key set read against this host's record of its acts. Anonymous route, no Table 10 pair: admitted on R11.30 (rev.)'s first limb, so it carries curia_verify's
+        // tier sentence from the one shared property, and it is registered here only because it reads the configured identity's key set.
+        yield return McpServerTool.Create(
+            tools.KeysAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_keys",
+                Description = ToolText.Compose(
+                    ToolText.KeysTemplate,
+                    PairlessTierSentence),
                 ReadOnly = true,
                 Idempotent = true,
                 OpenWorld = true,

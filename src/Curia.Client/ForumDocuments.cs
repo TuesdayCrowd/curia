@@ -385,8 +385,8 @@ public sealed record ForumJwk(
 /// <param name="ApprovedKinds">The lifecycle kinds the Forum's build approves, or null when the key set names none.</param>
 /// <param name="EnabledKinds">The lifecycle kinds the Forum enables (<c>curia_lifecycle_kinds</c>), or null when the key set names none.</param>
 /// <param name="Skipped">
-/// The rows of the identity's stream the Forum does not act on (errata G68, R4.41: <c>curia_skipped</c>), in log order; <see langword="null"/> when the key set does not say. On the seam this is never read
-/// from the document, so it is always null; Task 5 parses it strictly.
+/// The rows of the identity's stream the Forum does not act on (errata G68, R4.41: <c>curia_skipped</c>), in log order; <see langword="null"/> when the key set does not say. Read as strictly as
+/// <c>curia_lifecycle</c> is.
 /// </param>
 /// <param name="SkippedTotal">How many rows the Forum skips in all (<c>curia_skipped_total</c>), or null when the key set does not say.</param>
 public sealed record KeySetDocument(
@@ -1348,7 +1348,47 @@ internal static class ForumDocuments
             enabled = Strings(kinds, "enabled");
         }
 
-        return Result<KeySetDocument>.Ok(new KeySetDocument(read!, lifecycle, approved, enabled));
+        var skipped = ReadSkipped(o);
+        if (!skipped.TryGetValue(out var listed, out var skippedError)) return Result<KeySetDocument>.Fail(skippedError!);
+
+        return Result<KeySetDocument>.Ok(new KeySetDocument(read!, lifecycle, approved, enabled, listed.Rows, listed.Total));
+    }
+
+    /// <summary>The most rows a key set lists (R4.41): the Forum's cap, held here so a document that lists more is not read as one.</summary>
+    internal const int MaxSkippedListed = 20;
+
+    /// <summary>
+    /// R4.41's two members, read as strictly as <c>curia_lifecycle</c> is. Neither present is a key set that does not say (both null); one without the other, a list that is not an array, an
+    /// entry that is not exactly <c>log_index</c> (a whole, non-negative number), <c>type</c> and <c>predicate</c> (strings), a list of more than 20, a total that is not a whole number or is below the
+    /// list's length, or a list shorter than the smaller of the total and 20, is a malformed response naming <c>curia_skipped</c>. An entry with a payload member is malformed too: the Forum never serves one.
+    /// </summary>
+    private static Result<(ImmutableArray<SkippedRowDocument>? Rows, long? Total)> ReadSkipped(JsonValue.Object o)
+    {
+        var rows = ClientJson.Member(o, "curia_skipped");
+        var total = ClientJson.Member(o, "curia_skipped_total");
+        if (rows is null && total is null) return Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Ok((null, null));
+
+        static Result<(ImmutableArray<SkippedRowDocument>? Rows, long? Total)> Malformed() =>
+            Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Fail(ClientErrors.ResponseMalformed("curia_skipped"));
+
+        if (rows is not JsonValue.Array array || total is not JsonValue.Number { Value: var count }
+            || !double.IsInteger(count) || count < 0 || count > long.MaxValue
+            || array.Items.Length > MaxSkippedListed || array.Items.Length > count || array.Items.Length < Math.Min(count, MaxSkippedListed))
+            return Malformed();
+
+        var listed = ImmutableArray.CreateBuilder<SkippedRowDocument>(array.Items.Length);
+        foreach (var item in array.Items)
+        {
+            if (item is not JsonValue.Object row || row.Members.Length != 3
+                || ClientJson.WholeNumber(row, "log_index") is not { } index || index < 0
+                || ClientJson.String(row, "type") is not { } type
+                || ClientJson.String(row, "predicate") is not { } predicate)
+                return Malformed();
+
+            listed.Add(new SkippedRowDocument(index, type, predicate));
+        }
+
+        return Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Ok((listed.ToImmutable(), (long)count));
     }
 
     internal static Result<ImmutableArray<ForumJwk>> ReadJwks(JsonValue value)

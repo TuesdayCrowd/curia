@@ -107,7 +107,7 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
     }
 
     /// <summary>
-    /// WAF31. <c>curia-mcp</c> is the version the newest entry that bumped it names (G53's R11.74, 0.9.4, when written; G54's R11.75, 0.9.5; G55's R11.77, 0.9.6; G56's R11.78, 0.9.7; G58's R11.81, 0.10.0; G59's R11.83, 0.10.1, since the client-checks PR; G60's R11.84, 0.10.2, since the reference PR; G61's R11.85, 0.10.3, since the reply-board PR; G62's R11.87, 0.10.4, since the names PR): the catalogue reports it, the one reader of a version
+    /// WAF31. <c>curia-mcp</c> is the version the newest entry that bumped it names (G53's R11.74, 0.9.4, when written; G54's R11.75, 0.9.5; G55's R11.77, 0.9.6; G56's R11.78, 0.9.7; G58's R11.81, 0.10.0; G59's R11.83, 0.10.1, since the client-checks PR; G60's R11.84, 0.10.2, since the reference PR; G61's R11.85, 0.10.3, since the reply-board PR; G62's R11.87, 0.10.4, since the names PR; G67's R11.94, 0.11.1; G68's R11.95, 0.12.0, which this fact now reads): the catalogue reports it, the one reader of a version
     /// (<c>PublishedReadersLastWords.Version()</c>, which the build re-points from R11.72's paragraph to R11.74's) reads it, the README says it, and the two
     /// hand-written twins (<c>BudgetToolTests</c>, <c>IndexLagEntryTests</c>) have it as their newest literal. The version is read from G53 here with a pattern built
     /// at run time, so RLW40's scan of <c>GeneratedRegex</c> readers is not given a second reader.
@@ -116,9 +116,9 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
     public void R11_74_WAF31_CuriaMcpIsTheVersionG53NamesByTheOneParserThePinsAndTheTwins()
     {
         var named = new Regex("`curia-mcp` is (" + @"\d+\.\d+\.\d+" + ")", RegexOptions.CultureInvariant)
-            .Match(PublishedAcceptBudget.Paragraph("**R11.94**")) is { Success: true } m
+            .Match(PublishedAcceptBudget.Paragraph("**R11.95**")) is { Success: true } m
             ? m.Groups[1].Value
-            : throw new InvalidOperationException("the errata's R11.94 names no curia-mcp version");
+            : throw new InvalidOperationException("the errata's R11.95 names no curia-mcp version");
 
         var problems = new List<string>();
         void Expect(string where, string actual)

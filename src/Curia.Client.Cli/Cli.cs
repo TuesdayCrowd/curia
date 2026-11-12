@@ -314,6 +314,21 @@ internal static class Output
         Console.Error.Write(frame.ToString());
     }
 
+    /// <summary>The report <c>curia keys</c> prints (errata G68, R11.96): built by <see cref="KeysReport"/> from this client's own lines and framed values, so it is written as it is.</summary>
+    internal static void Keys(KeysReading reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+        Console.Out.Write(reading.Text);
+    }
+
+    /// <summary>The line that says why <c>curia keys</c> could make no comparison, on standard error, and the exit that goes with it.</summary>
+    internal static int CouldNotCompare(KeysReading reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+        Console.Error.WriteLine(reading.CouldNotCompare);
+        return ExitCode.ForumFault;
+    }
+
     internal static void Passages(Reading reading)
     {
         ArgumentNullException.ThrowIfNull(reading);

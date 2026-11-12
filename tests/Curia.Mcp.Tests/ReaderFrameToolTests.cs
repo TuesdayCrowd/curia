@@ -158,7 +158,7 @@ public sealed class ReaderFrameToolTests : IDisposable
             await InvokeAsync(probe, name);
             if (!probe.Requests.Contains("POST /oauth/token"))
             {
-                Assert.Contains(name, ReadOnlyToolNames());
+                Assert.True(ReadOnlyToolNames().Contains(name) || AnonymousIdentityReads.Contains(name), $"{name} requests no token and is not a tool the catalogue registers without an identity");
                 return;
             }
         }
@@ -578,6 +578,7 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
                 "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
                 "curia_budget" => await tools.BudgetAsync(ct),
+                "curia_keys" => await tools.KeysAsync(ct),
                 "curia_acts" => await tools.ActsAsync(ct),
                 "curia_resend" => await tools.ResendAsync(PlantKeptAct(log, agent), ct),
                 "curia_discard" => await tools.DiscardAsync(PlantKeptAct(log, agent), ct),
@@ -612,6 +613,12 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
         var writer = new ForumWriter(agent!, new ForumSession(log.Client(), agent!, log.Store, TimeProvider.System), TimeProvider.System);
         return (new ForumTools(log.Client(), MarkingMode.None, new HeadStore(_home), writer), agent!);
     }
+
+    /// <summary>
+    /// NAMED EXEMPTION (errata G68, Task 5): <c>curia_keys</c> reads the key-set route, which is anonymous, so it requests no token and cannot meet a token refusal; it is registered only with an identity
+    /// because it reads that identity's key set. Every other hostile-Forum fact in this class holds it (it is not exempt from them).
+    /// </summary>
+    private static readonly string[] AnonymousIdentityReads = ["curia_keys"];
 
     /// <summary>The tools the catalogue registers when no identity is configured.</summary>
     private static string[] ReadOnlyToolNames()

@@ -259,6 +259,9 @@ internal sealed class StubLog : IDisposable
     /// <summary>Serve the key set with no <c>curia_log_index</c>: R6.54's check has nowhere to look.</summary>
     internal bool KeySetNamesNoLogIndex { get; set; }
 
+    /// <summary>Members appended to the key set <c>/v1/jwks</c> serves (errata G68, R4.41: <c>curia_skipped</c> and <c>curia_skipped_total</c>), or null for a key set that carries neither.</summary>
+    internal string? SkippedMembersJson { get; set; }
+
     /// <summary>
     /// Serve the key as compromised (R6.57): the declaration's log index and its <c>from_index</c>, as
     /// <c>curia_compromised_log_index</c> and <c>curia_disputed_from</c>. The Forum's word on the read path.
@@ -1354,12 +1357,13 @@ internal sealed class StubLog : IDisposable
             ? "\"curia_status\":\"compromised\",\"curia_compromised_log_index\":" + c.Declaration.ToString(CultureInfo.InvariantCulture)
                 + ",\"curia_disputed_from\":" + c.From.ToString(CultureInfo.InvariantCulture)
             : "\"curia_status\":\"active\"";
-        return $$"""
+        var keySet = $$"""
         {"keys":[{"kty":"EC","crv":"P-256","alg":"ES256","kid":"{{AgentKid}}",
         "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}",
         "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}},{{status}}}],
         "curia_lifecycle_kinds":{"approved":[],"enabled":[]},"curia_lifecycle":[{{(ServedLifecycle is { } served ? string.Join(",", served) : string.Join(",", LifecycleIndices))}}{{(ForeignLifecycleIndex is { } foreign ? "," + foreign.ToString(CultureInfo.InvariantCulture) : string.Empty)}}]}
         """.ReplaceLineEndings(string.Empty);
+        return SkippedMembersJson is { } skipped ? keySet[..^1] + "," + skipped + "}" : keySet;
     }
 
     internal string LogJwksJson()

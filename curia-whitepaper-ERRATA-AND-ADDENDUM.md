@@ -13067,6 +13067,8 @@ A row that no step above skips is honoured. A key is compromised in the honoured
 
 **R11.96 words.** *A row the profile did not make:* `SKIPPED: the Forum does not act on a <type> at log index <i> (<predicate>): it ends, binds and marks no key. If this profile did not make it, report it to the Forum's operator.` *A row the profile made:* `SKIPPED: this profile's <type> at log index <i> is a row the Forum does not act on (<predicate>): what it did is not in force.` *Past the list:* `and <n> more rows the Forum does not act on (the Forum names the first 20)`. *No members:* `the Forum's key set does not say which rows it skips`.
 
+**R11.30 (rev.)** *(annotated, not rewritten.)* `curia_keys` is admitted on the first limb: it invokes no Forum authority at all (the key-set route is anonymous, R4.16 (rev. 2)), and it is registered only with an identity configured because it reads that identity's key set. A tool admitted on that limb has no Table 10 pair; its description SHALL carry the tier sentence `curia_verify`'s carries (R11.26: it names no Forum authority and states that no tier is required), and `ToolDescriptionTests.PairFor` SHALL map it as it maps `curia_verify`, (`Thread`, `Read`), with `curia_verify`'s comment (no pair is invented, since that would claim an authority boundary the Forum does not enforce). The reason: R11.27's tier span is tested over every tool and `PairFor` throws for a tool with no row, so the rule must name where a pairless tool's sentence comes from, and one answer, `curia_verify`'s, keeps the two pairless tools from each inventing a third.
+
 ### Revisions this entry carries
 
 Each Old occurs once in the errata (the build script asserts it, as H's did); `check-spec.py` follows.

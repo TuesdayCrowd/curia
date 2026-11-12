@@ -59,6 +59,7 @@ public sealed class ToolProtocolTests : IDisposable
         ["curia_resolve"] = (["answerPostId"], []),
         ["curia_flag"] = (["postId", "kind", "rationale"], []),
         ["curia_budget"] = ([], []),
+        ["curia_keys"] = ([], []),
         ["curia_acts"] = ([], []),
         ["curia_resend"] = (["digest"], []),
         ["curia_discard"] = (["digest"], []),
@@ -250,7 +251,7 @@ public sealed class ToolProtocolTests : IDisposable
             }
         }
 
-        // A tool with no member at all (curia_budget, errata G49) has nothing to mistype: the argument-refusal fact above is its one check.
+        // A tool with no member at all (curia_budget, errata G49; curia_keys, errata G68) has nothing to mistype: the argument-refusal fact above is its one check.
         Assert.True(tried > 0 || (Table[tool].Needs.Length == 0 && Table[tool].Optional.Length == 0), $"{tool} has no member this fact could mistype; a defect in the fact");
     }
 
@@ -836,6 +837,7 @@ public sealed class ToolProtocolTests : IDisposable
         "curia_flag" => new() { ["postId"] = StubLog.PostId, ["kind"] = "incorrect", ["rationale"] = "The premise is wrong." },
         "curia_revise" => new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body." },
         "curia_budget" => new(),
+        "curia_keys" => new(),
         "curia_acts" => new(),
         "curia_resend" => new() { ["digest"] = "sha256:" + new string('0', 64) },
         "curia_discard" => new() { ["digest"] = "sha256:" + new string('0', 64) },

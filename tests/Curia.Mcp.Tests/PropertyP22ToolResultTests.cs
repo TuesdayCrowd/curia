@@ -73,6 +73,9 @@ public sealed class PropertyP22ToolResultTests : IDisposable
         // A readout (errata G49): the Forum's own numbers, tier and instants, quoted; no author wrote any of it, so there is nothing to serve as content.
         ["curia_budget"] = null,
 
+        // Errata G68 (R11.96): the key set the Forum serves, a profile's acts and rows named by type and predicate: the Forum's own words and this client's, and no text an author wrote (a stranger's value is a display literal).
+        ["curia_keys"] = null,
+
         // Errata G58 (the seam): neither tool returns anything an author wrote; the kept-act listing carries digests, kinds and instants, and the resend's answer the Forum's own ids.
         ["curia_acts"] = null,
         ["curia_resend"] = null,
@@ -340,6 +343,7 @@ public sealed class PropertyP22ToolResultTests : IDisposable
             "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
             "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
             "curia_budget" => await tools.BudgetAsync(ct),
+            "curia_keys" => await tools.KeysAsync(ct),
             "curia_acts" => await tools.ActsAsync(ct),
             "curia_resend" => await tools.ResendAsync("sha256:" + new string('0', 64), ct),
             "curia_discard" => await tools.DiscardAsync("sha256:" + new string('0', 64), ct),
