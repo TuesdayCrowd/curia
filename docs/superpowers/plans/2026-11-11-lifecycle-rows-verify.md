@@ -1099,6 +1099,134 @@ Checked against `lifecycle-rows-verify` at 1f82259c: `TokenEndpoint.cs` lines 12
 
 **Files written:** `.superpowers/sdd/2026-11-11-planN/amendment-5.md` (this file), plus two scratch copies under the session scratchpad (`e.md`, `plan.md`). No tracked file edited; no version-control write.
 
+## Amendment 6 (PR N, 2026-11-12; the architect's ruling on Task 4b's stop: LRV31's 503 `curia/ingest/contended`)
+
+Checked against `lifecycle-rows-verify` at 26c90b11: `src/Curia.Infrastructure/PostgresEventStore.cs` (lines 34, 200-240, 290-300, 332-345, 365-385), `IEventStore.cs` (the `ReadByAggregateAsync` doc), `ShadowRowTests.cs`, `KeyActs.cs:148`, `LogBoundKeys.cs:207`, `AttestOwner.cs:112-116`, `AcceptAnswer.cs:100-113`, `ApplyModeration.cs:191`, `PublishDeclarationKey.cs:51`, `InMemoryEventStore.cs`, `db/0001` (`seq BIGINT GENERATED ALWAYS AS IDENTITY`), and the errata at `origin/main` (G69, R6.56, R6.60). I ran no suite. Ruling numbers continue from Amendment 5's 71. Probe names continue from the plan's highest, LRV33 (computed by grep over the plan and amendments 1 to 5 just now; recompute before writing).
+
+### The ruling
+
+**72. Option (1), widened from two queries to three, plus the by-aggregate read. Not (2), not (A), not (B).** `PostgresEventStore.cs` is in scope for exactly one purpose: *every query that decides or returns an aggregate's events reads the log, and the log is the rows at `seq > 0`*. The task report counted two `count(*)` queries. There are **three** statements that read by aggregate, and the third matters more than the report knew:
+
+| line (26c90b11) | statement | today | after |
+|---|---|---|---|
+| 202 | stream version: `SELECT count(*) ... WHERE aggregate_id = @agg` | counts a row at seq <= 0 | `AND seq > 0` |
+| 223 | condition version: same text | counts it | `AND seq > 0` |
+| 340 | `ReadByAggregateAsync`: `SELECT ... WHERE aggregate_id = @agg ORDER BY seq` | returns it | `AND seq > 0` |
+
+**Why the third is not optional.** Four application readers take a version *from `ReadByAggregateAsync`* and hand it to the store's stream check: `AttestOwner.cs:112-116` (`history.Count`), `AcceptAnswer.cs:100-113` (`events.Count`), and, for decisions on one aggregate, `ParentLookup.cs:30` and `RaiseFlag.cs:139`. Today those two writers are *consistent* with the store (both unfiltered). Apply the report's two-line change alone and they become permanently skewed in the opposite direction: attestation and acceptance would answer `concurrency-conflict` forever on an aggregate carrying a planted row, and a retry loop (`AttestOwner`'s `Attempts`) re-reads the same skewed number. The builder's option (1) as stated fixes the posts and breaks attest and accept. The three filters are one change; applying fewer than three is a defect, not a smaller fix.
+
+**73. Why "every read is the whole log forward from 0" is the right basis, and the consistency argument.** After this amendment there is one definition of what the Forum can see of the log: *rows at `seq > 0`*. `ReadForwardAsync` (`WHERE seq > @after`, callers pass `EventSequence.Zero`), the guard's delta count and read (`seq > @after`, `After` is a sequence the Forum read), `ReadAllAsync`, and now the by-aggregate read and both version counts. Before it, the by-aggregate read and the counts used a different definition ("every row of the aggregate") from every whole-log read, and Amendment 5's ruling 36 had already moved every lifecycle *decision* onto the whole-log definition. The store checking the other definition is the seam the builder found; it is not a new class, it is the old one (two internally consistent subsystems, the register's named failure mode) at the last place not yet swept.
+
+**74. A row at `seq <= 0` does not count toward an aggregate's version, and nothing the Forum does reads it.** The version of a stream is the number of its events *in the log*. The log is the positions the database's identity assigns: it starts at 1 (`GENERATED ALWAYS AS IDENTITY`), a position is a leaf index (R6.47), every proof, every signed head's `tree_size` and every paged read is keyed on `seq > cursor`, and G69's measurement says it directly: *no log entry names the row and no inclusion proof of it exists*. A count that includes it counts something no client can verify, and lets a role that can reach the table (G69 non-property (b): the owner, a superuser) change what every honest append expects. The same filter also closes G69 finding 2 for the by-aggregate read (a negative `seq` answers `500` to every read of its aggregate): the row is simply not selected.
+
+**What this costs, stated.** A planted row at `seq <= 0` becomes inert, not detected. G69 non-property (c) ("a row already planted is not removed ... not detectable by its seq") stands, and is slightly worse for an operator, because the by-aggregate read no longer shows the row as a symptom. That is the right trade (the harm was never the row's existence, it was the Forum failing on it) but it must not be called a detector: the detector is PR S's start-up check and the owner's pre-check, and LRV31's docstring already says so. **Lead (register, not this PR): `curia-operator lifecycle-audit` or the start-up scan counts rows at `seq <= 0` as the admin role and says so.** The application role can `SELECT` them (`WHERE seq <= 0` is a read), so the start-up check could log one at Error with no new grant.
+
+**75. Why not (2), a `db/` rule rejecting `seq <= 0` for every role.** Not wrong, and it is the better *additional* control, but it is not the fix: (a) it changes `db/`, which is the owner's migration step (PR S's `0006` is itself not yet applied to the hosted database), and the ruling would then need a pre-check for hosted rows; (b) it does not touch a row already planted (non-property (c)), so a database holding one still skews, and the store would still need the filter; (c) a `CHECK (seq > 0)` binds every role including a superuser's `INSERT`, which would make LRV31's admin plant impossible: the probe of "the Forum ignores a forged row" would have to drop the constraint first, and would then test a state the database forbids; (d) the owner or a superuser can drop the constraint, so it narrows G69 (b) and does not close it. File it as a lead for a later PR after the owner decides; it does not gate this one. If it ever lands, the store filter stays: the reader's definition of the log must not depend on a constraint's presence.
+
+**76. Why not (A).** Reading the version by aggregate means the decision reads one aggregate by itself, which LRV11 (`LRV11_NoLifecycleDecisionReadsAnAggregateByItself`) forbids and ruling 36 settled: a statement's `prev` and a declaration's `from_index` are positions in the whole log, and a version read from a second instant is the race R6.56 exists to close. It would also make the decision *see* the forged row (the by-aggregate read returns it), which is the opposite of what LRV31 asserts.
+
+**77. Why not (B).** A retry that re-conditions on the conflict's reported `actual` converges the *post* path to the store's number, so the skew would be built into the version the Forum decides on (the forged row would count, permanently), the type carries `actual` only in detail text (ruling 27's own objection), the route, `SubmitAttempt` and the pipeline would carry an override version, and every lifecycle writer and `AttestOwner`/`AcceptAnswer`'s analogue would still be skewed. It makes the symptom stop and the cause stay. Ruling 27 builds (b) only if LN12's rule fires; this is not that rule, and the measurement ruling 27 asked for (LN12) is unaffected by this change.
+
+**78. Scope: `PostgresEventStore.cs` is in scope for these three lines and one constant, and nothing else.** The plan's absence list ("no edit to `PostgresEventStore.cs`, `db/`") is amended: `PostgresEventStore.cs` may change by the three predicates and by one private constant; `db/`, `IEventStore.cs`'s signatures, the guard, the lock, `InMemoryEventStore` and every other statement stay as they are. `git diff --stat origin/main -- src/Curia.Infrastructure/PostgresEventStore.cs` at Task 9 shows at most 4 added/changed lines plus the comment and doc line below. R4.38's gate, CS-15's write surface (`EventStoreWriteSurfaceTests`) and the append path's lock are not touched; the INSERT statement at `:441` is not touched.
+
+### The exact change
+
+`src/Curia.Infrastructure/PostgresEventStore.cs`, beside `SelectColumns` (line 34):
+
+```csharp
+    /// <summary>
+    /// The log is the rows at positions above zero: a position is a leaf index (R6.47), the identity starts at 1, and every whole-log read, proof and head is keyed on <c>seq &gt; cursor</c>.
+    /// A statement that decides or returns an aggregate's events says so here, so that a version, a read by aggregate and a forward read are of one set of rows (errata G68, PR N's ruling 72).
+    /// A row at <c>seq</c> 0 or below is not in the log; it is not counted, read or honoured (G69 non-property (b) and (c): it is inert, not detected).
+    /// </summary>
+    private const string InTheLog = "seq > 0";
+```
+
+Line 202 (stream version), 223 (condition version), 340 (by-aggregate read):
+
+```csharp
+$"SELECT count(*) FROM {_qualifiedTable} WHERE aggregate_id = @agg AND {InTheLog};"
+$"SELECT count(*) FROM {_qualifiedTable} WHERE aggregate_id = @agg AND {InTheLog};"
+$"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE aggregate_id = @agg AND {InTheLog} ORDER BY seq;"
+```
+
+Interpolating a `const` is the existing pattern (`_qualifiedTable` is the interpolated text the CA2100 suppressions already justify; a compile-time constant adds nothing a caller supplies, so no new suppression is needed, and the builder says so if the analyzer disagrees). The `events (aggregate_id, seq)` index (`EnrollAgent.cs:279`'s comment names it) serves `aggregate_id = @agg AND seq > 0` as before; no measurement is owed beyond the existing append-throughput check.
+
+`src/Curia.Application/Ports/IEventStore.cs`, the `ReadByAggregateAsync` doc (line 49-50): add one sentence, **"Events at a position at or below zero are not in the log and are not returned."** The doc is a promise every adapter keeps (R11.4); the in-memory adapter keeps it by construction (its `seq` is `count + 1`).
+
+Nothing else changes in production code. The lifecycle writers need no edit: `KeyActs.ReadLifecycleAsync:148`, `LogBoundKeys.ReadAsync:207`, `ApplyModeration.cs:191`, `PublishDeclarationKey.cs:51` (`acta.DeclarationKeys.Length`, from the fold) all count the forward read, which was always the right basis; the store is what moves to meet them. `AttestOwner`, `AcceptAnswer`, `ParentLookup` and `RaiseFlag` read by aggregate and are fixed by the third predicate. `Curia.Operator/Program.cs:1113` takes `expectedCount` from its caller, which counts the whole-log read (verify when Task 5's operator work is read; it is the same basis).
+
+### What else counts by aggregate (the grep, as asked)
+
+`git grep -n "count(\*)\|aggregate_id"` over `src` at 26c90b11: the only `count(*) ... aggregate_id` statements are the store's lines 202 and 223. `:294` counts `WHERE seq > @after` (no aggregate; already in the log). `PostgresVectorIndex.cs:137` counts by `model`. `PostgresAggregateSummaryProjection` stores `event_count`, `first_seq`, `last_seq` in a *derived* table folded from forward reads, so it is on the right basis already (it is a read model and rebuilds by replay). Application-side counts by aggregate: `LogBoundKeys:207`, `KeyActs:148`, `ApplyModeration:191` (forward log) and `AttestOwner:116`, `AcceptAnswer:113` (by-aggregate read). That is the complete list; none is left on the old basis after the three predicates.
+
+### Probes, red first
+
+Each is named by what it would catch. All plant as the **admin** data source (the application role cannot, after `db/0006`; Infrastructure tests have `fixture.AdminDataSource`, Api tests `forum.ConnectionString`). A row is planted at seq 0 and, in a second row of each theory, at -1, because the negative case answers `500` today and is a distinct failure.
+
+**LRV34 (Infrastructure, red on the unmodified tree): the three bases agree.** On an isolated schema, append two events to aggregate A and plant a `seq` 0 and a `seq` -1 row on A as admin. Assert from three routes that do not share a query: `ReadByAggregateAsync(A).Count`, `ReadAllAsync().Count(e => e.AggregateId == A)`, and a raw `SELECT count(*) FROM events WHERE aggregate_id = 'A' AND seq > 0` over the admin connection, all equal 2. **Unmodified: `ReadByAggregateAsync` throws or returns 3 and 4** (the -1 row answers a read fault, the `500` of G69 finding 2). Then, the version the store enforces: `AppendAsync(A, expected 2, ...)` succeeds; on a fresh schema with the same plant, `expected 3` and `expected 1` are both refused with `concurrency-conflict`. **Unmodified: `expected 2` is refused (the store counts 3).** The expectation `2` is derived from the raw SQL, not from `InTheLog`.
+
+**LRV35 (Infrastructure, red): the condition's basis.** As LRV34, with the planted rows on a *condition* aggregate C and the append on a new aggregate P at `AggregateVersion.New`: `AppendAsync(P, New, [e], new StreamCondition(C, 2))` succeeds and `StreamCondition(C, 3)` answers `condition-conflict` carrying `actual` 2. Unmodified: it succeeds only at 3. This is the 503's cause stated as a store test, with no Forum in front of it.
+
+**LRV36 (Api, existing LRV31 plus two siblings): the post path, through the Forum.** LRV31 itself goes green (its docstring's "a row only the by-aggregate read can see" is rewritten: after this amendment *no* read sees it). Add the sibling at seq -1 (unmodified: `500`/`503`) and a sibling that plants on the victim and asks twice (two posts by the same author; a permanent skew shows on the second too). Expected string is the same whole-text compare LRV31 uses.
+
+**LRV37 (Application/Api, the writers; this is the probe that proves they are not skewed).** A theory over the six writers, each driven through its real entry point against a Postgres-backed store with the permissive lifecycle gate (the fixture's existing seam), the planted row on the aggregate that writer appends to:
+
+| writer | entry point | aggregate planted | expected |
+|---|---|---|---|
+| rotate | `RotateKey` | the identity's | success, one new row |
+| retire | `RetireKey` | the identity's | success |
+| declare compromise | `DeclareCompromise` | the identity's | success |
+| attest owner | `AttestOwner` | the identity's | success (the `ReadByAggregate` path) |
+| accept an answer | `AcceptAnswer` | the thread's | success |
+| moderation record | `ApplyModeration` | the post's | success |
+| post (ingest) | `POST /v1/posts` | the author's stream (condition) | `201` (LRV31) |
+| enrol | `EnrollAgent` | the new identity's | success: a planted row on an unenrolled identity no longer reads as "already enrolled" |
+
+The expectation is not "no exception"; it is **the log grew by exactly the writer's rows, read by `WHERE seq > 0` raw SQL, and the writer's statement verifies** (rotate's, retire's and declare's by `curia-testis`-compatible `LifecycleVerifier` over the whole-log read; attest's by the standing projector). A control row of the theory plants nothing and shows the same numbers, so a skew that the fix does not touch shows as a difference between the planted and control arms and not as a bare red.
+
+**LRV38 (the falsification of LRV37's third predicate, and the reason the amendment says three, not two).** On the unmodified tree LRV37's `attest owner` and `accept an answer` rows are **green**: both sides are unfiltered, consistent. A probe that is red on the unmodified tree is not available for them. They are red only on the **builder's two-line partial fix** (predicates at 202 and 223, not 340): `AttestOwner` answers `concurrency-conflict` forever, `AcceptAnswer` the same. **Procedure:** apply the two predicates only, run LRV37, expect exactly those two rows red with `concurrency-conflict`, record the output, then apply the third and watch them green. Without this run those two rows are discharged-but-not-falsified, the dangerous state.
+
+**LRV39 (Application, in-memory): the contract line.** Add to `EventStorePortContractTests` a test that `ReadByAggregateAsync` returns exactly the events appended and that a stream's version equals that count; the in-memory arm cannot plant a row (its `seq` is `count + 1`), so it is a control of the contract, not a probe of the filter, and its docstring says so. **The Postgres arm cannot be the same test either**: it inherits the base class, which appends through the port and so cannot plant. The planting probes (LRV34, LRV35) live in `PostgresEventStorePositionRowTests` (new file, Infrastructure, `fixture.AdminDataSource`), and a comment on LRV39 names that file as the place the filter is pinned.
+
+**LRV40 (Architecture, IL fence; optional if it costs more than a day).** Every string constant in `PostgresEventStore` that contains `aggregate_id` also contains `seq > 0` (or is the `INSERT`). Red when any one predicate is removed. Cheaper than the three behavioural cases for the *next* statement someone adds, and it derives from the IL, not from the source the filter was written in. If skipped, the falsification table below carries the load.
+
+### Falsification table (each row must be run; none is a restatement)
+
+| revert | expect red | note |
+|---|---|---|
+| remove `AND seq > 0` from line 202 only | LRV34's `expected 2` assertion; LRV37 every writer row on the stream version (rotate, retire, declare, enrol) | the post path stays green (it is conditioned, not versioned, on the plant's aggregate); that asymmetry is why LRV34 exists |
+| remove it from line 223 only | LRV35; LRV36/LRV31 (the 503) | reproduces Task 4b's exact failure |
+| remove it from line 340 only | LRV34's by-aggregate read (and the -1 row's `500`); LRV37's `attest owner` and `accept an answer` rows **only when 202/223 are filtered** | see LRV38 |
+| all three removed | everything above; LRV31 red with `503 curia/ingest/contended` | the control build |
+
+Record each row's actual failing probe name, its text, and the restore (by a plain copy of the kept file, then rebuild with `--no-incremental` and one unpatched run, per the project's falsify-restore rule; never `git checkout`).
+
+### What the errata must say (Task 8, G68's entry; unfiled, not allocated here)
+
+- **Requirement text, proposed, number allocated at filing from the errata's highest in its section, re-read immediately before the edit:** *The version of an aggregate's stream SHALL be the number of its events at positions above zero, and a read by aggregate SHALL return those events; a row at a position at or below zero is not in the log and SHALL be neither counted, returned, nor honoured by any decision or append. The reason: a position is a leaf index (R6.47), every proof, head and paged read is keyed on `seq > cursor`, and a version counted over a different set of rows from the one every decision reads makes every honest append against an aggregate carrying such a row fail, permanently; the row was never in the log, so it cannot be allowed to move what the log's own appends expect.*
+- **G69 amendment line (in G68's entry, as a cross-reference, not an edit of G69):** G69's finding 3 said the by-aggregate read returns a row at `seq` 0; after this entry it does not, a forged row at `seq` <= 0 is inert (not counted, not read, not honoured, not detected), and non-property (c) stands.
+- **R6.56 qualification:** the stream's version and the condition's are counted over the same rows the decision read (the whole log forward from 0).
+- **Register lead:** rows at `seq` <= 0 are inert and still undetected; a start-up count (EventId at Error) and/or `lifecycle-audit`'s admin read; and `db/` `CHECK (seq > 0)` as a defence in depth for the owner's decision (ruling 75). Neither in this PR.
+
+### Orders to the builder (Task 4c)
+
+1. Write LRV34, LRV35 (new `PostgresEventStorePositionRowTests`), run them on the unmodified tree, and record the red text. LRV34's by-aggregate arm and `expected 2` arm and LRV35 must be red before any production edit.
+2. Apply predicates at 202 and 223 **only**; run LRV37 and record exactly which rows are red (LRV38: expect `attest owner` and `accept an answer`). Then apply the third predicate and the `IEventStore.cs` sentence; run LRV34 to LRV37 and LRV31 and its siblings green.
+3. Run the falsification table; each revert restored by plain copy with the mtime bumped.
+4. Re-run the whole Application, Infrastructure and Architecture suites in **both** configurations (the Architecture suite is configuration-dependent), the Api `ShadowRowTests`, `HeadsSignedUnattendedTests`, `FaultedStoreSweepTests`, and the replay drill (R11.9), then the Task 5 probes that were waiting on LRV31.
+5. `LRV31`'s docstring is rewritten (the "only the by-aggregate read can see" premise is gone). Its expected string stands.
+6. Do not touch the `INSERT` at `:441`, the lock, the guard, `db/`, or `InMemoryEventStore`. If any other statement in the store needs a predicate, stop and report; the grep above says none does.
+7. The count of production lines in `PostgresEventStore.cs` and `IEventStore.cs` is stated in the report (expected: one constant, three predicates, one doc sentence).
+
+### What I did not check
+
+I did not run any suite, the planted-row scenarios, or the proposed probes; every "unmodified: red" above is a derivation from the code and the task report, and **LRV34's by-aggregate read arm on a -1 row in particular (a `500` or a thrown fault) is G69's measurement, not mine**: run it and record what it actually says before relying on the prediction. I did not read `ReadRowsAsync`, `ParentLookup`, `RaiseFlag`'s use of the history beyond the line that takes it, the Operator's `Program.cs` callers of `AppendAsync` (only the helper's signature at `:1113`), `EnrollAgent`'s version path at runtime, `FaultableForumFixture`, or `AdminDataSource`'s exact API in the Infrastructure fixture. I did not check whether `PostgresAggregateSummaryProjection`'s fold counts by a by-aggregate read or by the forward read (I read its columns, not its fold). I did not check whether `ShadowRowTests`' victim has the stream of two events I assume. The LRV numbers 34 to 40 were computed against the plan and amendments as they are now (highest LRV33); verify before writing. Whether the C# analyzer flags the interpolated `const` in a `NpgsqlCommand` (CA2100) is unchecked.
+
+### Files written
+
+`.superpowers/sdd/2026-11-11-planN/amendment-6.md` (this file); scratch copy a scratch file (a `git show` of the store, outside the session scratchpad: it should have been under it). No tracked file edited, no version-control write, no state-changing command run.
+
 ## Tasks
 
 ### Task 0: Re-read, operate the unmodified tree, write the rules first
