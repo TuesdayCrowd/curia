@@ -101,7 +101,8 @@ public class FaultableForumFixture : ForumFixture
         services.AddSingleton(sp => new FaultableKeyStore(sp.GetRequiredService<PostgresAgentKeyStore>(), sp.GetRequiredService<PostgresAgentKeyStore>()));
         services.AddSingleton<IAuthorKeyRegistry>(sp => sp.GetRequiredService<FaultableKeyStore>());
         services.AddSingleton(sp => new LogBoundKeys(
-            sp.GetRequiredService<FaultableKeyStore>(), sp.GetRequiredService<FaultableKeyStore>(), sp.GetRequiredService<IEventReader>()));
+            sp.GetRequiredService<FaultableKeyStore>(), sp.GetRequiredService<FaultableKeyStore>(), sp.GetRequiredService<IEventReader>(),
+            sp.GetRequiredService<LifecycleVerifier>()));
     }
 }
 

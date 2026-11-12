@@ -26,13 +26,16 @@ public sealed class DeclareCompromise
 {
     private readonly IEventStore _events;
     private readonly UlidGenerator _ids;
+    private readonly LifecycleVerifier _verifier;
 
-    public DeclareCompromise(IEventStore events, TimeProvider clock)
+    public DeclareCompromise(IEventStore events, LifecycleVerifier verifier, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(verifier);
         ArgumentNullException.ThrowIfNull(clock);
 
         _events = events;
+        _verifier = verifier;
         _ids = new UlidGenerator(clock);
     }
 
@@ -53,7 +56,7 @@ public sealed class DeclareCompromise
         // The stream's version, before the log is read; then the log and the identity's lifecycle.
         if (!(await KeyActs.ReadStreamAsync(_events, agent, ct).ConfigureAwait(false)).TryGetValue(out var stream, out var streamError))
             return Result<CompromiseRecorded>.Fail(streamError!);
-        if (!(await KeyActs.ReadLifecycleAsync(_events, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
+        if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
             return Result<CompromiseRecorded>.Fail(lifecycleError!);
         if (read!.LatestIndex is not { } latest)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.UnknownKey());
@@ -125,7 +128,7 @@ public sealed class DeclareCompromise
         if (!KeyActs.NewEvent(_ids, LifecycleAppendGuard.KeyCompromisedType, operatorName, payload).TryGetValue(out var appended, out var entryError))
             return Result<CompromiseRecorded>.Fail(entryError!);
 
-        var index = await KeyActs.AppendAsync(_events, agent, stream!, appended!, ct).ConfigureAwait(false);
+        var index = await KeyActs.AppendAsync(_events, _verifier, agent, stream!, appended!, ct).ConfigureAwait(false);
         return index.Map(i => new CompromiseRecorded(agent.Value, kids, i));
     }
 

@@ -467,7 +467,7 @@ public static class OperatorCommands
                 // The anchor is the latest head this tool can verify as its own, under the key it holds and no key the log lists; the growth test, the stop and the covers lines read it and
                 // nothing else (Amendment 3 ruling 34). `log.key` is unsigned, so a head by shape is not one.
                 var signer = SignerOf(key);
-                var measured = Measure(acta!, signer);
+                var measured = Measure(acta!, Verifier, signer);
 
                 if (ifGrown)
                 {
@@ -508,7 +508,7 @@ public static class OperatorCommands
 
                     // The race (Amendment 3 ruling 40): a row may have been appended between the two folds, and the head is built from this one, so the stop is applied to what this one
                     // holds. No head was signed; the one log.key just published stays (it is not a head and not growth, and the next run finds it published).
-                    measured = Measure(acta!, signer);
+                    measured = Measure(acta!, Verifier, signer);
                     if (ifGrown && !measured.Tail.IsEmpty)
                         return await WithheldAsync(stderr, measured.Tail).ConfigureAwait(false);
                 }
@@ -547,21 +547,28 @@ public static class OperatorCommands
 
                 // The resume path (Amendment 2 ruling 28 (c)): a head signed by hand over lifecycle rows says which, so that the run leaves a record.
                 foreach (var covered in measured.Tail)
-                    await stdout.WriteLineAsync($"covers  log_index={covered.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(covered.Type.Value)}").ConfigureAwait(false);
+                    await stdout.WriteLineAsync($"covers  log_index={covered.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(covered.Type)}").ConfigureAwait(false);
 
                 return ExitCode.Ok;
             }
         }
     }
 
+    /// <summary>The verifier every lifecycle decision of this tool goes through (errata G68): the same two algorithms the Forum accepts.</summary>
+    private static readonly LifecycleVerifier Verifier = new(new Dictionary<string, IContentVerifier>(StringComparer.Ordinal)
+    {
+        ["EdDSA"] = new Ed25519Adapter(),
+        ["ES256"] = new Es256Adapter(),
+    });
+
     /// <summary>What one fold says about where the signer stands: the anchor, whether the log grew past it, and the lifecycle rows it does not cover (Amendment 3 ruling 40).</summary>
-    private readonly record struct HeadMeasure(SignedHead? Anchor, bool Grown, ImmutableArray<LifecycleRow> Tail);
+    private readonly record struct HeadMeasure(SignedHead? Anchor, bool Grown, ImmutableArray<SkippedRow> Tail);
 
     /// <summary>The three answers from one fold, so that the stop and the head built from that fold cannot disagree about which rows the head covers.</summary>
-    private static HeadMeasure Measure(ActaLog acta, Func<SignedHead, bool> signedByTheSigner)
+    private static HeadMeasure Measure(ActaLog acta, LifecycleVerifier verifier, Func<SignedHead, bool> signedByTheSigner)
     {
         var anchor = acta.LatestHeadWhere(signedByTheSigner);
-        return new HeadMeasure(anchor, acta.GrownPast(anchor), acta.LifecycleRowsPast(anchor));
+        return new HeadMeasure(anchor, acta.GrownPast(anchor), verifier.OfLog(acta.Events).SkippedPast(anchor?.TreeSize ?? 0));
     }
 
     /// <summary>
@@ -590,7 +597,7 @@ public static class OperatorCommands
     /// Errata G67, Amendment 2 ruling 28: <c>sign-head --if-grown</c> found a lifecycle row the latest head does not cover and signed nothing. Stdout is empty;
     /// stderr says why and lists the log indices and types (never a payload member), up to <see cref="WithheldListed"/>, then how many more. Exit 6.
     /// </summary>
-    private static async Task<int> WithheldAsync(TextWriter stderr, ImmutableArray<LifecycleRow> rows)
+    private static async Task<int> WithheldAsync(TextWriter stderr, ImmutableArray<SkippedRow> rows)
     {
         await stderr.WriteLineAsync(
             $"error: curia/head/withheld: {rows.Length.ToString(CultureInfo.InvariantCulture)} lifecycle row(s) follow the latest head and this tool does not check their signatures, so no head was signed. " +
@@ -599,7 +606,7 @@ public static class OperatorCommands
             "If they are genuine, sign by hand with 'sign-head --by <name>' (without --if-grown); that head covers them.")
             .ConfigureAwait(false);
         foreach (var row in rows.Take(WithheldListed))
-            await stderr.WriteLineAsync($"withheld  log_index={row.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(row.Type.Value)}").ConfigureAwait(false);
+            await stderr.WriteLineAsync($"withheld  log_index={row.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(row.Type)}").ConfigureAwait(false);
 
         if (rows.Length > WithheldListed)
             await stderr.WriteLineAsync($"and {(rows.Length - WithheldListed).ToString(CultureInfo.InvariantCulture)} more").ConfigureAwait(false);
@@ -778,7 +785,7 @@ public static class OperatorCommands
         var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
         await using (adapters.ConfigureAwait(false))
         {
-            result = await new DeclareCompromise(adapters.EventStore, clock)
+            result = await new DeclareCompromise(adapters.EventStore, Verifier, clock)
                 .DeclareAsync(agent!, kid!, fromIndex, reason, signer!, actor, cancellationToken)
                 .ConfigureAwait(false);
         }

@@ -82,9 +82,12 @@ public sealed class EnrollAgent
 
     private readonly IEventStore _events;
     private readonly UlidGenerator _ids;
+    private readonly LifecycleVerifier _verifier;
 
-    public EnrollAgent(IEventStore events, TimeProvider clock)
+    public EnrollAgent(IEventStore events, LifecycleVerifier verifier, TimeProvider clock)
     {
+        ArgumentNullException.ThrowIfNull(verifier);
+        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(clock);
 
@@ -143,7 +146,7 @@ public sealed class EnrollAgent
                 // second key under an enrolled identity used to be waved through as a success; and
                 // for other bytes under a bound kid, how a lost row's recovery registered whatever it
                 // was sent.
-                if (EnrollmentBinding.Find(history!, agentId)?.For(key) is not { } bound)
+                if (_verifier.OfLog(history!).For(agentId).Binding?.For(key) is not { } bound)
                     return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId.Value));
 
                 if (!bound.Holds(key))

@@ -72,16 +72,19 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
     private readonly IAuthorKeyResolver _store;
     private readonly IAuthorKeyRegistry _registry;
     private readonly IEventReader _events;
+    private readonly LifecycleVerifier _verifier;
 
-    public LogBoundKeys(IAuthorKeyResolver store, IAuthorKeyRegistry registry, IEventReader events)
+    public LogBoundKeys(IAuthorKeyResolver store, IAuthorKeyRegistry registry, IEventReader events, LifecycleVerifier verifier)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(verifier);
 
         _store = store;
         _registry = registry;
         _events = events;
+        _verifier = verifier;
     }
 
     /// <inheritdoc/>
@@ -110,13 +113,13 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (!read.TryGetValue(out var stream, out var readError))
             return Result<LiveKey>.Fail(readError!);
 
-        if (stream!.Binding?.For(kid) is not { } bound || !bound.Holds(key!))
+        if (stream!.Verified.Binding?.For(kid) is not { } bound || !bound.Holds(key!))
             return Result<LiveKey>.Fail(AuthorKeyErrors.NotBoundByTheLog(agentId.Value, kid.Value));
 
-        if (!KeyLifecycle.Of(stream.History, agentId).TryGetValue(out var lifecycle, out var foldError))
-            return Result<LiveKey>.Fail(foldError!);
+        if (stream.Verified.Refusal is { } foldError)
+            return Result<LiveKey>.Fail(foldError);
 
-        return lifecycle!.StatusNow(kid.Value) switch
+        return stream.Verified.Honoured.StatusNow(kid.Value) switch
         {
             KeyStatus.Active => Result<LiveKey>.Ok(new LiveKey(key!, stream.Version)),
             KeyStatus.Compromised => Result<LiveKey>.Fail(AuthorKeyErrors.Compromised(agentId.Value, kid.Value)),
@@ -141,11 +144,11 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (!read.TryGetValue(out var stream, out var readError))
             return Result<KeyStatus>.Fail(readError!);
 
-        if (stream!.Binding?.For(kid) is null) return Result<KeyStatus>.Ok(KeyStatus.Unbound);
+        if (stream!.Verified.Binding?.For(kid) is null) return Result<KeyStatus>.Ok(KeyStatus.Unbound);
 
-        return KeyLifecycle.Of(stream.History, agentId).TryGetValue(out var lifecycle, out var foldError)
-            ? Result<KeyStatus>.Ok(lifecycle!.StatusNow(kid.Value))
-            : Result<KeyStatus>.Fail(LogUnreadable(foldError!));
+        return stream.Verified.Refusal is { } foldError
+            ? Result<KeyStatus>.Fail(LogUnreadable(foldError))
+            : Result<KeyStatus>.Ok(stream.Verified.Honoured.StatusNow(kid.Value));
     }
 
     /// <summary>The keys the store holds for <paramref name="agentId"/> that the log binds to it, each with its binding.</summary>
@@ -160,15 +163,16 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (!read.TryGetValue(out var stream, out var readError))
             return Result<AgentKeySet>.Fail(readError!);
 
-        if (!KeyLifecycle.Of(stream!.History, agentId).TryGetValue(out var lifecycle, out var foldError))
-            return Result<AgentKeySet>.Fail(foldError!);
+        if (stream!.Verified.Refusal is { } foldError)
+            return Result<AgentKeySet>.Fail(foldError);
 
+        var lifecycle = stream.Verified.Honoured;
         var bound = new List<BoundKey>();
         foreach (var registered in held)
         {
-            if (stream.Binding?.For(registered.Key) is { } keyBinding && keyBinding.Holds(registered.Key))
+            if (stream.Verified.Binding?.For(registered.Key) is { } keyBinding && keyBinding.Holds(registered.Key))
             {
-                var declaration = lifecycle!.CompromisedBy(registered.Key.Kid);
+                var declaration = lifecycle.CompromisedBy(registered.Key.Kid);
                 bound.Add(new BoundKey(
                     registered,
                     keyBinding,
@@ -194,7 +198,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
     }
 
     /// <summary>One read of an identity's stream: what it holds, what it binds, and the version a decision on it was made at.</summary>
-    private sealed record StreamRead(IReadOnlyList<AppendedEvent> History, EnrollmentBinding? Binding, AggregateVersion Version);
+    private sealed record StreamRead(VerifiedLifecycle Verified, AggregateVersion Version);
 
     /// <summary>
     /// The identity's stream, read once, with what the log binds to <paramref name="agentId"/> (null when
@@ -203,7 +207,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
     private async Task<Result<StreamRead>> ReadAsync(AgentId agentId, CancellationToken cancellationToken)
     {
         if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out _))
-            return Result<StreamRead>.Ok(new StreamRead([], null, AggregateVersion.New));
+            return Result<StreamRead>.Ok(new StreamRead(_verifier.OfLog([]).For(agentId), AggregateVersion.New));
 
         var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var history, out var readError))
@@ -212,6 +216,6 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (!AggregateVersion.From(history!.Count).TryGetValue(out var version, out var versionError))
             return Result<StreamRead>.Fail(LogUnreadable(versionError!));
 
-        return Result<StreamRead>.Ok(new StreamRead(history, EnrollmentBinding.Find(history, agentId), version!));
+        return Result<StreamRead>.Ok(new StreamRead(_verifier.OfLog(history).For(agentId), version!));
     }
 }

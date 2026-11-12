@@ -154,7 +154,7 @@ public abstract class LifecycleRefusalContract : LifecycleChokepointShapes
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var key = new PublicKeyMaterial("ES256", "k-" + Guid.NewGuid().ToString("N")[..8], ecdsa.ExportSubjectPublicKeyInfo());
 
-        Require(await new EnrollAgent(store, TimeProvider.System).RecordAsync(Typed.Agent(agent), key, ct));
+        Require(await new EnrollAgent(store, TestVerifier.Empty, TimeProvider.System).RecordAsync(Typed.Agent(agent), key, ct));
 
         var stream = Require(await store.ReadByAggregateAsync(Require(AggregateId.Create(agent)), ct));
         Assert.Equal(

@@ -39,7 +39,7 @@ public sealed class StoredDuplicateDigestTests
             new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()),
             new EmbeddingIndexer(embedder, index),
             new DuplicateCheck(embedder, index, DuplicateThresholds.Published),
-            new HybridSearch(embedder, index, RetrievalFloors.Published));
+            new HybridSearch(embedder, index, RetrievalFloors.Published, TestVerifier.Empty));
     }
 
     private static async Task<IReadOnlyList<AppendedEvent>> SeedTwoAsync(Harness h, CancellationToken ct)

@@ -170,7 +170,7 @@ public sealed class RetrievalQuerySetTests
         var index = new InMemoryVectorIndex();
         var store = new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate());
         var indexer = new EmbeddingIndexer(embedder, index);
-        var search = new HybridSearch(embedder, index, RetrievalFloors.Published);
+        var search = new HybridSearch(embedder, index, RetrievalFloors.Published, TestVerifier.Empty);
 
         foreach (var post in Lines("corpus.jsonl"))
         {

@@ -196,7 +196,7 @@ public sealed partial class RotateKeyTests
         harness.Registry = new HookedRegistry(inner, async () =>
         {
             var (statement, authorization, possession) = await harness.RotationAsync(Alice, first, third).ConfigureAwait(false);
-            var injector = new RotateKey(harness.Events, inner, harness.KeysOver(), harness.Verifiers, harness.Clock);
+            var injector = new RotateKey(harness.Events, inner, harness.KeysOver(), harness.Verifiers, new LifecycleVerifier(harness.Verifiers), harness.Clock);
             Require(await injector.RotateAsync(Typed.Agent(Alice), statement, authorization, possession, Ct).ConfigureAwait(false));
         });
 
@@ -254,7 +254,7 @@ public sealed partial class RotateKeyTests
         harness.Store = new InterceptingStore(harness.Events, async () =>
         {
             var (s, a, p) = await harness.RotationAsync(Alice, first, third).ConfigureAwait(false);
-            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, harness.Clock)
+            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, new LifecycleVerifier(harness.Verifiers), harness.Clock)
                 .RotateAsync(Typed.Agent(Alice), s, a, p, Ct).ConfigureAwait(false));
         });
 
@@ -280,7 +280,7 @@ public sealed partial class RotateKeyTests
         harness.Store = new InterceptingStore(harness.Events, afterFirstLogRead: async () =>
         {
             var (s, a, p) = await harness.RotationAsync(Alice, first, third).ConfigureAwait(false);
-            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, harness.Clock)
+            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, new LifecycleVerifier(harness.Verifiers), harness.Clock)
                 .RotateAsync(Typed.Agent(Alice), s, a, p, Ct).ConfigureAwait(false));
         });
 

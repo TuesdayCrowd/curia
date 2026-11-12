@@ -50,9 +50,12 @@ public sealed class EnrollIdentity
     private readonly IAuthorKeyRegistry _keys;
     private readonly EnrollAgent _log;
     private readonly TimeProvider _clock;
+    private readonly LifecycleVerifier _verifier;
 
-    public EnrollIdentity(IEventReader events, IAuthorKeyRegistry keys, EnrollAgent log, TimeProvider clock)
+    public EnrollIdentity(IEventReader events, IAuthorKeyRegistry keys, EnrollAgent log, LifecycleVerifier verifier, TimeProvider clock)
     {
+        ArgumentNullException.ThrowIfNull(verifier);
+        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(log);
@@ -82,7 +85,7 @@ public sealed class EnrollIdentity
         if (!read.TryGetValue(out var history, out var readError))
             return Result<AgentEnrollment>.Fail(readError!);
 
-        var binding = EnrollmentBinding.Find(history!, agentId);
+        var binding = _verifier.OfLog(history!).For(agentId).Binding;
 
         // R4.33's second clause: the aggregate holds events and none is this identifier's enrollment,
         // so the log keeps it for something else and could never append the record. Refused here,

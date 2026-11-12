@@ -55,7 +55,7 @@ public sealed class DeclareCompromiseTests
 
     private static Task<Result<CompromiseRecorded>> DeclareAsync(
         KeyActHarness harness, ILifecycleStatementSigner signer, string kid, long fromIndex, string agent = Alice) =>
-        new DeclareCompromise(harness.Events, harness.Clock)
+        new DeclareCompromise(harness.Events, TestVerifier.Empty, harness.Clock)
             .DeclareAsync(Typed.Agent(agent), Typed.Kid(kid), fromIndex, CompromiseReason.OwnerReported, signer, Operator, Ct);
 
     private static async Task<Dictionary<string, KeyStatus>> StatusesAsync(KeyActHarness harness, params string[] kids)

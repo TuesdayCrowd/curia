@@ -50,7 +50,7 @@ public sealed class EnrollIdentityTests
     }
 
     private static EnrollIdentity Enroll(InMemoryEventStore events, IAuthorKeyRegistry keys, TimeProvider clock) =>
-        new(events, keys, new EnrollAgent(events, clock), clock);
+        new(events, keys, new EnrollAgent(events, TestVerifier.Empty, clock), TestVerifier.Empty, clock);
 
     /// <summary>
     /// Holds every racer at the key store until all <paramref name="racers"/> are accounted for, so
@@ -399,7 +399,7 @@ public sealed class EnrollIdentityTests
         var bound = NewKey("alice-1");
         var unbound = NewKey("mallory-1");
 
-        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), bound, ct));
+        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), bound, ct));
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(bound, Start, null), new RegisteredKey(unbound, Start.AddHours(1), null)]);
 
         var again = new PublicKeyMaterial(unbound.Alg, unbound.Kid, unbound.Public.ToArray());
@@ -415,7 +415,7 @@ public sealed class EnrollIdentityTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var log = new EnrollAgent(events, clock);
+        var log = new EnrollAgent(events, TestVerifier.Empty, clock);
         var alice = NewKey("alice-1");
 
         Require(await log.RecordAsync(Typed.Agent(Alice), alice, ct));
@@ -436,7 +436,7 @@ public sealed class EnrollIdentityTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var log = new EnrollAgent(events, clock);
+        var log = new EnrollAgent(events, TestVerifier.Empty, clock);
         var alice = NewKey("alice-1");
 
         Require(await log.RecordAsync(Typed.Agent(Alice), alice, ct));
@@ -475,7 +475,7 @@ public sealed class EnrollIdentityTests
 
         var keys = new InMemoryAuthorKeyRegistry();
         Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
         Assert.Empty(await keys.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Single(await StreamAsync(events, Alice, ct));
     }
@@ -574,7 +574,7 @@ public sealed class EnrollIdentityTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var oneAppend = new OneAppendEventStore(events);
-        var enroll = new EnrollIdentity(oneAppend, new InMemoryAuthorKeyRegistry(), new EnrollAgent(oneAppend, clock), clock);
+        var enroll = new EnrollIdentity(oneAppend, new InMemoryAuthorKeyRegistry(), new EnrollAgent(oneAppend, TestVerifier.Empty, clock), TestVerifier.Empty, clock);
 
         var answer = await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct);
 
@@ -619,8 +619,8 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var planted = NewKey("alice-2");
 
-        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
-        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Mallory), NewKey("mallory-1"), ct));
+        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
+        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Mallory), NewKey("mallory-1"), ct));
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Mallory)),
             Require(AggregateVersion.From(EnrollmentEntries.Length)),
@@ -656,7 +656,7 @@ public sealed class EnrollIdentityTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
-        Require(await new EnrollAgent(events, clock).RecordAsync(
+        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(
             Typed.Agent(Scriptor),
             new PublicKeyMaterial("EdDSA", "conformance-ed25519-minimal", Base64Url.DecodeFromChars("HRzJlnTufZYYTZyCDBpyP5ldQ38JlbCeDOQHgIozgg8")),
             ct));
@@ -809,7 +809,7 @@ public sealed class EnrollIdentityTests
         var first = NewKey("alice-1");
         var second = NewKey("alice-2");
 
-        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), first, ct));
+        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), first, ct));
         await BindRotatedKeyAsync(events, second, ct);
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null), new RegisteredKey(second, Start, null)]);
         var enroll = Enroll(events, keys, clock);
@@ -860,12 +860,12 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var first = NewKey("alice-1");
         var second = NewKey("alice-2");
-        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), first, ct));
+        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), first, ct));
         await BindAnotherKeyAsync(events, second, ct);
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null), new RegisteredKey(second, Start, null)]);
 
         var viaEnrol = Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).Type;
-        var viaRecord = Refusal(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).Type;
+        var viaRecord = Refusal(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).Type;
 
         Assert.Equal(
             "enrol: curia/enroll/already-enrolled; record: curia/enroll/already-enrolled; entries: 3; bound: alice-1; first still enrols: True",
@@ -886,7 +886,7 @@ public sealed class EnrollIdentityTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var first = NewKey("alice-1");
-        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), first, ct));
+        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), first, ct));
         var stream = await StreamAsync(events, Alice, ct);
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Alice)),

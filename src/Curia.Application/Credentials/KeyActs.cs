@@ -148,17 +148,19 @@ internal static class KeyActs
     /// same entries, with the index of its latest entry. A log that will not fold is
     /// <see cref="LogBoundKeys.LogUnreadable"/>; a stream the lifecycle fold refuses passes its own refusal.
     /// </summary>
-    internal static async Task<Result<LifecycleRead>> ReadLifecycleAsync(IEventReader events, AgentId agent, CancellationToken ct)
+    internal static async Task<Result<LifecycleRead>> ReadLifecycleAsync(IEventReader events, LifecycleVerifier verifier, AgentId agent, CancellationToken ct)
     {
         var all = await events.ReadAllAsync(ct).ConfigureAwait(false);
         if (!all.TryGetValue(out var log, out var readError))
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(readError!));
         if (!ActaLog.Fold(log!).TryGetValue(out var acta, out var foldError))
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(foldError!));
-        if (!KeyLifecycle.Of(log!, agent).TryGetValue(out var lifecycle, out var lifecycleError))
-            return Result<LifecycleRead>.Fail(lifecycleError!);
+        var verified = verifier.OfLog(log!).For(agent);
+        if (verified.Refusal is { } lifecycleError)
+            return Result<LifecycleRead>.Fail(lifecycleError);
 
-        if (lifecycle!.Entries.IsEmpty) return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta!, null));
+        var lifecycle = verified.Honoured;
+        if (lifecycle.Entries.IsEmpty) return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta!, null));
         if (acta!.IndexOf(lifecycle.Entries[^1].EventId) is not { } latest)
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(KeyStatementErrors.Mismatch("entry")));
 
@@ -232,7 +234,7 @@ internal static class KeyActs
     /// lifecycle moving (step 10): it answers <see cref="KeyActErrors.LifecycleMoved"/> with the latest index
     /// the log now holds. On success, the entry's index in the log.
     /// </summary>
-    internal static async Task<Result<long>> AppendAsync(IEventStore events, AgentId agent, Stream stream, DomainEvent entry, CancellationToken ct)
+    internal static async Task<Result<long>> AppendAsync(IEventStore events, LifecycleVerifier verifier, AgentId agent, Stream stream, DomainEvent entry, CancellationToken ct)
     {
         var appended = await events.AppendAsync(stream.Aggregate, stream.Version, [entry], ct).ConfigureAwait(false);
         if (!appended.TryGetValue(out _, out var appendError))
@@ -240,12 +242,12 @@ internal static class KeyActs
             if (!string.Equals(appendError!.Type, DomainErrors.ConcurrencyConflictType, StringComparison.Ordinal))
                 return Result<long>.Fail(appendError);
 
-            var moved = await ReadLifecycleAsync(events, agent, ct).ConfigureAwait(false);
+            var moved = await ReadLifecycleAsync(events, verifier, agent, ct).ConfigureAwait(false);
             if (!moved.TryGetValue(out var now, out var movedError)) return Result<long>.Fail(movedError!);
             return Result<long>.Fail(now!.LatestIndex is { } latest ? KeyActErrors.LifecycleMoved(latest) : appendError);
         }
 
-        var recorded = await ReadLifecycleAsync(events, agent, ct).ConfigureAwait(false);
+        var recorded = await ReadLifecycleAsync(events, verifier, agent, ct).ConfigureAwait(false);
         if (!recorded.TryGetValue(out var after, out var recordedError)) return Result<long>.Fail(recordedError!);
         return after!.Log.IndexOf(entry.Id.Value) is { } index
             ? Result<long>.Ok(index)

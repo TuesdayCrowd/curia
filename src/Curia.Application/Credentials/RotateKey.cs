@@ -34,6 +34,7 @@ public sealed class RotateKey
     private readonly IAuthorKeyRegistry _registry;
     private readonly LogBoundKeys _keys;
     private readonly IReadOnlyDictionary<string, IContentVerifier> _verifiers;
+    private readonly LifecycleVerifier _verifier;
     private readonly TimeProvider _clock;
     private readonly UlidGenerator _ids;
 
@@ -42,8 +43,11 @@ public sealed class RotateKey
         IAuthorKeyRegistry registry,
         LogBoundKeys keys,
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
+        LifecycleVerifier verifier,
         TimeProvider clock)
     {
+        ArgumentNullException.ThrowIfNull(verifier);
+        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(keys);
@@ -94,7 +98,7 @@ public sealed class RotateKey
             return Result<KeyActRecorded>.Fail(streamError!);
 
         // 5. The latest lifecycle index, which prev must equal.
-        if (!(await KeyActs.ReadLifecycleAsync(_events, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
+        if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
             return Result<KeyActRecorded>.Fail(lifecycleError!);
         if (read!.LatestIndex is not { } latest)
             return Result<KeyActRecorded>.Fail(KeyActErrors.AuthorizingKeyNotLive());
@@ -148,7 +152,7 @@ public sealed class RotateKey
             return Result<KeyActRecorded>.Fail(entryError!);
 
         // 10. A conflict is the lifecycle moving; the store row stays for the retry.
-        var index = await KeyActs.AppendAsync(_events, agent, stream, entry!, ct).ConfigureAwait(false);
+        var index = await KeyActs.AppendAsync(_events, _verifier, agent, stream, entry!, ct).ConfigureAwait(false);
         return index.Map(i => new KeyActRecorded(agent.Value, rotation.Kid, i, rotation.AuthorizedBy));
     }
 }

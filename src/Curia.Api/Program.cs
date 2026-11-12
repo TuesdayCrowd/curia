@@ -130,10 +130,12 @@ public sealed class Program
         // R4.35 (errata G16): every key the Forum honours is a key the event log binds. Ingest, the
         // token endpoint and the key set all read through this one rule; the store alone answers
         // only enrollment, whose own rule (R4.31) reads the log's binding itself.
+        builder.Services.AddSingleton(sp => new LifecycleVerifier(sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>()));
         builder.Services.AddSingleton(sp => new LogBoundKeys(
             sp.GetRequiredService<PostgresAgentKeyStore>(),
             sp.GetRequiredService<PostgresAgentKeyStore>(),
-            sp.GetRequiredService<IEventReader>()));
+            sp.GetRequiredService<IEventReader>(),
+            sp.GetRequiredService<LifecycleVerifier>()));
         builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
         builder.Services.AddSingleton<ILiveKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
         builder.Services.AddSingleton<IAgentKeyResolver>(sp => new LogBoundAgentKeyResolver(sp.GetRequiredService<LogBoundKeys>()));
@@ -229,7 +231,8 @@ public sealed class Program
         builder.Services.AddSingleton(sp => new HybridSearch(
             sp.GetRequiredService<ITextEmbedder>(),
             sp.GetRequiredService<IVectorIndex>(),
-            sp.GetRequiredService<RetrievalFloors>()));
+            sp.GetRequiredService<RetrievalFloors>(),
+            sp.GetRequiredService<LifecycleVerifier>()));
         builder.Services.AddSingleton(sp => new DuplicateCheck(
             sp.GetRequiredService<ITextEmbedder>(),
             sp.GetRequiredService<IVectorIndex>(),
@@ -249,6 +252,7 @@ public sealed class Program
         // to say about a write that carries no submitted content.
         builder.Services.AddSingleton(sp => new EnrollAgent(
             sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<LifecycleVerifier>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // The enrollment use case the endpoint calls (R4.31, R4.32; errata G14): the log's binding,
@@ -258,6 +262,7 @@ public sealed class Program
             sp.GetRequiredService<IEventReader>(),
             sp.GetRequiredService<IAuthorKeyRegistry>(),
             sp.GetRequiredService<EnrollAgent>(),
+            sp.GetRequiredService<LifecycleVerifier>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // R4.18 (rev.), R4.39: the use cases behind the key routes. Each holds the event store, whose
@@ -267,11 +272,13 @@ public sealed class Program
             sp.GetRequiredService<IAuthorKeyRegistry>(),
             sp.GetRequiredService<LogBoundKeys>(),
             sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
+            sp.GetRequiredService<LifecycleVerifier>(),
             sp.GetRequiredService<TimeProvider>()));
         builder.Services.AddSingleton(sp => new RetireKey(
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<LogBoundKeys>(),
             sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
+            sp.GetRequiredService<LifecycleVerifier>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // R4.30's attestation path (errata G5), reached by no HTTP route: an operator endpoint would

@@ -71,7 +71,7 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
     /// no enrollment. Only entries in <paramref name="agentId"/>'s own stream count (R4.34), so
     /// <paramref name="history"/> may be the identity's stream or any wider read of the log.
     /// </summary>
-    public static EnrollmentBinding? Find(IReadOnlyList<AppendedEvent> history, AgentId agentId)
+    internal static EnrollmentBinding? Find(IReadOnlyList<AppendedEvent> history, AgentId agentId)
     {
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(agentId);

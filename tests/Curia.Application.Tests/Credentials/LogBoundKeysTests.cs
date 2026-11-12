@@ -64,9 +64,9 @@ public sealed class LogBoundKeysTests
     {
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), enrolled, CancellationToken.None).ConfigureAwait(false));
+        Require(await new EnrollAgent(events, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Alice), enrolled, CancellationToken.None).ConfigureAwait(false));
         var store = new HeldKeys(held);
-        return (new LogBoundKeys(store, store, events), events);
+        return (new LogBoundKeys(store, store, events, TestVerifier.Empty), events);
     }
 
     private static PublicKeyMaterial Copy(PublicKeyMaterial key) => new(key.Alg, key.Kid, key.Public.ToArray());
@@ -129,7 +129,7 @@ public sealed class LogBoundKeysTests
                 ]))],
             TestContext.Current.CancellationToken));
         var store = new HeldKeys((Alice, new RegisteredKey(TestKeys.Es256("alice-1"), Start, null)), (Alice, new RegisteredKey(TestKeys.Es256("hole-1"), Start, null)));
-        var keys = new LogBoundKeys(store, store, events);
+        var keys = new LogBoundKeys(store, store, events, TestVerifier.Empty);
 
         Assert.Equal(
             "alice-1: resolved; hole-1: curia/keys/not-bound-by-the-log",

@@ -123,10 +123,10 @@ public abstract class EventStorePortContractTests
         var store = CreateStore();
         var key = TestKeys.Es256("alice-1");
         var agent = Typed.Agent("https://agents.example/alice");
-        Require(await new EnrollAgent(store, TimeProvider.System).RecordAsync(agent, key, ct));
+        Require(await new EnrollAgent(store, TestVerifier.Empty, TimeProvider.System).RecordAsync(agent, key, ct));
         var author = Agg(agent.Value);
         var other = Agg("agg-condition-after-read-target");
-        var keys = new LogBoundKeys(new HeldKeyResolver(key), new InMemoryAuthorKeyRegistry(), new RetiringAfterFirstRead(store, author, agent.Value));
+        var keys = new LogBoundKeys(new HeldKeyResolver(key), new InMemoryAuthorKeyRegistry(), new RetiringAfterFirstRead(store, author, agent.Value), TestVerifier.Empty);
 
         var live = Require(await keys.ResolveLiveAsync(agent, Typed.Kid("alice-1"), ServerTimestamp.At(DateTimeOffset.UtcNow.AddDays(1)), ct));
         var refused = await store.AppendAsync(other, AggregateVersion.New, [NewEvent("after-read-1")], new StreamCondition(author, live.AuthorStream), ct);

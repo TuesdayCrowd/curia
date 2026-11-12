@@ -921,7 +921,7 @@ public static class ForumEndpoints
         // The fold reads no clock (R11.9); the elapsed-time half is the instant handed to
         // TierPolicy.Evaluate below.
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(log, author!);
+        var posture = PostureQuery.Of(VerifierOf(http), log, author!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -1386,7 +1386,7 @@ public static class ForumEndpoints
             if (!PrincipalOf(subject).TryGetValue(out var raiser, out var subjectError))
                 return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
-            var posture = PostureQuery.Of(log, raiser!);
+            var posture = PostureQuery.Of(VerifierOf(http), log, raiser!);
 
             if (!posture.TryGetValue(out var facts, out var postureError))
                 return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -1699,7 +1699,7 @@ public static class ForumEndpoints
         if (!PrincipalOf(subject).TryGetValue(out var lister, out var subjectError))
             return (null, Problem(StatusCodes.Status403Forbidden, subjectError!));
 
-        var posture = PostureQuery.Of(log, lister!);
+        var posture = PostureQuery.Of(VerifierOf(http), log, lister!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return (null, Problem(StatusCodes.Status500InternalServerError, postureError!));
@@ -1801,7 +1801,7 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, markingError!);
 
         var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(log, posts);
+        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), posts);
         var representation = JsonSerializer.SerializeToUtf8Bytes(
             ToResponse(
                 post, standings, marking, ReaderContractUrl(http),
@@ -1892,7 +1892,7 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
 
-        var disputed = DisputedPosts.Fold(log, posts);
+        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
@@ -1942,7 +1942,7 @@ public static class ForumEndpoints
                 PostProjector.Thread(posts, root!, corrections).Where(p => servable(p.PostId) && Discussion(p)))
             : [];
         var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(log, posts);
+        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var acta = ActaOf(log);
         var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
@@ -2032,7 +2032,7 @@ public static class ForumEndpoints
         var servable = Servable(log);
         var posts = PostProjector.Fold(log);
         var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
-        var disputed = DisputedPosts.Fold(log, posts);
+        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
@@ -2111,7 +2111,7 @@ public static class ForumEndpoints
     /// set.</para>
     /// </summary>
     private static async Task<IResult> GetJwks(
-        string? agent, LogBoundKeys keys, IEventReader events, ILifecycleAppendGate gate, CancellationToken cancellationToken)
+        string? agent, LogBoundKeys keys, IEventReader events, LifecycleVerifier verifier, ILifecycleAppendGate gate, CancellationToken cancellationToken)
     {
         // R11.34 (errata G18): the agent as the AgentId the key set is read for. Bound as a nullable
         // string, so an absent parameter reaches this handler: bound non-nullable, the binder answered
@@ -2145,8 +2145,9 @@ public static class ForumEndpoints
 
         // R4.35 (rev.): the identity's lifecycle indices, from the same fold; left out when the log would
         // not fold, as the keys' own positions are, so an absence never reads as an empty lifecycle.
-        var lifecycle = acta is not null && KeyLifecycle.Of(acta.Events, agentId!).TryGetValue(out var folded, out _)
-            ? folded!.Entries.Select(e => acta.IndexOf(e.EventId)).Where(i => i is not null).Select(i => i!.Value).ToList()
+        var decided = acta is null ? null : verifier.OfLog(acta.Events).For(agentId!);
+        var lifecycle = decided is { Refusal: null }
+            ? decided.Honoured.Entries.Select(e => acta!.IndexOf(e.EventId)).Where(i => i is not null).Select(i => i!.Value).ToList()
             : null;
 
         // R4.38 (add.): the kinds the build approves and the Forum enables. A record that cannot be read
@@ -2221,7 +2222,7 @@ public static class ForumEndpoints
         await using var heldTurn = hold!.ConfigureAwait(false);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(log, acceptor!);
+        var posture = PostureQuery.Of(VerifierOf(http), log, acceptor!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -2414,7 +2415,7 @@ public static class ForumEndpoints
         var views = PostProjector.Fold(log);
         var servable = Servable(log);
         var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(log, views);
+        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), views);
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
         var accepted = AcceptedAnswerIndex.Fold(log, views, servable);
@@ -2571,7 +2572,7 @@ public static class ForumEndpoints
         var views = PostProjector.Fold(log);
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(log, views);
+        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), views);
         var servable = Servable(log);
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
@@ -2728,7 +2729,7 @@ public static class ForumEndpoints
         if (!PrincipalOf(subject).TryGetValue(out var reader, out var subjectError))
             return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
-        var posture = PostureQuery.Of(log, reader!);
+        var posture = PostureQuery.Of(VerifierOf(http), log, reader!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -2785,7 +2786,7 @@ public static class ForumEndpoints
         var views = PostProjector.Fold(log);
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(log, views);
+        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), views);
         var servable = Servable(log);
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
@@ -3247,6 +3248,9 @@ public static class ForumEndpoints
     /// <c>503</c> whatever status the caller chose, so a site that answers a use case's failed result <c>500</c> or a flag refusal <c>400</c> by default
     /// still serves a fault of a store as one.
     /// </summary>
+    /// <summary>The lifecycle verifier every decision from an agent's lifecycle goes through (errata G68, ruling 2), from the request's own services.</summary>
+    private static LifecycleVerifier VerifierOf(HttpRequest http) => http.HttpContext.RequestServices.GetRequiredService<LifecycleVerifier>();
+
     private static IResult Problem(int status, Error error)
     {
         if (StoreFaults.IsStoreFaultType(error.Type)) status = StatusCodes.Status503ServiceUnavailable;
@@ -3560,7 +3564,7 @@ public static class ForumEndpoints
             return (null, Problem(StatusCodes.Status403Forbidden, subjectError!));
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        if (!PostureQuery.Of(log, agent!).TryGetValue(out var facts, out var postureError))
+        if (!PostureQuery.Of(VerifierOf(http), log, agent!).TryGetValue(out var facts, out var postureError))
             return (null, Problem(StatusCodes.Status500InternalServerError, postureError!));
 
         var tier = TierPolicy.Evaluate(facts!, clock.GetUtcNow());

@@ -70,16 +70,16 @@ internal sealed class KeyActHarness
 
     internal IEventStore Writer => Store ?? Events;
 
-    internal LogBoundKeys KeysOver() => new(new RegistryResolver(Registry), Registry, Events);
+    internal LogBoundKeys KeysOver() => new(new RegistryResolver(Registry), Registry, Events, TestVerifier.Empty);
 
-    internal RotateKey Rotator() => new(Writer, Registry, KeysOver(), Verifiers, Clock);
+    internal RotateKey Rotator() => new(Writer, Registry, KeysOver(), Verifiers, new LifecycleVerifier(Verifiers), Clock);
 
-    internal RetireKey Retirer() => new(Writer, KeysOver(), Verifiers, Clock);
+    internal RetireKey Retirer() => new(Writer, KeysOver(), Verifiers, new LifecycleVerifier(Verifiers), Clock);
 
     /// <summary>Enrolls <paramref name="agent"/> with <paramref name="first"/> through the real use case.</summary>
     internal async Task EnrollAsync(string agent, TestIdentity first)
     {
-        var enroll = new EnrollIdentity(Events, Registry, new EnrollAgent(Events, Clock), Clock);
+        var enroll = new EnrollIdentity(Events, Registry, new EnrollAgent(Events, TestVerifier.Empty, Clock), TestVerifier.Empty, Clock);
         Require(await enroll.EnrollAsync(Typed.Agent(agent), Copy(first.Material), TestContext.Current.CancellationToken).ConfigureAwait(false));
     }
 

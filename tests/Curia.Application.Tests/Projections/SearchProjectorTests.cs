@@ -254,7 +254,7 @@ public sealed class SearchProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Author), TestKeys.Es256("alice-1"), ct));
+        Require(await new EnrollAgent(store, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Author), TestKeys.Es256("alice-1"), ct));
         Require(await new AttestOwner(store, clock).RecordAsync(
             Curia.Domain.Primitives.Boundary.AgentId.Parse(Author),
             Require(OwnerId.Create("https://owners.example/acme")),
@@ -283,7 +283,7 @@ public sealed class SearchProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Author), TestKeys.Es256("alice-1"), ct));
+        Require(await new EnrollAgent(store, TestVerifier.Empty, clock).RecordAsync(Typed.Agent(Author), TestKeys.Es256("alice-1"), ct));
         await AcceptAsync(store, "post-unowned", ct);
 
         var corpus = SearchProjector.Fold(await LogAsync(store, ct));

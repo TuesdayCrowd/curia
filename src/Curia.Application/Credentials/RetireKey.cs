@@ -24,6 +24,7 @@ public sealed class RetireKey
     private readonly IEventStore _events;
     private readonly LogBoundKeys _keys;
     private readonly IReadOnlyDictionary<string, IContentVerifier> _verifiers;
+    private readonly LifecycleVerifier _verifier;
     private readonly TimeProvider _clock;
     private readonly UlidGenerator _ids;
 
@@ -31,8 +32,11 @@ public sealed class RetireKey
         IEventStore events,
         LogBoundKeys keys,
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
+        LifecycleVerifier verifier,
         TimeProvider clock)
     {
+        ArgumentNullException.ThrowIfNull(verifier);
+        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(verifiers);
@@ -71,7 +75,7 @@ public sealed class RetireKey
             return Result<KeyActRecorded>.Fail(streamError!);
 
         // 5. The latest lifecycle index, which prev must equal.
-        if (!(await KeyActs.ReadLifecycleAsync(_events, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
+        if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
             return Result<KeyActRecorded>.Fail(lifecycleError!);
         if (read!.LatestIndex is not { } latest)
             return Result<KeyActRecorded>.Fail(KeyActErrors.UnknownKey());
@@ -109,7 +113,7 @@ public sealed class RetireKey
         if (!KeyActs.NewEvent(_ids, LifecycleAppendGuard.KeyRetiredType, stream!.Actor, payload).TryGetValue(out var entry, out var entryError))
             return Result<KeyActRecorded>.Fail(entryError!);
 
-        var index = await KeyActs.AppendAsync(_events, agent, stream, entry!, ct).ConfigureAwait(false);
+        var index = await KeyActs.AppendAsync(_events, _verifier, agent, stream, entry!, ct).ConfigureAwait(false);
         return index.Map(i => new KeyActRecorded(agent.Value, retirement.Kid, i, null));
     }
 }
