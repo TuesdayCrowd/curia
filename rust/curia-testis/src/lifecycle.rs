@@ -1353,6 +1353,10 @@ impl Prefix<'_> {
         {
             return Err(mismatch);
         }
+        // KF5: a key does not authorize its own binding.
+        if authorized_by == kid {
+            return Err(mismatch);
+        }
         let new_key = key_set(jwk).ok_or(mismatch)?;
         for member in ["agent_id", "authorized_by", "jwk", "kid", "prev"] {
             if payload.get(member) != s.get(member) {
@@ -1379,7 +1383,10 @@ impl Prefix<'_> {
         let Some((authorizer, _)) = self.keys_bound.get(authorized_by) else {
             return Err(unauthorized);
         };
-        if self.status.get(authorized_by) == Some(&KeyStatus::Retired) {
+        if matches!(
+            self.status.get(authorized_by),
+            Some(KeyStatus::Retired | KeyStatus::Compromised)
+        ) {
             return Err(unauthorized);
         }
         let (Some(authorization), Some(possession)) = (authorization, possession) else {
@@ -1435,7 +1442,10 @@ impl Prefix<'_> {
         let Some((key, _)) = self.keys_bound.get(kid) else {
             return Err(unauthorized);
         };
-        if self.status.get(kid) == Some(&KeyStatus::Retired) {
+        if matches!(
+            self.status.get(kid),
+            Some(KeyStatus::Retired | KeyStatus::Compromised)
+        ) {
             return Err(unauthorized);
         }
         jws::verify_typed(
