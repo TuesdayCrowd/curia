@@ -28,6 +28,10 @@ const NOT_A_ROW_OF_THE_STREAM: &[(&str, &str)] = &[
         "unknown-lifecycle-kind",
         "agent.key-frozen is not one of the four lifecycle types, so it is not a row",
     ),
+    (
+        "compromise-declaration-keys-share-position",
+        "NOT_A_LOG: two keys at one position cannot occur in a log",
+    ),
 ];
 
 /// Reader vectors where the reader's predicate and R6.64's text disagree. Empty since Amendment 3 (ruling 44): R6.64 states KF5, so the reader
@@ -167,9 +171,13 @@ fn r6_64_every_skipped_predicate_is_one_of_the_twelve_names() {
 
 /// The reader vectors' log: the entries on disk, and the log keys and declaration keys their `log-jwks.json` publishes,
 /// each as the `log.key` or `log.declaration-key` entry at the `log_index` the key set gives it (a key that gives none is
-/// published by no entry).
+/// published by no entry). Placement: at its own `log_index` when no other entry has that index, otherwise at one more
+/// than the maximum of every entry index and every key `log_index` seen so far; two entries never share an index.
 fn reader_log(dir: &Path) -> Vec<LogEntry> {
     let mut log = read_entries(dir);
+    let mut taken: std::collections::BTreeSet<u64> = log.iter().map(|e| e.log_index).collect();
+    assert_eq!(taken.len(), log.len(), "two entries share an index");
+    let mut seen_max = taken.iter().next_back().copied().unwrap_or(0);
     let jwks: Value =
         serde_json::from_slice(&fs::read(dir.join("log-jwks.json")).expect("log-jwks.json"))
             .expect("log-jwks.json is JSON");
@@ -184,11 +192,22 @@ fn reader_log(dir: &Path) -> Vec<LogEntry> {
             ) else {
                 continue;
             };
+            seen_max = seen_max.max(at);
+            let placed = if taken.contains(&at) {
+                seen_max + 1
+            } else {
+                at
+            };
+            assert!(
+                taken.insert(placed),
+                "two entries would share index {placed}"
+            );
+            seen_max = seen_max.max(placed);
             let mut jwk = object.clone();
             jwk.remove("log_index");
             jwk.remove("valid_from");
             log.push(LogEntry {
-                log_index: at,
+                log_index: placed,
                 event_type: event_type.to_string(),
                 aggregate_id: "log".to_string(),
                 payload: serde_json::json!({"jwk": jwk, "kid": object.get("kid")}),
@@ -209,6 +228,12 @@ fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_p
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(corpus.lifecycle.len(), 81);
 
+    for (case, _) in NOT_A_ROW_OF_THE_STREAM {
+        assert!(
+            corpus.lifecycle.iter().any(|v| v.case == *case),
+            "{case} is not in conformance/lifecycle/"
+        );
+    }
     let mut checked = 0;
     let mut failures = Vec::new();
     for vector in &corpus.lifecycle {

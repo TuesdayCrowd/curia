@@ -1158,6 +1158,9 @@ pub fn honoured(log: &[LogEntry], agent: &str) -> Honoured {
             ENROLLED => {
                 if !enrolled {
                     enrolled = true;
+                    // The enrolment is honoured and is the previous honoured entry of the next row; a pair
+                    // after it moves `prev` on to the pair's index and binds the key.
+                    prefix.prev = Some(entry.log_index);
                     enrolment_kid = entry
                         .payload
                         .get("kid")
