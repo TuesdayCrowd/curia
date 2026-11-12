@@ -128,7 +128,9 @@ public sealed class RoleForumFixture : ForumFixture
         await using var command = new NpgsqlCommand(
             """
             SELECT has_table_privilege(@role, 'events', 'SELECT'),
-                   has_table_privilege(@role, 'events', 'INSERT'),
+                   (SELECT bool_and(has_column_privilege(@role, 'public.events', c, 'INSERT'))
+                      FROM unnest(ARRAY['event_id', 'event_type', 'aggregate_id', 'actor_id', 'payload', 'server_ts']) AS c),
+                   has_column_privilege(@role, 'public.events', 'seq', 'INSERT'),
                    (SELECT count(*) FROM pg_policies WHERE tablename = 'events'),
                    (SELECT relrowsecurity FROM pg_class WHERE relname = 'events' AND relnamespace = 'public'::regnamespace),
                    (SELECT count(*) FROM events WHERE aggregate_id = @poison);
@@ -140,10 +142,11 @@ public sealed class RoleForumFixture : ForumFixture
         await reader.ReadAsync(ct);
         var problems = new List<string>();
         if (!reader.GetBoolean(0)) problems.Add("SELECT on events is not granted to the role");
-        if (!reader.GetBoolean(1)) problems.Add("INSERT on events is not granted to the role");
-        if (reader.GetInt64(2) != 0) problems.Add("a policy remains on events");
-        if (reader.GetBoolean(3)) problems.Add("row security remains enabled on events");
-        if (reader.GetInt64(4) != 0) problems.Add("the poison row remains");
+        if (!reader.GetBoolean(1)) problems.Add("INSERT on the columns the Forum supplies is not granted to the role");
+        if (reader.GetBoolean(2)) problems.Add("INSERT on events.seq is granted to the role");
+        if (reader.GetInt64(3) != 0) problems.Add("a policy remains on events");
+        if (reader.GetBoolean(4)) problems.Add("row security remains enabled on events");
+        if (reader.GetInt64(5) != 0) problems.Add("the poison row remains");
         return string.Join("; ", problems);
     }
 

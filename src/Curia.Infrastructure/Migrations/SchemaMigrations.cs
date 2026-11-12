@@ -41,6 +41,10 @@ public static class SchemaMigrations
     /// <see cref="OperationalStateFile"/> wherever that file is rendered on its own.</summary>
     public const string AgentKeyMaterialFile = "0005_protect_agent_key_material.sql";
 
+    /// <summary>db/0006: <c>INSERT</c> on <c>events</c> narrowed to the columns the Forum supplies; <c>seq</c> is the database's (R11.6 (add.)). Rendered beside
+    /// <see cref="EventStoreSchema.FileName"/> wherever that table is built on its own.</summary>
+    public const string EventInsertColumnsFile = "0006_events_insert_columns.sql";
+
     /// <summary>
     /// Every migration file in <c>db/</c>, in the order it must be applied. The names are the
     /// checked-in file names, so a reader comparing this list against a directory listing can
@@ -53,6 +57,7 @@ public static class SchemaMigrations
         RetrievalIndexFile,
         FlagDetailsFile,
         AgentKeyMaterialFile,
+        EventInsertColumnsFile,
     ];
 
     /// <summary>
