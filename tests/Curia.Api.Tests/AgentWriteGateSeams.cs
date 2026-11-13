@@ -205,7 +205,8 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     // were made under (a middleware numbers each request and flows the number to its callees as an ambient value); a read made under no request carries 0.
     // The tag cannot leak across requests (it is set inside the async middleware and an async method's context changes do not reach its awaiting caller). It can over-count (any
     // request begun after RequestsStarted was sampled, B's own token request included, and any task a later request started that inherits its context) and it counts only
-    // ReadForwardAsync, not ReadByAggregateAsync; both are conservative for an assertion that B reads nothing while parked (review M8).
+    // ReadForwardAsync, not ReadByAggregateAsync; both are conservative for an assertion that B reads nothing while parked (review M8). Since errata G68 (R6.64) B's one read
+    // before the gate, of its token's key (R5.22), is a forward read and is counted: the assertion is that B reads that and nothing more (AgentWriteGateEndpointTests.KeyRead).
     private static readonly AsyncLocal<long> CurrentRequest = new();
     private long _requestsStarted;
     private readonly System.Collections.Concurrent.ConcurrentQueue<long> _readRequests = new();

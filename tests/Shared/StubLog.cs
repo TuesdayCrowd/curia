@@ -259,8 +259,12 @@ internal sealed class StubLog : IDisposable
     /// <summary>Serve the key set with no <c>curia_log_index</c>: R6.54's check has nowhere to look.</summary>
     internal bool KeySetNamesNoLogIndex { get; set; }
 
-    /// <summary>Members appended to the key set <c>/v1/jwks</c> serves (errata G68, R4.41: <c>curia_skipped</c> and <c>curia_skipped_total</c>), or null for a key set that carries neither.</summary>
-    internal string? SkippedMembersJson { get; set; }
+    /// <summary>
+    /// Members appended to the key set <c>/v1/jwks</c> serves (errata G68, R4.41: <c>curia_skipped</c> and <c>curia_skipped_total</c>), or null for a key set that carries neither.
+    /// As the Forum serves an identity none of whose rows it skips: both members, the list empty and the total 0 (<c>StubFidelityTests</c> R6.54 holds the stub to that). Null is the
+    /// Forum that does not say.
+    /// </summary>
+    internal string? SkippedMembersJson { get; set; } = "\"curia_skipped\":[],\"curia_skipped_total\":0";
 
     /// <summary>
     /// Serve the key as compromised (R6.57): the declaration's log index and its <c>from_index</c>, as
