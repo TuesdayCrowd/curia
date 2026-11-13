@@ -481,7 +481,7 @@ entry type or a statement version the reader does not fold), `bound-after-post`,
 (errata G67, R6.62). A reader also reaches `declaration-signature-invalid` and a failed
 `compromised-before-post` (a declaration that precedes the post); no case carries either, and the readers' own facts do.
 
-**The compromise cases.** Forty-four cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
+**The compromise cases.** Forty-six cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
 the fixed P-256 test declaration key that `acta/key-compromised-entry` uses (a `/2` statement: `/1` is withdrawn); their `log-jwks.json`
 carries it in a `declaration_keys` member beside `keys` (the head key), with the `log_index` of the `log.declaration-key` entry that
 publishes it. A declaration is held to KF1 to KF4 and to KF3, in this order, the

@@ -203,6 +203,7 @@ under the key it holds; a head it cannot verify as its own, whatever keys the lo
 `log.head` nor `log.key`, and otherwise prints `unchanged`, appends nothing and exits 0, so a timer does not grow the log by its own output;
 it withholds the head and exits 6, naming each log index, type and predicate, when a lifecycle row the Forum does not honour (R6.64: one
 that verifies under no published key) follows that head, which a person reads and covers by hand; a row the Forum honours does not stop it.
+The stop is a deliberate stall, kept through beta: while it holds, a timer's runs sign nothing, and what clears it is a person's plain `sign-head` (without `--if-grown`), which covers the row; the next run then signs as before.
 Before covering one by hand, and after a restore, run `CURIA_EVENTS_POSTGRES=... curia-operator lifecycle-audit` (errata G68): it reads the whole
 log, reads no key and writes nothing, prints `honoured <h>  skipped <n>` and one line per skipped row (the first 100, never a payload member),
 and exits 7 when any row is skipped. Run it without the flag for a log-key rotation, which publishes a key on a log that may be quiet; the first run
@@ -215,7 +216,9 @@ the declaration key are never in one environment: `sign-head` refuses one that h
 and `compromise` refuse one that holds the log key, each with exit 3 before it parses or uses either key (R12.18). The owner publishes the
 declaration key once, before the hosted instance is announced (`curia-operator publish-declaration-key --by ops`; it is not behind
 the lifecycle guard, and the first key published is the one), and the Forum serves it in `declaration_keys` beside `keys` in
-`GET /v1/log/jwks`.
+`GET /v1/log/jwks`. After it appends a declaration, `compromise` asks whether the Forum honours the row (errata G68, R4.42): when the Forum skips the row it
+recorded, it prints no `compromised` line, names the row's log index and the predicate on stderr and exits 7; the row is in the log, cannot be taken
+back, and ends, binds and marks no key.
 
 The same tool is R10.36's **human moderator**, out of band, with no HTTP route (R10.59, errata
 G13). `curia-operator flags` is the review queue: it lists flags and why they were raised, each
