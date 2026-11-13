@@ -127,6 +127,8 @@ internal static partial class LifecycleCases
             HDeclarationKeyEntryKidDiffersFromItsJwk(root, k0),
             HEnrolmentWithoutItsPair(root, k0),
             HMalformedKeyEntryDoesNotListTheGenuineKeysKid(root, k0),
+            HEnrolmentNamesAnotherAgent(k0),
+            HEnrolmentPayloadNotAnObject(k0),
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -661,6 +663,28 @@ internal static partial class LifecycleCases
         return new HCase("enrolment-without-its-pair",
             "An enrolment at 0 with no pair after it, the declaration key at 1, a log key at 2, a declaration of the enrolment's kid at 3 (prev 0) and a genuine retirement of it by itself at 4 (prev 0). The enrolment alone binds no kid and no key and is the previous honoured entry, so the rows' prev 0 reaches the predicates that name the missing binding and not broken-link: the declaration is skipped as kid-not-bound-to-agent and the retirement as rotation-unauthorized; a skipped row moves nothing, so the retirement's prev is still 0 (ruling 55, T10).",
             log, Agent_(rows: [HRow.Skipped(3, KeyCompromised, "kid-not-bound-to-agent"), HRow.Skipped(4, KeyRetired, "rotation-unauthorized")], keys: [], bound: []));
+    }
+
+    /// <summary>Ruling 79 (errata G68, Amendment 7): the root is decided by R6.64's steps 1 and 4; an enrolment naming another agent is skipped and the stream has no root.</summary>
+    private static HCase HEnrolmentNamesAnotherAgent(Key k0)
+    {
+        var log = new Log();
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(OtherAgent)), ("kid", Str(k0.Kid))));
+        AddBinding(log, k0);
+        return new HCase("enrolment-names-another-agent",
+            "The stream's first agent.enrolled at 0 names another agent (agent_id is the other agent's) and the stream's own key K; the standard pair naming the stream's agent and K is at 1. The enrolment fails R6.64's step 4 and is skipped as statement-mismatch, so the stream has no root: the pair is not in the pair's position (step 5, broken-link) and nothing is bound. A later declaration is left out on purpose: with no honoured entry its prev can only be broken-link, which adds a row and no information.",
+            log, Agent_(rows: [HRow.Skipped(0, "agent.enrolled", "statement-mismatch"), HRow.Skipped(1, KeyBound, "broken-link")], keys: [], bound: []));
+    }
+
+    /// <summary>Ruling 79 (errata G68, Amendment 7): an enrolment whose payload is not an object fails step 1 and is skipped, and the stream has no root.</summary>
+    private static HCase HEnrolmentPayloadNotAnObject(Key k0)
+    {
+        var log = new Log();
+        log.Add("agent.enrolled", Agent, Agent, Str("not-an-enrolment"));
+        AddBinding(log, k0);
+        return new HCase("enrolment-payload-not-an-object",
+            "The stream's first agent.enrolled at 0 carries a JSON string for a payload, and the standard pair is at 1. The enrolment fails R6.64's step 1 and is skipped as statement-mismatch, so the stream has no root: the pair is skipped as broken-link and nothing is bound.",
+            log, Agent_(rows: [HRow.Skipped(0, "agent.enrolled", "statement-mismatch"), HRow.Skipped(1, KeyBound, "broken-link")], keys: [], bound: []));
     }
 
     /// <summary>Vector 51 (errata G68, ruling 57): an entry that is not a key lists nothing, so it does not displace the genuine key's earliest listing.</summary>

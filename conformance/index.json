@@ -62,7 +62,7 @@
       "profiles": [
         "honoured-log"
       ],
-      "count": 51
+      "count": 53
     },
     {
       "name": "lifecycle",
@@ -71,7 +71,7 @@
       "profiles": [
         "lifecycle-log"
       ],
-      "count": 81
+      "count": 82
     },
     {
       "name": "merkle",

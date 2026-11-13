@@ -15,7 +15,7 @@ using static Curia.Application.Tests.Credentials.LifecycleProbeSupport;
 namespace Curia.Application.Tests.Credentials;
 
 /// <summary>
-/// LRV2 and LRV23 (errata G68, R6.64): the verifier agrees with the 81 reader vectors in <c>conformance/lifecycle/</c> wherever a reader's verdict names a row's predicate, and R6.64's
+/// LRV2 and LRV23 (errata G68, R6.64): the verifier agrees with the 82 reader vectors in <c>conformance/lifecycle/</c> wherever a reader's verdict names a row's predicate, and R6.64's
 /// predicate names are the vectors' names. The table of which predicates are row-level is a literal here, checked against R6.64's own text; the vectors' verdicts are another artifact from the verifier.
 /// </summary>
 [SuppressMessage(

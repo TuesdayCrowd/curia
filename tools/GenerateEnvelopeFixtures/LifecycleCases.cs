@@ -106,6 +106,7 @@ internal static partial class LifecycleCases
             ForgedRotation(k1, k2, stranger),
             RotationAuthorizedByRetiredKey(k1, k2),
             ForeignIdentityEntry(k1),
+            EnrolmentNamesAnotherAgent(k1),
             StatementDuplicateMember(k1, k2),
             EntryMemberDisagrees(k1, k2, k3),
             SiblingSignedRetirement(k1, k2),
@@ -216,6 +217,17 @@ internal static partial class LifecycleCases
         return new Case("foreign-identity-entry", "R6.54",
             "The listed lifecycle holds another identity's key binding.",
             log, post, [0, 1, 2], "failed", "statement-mismatch");
+    }
+
+    private static Case EnrolmentNamesAnotherAgent(Key k1)
+    {
+        var log = new Log();
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(OtherAgent)), ("kid", Str(k1.Kid))));
+        log.Add("agent.key-bound", Agent, Agent, Obj(("agent_id", Str(Agent)), ("jwk", k1.Jwk), ("kid", Str(k1.Kid))));
+        var post = AddPost(log, k1, "05");
+        return new Case("enrolment-names-another-agent", "R6.54",
+            "The author's chain starts with an enrolment whose payload names another agent: the Forum skips the root (R6.64, step 4) and a reader fails the entry the same way.",
+            log, post, [0, 1], "failed", "statement-mismatch");
     }
 
     private static Case StatementDuplicateMember(Key k1, Key k2)

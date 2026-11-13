@@ -11,7 +11,7 @@ namespace Curia.Canon.Tests.Vectors;
 public sealed class HonouredFamilyTests
 {
     /// <summary>The number of cases, counted from the plan's table (vector 49 included); the generator's count is the oracle, and this literal is the control.</summary>
-    private const int Cases = 51;
+    private const int Cases = 53;
 
     /// <summary>R6.64's predicates, by the names the Forum publishes and no others.</summary>
     private static readonly string[] Predicates =
@@ -97,7 +97,7 @@ public sealed class HonouredFamilyTests
 
                 foreach (var key in agent.GetProperty("keys").EnumerateObject()) Assert.Contains(key.Value.GetString(), Statuses);
                 var bound = agent.GetProperty("bound").EnumerateArray().Select(b => b.GetString()).ToList();
-                if (name != "enrolment-without-its-pair") Assert.NotEmpty(bound); // an enrolment alone binds no kid (ruling 55)
+                if (name is not ("enrolment-without-its-pair" or "enrolment-names-another-agent" or "enrolment-payload-not-an-object")) Assert.NotEmpty(bound); // an enrolment alone binds no kid (ruling 55); a stream with no root binds none (ruling 79)
                 Assert.All(bound, kid => Assert.True(agent.GetProperty("keys").TryGetProperty(kid!, out _), $"{name}: bound kid {kid} has no status"));
             }
         }

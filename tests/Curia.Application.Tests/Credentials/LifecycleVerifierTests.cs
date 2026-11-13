@@ -108,4 +108,61 @@ public sealed class LifecycleVerifierTests
             set.Bound.Select(b => b.Key.Key.Kid).SequenceEqual([victim.Kid]) && lifecycle.SequenceEqual([0L, 1L]),
             $"Expected: Bound [{victim.Kid}], lifecycle [0, 1]  Actual: Bound [{string.Join(", ", set.Bound.Select(b => b.Key.Key.Kid))}], lifecycle [{string.Join(", ", lifecycle)}] (the forged row is {forged})");
     }
+    private static readonly string[] RootVectors = ["declaration-honoured", "rotation-honoured", "enrolment-pair-only"];
+
+    /// <summary>One mutation of the enrolment (index 0) or the pair (index 1) of a vector, by name: the payload as an object, or the payload that replaces it.</summary>
+    private static readonly (string Name, int Index, Func<Curia.Canon.Json.JsonValue.Object, Curia.Canon.Json.JsonValue> Mutate)[] RootMutations =
+    [
+        ("enrolment-payload-not-an-object", 0, _ => S("not-an-enrolment")),
+        ("enrolment-agent-id-removed", 0, o => Without(o, "agent_id")),
+        ("enrolment-agent-id-another-agent", 0, o => With(o, "agent_id", S("agent://curia.example/tuesdaycrowd/other"))),
+        ("enrolment-kid-removed", 0, o => Without(o, "kid")),
+        ("enrolment-kid-another-value", 0, o => With(o, "kid", S("another-kid"))),
+        ("enrolment-extra-member", 0, o => With(o, "extra", S("x"))),
+        ("pair-agent-id-another-agent", 1, o => With(o, "agent_id", S("agent://curia.example/tuesdaycrowd/other"))),
+        ("pair-jwk-removed", 1, o => Without(o, "jwk")),
+        ("pair-kid-another-value", 1, o => With(o, "kid", S("another-kid"))),
+    ];
+
+    public static TheoryData<string, string> RootCases()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var vector in RootVectors)
+            foreach (var mutation in RootMutations)
+                data.Add(vector, mutation.Name);
+        return data;
+    }
+
+    private static Curia.Canon.Json.JsonValue.Object Without(Curia.Canon.Json.JsonValue.Object o, string member) =>
+        new([.. o.Members.Where(m => m.Key != member)]);
+
+    private static Curia.Canon.Json.JsonValue.Object With(Curia.Canon.Json.JsonValue.Object o, string member, Curia.Canon.Json.JsonValue value) =>
+        new([.. o.Members.Where(m => m.Key != member).Append(new(member, value))]);
+
+    /// <summary>
+    /// LRV41 (errata G68, rulings 79, 80): whatever the enrolment or its pair state, <c>For</c> does not throw, every honoured entry is an event the verifier reports honoured, and no honoured
+    /// entry is a row <c>KeyLifecycle.Of</c> would refuse (that is <c>For</c> returning). The inputs are three honoured vectors read from their files and mutated in memory.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RootCases))]
+    public void LRV41_NoRootThePairOrTheEnrolmentCanStateMakesTheHonouredRowsUnreadable(string vector, string mutation)
+    {
+        var (_, index, mutate) = RootMutations.Single(m => m.Name == mutation);
+        var log = ConformanceLog.Load("honoured", vector);
+        var events = log.Log.ToList();
+        var original = events[index];
+        var payload = (Curia.Canon.Json.JsonValue.Object)original.Event.Payload;
+        events[index] = LogEvents.At(index, original.AggregateId.Value, original.ServerTimestamp.Value, original.Event.Id.Value, original.Event.Type.Value, original.Event.Actor!.Value.Value, mutate(payload));
+
+        VerifiedLifecycle? verified = null;
+        var thrown = Record.Exception(() => verified = ConformanceLog.Verifier().OfLog(events).For(Typed.Agent(log.Agent)));
+
+        Assert.True(thrown is null, $"Expected: For does not throw  Actual: {thrown?.GetType().Name}: {thrown?.Message}");
+        var skipped = verified!.Skipped.Select(r => r.LogIndex).ToHashSet();
+        foreach (var entry in verified.Honoured.Entries)
+        {
+            var at = events.FindIndex(e => e.Event.Id.Value == entry.EventId);
+            Assert.True(at >= 0 && !skipped.Contains(at), $"Expected: honoured entry {entry.EventId} is an event the verifier reports honoured  Actual: log index {at}, skipped [{string.Join(", ", skipped)}]");
+        }
+    }
 }

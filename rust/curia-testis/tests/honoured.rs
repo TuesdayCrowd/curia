@@ -118,8 +118,8 @@ fn r6_64_every_honoured_case_reaches_its_rows_keys_and_bound() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.honoured.len(),
-        51,
-        "conformance/honoured/ holds 51 cases"
+        53,
+        "conformance/honoured/ holds 53 cases"
     );
 
     let mut failures = Vec::new();
@@ -226,7 +226,7 @@ fn reader_log(dir: &Path) -> Vec<LogEntry> {
 #[test]
 fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
-    assert_eq!(corpus.lifecycle.len(), 81);
+    assert_eq!(corpus.lifecycle.len(), 82);
 
     for (case, _) in NOT_A_ROW_OF_THE_STREAM {
         assert!(

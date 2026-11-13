@@ -59,6 +59,7 @@ internal sealed class LifecycleFold
     private readonly HashSet<string> _retired = new(StringComparer.Ordinal);
     private readonly HashSet<string> _compromised = new(StringComparer.Ordinal);
 
+    private bool _sawEnrolment;
     private bool _enrolled;
     private string? _enrolmentKid;
     private long? _previous;
@@ -116,8 +117,10 @@ internal sealed class LifecycleFold
 
         if (string.Equals(type, AgentStandingProjector.EnrolledType, StringComparison.Ordinal))
         {
-            // The stream's first enrolment is the root, honoured as the Forum's own record; a later one is no row and binds nothing.
-            if (!_enrolled) Enrol(index, appended);
+            // The stream's first enrolment is decided once, whether or not it is honoured; a later one is no row and binds nothing (R6.64, ruling 79).
+            if (_sawEnrolment) return;
+            _sawEnrolment = true;
+            Enrol(index, appended);
             return;
         }
 
@@ -134,12 +137,22 @@ internal sealed class LifecycleFold
             _skipped.Add(new SkippedRow(index, type, appended.AggregateId.Value, predicate));
     }
 
+    /// <summary>
+    /// The root (R6.64, ruling 79): the stream's first enrolment is decided by steps 1 and 4 as any row is. A payload that is not an object, or whose <c>agent_id</c> is not the stream's agent, is skipped
+    /// as <c>statement-mismatch</c> and the stream has no root: no pair is a pair, nothing is bound. Otherwise the enrolment is honoured; it binds no kid and no key and is the previous honoured entry
+    /// (ruling 55), and the pair or a rotation binds.
+    /// </summary>
     private void Enrol(long index, AppendedEvent appended)
     {
-        _enrolled = true;
-        _enrolmentKid = appended.Event.Payload is JsonValue.Object o ? Text(o, AgentStandingProjector.KeyIdField) : null;
+        if (appended.Event.Payload is not JsonValue.Object o
+            || !string.Equals(Text(o, AgentStandingProjector.AgentIdField), _agent, StringComparison.Ordinal))
+        {
+            _skipped.Add(new SkippedRow(index, appended.Event.Type.Value, appended.AggregateId.Value, LifecyclePredicates.StatementMismatch));
+            return;
+        }
 
-        // The enrolment alone binds no kid and no key, and is the previous honoured entry (R6.64, ruling 55): the pair or a rotation binds.
+        _enrolled = true;
+        _enrolmentKid = Text(o, AgentStandingProjector.KeyIdField);
         Honour(index, appended);
     }
 
