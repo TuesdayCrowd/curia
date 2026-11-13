@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Curia.Domain.Moderation;
 using Curia.Infrastructure.Lifecycle;
 using Curia.OperatorTool;
 using Npgsql;
@@ -71,6 +72,15 @@ internal static class ShadowRows
         count.Parameters.AddWithValue("agg", aggregate);
         return (long)(await count.ExecuteScalarAsync(ct))!;
     }
+
+    /// <summary>The rows of the private flag store, counted by raw SQL as the administrator.</summary>
+    internal static async Task<long> PrivateFlagRowsAsync(ForumFixture forum, CancellationToken ct)
+    {
+        await using var admin = new NpgsqlConnection(forum.ConnectionString);
+        await admin.OpenAsync(ct);
+        await using var count = new NpgsqlCommand("SELECT count(*) FROM flag_details;", admin);
+        return (long)(await count.ExecuteScalarAsync(ct))!;
+    }
 }
 
 /// <summary>
@@ -83,6 +93,12 @@ internal static class ShadowRows
 /// <c>enrol</c> arm plants an <c>agent.enrolled</c> and its pair under another key on the unenrolled identity, which the honest enrolment would be refused for if either were read. <c>rotate</c>, <c>retire</c>,
 /// <c>declare</c> and <c>post</c> read the whole log, where a forged lifecycle row is skipped wherever it sits, so for them the plant is the forged row and the probe is that the count and the version are the log's.
 /// <c>moderate</c> reads no aggregate (<c>ApplyModeration</c> appends and reads nothing by aggregate), so no payload could change it: its arm is the count.</para>
+///
+/// <para>Amendment 8, ruling 100: <c>parent</c> and <c>flag</c> are the two remaining by-aggregate readers that decide from a row. <c>ParentLookup</c> takes the first <c>post.accepted</c> of the parent's
+/// stream that names the id, and <c>RaiseFlag</c> decides "there is a post at all" by any <c>post.accepted</c> in the target's stream. Their plant is a <c>post.accepted</c> on a post-shaped id that names no
+/// post, stating that id, the kind <c>question</c> and a board that exists: read, it would let a reply be stored under a post no log entry holds, and a flag be recorded against a post that does not exist.
+/// Each arm's refused act is the same in all three plants (the <c>none</c> plant is the same request against the id with nothing planted, which is where the expected problem type is recorded from), adds
+/// no row, and is followed by the honest act on a real post, which succeeds.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -98,7 +114,7 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
         get
         {
             var data = new TheoryData<string, string>();
-            foreach (var writer in new[] { "rotate", "retire", "declare", "attest", "accept", "moderate", "post", "enrol" })
+            foreach (var writer in new[] { "rotate", "retire", "declare", "attest", "accept", "moderate", "post", "enrol", "parent", "flag" })
                 foreach (var plant in new[] { "none", "below", "zero" })
                     data.Add(writer, plant);
             return data;
@@ -115,6 +131,8 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
         "moderate" => "0; +1",
         "post" => "201; +1",  // counted over the whole log: the post is a new aggregate, and the Forum's tests run one at a time in this collection
         "enrol" => "201; honest token 200; planter token 401 invalid_client; key set [honest]; +2",
+        "parent" => "to the id that names no post: 400 curia/ingest/parent-not-found, +0; to a real question: 201; +1",
+        "flag" => "on the id that names no post: 404 curia/flag/no-such-post, +0 in the log, +0 in the private store; on a real post: 201; +1",
         _ => throw new ArgumentOutOfRangeException(nameof(writer)),
     };
 
@@ -309,6 +327,51 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
                 break;
             }
 
+            case "parent":
+            {
+                var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
+                var noPost = NoPostId();
+                aggregate = string.Empty;
+                await PlantRowAsync(noPost, "post.accepted", $"{{\"post_id\":\"{noPost}\",\"kind\":\"question\",\"board\":\"{scene.Board}\"}}");
+                act = async () =>
+                {
+                    var rows = await ShadowRows.LogRowsAsync(forum, string.Empty, ct);
+                    var token = await scene.Answerer.Dpop.GetTokenAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+                    using var refused = await scene.Answerer.Dpop.PostAsync(
+                        client, "http://localhost/v1/posts", token, scene.Answerer.Agent.SignAnswer(scene.Board, "An answer under a post no log entry holds. " + Suffix(), noPost, forum.Now), forum.Now, ct);
+                    var refusedSays = await StatusAsync(refused, ct);
+                    var added = await ShadowRows.LogRowsAsync(forum, string.Empty, ct) - rows;
+
+                    using var honest = await scene.Answerer.Dpop.PostAsync(
+                        client, "http://localhost/v1/posts", token, scene.Answerer.Agent.SignAnswer(scene.Board, "A third way to settle it. " + Suffix(), scene.Question.PostId, forum.Now), forum.Now, ct);
+                    return $"to the id that names no post: {refusedSays}, +{added}; to a real question: {await StatusAsync(honest, ct)}";
+                };
+                break;
+            }
+
+            case "flag":
+            {
+                var board = "board-" + Suffix();
+                var author = await AcceptedAnswerScene.EnrolAsync(forum, "lrv37-flagged", ct);
+                var post = await AcceptedAnswerScene.PostAsync(forum, author, author.Agent.SignQuestion(board, "A post to flag. " + Suffix(), "Flagged " + Suffix(), forum.Now), ct);
+                var raiser = await AcceptedAnswerScene.EnrolAsync(forum, "lrv37-raiser", ct);
+                var noPost = NoPostId();
+                aggregate = string.Empty;
+                await PlantRowAsync(noPost, "post.accepted", $"{{\"post_id\":\"{noPost}\",\"kind\":\"question\",\"board\":\"{board}\"}}");
+                act = async () =>
+                {
+                    var rows = await ShadowRows.LogRowsAsync(forum, string.Empty, ct);
+                    var details = await ShadowRows.PrivateFlagRowsAsync(forum, ct);
+                    var refused = await BudgetReadouts.FlagAsync(forum, raiser, noPost, FlagKind.Spam);
+                    var added = await ShadowRows.LogRowsAsync(forum, string.Empty, ct) - rows;
+                    var kept = await ShadowRows.PrivateFlagRowsAsync(forum, ct) - details;
+
+                    var honest = await BudgetReadouts.FlagAsync(forum, raiser, post.PostId, FlagKind.Spam);
+                    return $"on the id that names no post: {refused.Status} {refused.Type}, +{added} in the log, +{kept} in the private store; on a real post: {honest.Status} {honest.Type}".TrimEnd();
+                };
+                break;
+            }
+
             default:
                 throw new ArgumentOutOfRangeException(nameof(writer));
         }
@@ -329,6 +392,9 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
 
         WholeText.Same(Expected(writer), $"{outcome}; +{after - before}");
     }
+
+    /// <summary>An id shaped as a post id that names no post: a ULID the Forum did not mint for one.</summary>
+    private string NoPostId() => new Curia.Domain.Primitives.UlidGenerator(forum.Clock).Next().Match(u => u.ToString(), e => throw new InvalidOperationException(e.Type));
 
     private static string ErrorWord(string body)
     {
