@@ -86,17 +86,23 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
 
     /// <summary>
     /// The legs of one victim, as one line: the token request, a post made with the token issued before the row, the post's served key status, the key set (and whether it lists the row), and a rotation by the victim
-    /// at the last honoured index. <paramref name="rowIndex"/> is the row's log index, or -1 for the control.
+    /// at the last honoured index. <paramref name="rowIndex"/> is the row's log index, or -1 for the control. Each request is the act under test, so no call here throws on a status: every leg's
+    /// answer, whatever it is, is in the line the probe compares (Amendment 9, ruling 113 (6)).
     /// </summary>
     private async Task<string> LegsAsync(Victim victim, long rowIndex, CancellationToken ct)
     {
         var client = forum.Client;
         var (tokenStatus, tokenBody) = await victim.Dpop.RequestTokenAsync(client, KeyActRequests.TokenEndpoint, forum.Now, victim.Agent.AgentId, ct);
         using var asked = await victim.Dpop.PostAsync(client, PostsUrl, victim.Token, victim.Agent.SignQuestion(victim.Board, "After the row. " + Suffix(), "Second " + Suffix(), forum.Now), forum.Now, ct);
-        var servedPost = await client.GetFromJsonAsync<JsonElement>($"/v1/posts/{victim.PostId}", ct);
-        var provenance = servedPost.GetProperty("provenance");
-        var keyStatus = provenance.GetProperty("key_status").GetString();
-        var marked = provenance.TryGetProperty("disputed_by_log_index", out _);
+        using var servedPost = await client.GetAsync(new Uri($"/v1/posts/{victim.PostId}", UriKind.Relative), ct);
+        var keyStatus = $"post {(int)servedPost.StatusCode}";
+        var marked = false;
+        if (servedPost.StatusCode == HttpStatusCode.OK)
+        {
+            var provenance = JsonDocument.Parse(await servedPost.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("provenance");
+            keyStatus = provenance.GetProperty("key_status").GetString();
+            marked = provenance.TryGetProperty("disputed_by_log_index", out _);
+        }
 
         using var keySetResponse = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(victim.Agent.AgentId)}", UriKind.Relative), ct);
         var keySetText = await keySetResponse.Content.ReadAsStringAsync(ct);
@@ -255,20 +261,24 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
         return jws.Sign(canonical, new PortSigner(port)).Match(s => s.Compact, e => throw new InvalidOperationException(e.Type));
     }
 
-    /// <summary>The predicate the Forum serves for the row at <paramref name="rowIndex"/> of <paramref name="agentId"/>'s stream: the key set's <c>curia_skipped</c> entry for it, or <c>none</c> when the row is not listed.</summary>
-    private async Task<string> ServedPredicateAsync(string agentId, long rowIndex, CancellationToken ct)
+    /// <summary>
+    /// What one key set of <paramref name="agentId"/> says of the row at <paramref name="rowIndex"/>: the predicate of its <c>curia_skipped</c> entry, or <c>none</c> when the row is not listed there, and whether
+    /// <c>curia_lifecycle</c> lists the row. A reader follows <c>curia_lifecycle</c>, so a forged row listed there is handed to it and fails the author (Amendment 9, ruling 110).
+    /// </summary>
+    private async Task<(string Predicate, string Lifecycle)> ServedRowAsync(string agentId, long rowIndex, CancellationToken ct)
     {
         using var keySet = await KeyActRequests.KeySetAsync(forum.Client, agentId, ct);
+        var lifecycle = keySet.RootElement.GetProperty("curia_lifecycle").EnumerateArray().Any(i => i.GetInt64() == rowIndex) ? "listing the row" : "without the row";
         foreach (var skipped in keySet.RootElement.GetProperty("curia_skipped").EnumerateArray())
             if (skipped.GetProperty("log_index").GetInt64() == rowIndex)
-                return skipped.GetProperty("predicate").GetString()!;
+                return (skipped.GetProperty("predicate").GetString()!, lifecycle);
 
-        return "none";
+        return ("none", lifecycle);
     }
 
     /// <summary>
     /// LRV13 (a) to (d), (f) and (g) (errata G68, ruling 86; (a) is predicted <c>lifecycle-typ-mismatch</c> there and serves <c>declaration-key-unpublished</c>, because its zero-byte JWS has the declaration header <c>typ</c> and a <c>kid</c> no declaration key carries): a forged declaration or retirement is skipped by the predicate its leg is meant to reach, and leaves the victim's token request 200, the post's key
-    /// status active, not omitted from search (<c>excluded_disputed</c> 0), no <c>disputed_by_log_index</c>. Every forged row takes the victim's last honoured lifecycle index as its <c>prev</c>, so the row is
+    /// status active, not omitted from search (<c>excluded_disputed</c> 0), no <c>disputed_by_log_index</c>, and the key set's <c>curia_lifecycle</c> without the row (Amendment 9, ruling 110: these rows are well formed, where LRV12's are not). Every forged row takes the victim's last honoured lifecycle index as its <c>prev</c>, so the row is
     /// decided on its own defect and not skipped <c>broken-link</c> before the header, the key or the signature is read. Red on the tip for the stated reason: with <c>prev</c> hard-coded to 1 the victim's pair
     /// is not at index 1, and each leg was served <c>broken-link</c>.
     /// </summary>
@@ -341,12 +351,12 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
         var provenance = (await client.GetFromJsonAsync<JsonElement>($"/v1/posts/{victim.PostId}", ct)).GetProperty("provenance");
         using var search = JsonDocument.Parse(await client.GetStringAsync(new Uri($"/v1/search?q=Before&board={victim.Board}", UriKind.Relative), ct));
         var excluded = search.RootElement.GetProperty("floor").GetProperty("excluded_disputed").GetInt32();
-        var served = await ServedPredicateAsync(agent, index, ct);
+        var (served, lifecycle) = await ServedRowAsync(agent, index, ct);
 
         WholeText.Same(
-            $"row skipped {expectedPredicate}; token 200; key_status active; no disputed_by_log_index; excluded_disputed 0",
+            $"row skipped {expectedPredicate}; token 200; key_status active; no disputed_by_log_index; excluded_disputed 0; curia_lifecycle without the row",
             $"row skipped {served}; token {(tokenStatus == HttpStatusCode.OK ? "200" : $"{(int)tokenStatus} {ErrorOf(tokenBody)}")}; key_status {provenance.GetProperty("key_status").GetString()}; "
-            + $"{(provenance.TryGetProperty("disputed_by_log_index", out var by) ? "disputed_by_log_index " + by.GetInt64().ToString(CultureInfo.InvariantCulture) : "no disputed_by_log_index")}; excluded_disputed {excluded}");
+            + $"{(provenance.TryGetProperty("disputed_by_log_index", out var by) ? "disputed_by_log_index " + by.GetInt64().ToString(CultureInfo.InvariantCulture) : "no disputed_by_log_index")}; excluded_disputed {excluded}; curia_lifecycle {lifecycle}");
     }
 
     /// <summary>
@@ -402,7 +412,8 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
         // The leg that reaches ingest's resolution (ruling 86): a post signed by the planted key, submitted under the victim's own token. The token is refused to the planted key (R4.35), so this is the only
         // way the key is ever asked to verify a post; ingest resolves the author's key from the log and must refuse it.
         using var planted = await victim.Dpop.PostAsync(client, PostsUrl, victim.Token, hole.SignQuestion(victim.Board, "Signed under the planted key. " + Suffix(), "Planted " + Suffix(), forum.Now), forum.Now, ct);
-        var plantedProblem = await KeyActRequests.ProblemOfAsync(planted, ct);
+        // The answer is the act under test: a 201 has no problem document, and the line below says so, where a helper that requires one would throw (Amendment 9, ruling 113 (7)).
+        var plantedType = ProblemTypeOrNone(await planted.Content.ReadAsStringAsync(ct));
 
         var after = await EventCountAsync(ct);
         using var own = await victim.Dpop.PostAsync(client, PostsUrl, victim.Token, victim.Agent.SignQuestion(victim.Board, "The victim's own. " + Suffix(), "Own " + Suffix(), forum.Now), forum.Now, ct);
@@ -410,7 +421,7 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
         WholeText.Same(
             "attacker token 401 invalid_client; attacker ask n/a; planted-key post is a 4xx curia/keys/not-bound-by-the-log; events 0; victim ask 201",
             $"attacker token {(status == HttpStatusCode.OK ? "200" : $"{(int)status} {ErrorOf(body)}")}; attacker ask {attackerAsked}; "
-            + $"planted-key post is a {((int)planted.StatusCode is >= 400 and < 500 ? "4xx" : ((int)planted.StatusCode).ToString(CultureInfo.InvariantCulture))} {plantedProblem.Type}; events {after - before}; victim ask {(int)own.StatusCode}");
+            + $"planted-key post is a {((int)planted.StatusCode is >= 400 and < 500 ? "4xx" : ((int)planted.StatusCode).ToString(CultureInfo.InvariantCulture))} {plantedType}; events {after - before}; victim ask {(int)own.StatusCode}");
     }
 
     /// <summary>LRV13's control: a genuine declaration under a published declaration key still marks the post compromised and omits it from search (R6.57), where the probes above must not.</summary>
@@ -443,6 +454,22 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
             "sign-head 0; compromise 0; key_status compromised; marked; excluded_disputed 1",
             $"sign-head {published}; compromise {declared}; key_status {provenance.GetProperty("key_status").GetString()}; {(provenance.TryGetProperty("disputed_by_log_index", out _) ? "marked" : "not marked")}; "
             + $"excluded_disputed {search.RootElement.GetProperty("floor").GetProperty("excluded_disputed").GetInt32()}");
+    }
+
+    /// <summary>The <c>type</c> of the problem document <paramref name="body"/> is, when it is a JSON object whose <c>type</c> is a string; <c>no problem document</c> otherwise.</summary>
+    private static string ProblemTypeOrNone(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
+                ? type.GetString()!
+                : "no problem document";
+        }
+        catch (JsonException)
+        {
+            return "no problem document";
+        }
     }
 
     private static string ToJson(JsonValue.Object jwk) =>

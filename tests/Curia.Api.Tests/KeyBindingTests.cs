@@ -218,10 +218,15 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
     /// without the leaves that bind them. Neither the token endpoint nor a 5xx problem names the reader's
     /// refusal: the token endpoint logs its slug as event 5000 (M5), and a 5xx problem's detail goes to
     /// the log (R11.33, errata G17).
+    ///
+    /// <para>The <c>first</c> row (Amendment 9, ruling 114) is a transient fault: the reader refuses the first whole-log read after it is armed and serves every later one. The first whole-log read of an
+    /// authenticated request is the status read of the token's key (R5.22), so the answer is that read's alone: a status read that took its failure for Active would let the request go on, every later read
+    /// would succeed, and the question would be stored (201). A persistent fault cannot say which read refused, because the request's next read fails with the same 503.</para>
     /// </summary>
     [Theory]
     [InlineData("token", "whole", "token-unavailable")]
     [InlineData("question", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
+    [InlineData("question", "first", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     [InlineData("key set", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     public async Task R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(string path, string refuses, string expected)
     {
@@ -308,12 +313,17 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
 
     /// <summary>
     /// A log reader that, once <paramref name="refusing"/> says so, refuses one kind of read and hands
-    /// the other to the host's own store: the forward read the whole log is read by (<c>whole</c>), or none (<c>none</c>, the control). The Postgres reader
+    /// the other to the host's own store: the forward read the whole log is read by (<c>whole</c>), the first such read alone and no later one (<c>first</c>), or none (<c>none</c>, the control). The Postgres reader
     /// throws rather than refusing, so only a reader such as this one reaches the refusal.
     /// </summary>
     private sealed class UnreadableLog(IEventReader store, string refuses, Func<bool> refusing) : IEventReader
     {
         private static readonly Error Refused = new("test/log-unreadable", "The test's reader refused the read");
+
+        private int _refusedOnce;
+
+        private bool RefusesThisRead() =>
+            refusing() && (refuses is "whole" || (refuses is "first" && Interlocked.Exchange(ref _refusedOnce, 1) == 0));
 
         public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
             AggregateId aggregateId, CancellationToken cancellationToken = default) =>
@@ -321,7 +331,7 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
 
         public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(
             EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
-            refuses is "whole" && refusing()
+            RefusesThisRead()
                 ? Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(Refused))
                 : store.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
