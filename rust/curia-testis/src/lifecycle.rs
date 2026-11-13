@@ -1001,7 +1001,8 @@ pub enum Verdict {
     Skipped(&'static str),
 }
 
-/// One lifecycle row of the stream (never the enrolment, its pair, or a later `agent.enrolled`).
+/// One lifecycle row of the stream: never the honoured enrolment, its pair, or a later `agent.enrolled`; the stream's first
+/// `agent.enrolled` is a row only when steps 1 or 4 skip it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub log_index: u64,
@@ -1111,9 +1112,12 @@ impl Published {
         (entry.payload.get("kid").and_then(Value::as_str) == Some(key.kid.as_str())).then_some(key)
     }
 
-    fn is_log_key(&self, declaration_key: &LogKey) -> bool {
+    /// The log-key check reads the `log.key` entries at a log index below the declaration's own: a `log.key` entry appended after a
+    /// declaration does not undo it.
+    fn is_log_key(&self, declaration_key: &LogKey, declaration_index: u64) -> bool {
         self.log_keys
             .iter()
+            .filter(|k| k.log_index.is_some_and(|at| at < declaration_index))
             .any(|k| k.kid == declaration_key.kid || k.same_key(declaration_key))
     }
 }
@@ -1153,10 +1157,29 @@ pub fn honoured(log: &[LogEntry], agent: &str) -> Honoured {
     let mut before = 0usize;
     let mut enrolment_kid: Option<String> = None;
     let mut enrolled = false;
+    // The stream's first `agent.enrolled` failed step 1 or step 4: the stream has no root, and a later one is no root either.
+    let mut rootless = false;
     for entry in ordered.iter().filter(|e| e.aggregate_id == agent) {
         let kind = match entry.event_type.as_str() {
             ENROLLED => {
-                if !enrolled {
+                if !enrolled && !rootless {
+                    // The root is decided as a row is, by steps 1 and 4.
+                    let names_agent = entry
+                        .payload
+                        .as_object()
+                        .and_then(|o| o.get("agent_id"))
+                        .and_then(Value::as_str)
+                        == Some(agent);
+                    if !names_agent {
+                        rootless = true;
+                        before += 1;
+                        rows.push(Row {
+                            log_index: entry.log_index,
+                            event_type: entry.event_type.clone(),
+                            verdict: Verdict::Skipped(predicate::STATEMENT_MISMATCH),
+                        });
+                        continue;
+                    }
                     enrolled = true;
                     // The enrolment is honoured and is the previous honoured entry of the next row; a pair
                     // after it moves `prev` on to the pair's index and binds the key.
@@ -1525,7 +1548,7 @@ impl Prefix<'_> {
             return Err(predicate::DECLARATION_KEY_UNPUBLISHED);
         };
         let position = declaring.log_index.unwrap_or(u64::MAX);
-        if self.published.is_log_key(declaring) {
+        if self.published.is_log_key(declaring, index) {
             return Err(predicate::DECLARATION_KEY_IS_LOG_KEY);
         }
         if self

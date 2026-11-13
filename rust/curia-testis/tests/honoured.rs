@@ -175,13 +175,20 @@ fn r6_64_every_skipped_predicate_is_one_of_the_twelve_names() {
 
 /// The reader vectors' log: the entries on disk, and the log keys and declaration keys their `log-jwks.json` publishes,
 /// each as the `log.key` or `log.declaration-key` entry at the `log_index` the key set gives it (a key that gives none is
-/// published by no entry). Placement: at its own `log_index` when no other entry has that index, otherwise at one more
-/// than the maximum of every entry index and every key `log_index` seen so far; two entries never share an index.
+/// published by no entry). Placement: at its own `log_index` when no other key entry has that index, otherwise at one more
+/// than the maximum of every entry index and every key `log_index` seen so far; two key entries never share an index.
+///
+/// A key keeps the `log_index` its key set states even where an entry on disk has that index (every vector lists its head
+/// key at 0, where the enrolment is). R6.64's log-key check reads the log keys below the declaration's own index and its
+/// publication check compares a declaration key's index with the declaration's, so the position the vector states decides,
+/// and moving the key past the last entry would hand the fold a log key published after a declaration it was stated before.
+/// The fold reads a key entry's index and nothing else about where it sits, so the shared index changes no other decision.
 fn reader_log(dir: &Path) -> Vec<LogEntry> {
     let mut log = read_entries(dir);
-    let mut taken: std::collections::BTreeSet<u64> = log.iter().map(|e| e.log_index).collect();
-    assert_eq!(taken.len(), log.len(), "two entries share an index");
-    let mut seen_max = taken.iter().next_back().copied().unwrap_or(0);
+    let on_disk: std::collections::BTreeSet<u64> = log.iter().map(|e| e.log_index).collect();
+    assert_eq!(on_disk.len(), log.len(), "two entries share an index");
+    let mut taken = std::collections::BTreeSet::new();
+    let mut seen_max = on_disk.iter().next_back().copied().unwrap_or(0);
     let jwks: Value =
         serde_json::from_slice(&fs::read(dir.join("log-jwks.json")).expect("log-jwks.json"))
             .expect("log-jwks.json is JSON");
@@ -204,7 +211,7 @@ fn reader_log(dir: &Path) -> Vec<LogEntry> {
             };
             assert!(
                 taken.insert(placed),
-                "two entries would share index {placed}"
+                "two key entries would share index {placed}"
             );
             seen_max = seen_max.max(placed);
             let mut jwk = object.clone();
