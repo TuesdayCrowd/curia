@@ -33,7 +33,7 @@ public sealed class PostgresEventStore : IEventStore
 {
     /// <summary>
     /// The log is the rows at positions above zero: a position is a leaf index (R6.47), the identity starts at 1, and every whole-log read, proof and head is keyed on <c>seq &gt; cursor</c>.
-    /// A statement that decides or returns an aggregate's events says so here, so that a version, a read by aggregate and a forward read are of one set of rows (errata G68, PR N's ruling 72).
+    /// A statement that decides or returns an aggregate's events says so here, so that a version, a read by aggregate and a forward read are of one set of rows (errata G68, R6.65).
     /// A row at <c>seq</c> 0 or below is not in the log; it is not counted, read or honoured (G69 non-property (b) and (c): it is inert, not detected).
     /// </summary>
     private const string InTheLog = "seq > 0";

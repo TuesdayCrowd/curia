@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -55,6 +56,49 @@ public sealed class ServedSkippedMembersTests(ForumFixture forum) : IClassFixtur
         WholeText.Same(
             $"curia_skipped_total 2; listed 2; [log_index,type,predicate]; {first} agent.key-retired lifecycle-typ-mismatch {first + 1} agent.key-retired lifecycle-typ-mismatch",
             $"{Words(keySet)}; {served}");
+    }
+
+    /// <summary>
+    /// R4.41 (errata G68; PR N's Amendment 7, ruling 90 (4)): the two members the key set serves, and the members of a listed row, are the ones R4.41's paragraph names. The names are read from the
+    /// errata at test time (the backticked identifiers beginning <c>curia_skipped</c>, and the member list in braces) and never from <c>Jwks.cs</c>, so a rename on either side without the other fails
+    /// here naming both spellings.
+    /// </summary>
+    [Fact]
+    public async Task R4_41_TheServedMembersAreTheOnesTheErrataNames()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (members, row) = PublishedSkippedMembers();
+        var victim = await VerifiedStopSupport.EnrolAsync(forum, "r441w", ct);
+        await VerifiedStopSupport.InsertRowAsync(forum, "agent.key-retired", victim.AgentId, VerifiedStopSupport.ForgedRetirement(victim.AgentId, victim.Kid), ct);
+
+        var keySet = await KeySetOfAsync(victim.AgentId, ct);
+
+        var served = keySet.EnumerateObject().Where(p => p.Name.StartsWith("curia_skipped", StringComparison.Ordinal)).ToArray();
+        var lists = served.Where(p => p.Value.ValueKind == JsonValueKind.Array && p.Value.GetArrayLength() > 0).ToArray();
+        var servedRow = lists.Length == 1 ? string.Join(", ", lists[0].Value[0].EnumerateObject().Select(p => p.Name)) : $"{lists.Length} lists with a row";
+        WholeText.Same(
+            $"members {string.Join(", ", members.Order(StringComparer.Ordinal))}; a row is {{{string.Join(", ", row)}}}",
+            $"members {string.Join(", ", served.Select(p => p.Name).Order(StringComparer.Ordinal))}; a row is {{{servedRow}}}");
+    }
+
+    /// <summary>R4.41's paragraph as the errata publishes it: the backticked identifiers that begin <c>curia_skipped</c>, and the one backticked member list in braces. Each count is asserted.</summary>
+    private static (string[] Members, string[] Row) PublishedSkippedMembers()
+    {
+        const string errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
+        const string anchor = "**R4.41** ";
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, errata)))
+            dir = dir.Parent;
+        if (dir is null) throw new InvalidOperationException($"{errata} not found above {AppContext.BaseDirectory}");
+
+        var paragraphs = File.ReadAllLines(Path.Combine(dir.FullName, errata)).Where(line => line.StartsWith(anchor, StringComparison.Ordinal)).ToArray();
+        if (paragraphs.Length != 1) throw new InvalidOperationException($"{errata} holds {paragraphs.Length} paragraphs that begin \"{anchor}\", expected one");
+
+        var members = Regex.Matches(paragraphs[0], "`(curia_skipped[a-z_]*)`", RegexOptions.CultureInvariant).Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray();
+        var rows = Regex.Matches(paragraphs[0], @"`\{([^}`]*)\}`", RegexOptions.CultureInvariant);
+        if (members.Length != 2) throw new InvalidOperationException($"{errata}'s R4.41 names {members.Length} members that begin curia_skipped, expected two: {string.Join(", ", members)}");
+        if (rows.Count != 1) throw new InvalidOperationException($"{errata}'s R4.41 holds {rows.Count} member lists in braces, expected one");
+        return (members, [.. rows[0].Groups[1].Value.Split(',').Select(name => name.Trim())]);
     }
 
     [Fact]

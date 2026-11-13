@@ -879,4 +879,53 @@ public sealed class ToolDescriptionTests
         Assert.Contains("'answers accepted'", description, StringComparison.Ordinal);
         Assert.DoesNotContain("`answers", description, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// R11.96 (errata G68; PR N's Amendment 7, ruling 90 (5)): the description of <c>curia_keys</c> and the server instructions' sentence that names it are the ones "R11.96 words (the tool)"
+    /// publishes. Both are read from the errata at test time and compared with <see cref="ToolText"/>, and the registered description and the composed instructions are asked to carry them, so a
+    /// word changed on either side without the other fails here.
+    /// </summary>
+    [Fact]
+    public void R11_96_TheKeysToolsWordsAreTheOnesTheErrataPublishes()
+    {
+        var (description, sentence) = PublishedKeysToolWords();
+        var registered = Registered().Single(t => t.Name == "curia_keys").Description;
+
+        WholeText.Same(
+            $"{description}\n----\n{sentence}\n----\nthe registered description begins with the published one; the instructions carry the published sentence",
+            $"{ToolText.KeysTemplate}\n----\n{ToolText.KeysSentence}\n----\n"
+            + $"the registered description {(registered.StartsWith(description, StringComparison.Ordinal) ? "begins with the published one" : "does not begin with the published one")}; "
+            + $"the instructions {(ToolText.ServerInstructions("urn:curia:agent:alice", []).Contains(sentence, StringComparison.Ordinal) ? "carry the published sentence" : "do not carry the published sentence")}");
+    }
+
+    /// <summary>
+    /// "R11.96 words (the tool)" as the errata publishes it: the span after <c>*The description:*</c> and the span after <c>*The server instructions' sentence:*</c>, each between doubled
+    /// backticks, with the paragraph's <c>\n</c> read as the line break it says it is. Each count is asserted.
+    /// </summary>
+    private static (string Description, string Sentence) PublishedKeysToolWords()
+    {
+        const string errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
+        const string anchor = "**R11.96 words (the tool).**";
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, errata)))
+            dir = dir.Parent;
+        if (dir is null) throw new InvalidOperationException($"{errata} not found above {AppContext.BaseDirectory}");
+
+        var paragraphs = File.ReadAllLines(Path.Combine(dir.FullName, errata)).Where(line => line.StartsWith(anchor, StringComparison.Ordinal)).ToArray();
+        if (paragraphs.Length != 1) throw new InvalidOperationException($"{errata} holds {paragraphs.Length} paragraphs that begin \"{anchor}\", expected one");
+
+        return (Span("*The description:* ``"), Span("*The server instructions' sentence:* ``"));
+
+        string Span(string label)
+        {
+            var paragraph = paragraphs[0];
+            var at = paragraph.IndexOf(label, StringComparison.Ordinal);
+            if (at < 0 || paragraph.IndexOf(label, at + 1, StringComparison.Ordinal) >= 0)
+                throw new InvalidOperationException($"{errata}'s R11.96 words (the tool) do not hold \"{label}\" exactly once");
+            var start = at + label.Length;
+            var end = paragraph.IndexOf("``", start, StringComparison.Ordinal);
+            if (end < 0) throw new InvalidOperationException($"{errata}'s R11.96 words (the tool) do not close the span after \"{label}\"");
+            return paragraph[start..end].Replace("\\n", "\n", StringComparison.Ordinal);
+        }
+    }
 }

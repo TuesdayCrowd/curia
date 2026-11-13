@@ -49,7 +49,7 @@ public interface IEventReader
 {
     /// <summary>Every event recorded for one aggregate, in append (ascending <c>seq</c>) order.
     /// An aggregate nothing has been appended to yields an empty list, not a failure.
-    /// Events at a position at or below zero are not in the log and are not returned.</summary>
+    /// Events at a position at or below zero are not in the log and are not returned (errata G68, R6.65).</summary>
     Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
         AggregateId aggregateId,
         CancellationToken cancellationToken = default);
