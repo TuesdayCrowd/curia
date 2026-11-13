@@ -183,12 +183,17 @@ fn r6_64_every_skipped_predicate_is_one_of_the_twelve_names() {
 /// publication check compares a declaration key's index with the declaration's, so the position the vector states decides,
 /// and moving the key past the last entry would hand the fold a log key published after a declaration it was stated before.
 /// The fold reads a key entry's index and nothing else about where it sits, so the shared index changes no other decision.
-fn reader_log(dir: &Path) -> Vec<LogEntry> {
+///
+/// The second value is the keys this placement leaves at an index an entry on disk holds, as `(kid, log_index)`. They are
+/// exactly the keys the C# runner places elsewhere (its log is a list, so it cannot hold two entries at one index and moves
+/// such a key above every entry), and the agreement test pins which keys they may be (Amendment 8, ruling 94).
+fn reader_log(dir: &Path) -> (Vec<LogEntry>, Vec<(String, u64)>) {
     let mut log = read_entries(dir);
     let on_disk: std::collections::BTreeSet<u64> = log.iter().map(|e| e.log_index).collect();
     assert_eq!(on_disk.len(), log.len(), "two entries share an index");
     let mut taken = std::collections::BTreeSet::new();
     let mut seen_max = on_disk.iter().next_back().copied().unwrap_or(0);
+    let mut where_an_entry_is = Vec::new();
     let jwks: Value =
         serde_json::from_slice(&fs::read(dir.join("log-jwks.json")).expect("log-jwks.json"))
             .expect("log-jwks.json is JSON");
@@ -214,6 +219,10 @@ fn reader_log(dir: &Path) -> Vec<LogEntry> {
                 "two key entries would share index {placed}"
             );
             seen_max = seen_max.max(placed);
+            if on_disk.contains(&placed) {
+                let kid = object.get("kid").and_then(Value::as_str).unwrap_or("");
+                where_an_entry_is.push((kid.to_string(), placed));
+            }
             let mut jwk = object.clone();
             jwk.remove("log_index");
             jwk.remove("valid_from");
@@ -225,7 +234,40 @@ fn reader_log(dir: &Path) -> Vec<LogEntry> {
             });
         }
     }
-    log
+    (log, where_an_entry_is)
+}
+
+/// The `kid` every reader vector gives its head log key, which each lists at index 0, where its enrolment is.
+const HEAD_LOG_KEY: &str = "conformance-log-ed25519";
+
+/// Ruling 94's second half, for one vector: no declaration key is the head log key, by `kid` or by public key. With it, a
+/// head key placed at 0 here and above every entry in the C# runner decides no row in either.
+fn head_key_is_no_declaration_key(case: &str, dir: &Path) -> Result<(), String> {
+    let jwks: Value =
+        serde_json::from_slice(&fs::read(dir.join("log-jwks.json")).expect("log-jwks.json"))
+            .expect("log-jwks.json is JSON");
+    let items = |member: &str| -> Vec<Value> {
+        jwks.get(member)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let head_x: Vec<Value> = items("keys")
+        .iter()
+        .filter(|k| k.get("kid").and_then(Value::as_str) == Some(HEAD_LOG_KEY))
+        .filter_map(|k| k.get("x").cloned())
+        .collect();
+    for key in items("declaration_keys") {
+        let same_kid = key.get("kid").and_then(Value::as_str) == Some(HEAD_LOG_KEY);
+        let same_x = key.get("x").is_some_and(|x| head_x.contains(x));
+        if same_kid || same_x {
+            return Err(format!(
+                "{case}: a declaration key carries the head log key's {} ({HEAD_LOG_KEY}): the two runners place the head key differently, so it may decide no row",
+                if same_kid { "kid" } else { "public key" }
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// What R6.64 lets be asserted over a reader vector. "The Forum's decisions SHALL agree with `conformance/lifecycle/`'s
@@ -233,7 +275,12 @@ fn reader_log(dir: &Path) -> Vec<LogEntry> {
 /// first row that fails, naming a predicate; the Forum decides the same rows in the same order against the same prefix, so
 /// when the reader's predicate is one of R6.64's twelve names (a verdict of `failed`, or `could-not-check` for the
 /// version and reason a reader does not know), the first row the Forum skips is skipped with that predicate. When the
-/// reader says `verified`, the Forum skips no row below the post.
+/// reader says `verified` or `disputed`, the Forum skips no row of the stream: `disputed` is the reader honouring a
+/// declaration, which sits after the post, so "no row below the post" would let a fold that skipped a genuine declaration
+/// agree (Amendment 8, ruling 95).
+///
+/// Every vector is classified: 62 compared, 18 whose verdict is about the post or the document and names no row, and the
+/// four of `NOT_A_ROW_OF_THE_STREAM`. The C# runner's partition is the same (56 and 6 compared, 18, 4).
 #[test]
 fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
@@ -246,30 +293,34 @@ fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_p
         );
     }
     let mut checked = 0;
+    let mut not_compared = 0;
     let mut failures = Vec::new();
     for vector in &corpus.lifecycle {
+        // Over all 84, asked or not.
+        if let Err(e) = head_key_is_no_declaration_key(&vector.case, &vector.dir) {
+            failures.push(e);
+        }
         if NOT_A_ROW_OF_THE_STREAM
             .iter()
             .any(|(case, _)| *case == vector.case)
         {
             continue;
         }
-        let log = reader_log(&vector.dir);
+        let (log, where_an_entry_is) = reader_log(&vector.dir);
         let decided = honoured(&log, &agent_of(&vector.dir));
         let first_skipped = decided.rows.iter().find_map(|r| match r.verdict {
             Verdict::Skipped(p) => Some((r.log_index, p)),
             Verdict::Honoured => None,
         });
-        if vector.verdict == "verified" {
-            checked += 1;
-            if let Some((at, p)) = first_skipped.filter(|(at, _)| *at < vector.post_index) {
+        let compared = if vector.verdict == "verified" || vector.verdict == "disputed" {
+            if let Some((at, p)) = first_skipped {
                 failures.push(format!(
-                    "{}: reader verified; Forum skipped row {at} ({p}) below the post",
-                    vector.case
+                    "{}: reader {}; Forum skipped row {at} ({p})",
+                    vector.case, vector.verdict
                 ));
             }
+            true
         } else if predicate::ALL.contains(&vector.predicate.as_str()) {
-            checked += 1;
             match first_skipped {
                 Some((_, p)) if p == vector.predicate => {}
                 other => failures.push(format!(
@@ -277,12 +328,33 @@ fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_p
                     vector.case, vector.verdict, vector.predicate
                 )),
             }
+            true
+        } else {
+            false
+        };
+        if !compared {
+            not_compared += 1;
+            continue;
+        }
+        checked += 1;
+        // Ruling 94's pin: in a compared vector, the only key at an index an entry holds is the head log key.
+        for (kid, at) in where_an_entry_is {
+            if kid != HEAD_LOG_KEY {
+                failures.push(format!(
+                    "{}: key {kid} is stated at index {at}, which an entry holds; state the key at a free index (a stand-in entry, as compromise-declaration-key-and-log-key-off-curve does): the C# runner cannot hold a key at an index an entry holds",
+                    vector.case
+                ));
+            }
         }
     }
     // An exact number (Amendment 7, ruling 88): twelve vectors could stop being comparable by a change to `predicate::ALL` and a floor of 40 would not notice.
     assert_eq!(
-        checked, 53,
-        "reader vectors compared with the Forum's fold (84, less the NOT_A_ROW_OF_THE_STREAM ones, less those whose verdict names no row and is not verified)"
+        checked, 62,
+        "reader vectors compared with the Forum's fold (84, less the NOT_A_ROW_OF_THE_STREAM ones, less those whose verdict names no row and is neither verified nor disputed)"
+    );
+    assert_eq!(
+        not_compared, 18,
+        "reader vectors asked and not compared: their verdict is about the post or the document and names no row"
     );
     // No reader vector may disagree with R6.64 (ruling 44): the list is empty and every failure is a failure.
     let disagreements: &[(&str, &str)] = READER_DISAGREEMENTS;

@@ -44,8 +44,16 @@ public sealed class ReaderVectorAgreementTests
     /// <summary>
     /// The log a reader vector describes, as the Forum would hold it: the entries at their indices, a filler where the vector holds none, and the keys <c>log-jwks.json</c> publishes as
     /// <c>log.key</c> and <c>log.declaration-key</c> entries, each at its <c>log_index</c> when that slot is free and otherwise above the highest index of any entry and of any key's <c>log_index</c> (the same placement for every case).
+    ///
+    /// <para>A key whose stated index an entry on disk holds is therefore displaced (Amendment 8, ruling 94). This runner cannot do otherwise: the verifier takes an entry's position from its place in the list
+    /// (R6.47), so two events cannot be handed to it at one index. The Rust runner's log is a set of indexed entries and keeps such a key at its stated index, which is the placement a reader is handed.
+    /// The two logs of a vector then differ only in where those keys sit, and <see cref="LRV2_NoKeyThatDecidesARowSitsWhereAnEntryIs"/> pins that, in every vector compared, the head log key is the only
+    /// one and is no declaration key: a key that decides no row, wherever it sits.</para>
     /// </summary>
-    internal static IReadOnlyList<AppendedEvent> LogOf(ConformanceLog log)
+    internal static IReadOnlyList<AppendedEvent> LogOf(ConformanceLog log) => Place(log).Log;
+
+    /// <summary><see cref="LogOf"/>'s log, and the keys it displaced because an entry on disk (not another key) held the index their key set states: the keys the two runners place differently.</summary>
+    private static (IReadOnlyList<AppendedEvent> Log, IReadOnlyList<(string Kid, long LogIndex)> DisplacedByAnEntry) Place(ConformanceLog log)
     {
         var slots = new SortedDictionary<long, AppendedEvent>();
         for (var i = 0; i < 4096; i++)
@@ -63,8 +71,11 @@ public sealed class ReaderVectorAgreementTests
 
         // One more than the highest index of any entry and of any key's log_index (ruling 54): a key that cannot take its own position goes after everything, in served order, and no later key's own slot is taken.
         var tail = Math.Max(slots.Keys.Count == 0 ? -1 : slots.Keys.Max(), keys.Count == 0 ? -1 : keys.Max(k => k.LogIndex)) + 1;
+        var onDisk = slots.Keys.ToHashSet();
+        var displacedByAnEntry = new List<(string Kid, long LogIndex)>();
         foreach (var key in keys)
         {
+            if (onDisk.Contains(key.LogIndex)) displacedByAnEntry.Add((key.Kid, key.LogIndex));
             var at = slots.ContainsKey(key.LogIndex) ? tail++ : key.LogIndex;
             slots[at] = KeyEntry(at, key.Type, key.Kid, key.Jwk, key.ValidFrom);
         }
@@ -72,7 +83,7 @@ public sealed class ReaderVectorAgreementTests
         var events = new List<AppendedEvent>();
         for (long i = 0; i <= (slots.Count == 0 ? -1 : slots.Keys.Max()); i++)
             events.Add(slots.TryGetValue(i, out var held) ? held : Filler(i));
-        return events;
+        return (events, displacedByAnEntry);
     }
 
     private static AppendedEvent KeyEntry(long index, string type, string kid, JsonValue.Object jwk, string validFrom) =>
@@ -158,6 +169,65 @@ public sealed class ReaderVectorAgreementTests
             failures.Count == 0,
             $"{failures.Count} cases differ. The first: {failures.FirstOrDefault()}{Environment.NewLine}All:{Environment.NewLine}{string.Join(Environment.NewLine, failures)}");
     }
+
+    /// <summary>The <c>kid</c> every reader vector gives its head log key, which each lists at index 0, where its enrolment is.</summary>
+    private const string HeadLogKey = "conformance-log-ed25519";
+
+    /// <summary>
+    /// Amendment 8, ruling 94: this runner moves a key whose stated index an entry holds above every entry, and the Rust runner leaves it where it is stated. In every vector either runner compares, the
+    /// only such key is the head log key, and in all 84 no declaration key is the head log key by <c>kid</c> or by public key. So the two runners' logs differ only in where a key that decides no row sits.
+    /// </summary>
+    [Fact]
+    public void LRV2_NoKeyThatDecidesARowSitsWhereAnEntryIs()
+    {
+        var failures = new List<string>();
+        var compared = 0;
+        var headKeyDisplaced = 0;
+        foreach (var name in ConformanceLog.Names("lifecycle"))
+        {
+            var log = ConformanceLog.Open("lifecycle", name);
+
+            // Over all 84, asked or not: no declaration key carries the head log key's kid or its x.
+            using var jwks = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(log.Directory, "log-jwks.json")));
+            var headX = Members(jwks.RootElement, "keys").Where(k => Text(k, "kid") == HeadLogKey).Select(k => Text(k, "x")).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
+            foreach (var key in Members(jwks.RootElement, "declaration_keys"))
+            {
+                if (Text(key, "kid") == HeadLogKey || (Text(key, "x") is { } x && headX.Contains(x)))
+                    failures.Add($"{name}: a declaration key carries the head log key's kid or public key ({HeadLogKey}): the two runners place the head key differently, so it may decide no row");
+            }
+
+            using var expected = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(log.Directory, "expected.json")));
+            var verdict = expected.RootElement.GetProperty("verdict").GetString()!;
+            var predicate = expected.RootElement.TryGetProperty("predicate", out var p) ? p.GetString()! : string.Empty;
+            if (NotAsked.Contains(name) || !Compares(verdict, predicate)) continue;
+
+            compared++;
+            foreach (var (kid, index) in Place(log).DisplacedByAnEntry)
+            {
+                if (kid == HeadLogKey)
+                    headKeyDisplaced++;
+                else
+                    failures.Add($"{name}: key {kid} is stated at index {index.ToString(CultureInfo.InvariantCulture)}, which an entry holds; state the key at a free index (a stand-in entry, as compromise-declaration-key-and-log-key-off-curve does): the C# runner cannot hold a key at an index an entry holds");
+            }
+        }
+
+        Assert.True(failures.Count == 0, $"{failures.Count} keys differ in placement between the runners and may decide a row. The first: {failures.FirstOrDefault()}{Environment.NewLine}All:{Environment.NewLine}{string.Join(Environment.NewLine, failures)}");
+
+        // The pin looked at something: the 62 vectors LRV2 compares (56 and 6), and in each the head key, displaced once.
+        Assert.Equal("compared 62; the head key displaced in 62", $"compared {compared}; the head key displaced in {headKeyDisplaced}");
+    }
+
+    /// <summary>The classes of <see cref="LRV2_TheVerifierAgreesWithTheReaderVectors"/> that assert on the fold's rows: a row-level failure, a verdict of verified or disputed, and an unknown kind or reason.</summary>
+    private static bool Compares(string verdict, string predicate) =>
+        (verdict == "failed" && RowLevel.Contains(predicate, StringComparer.Ordinal))
+        || (verdict == "could-not-check" && UnknownKind.Contains(predicate, StringComparer.Ordinal))
+        || verdict is "verified" or "disputed";
+
+    private static JsonElement[] Members(JsonElement keySet, string member) =>
+        keySet.ValueKind == JsonValueKind.Object && keySet.TryGetProperty(member, out var items) && items.ValueKind == JsonValueKind.Array ? items.EnumerateArray().ToArray() : [];
+
+    private static string? Text(JsonElement key, string member) =>
+        key.ValueKind == JsonValueKind.Object && key.TryGetProperty(member, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     /// <summary>The literal tables above are quotations of R6.64: every row-level predicate and the two unknown-kind ones are names the paragraph gives.</summary>
     [Fact]
