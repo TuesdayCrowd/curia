@@ -230,13 +230,13 @@ Each Old occurs once in the errata (the build script asserts it, as H's did); `c
 | 15 | `rotation-honoured` | R | 2 honoured | k0, k1 active / [k0,k1] |
 | 16 | `rotation-garbage-possession` | E, `2` rotation k0 to k1, `possession` = the garbage string | 2 skipped `lifecycle-typ-mismatch` | k0 active / [k0] |
 | 17 | `rotation-possession-by-wrong-key` | E, `2` rotation to k1, possession well-formed with header `kid` k1 but signed by another key | 2 skipped `rotation-unauthorized` | k0 active / [k0] |
-| 18 | `rotation-self-authorized` | E, `2` rotation to k1 with `authorized_by` k1 | 2 skipped `rotation-unauthorized` | k0 active / [k0] |
+| 18 | `rotation-self-authorized` | E, `2` rotation to k1 with `authorized_by` k1, signed by it (KF5: a key does not authorize its own binding; Amendment 3, V1) | 2 skipped `statement-mismatch` | k0 active / [k0] |
 | 19 | `rotation-authorized-by-retired-key` | R, `3` retirement of k0, `4` rotation to k2 authorized by k0 | 3 honoured, 4 skipped `rotation-unauthorized` | k0 retired, k1 active / [k0,k1] |
 | 20 | `rotation-kid-already-bound` | R, `3` rotation naming k1 again (authorized by k0, prev 2) | 3 skipped `statement-mismatch` | k0, k1 active |
 | 21 | `rotation-jwk-differs-from-statement` | E, `2` rotation whose entry `jwk` differs from its statement's | 2 skipped `statement-mismatch` | k0 active / [k0] |
 | 22 | `rotation-wrong-prev` | E, `2` rotation with prev 0 | 2 skipped `broken-link` | k0 active / [k0] |
 | 23 | `rotation-unknown-statement-typ` | E, `2` rotation statement `typ` `curia.key-rotation/2` | 2 skipped `unknown-lifecycle-kind` | k0 active / [k0] |
-| 24 | `forged-rotation-then-rotation-authorized-by-it` | E, `2` forged rotation k0 to ka (garbage signatures), `3` rotation ka to kb with **valid** signatures by ka and kb (prev 2) | 2 skipped `lifecycle-typ-mismatch`, 3 skipped `rotation-unauthorized` | k0 active / [k0] |
+| 24 | `forged-rotation-then-rotation-authorized-by-it` | E, `2` forged rotation k0 to ka (garbage signatures), `3` rotation ka to kb with **valid** signatures by ka and kb (**prev 1**, the last honoured entry; prev 2 would be `broken-link`) | 2 skipped `lifecycle-typ-mismatch`, 3 skipped `rotation-unauthorized` | k0 active / [k0] |
 | 25 | `skipped-row-does-not-move-the-chain` | E, `2` forged retirement of k0 (garbage), `3` genuine rotation to k1 with prev 1 | 2 skipped `lifecycle-typ-mismatch`, 3 honoured | k0, k1 active / [k0,k1] |
 | 26 | `forged-row-then-genuine-retirement` | E, `2` forged declaration (garbage), `3` genuine rotation to k1 (prev 1), `4` genuine retirement of k0 (prev 3) | 2 skipped `lifecycle-typ-mismatch`, 3, 4 honoured | k0 retired, k1 active / [k0,k1] |
 | 27 | `declaration-honoured` | D, `4` declaration of [k0] from_index 1 prev 1 signed by D | 4 honoured | k0 compromised / [k0] |
@@ -346,7 +346,7 @@ FLRV26 is **retired, not run** (the migration is PR S's; its rows are FSEQ's). T
 
 ### The live run, legs added
 
-- **LN11 (the agent is told).** The LN1 and LN2 databases: `curia keys --agent <victim>` prints the `SKIPPED` line for the forged retirement (and for the takeover's forged binding) with its predicate and **exits 6**; `curia_keys` over an MCP session prints the same text; **the control on `b348f6a9`** prints `FOREIGN: a retirement at log index <i> that this profile did not make` for the same forged row and **nothing for a forged row once N is in** only because there it was in the lifecycle; the row is in the audit with the same log index and predicate (**the two lists equal**, which is a check that the key set and the audit read one verifier); a genuine rotation made by the profile and **skipped by a seeded defect** (a scratch build with FLRV20's patch) prints the second words and exits 6, so the agent's own record catches a verifier defect (non-property (f), now detected from the agent's side). `curia verify` on the victim's post is byte-identical with and without the rows (LRV29, on the built binaries).
+- **LN11 (the agent is told).** The LN1 and LN2 databases: `curia keys --agent <victim>` prints the `SKIPPED` line for the forged retirement (and for the takeover's forged binding) with its predicate and **exits 6**; `curia_keys` over an MCP session prints the same text; **the control on `b348f6a9`** prints `FOREIGN: a retirement at log index <i> that this profile did not make` for the same forged row and **nothing for a forged row once N is in** only because there it was in the lifecycle; the row is in the audit with the same log index and predicate (**the two lists equal**, which is a check that the key set and the audit read one verifier); a genuine rotation made by the profile and **skipped by a seeded defect** (a scratch build with FLRV20's patch) prints the second words and exits 6, so the agent's own record catches a verifier defect (non-property (f), now detected from the agent's side). *[Withdrawn as written by Amendment 10, ruling 122: ruling 81 later made the writer refuse that act (`curia/keys/not-honoured`), so the profile records nothing and `curia keys` prints the first words. The second words belong to a defect that arrives after the act, which the run shows.]* `curia verify` on the victim's post is byte-identical with and without the rows (LRV29, on the built binaries).
 - **LN12 (the flood, against posting).** Ruling 27 (a), on the built Forum: 100 posts at 10 forged rows a second, then at 100 a second, with its control; the numbers of `contended` refusals and of retries are recorded, and the rule decides whether (b) is in the tree.
 
 ### Edits to the plan body (the in-place edits)
@@ -2155,12 +2155,12 @@ Counts to record: rows run; first forms red (all); controls (rows whose probe is
 Throwaway Postgres (`curia_n_*`, dropped after, never mid-run); the built `curia-operator`, Forum, `curia`, `curia-mcp`, `curia-testis`; the machine's hostname, user and paths appear in no record. **Every leg runs first on the two control builds of M9 (`2708d826` main, `b288f5bc` H's tip) and the control's result is recorded before the leg is run on N's tip**: a leg that cannot be shown to fail is not a leg (the vacuity test's first question). Legs that need a genuine lifecycle act run on a **scratch copy** of N's tree whose approval record approves rotation, retirement and compromise (never committed; the PR's own record is asserted unmodified at the end), as H's did. Every forged write is a `psql` `INSERT` as the app role (never a superuser). The owner's criterion 10 (the fourteenth exercise) is LN1 to LN4 run again on the dress-rehearsal instance, with the same controls.
 
 - **LN1 (a forged retirement is inert, and the operator hears).** Two honest agents A and B, each with a post, a signed head over both. Forge a retirement of A's live kid with the garbage authorization. *Control (main, H):* `401 invalid_client` at once, `key_status` retired, `curia read` exit 0, `curia verify` 6 only after a head (the probe's numbers). *Rule on N:* A's token request is `200` and `curia budget` is ok; A's post is served with `key_status` `active`; `curia read` 0; after a head signed by hand `curia verify` is 0 with every line verified and `curia-testis log author` is 0; `curia-operator lifecycle-audit` exits **7** naming the log index, `agent.key-retired` and `lifecycle-typ-mismatch`; a Forum restart logs **7007** with the count; `sign-head --if-grown` exits **6** naming the row with `predicate=lifecycle-typ-mismatch` and appends nothing until a person runs the plain `sign-head` (exit 0, `covers  log_index=<i>  type=agent.key-retired`), after which the next `--if-grown` tick signs a later post's head. The events count never moves except by the head.
-- **LN2 (the takeover is inert).** As the probe ran it: an `agent_keys` `INSERT` under B's id with a generated P-256 key and an invented kid; a forged statement-bearing `agent.key-bound` naming it, garbage signatures; a hand-built profile; `curia ask`. *Control:* exit 0 as B, charged to B's budget, `key_status` active, a clean `curia read` by a third party (the probe's numbers). *Rule on N:* the attacker's token request is refused `401 invalid_client`, `curia ask` refuses (the exit code and words recorded verbatim), B's budget is unchanged, B's own post, token and key are unaffected, `GET /v1/log/jwks?agent=<B>` does not list the attacker's key, the audit lists the forged binding with `lifecycle-typ-mismatch`, and **`curia keys` for B shows no `FOREIGN` line (the regression of finding 6, recorded as measured and not as a pass)**.
-- **LN3 (forged declarations are inert).** The L3 rows (a), (b) and (d): a `/2` with 64 zero bytes; a `/2` signed by the log key over the real kids; a log-key `/2` over the real kid plus an invented one. *Control:* `compromised`, the post omitted (`excluded_disputed=1`), `curia read` 9, `401 invalid_client` (L3's table). *Rule on N:* no mark, the post found by search (`excluded_disputed=0`), `curia read` 0, the token ok, `curia verify` 0 after a head, the audit naming `declaration-key-unpublished` for (a), (b), (d) as the vectors' predicates say (the first one that applies: header kid unreadable for the garbage; `declaration-key-unpublished` for a log key that is not a declaration key).
-- **LN4 (a row nobody can read stops nobody).** M3's five shapes, one per database. *Control:* each as M3 measured (the lock-out). *Rule on N:* the victim's token, ingest, `curia ask`, key set, a rotation by the victim, all as with no row; the audit lists the row with `statement-mismatch` or `unknown-lifecycle-kind` (shape (iii)), and the start-up report names that predicate separately.
+- **LN2 (the takeover is inert).** As the probe ran it: an `agent_keys` `INSERT` under B's id with a generated P-256 key and an invented kid; a forged statement-bearing `agent.key-bound` naming it, garbage signatures; a hand-built profile; `curia ask`. *Control:* exit 0 as B, charged to B's budget, `key_status` active, a clean `curia read` by a third party (the probe's numbers). *Rule on N:* the attacker's token request is refused `401 invalid_client`, `curia ask` refuses (the exit code and words recorded verbatim), B's budget is unchanged, B's own post, token and key are unaffected, `GET /v1/log/jwks?agent=<B>` does not list the attacker's key, the audit lists the forged binding with `lifecycle-typ-mismatch`, and **`curia keys` for B shows no `FOREIGN` line (the regression of finding 6, recorded as measured and not as a pass)**. *[Corrected by Amendment 10, ruling 120: this sentence predates Amendment 1 ruling 30. As built, B's `curia keys` prints the `SKIPPED` line and exits 6; the regression is closed for a client of this build and stands for an older one (register item 291).]*
+- **LN3 (forged declarations are inert).** The L3 rows (a), (b) and (d): a `/2` with 64 zero bytes; a `/2` signed by the log key over the real kids; a log-key `/2` over the real kid plus an invented one. *Control:* `compromised`, the post omitted (`excluded_disputed=1`), `curia read` 9, `401 invalid_client` (L3's table). *[Corrected by Amendment 10, ruling 120: the control's `excluded_disputed` was 2 in the run, not 1; the rule on N (0, the post on the page) held.]* *Rule on N:* no mark, the post found by search (`excluded_disputed=0`), `curia read` 0, the token ok, `curia verify` 0 after a head, the audit naming `declaration-key-unpublished` for (a), (b), (d) as the vectors' predicates say (the first one that applies: header kid unreadable for the garbage; `declaration-key-unpublished` for a log key that is not a declaration key).
+- **LN4 (a row nobody can read stops nobody).** M3's five shapes, one per database. *Control:* each as M3 measured (the lock-out). *Rule on N:* the victim's token, ingest, `curia ask`, key set, a rotation by the victim, all as with no row; the audit lists the row with `statement-mismatch` or `unknown-lifecycle-kind` (shape (iii)), and the start-up report names that predicate separately. *[Corrected by Amendment 10, ruling 120: the sentence names two predicates; shape (v) is `broken-link`, as vector `binding-without-statement-after-history` says, and the vector is the authority.]*
 - **LN5 (genuine acts are honoured, the round trip on the built binaries).** On the scratch copy: `curia rotate`, then `curia retire` of the old key, then (declaration key published, the declaring environment holding only it) `curia-operator compromise` with a `--from-index` by R12.11's rule. After each: `curia keys` (exit and lines), `curia verify` of an older and a newer post, `curia-testis log author`, the audit (**exit 0**, `skipped 0`), and `sign-head --if-grown` **exit 0 with a head covering the genuine row** (the lift's requirement, the stop's whole point). *Rule:* no genuine act is ever skipped; readers exit 9 on the declared posts and 0 on the rest; the later `--from-index` control (a key stays live) of H's L4 holds.
-- **LN6 (a store fault is not an answer).** With `tools/fault-harness` (read its README first): fault the log read during (i) a token request, (ii) a request carrying an issued token for a **retired** key, (iii) an ingest, (iv) `GET /v1/log/jwks?agent=`. *Rule:* (i) `temporarily_unavailable`, (ii) `503` and **never accepted**, (iii) `503`, (iv) `503`; never `invalid_client`, never an accepted retired key; each answers as before after the fault clears. The control is the unmodified suite's own store-fault classes (`StoreFaultSupport`), which stay green.
-- **LN7 (the flood).** 1,000 forged, well-structured retirements for one agent (right members, `prev` the last honoured index, a well-formed JWS with a wrong signature), one script. Record the victim's token request, `curia read` and `curia browse` latency against M6's baseline and against rule (b); the audit lists 100 and `and 900 more`; 7007 lists 20; the Forum is alive; the victim's next genuine rotation is honoured. *Rule:* M6 (b)'s threshold decides whether the memo is in the tree at this point, and the run records which.
+- **LN6 (a store fault is not an answer).** With `tools/fault-harness` (read its README first): fault the log read during (i) a token request, (ii) a request carrying an issued token for a **retired** key, (iii) an ingest, (iv) `GET /v1/log/jwks?agent=`. *Rule:* (i) `temporarily_unavailable`, (ii) `503` and **never accepted**, (iii) `503`, (iv) `503`; never `invalid_client`, never an accepted retired key; each answers as before after the fault clears. The control is the unmodified suite's own store-fault classes (`StoreFaultSupport`), which stay green. *[Amendment 10, ruling 126: as run, LN6 is a record and not evidence. The fault is persistent, so the leg would have printed the same lines on FLRV19's build; the evidence is the R4.35 theory's `first` row and LRV8 (b).]*
+- **LN7 (the flood).** 1,000 forged, well-structured retirements for one agent (right members, `prev` the last honoured index, a well-formed JWS with a wrong signature), one script. Record the victim's token request, `curia read` and `curia browse` latency against M6's baseline and against rule (b); the audit lists 100 and `and 900 more`; 7007 lists 20; the Forum is alive; the victim's next genuine rotation is honoured. *Rule:* M6 (b)'s threshold decides whether the memo is in the tree at this point, and the run records which. *[Amendment 10, ruling 124: the number of record is the live run's (about 115 ms a fold; 228 ms at p95 on the key-set route, 91 percent of the rule). Task 4's "far under 250 ms" is struck as a measurement of the flood.]*
 - **LN8 (the readers, independent of the Forum).** (i) The **N client** (`curia verify`) against the **main** Forum build, which still serves the forged takeover's lifecycle and key: the attacker's post's `key` line is not `verified` (R11.95's words) and the exit is 6. (ii) On the scratch copy: a genuine declaration appended and a post older than it whose head predates the declaration: `curia verify` exits **8** with R11.95's third sentence naming the index and the tree size; after a head covers the declaration, exit 9. (iii) The same page through `curia_verify` (the MCP adapter, stdio session after a `curia_read`): the same sentences.
 - **LN9 (two implementations on a real log).** Export the events of LN1 to LN4's databases to the honoured entry shape (a scratch script, `export-honoured.py`, written for the run and not tracked) and run the Rust honoured fold over each agent's stream (an `--ignored` test reading a path from the environment). *Rule:* the Rust fold's skipped rows (index, type, predicate) equal `lifecycle-audit`'s for every database, and its `keys` and `bound` equal the Forum's served key set. A disagreement is a finding for the architect and a vector, never a tolerance.
 - **LN10 (the lift's requirement, stated by a run).** After LN5, with the guard on the build under test **unlifted** (the unpatched tree): `curia-operator publish-declaration-key` exit 0, `compromise` exit 4, the audit exit 0 on the clean log; the stop's behaviour on a genuine row under the permissive gate is LN5's. Records that the lift is no longer the cause of a stalled timer.
@@ -2257,32 +2257,298 @@ The paragraph does not say "tamper-evident lifecycle", "verified key set" or any
 
 ## As run
 
-(Empty. Written at Task 8 from the run's raw records, with every count recomputed by script or by reading the record, and none carried from a report. Headings, in the order H's were, so the next reader finds each in the same place.)
+Written at Task 8b (2026-11-13) from the raw records under `.superpowers/sdd/2026-11-11-planN/` (untracked): the tasks' reports, `n-task0.txt`, `flrv-results.jsonl`, `n-task8-live.txt`, `cold-read-results.md` and `open-leads.md`. **What was recomputed here, by script:** the commits (`git log`), the falsification's counts (the jsonl), the vectors' counts (the directories of `conformance/` and the pins), which LRV numbers the tree names (`git grep`), the errata's Old and New counts, and every gate of the last heading. **What is read from a task's record and not recomputed** is said to be so where it stands: the suites' totals of a task's own runs, the measurements, and the live run's legs, which cannot be re-run without re-running the task.
 
 ### Commits
 
+`git log --reverse 03487f9e..lifecycle-rows-verify`, the workspace commit left out: 49 commits when this section was written (this step's own commit and the two after it, G68's Status and the gates, follow them).
+
+- `c9082e66` PR N (plan and amendment 1): lifecycle rows are honoured only if they verify (errata G68), with Task 0's results and the owner's decisions of 2026-11-12
+- `0702c16e` PR N (T1, step 1): errata G68 pasted (R4.40, R4.41, R5.24, R6.64, R11.95, R11.96 and the revisions it carries)
+- `375f1e3d` PR N (T1, step 2): the honoured family, 44 vectors written from their construction (errata G68)
+- `6cdc4107` PR N (plan, amendment 2): rulings 42 and 43 (R11.30 (rev.)'s annotation made normative for a pairless tool's tier sentence; vector 24's prev 1 confirmed, the table row ...
+- `a8a33f83` PR N (T3): the Rust honoured fold, written blind from R6.64 and the 44 vectors (errata G68)
+- `ac806279` PR N (plan, amendment 3): rulings 44 to 52 on the blind Rust builder's report (KF5 joins R6.64's statement-mismatch; a compromised key authorizes nothing at or after its ...
+- `cd1b4695` PR N (T1, step 3): the seam, every consumer through LifecycleVerifier, today's fold reproduced (errata G68)
+- `57006b9f` PR N (T1, step 4): probes LRV1 to LRV33 (LRV32 absent), red on the seam (errata G68)
+- `bad50ffa` PR N (T3b): R6.64 gains KF5 and the compromised-key rule, and vectors 45 to 49 pin them (errata G68, Amendment 3)
+- `f8fa563d` PR N (T3b): the Rust honoured fold, round 2, written blind from the amended R6.64 and 49 vectors (errata G68)
+- `395fd81b` PR N (T2): LifecycleVerifier decides each row by R6.64; 49 honoured vectors and the 81 reader vectors agree (errata G68)
+- `f3de3c89` PR N (plan, amendment 4): rulings 53 to 63 on builder A's report (Sodium reference private, the Infrastructure lock restored; LRV2's placement shared; a kid-only enrolment ...
+- `4b3af3b3` PR N (T3c): T10 to T12, vectors 50 and 51, the Sodium reference private, A's fold and runner repaired (errata G68, Amendment 4)
+- `7d2fa377` PR N (T3c): the Rust honoured fold, round 3, written blind from the amended R6.64 and 51 vectors (errata G68)
+- `5a8c2efd` PR N (plan, amendment 5): rulings 64 to 71 (the read order stands and R5.23 says which fault spends a jti; vector 50's runner changes conditioned; ULG2 accepted; vector 47 to ...
+- `5a8453aa` PR N (T4): the consumers read the honoured lifecycle from one whole-log read, Refusal is deleted, ULG18 (c) and the fence go green (errata G68)
+- `387a40c7` PR N (T5): the operator: lifecycle-audit and exit 7, the withheld line names the predicate and its sentence is true (errata G68, LRV15, LRV16)
+- `eb38fc25` PR N (T5): the key set serves curia_skipped and curia_skipped_total (errata G68, R4.41, LRV25)
+- `64348fcd` PR N (T5): verify's key line follows the lifecycle line and the Forum's mark past the head (errata G68, R11.95, LRV18 to LRV20, HSU36's client legs)
+- `1bd0d90d` PR N (T5): curia keys prints SKIPPED from one definition in Curia.Client, curia_keys, curia-mcp 0.12.0 (errata G68, R11.96, R11.30 (rev.), LRV26 to LRV28)
+- `909f83dd` PR N (plan, amendment 6): rulings 72 to 78 (the store's three by-aggregate statements count and return only seq > 0, so every read sees one log; probes LRV34 to LRV40)
+- `ee6a2a71` PR N (T4c): probes LRV34 to LRV37, LRV39 and LRV40, red on the unmodified store (errata G68, Amendment 6)
+- `497f735c` PR N (T4c): the store counts and returns only the rows at seq > 0 (errata G68, Amendment 6, rulings 72 to 78)
+- `98ba392d` PR N (plan, amendment 7): rulings 79 to 93 on the three review lenses (one root predicate; the compromise writer decides as the fold does and says not-honoured; the log-key ...
+- `5b1d3f9a` PR N (T6a, step 1): the Infrastructure lock restored to origin/main (ruling 89); VerifierOf has its own summary
+- `d829ef03` PR N (T6a, step 2): the enrolment root is decided as a row is; vectors 52 and 53, the reader vector, LRV41 (errata G68, R6.64, rulings 79, 80)
+- `850ab93b` PR N (T6a, step 3): the log-key check reads only the log keys below the declaration, in both folds and both readers (errata G68, R6.62, R6.64, ruling 82)
+- `2052f7e7` PR N (T6a, step 4): the writers say what the fold decided; not-honoured and declaration-key-not-first (errata G68, ruling 81, LRV42, LRV43)
+- `e25f091a` PR N (T6a, step 5): the fixtures reach their predicates; shadow-row plants a reader would act on; the honoured runner, the agreement floors, the refusal legs and the ...
+- `48dc304d` PR N (T3c): the Rust honoured fold, round 4, written blind from the amended R6.64 and 53 vectors (errata G68)
+- `bfee5e25` PR N (T6b): four Api probes the whole-log key read moved, and the stub's key set, say what the Forum now does (errata G68, R6.64, R4.41)
+- `d4103d86` PR N (T6b): a whole-log read is counted once, by its first page (errata G68)
+- `70d9be39` PR N (T6b): EmbedRoleTests passes the verifier HybridSearch now takes (the file arrived with #151; errata G68)
+- `841516d6` PR N (plan, amendment 8): rulings 94 to 107 (the runners' placement and asserted sets; Task 6a's and 6b's deviations ruled; what #151's merge leaves owed; LN13 before Task 7; ...
+- `20c3507f` PR N (T6c, step 2): both runners assert on the same 62 reader vectors; Rust compares the nine disputed ones; a pin in each that only the head log key sits where an entry ...
+- `cec62647` PR N (T6c, step 3): LRV37 gains the parent and flag arms: a post.accepted planted at seq 0 or below on an id that names no post lets no reply and no flag through (errata ...
+- `a78f63ba` PR N (T6c, step 4): the operator probe is named for what it shows, the refusal handler; LRV41's 27 rows and three vectors are pinned (errata G68, Amendment 8, rulings ...
+- `15c98056` PR N (plan, amendment 9): rulings 108 to 119 on the falsification (one vector owed, probes record the act, FLRV19's first-read fault, the dissent of record answered; Task 7a's ...
+- `3b18d66f` PR N (T7a, step 1): the Application probes record the act under test: LRV1's four writers and LRV43's control are compared, not required; LRV2, LRV3 and LRV4 say a throw ...
+- `987fc284` PR N (T7a, step 2): the Api probes say every answer: LegsAsync throws on no status, LRV13's six legs read curia_lifecycle, the takeover's planted post is read without a ...
+- `2e4bb9ae` PR N (T7a, step 3): honoured vector 54, rotation-authorization-made-by-the-new-key: an authorization under the authorizer's kid, signed by the key being bound, is ...
+- `42189ec0` PR N (plan, amendment 10): rulings 120 to 131 on the live run (nf2 answers the dissent; the not-honoured answer, the search's stale read and the flood's double fold go to the ...
+- `f6bf1368` PR N (T8b, step 1): the errata's blocks and index rows read in numeric order: G67, G68, G69 follow G65, a permutation with every block's SHA-256 and the file's sorted ...
+- `394d0c4f` PR N (T8b, step 2): G68's entry says what was built: R4.42 (a writer asks whether its row is honoured and reports no act when it is not) and R6.65 (a stream is its ...
+- `592041b2` PR N (T8b, step 3): two tests read the errata: the served key set's members are the ones R4.41 names, and curia_keys' description and the instructions' sentence are the ...
+- `bb57c98c` PR N (T8b, step 4): the register: D121 fixed, D124 opened (operator acts), items 247, 251, 254 to 256, 258, 259, 262, 263 closed with the leg that shows each, 257, 260, ...
+- `0e50326b` PR N (T8b, step 5): the plan's stale blocks: Current work leads with PR N and says #151 to #154 are merged, the PR table gains rows #152 to #154 and PR N's kept-apart ...
+- `a1719ea9` PR N (T8b, step 6): CLAUDE.md: the range of entries reaches G69, the compromise clause says which key is read and which signs (item 251), and PR S's and PR N's clauses ...
+- `db38890d` PR N (T8b, step 7): the README's runbook says the --if-grown stop is a deliberate stall and what clears it, and that compromise exits 7 with no compromised line when the ...
+
 ### Task 0: the unmodified tree (M1 to M17, each rule and its result)
+
+Record: `task-0-report.md` and `n-task0.txt`; audited and ruled in Amendment 1. Run on exports of `2708d826` (main) and `b288f5bc` (PR H's tip), never the workspace.
+
+- **Held as written:** M1 (every identifier free), M2 (the control forgery: the retirement locks out at once, the takeover posts as the victim), M3 (all five shapes lock the victim's write path; shape (iii) already had its own predicate), M5 (iii) (a forged moderation record withheld a never-flagged post within one request cycle), M7 (the consumers: 6, 3, 9 and 2 callers, none missing), M9 (both control builds), M11 (81 lifecycle, 12 acta, 173 families, 179 corpus), M12, M15 (`Curia.Application` already held a closed-form reader), M16 (the whole baseline green), M17 (exit 7 free; `lifecycle-audit` beside `moderate`).
+- **Held with a correction:** M8 (one path: `StoreFaultSupport.cs` is under `tests/Curia.Api.Tests/`), M10 (the bump convention holds; `CLAUDE.md` was stale at 0.11.0, ruling 28), M14 (every `/v1/log/*` route fails, with `500` and not the `503` the plan wrote; the token path and ingest unaffected), M6 (the baseline half only, at 60 runs and not 200).
+- **Needed an amendment:** M4 (a non-negative `seq` below the floor and a negative one are different harms: ruling 26, and the owner's Q-C made it PR S, errata G69, D123); M13 (Task 0 read the wrong argument and said a post cannot conflict with a row in its author's stream: wrong, ruling 27, trap 256).
+- **Left unsettled, and said so:** M5 (i) and (ii): a forged attestation is accepted with no signature check, and T1 was not reached in a run with one question (D124 carries it).
+- M18 and M19 ran at Task 1a: M18's first half (the three forms refused `42501`), and M19's finding that R11.30 (rev.) did not say where a pairless tool's tier sentence comes from (ruling 42).
 
 ### Task 1: the errata, the vectors, the seam and the probes (red text, verbatim)
 
+Records: `task-1a-report.md`, `task-1b-report.md` (the red text of every probe, verbatim, is there and is not copied here).
+
+- **1a:** G68 pasted as specified (`check-spec` clean, `falsify-spec-checks` four of four red); the honoured family, 44 vectors, each `expected.json` written from the case's construction by the generator.
+- **1b, the seam:** `LifecycleVerifier` with the final signatures, every consumer calling it, today's fold reproduced with a `Refusal` member. The existing suites were green on it (the report's table of counts for each assembly; the Api suite by a filter of 267 tests, not whole, which is trap 257's subject).
+- **1b, the probes:** LRV1 to LRV33 written (LRV32 absent: it is ruling 27 (b)'s, which was not built). Green on the seam by design, eleven groups: LRV1, LRV7 (a), LRV8 (b), LRV9's genuine half, LRV13's genuine-declaration control, LRV15's forged-row half, LRV17's no-row control, LRV18's two controls, LRV19's two, LRV25's undecided stream, LRV26's no-members form, LRV29, LRV23, LRV33 and LRV11's three facts. Every other probe was red on the seam for the reason its text states. LRV21 and LRV22 are the blind builder's `tests/honoured.rs` and had no red in this task.
+- **Deviations it recorded:** `EmbedRoleTests.cs` could not be committed until #151 merged (it was, in Task 6b); `ForumDocuments.cs` gained the two members early so that LRV26 was red for the right reason; LRV20's Mcp half and LRV28's equality leg were Task 5's; LRV7 (b)'s ingest leg is LRV13 (e).
+
 ### Tasks 2 and 3: the verifier (builder A) and the Rust fold (builder B, blind): B's report in full, what it read and what it had to decide
+
+Records: `task-2-report.md`, `blind-b/report.md` with its four briefs and `requirements.md` (B's whole instruction). B's report is pasted in full at the end of this heading, its four rounds as it wrote them.
+
+- **A** wrote `LifecycleFold.cs` (R6.64's steps in order, the honoured prefix, twelve predicates as constants), `ClosedJwk.cs` (R6.62's closed form) and the verifier over them, from R6.64's text, the then 49 honoured vectors and the 81 reader vectors, without reading `rust/` or B's report. A change outside its brief, said: three consumers already read the whole log, because a `prev` is a position in the whole log.
+- **M6, second half (rule (a), 25 ms added p95):** over Postgres at 10,030 events `StatusAsync` p95 12.7 ms against 1.3 to 1.5 ms for the one-aggregate read. The rule did not fire. The flood in memory: 1,000 forged retirements, the victim's `StatusAsync` p50 105.7 ms, p95 114.5 ms; rule (b) did not fire; no memo (rule (c)).
+- **B, blind,** read R6.64 as pasted, the paragraphs it names, the vector directories and the existing crate: no `.cs` file, no diff, no ruling, no report of A's, not this plan. Four rounds (Tasks 3, 3b, 3c and round 4 after Amendment 7), each from the amended text and the vectors of that round (44, 49, 51, 53).
+- **What B had to decide, and what each round found,** is Amendments 3, 4 and 8: round 1 found R6.64 silent on KF5 and on a compromised key authorizing (rulings 44 to 52, vectors 45 to 49); A and B each decided one half of a kid-only enrolment wrongly (ruling 55, vectors 50 and 51); round 4 placed a synthetic key differently from the C# runner (rulings 94 and 95: both runners now assert on the same 62 reader vectors).
+- **Not independent, and said so:** the two folds read one text, so an ambiguity the vectors do not pin decides both the same way; and the pinned counts in `tests/vectors.rs` and the honoured runner's totals were edited by the task that generated the vectors, from a C# generator's output, not by B.
+
+**Builder B's report, in full** (`blind-b/report.md`; its headings are written here as bold lines):
+
+> **Blind B report: the Rust honoured fold (R6.64)**
+>
+> **What I read**
+> `blind-b/requirements.md`; `conformance/honoured/` (every `expected.json` and `meta.json`, entries of ten cases), its README section
+> and `index.json`; the reader vectors' `meta.json`, `expected.json`, `log-jwks.json` and entries for 4 cases (plus the predicate
+> census of all 81); everything under `rust/curia-testis/` that bears (lifecycle.rs, acta.rs key-set code, jwk.rs, jws.rs,
+> conformance.rs loader, tests/lifecycle.rs, tests/vectors.rs). No `.cs`, `src/`, `tests/`, `tools/`, `docs/`, plan, other
+> `.superpowers/` file or diff.
+>
+> **Deliverable**
+> `lifecycle::honoured(log: &[LogEntry], agent: &str) -> Honoured { rows, keys, bound }` in `src/lifecycle.rs`
+> (`LogEntry::from_document`, `Verdict`, `KeyStatus`, `predicate::ALL`). `acta.rs`: `read_entry` and `is_readable_key_entry`
+> made `pub(crate)` (no behaviour change). `tests/honoured.rs`: 3 tests.
+>
+> **Decisions the text left open**
+> 1. **A `log.key` / `log.declaration-key` entry is a key** when its payload `jwk` is R6.62's closed form (readable key with a string
+>    `kid`) and the payload `kid` equals the jwk's `kid`; otherwise no key, no position. Text: "an entry that is not a key under
+>    R6.62's closed form being no key" does not say which member carries the kid. A `kid` listed again later is not a key (R6.62's
+>    earliest-listing rule, applied to the log's order), separately for log keys and declaration keys.
+> 2. **Log-key and first-key checks use the whole log**, including entries after the declaration ("the log's own entries as the key set";
+>    "not the first ... by log index"). The "published before" step compares the entry index to the declaration's index.
+> 3. **The pair test also requires `agent_id` equal to the stream's agent and a usable key whose jwk `kid` equals `kid`.** Text: "exactly the members
+>    agent_id, jwk and kid". A pair failing these falls into the row steps (step 4 or step 5 then name it).
+> 4. **"Without a statement" (step 5) is read as "has no statement that is a string".** Step 2 speaks of a statement "that is a string".
+>    Under the stricter reading (member absent) reader vector `rotation-statement-not-text` would be statement-mismatch; the reader says
+>    broken-link and R6.64 says agree with the reader's verdicts, so I took the reading that agrees. No honoured case depends on it.
+> 5. **Position of the pair**: the first lifecycle entry after the first `agent.enrolled`, a later `agent.enrolled` counting as a lifecycle entry
+>    (`second-enrolment-then-binding` agrees). Rows before any enrolment find an empty prefix: every `prev` is a broken-link.
+> 6. **Status precedence**: a retirement of a compromised key leaves it `compromised`; a declaration overrides `retired`. Retirement and
+>    rotation checks look only at "retired in the honoured prefix" as the text says; a compromised-but-not-retired key still authorizes.
+> 7. **Cascade**: root is `kids[0]` (R6.57: "the compromised key first"), then each honoured rotation at index >= `from_index` authorized by a
+>    key already in the cascade, in log order. `kids` must equal it. (The reader picks the earliest-bound kid as root; no vector separates them.)
+> 8. **Declaration closed form**: `from_index` an integer, `kids` a non-empty array of strings, `reason` a string in the set (a string outside it
+>    was step 3's), else statement-mismatch. A missing/non-string signature member is "carries no header typ" (lifecycle-typ-mismatch).
+> 9. Step 3 reads `reason` from any statement that parses as an object, whether or not it has a `typ`.
+> 10. Reader-vector run: synthetic `log.key`/`log.declaration-key` entries are made from `log-jwks.json` entries that give a `log_index`.
+>
+> **Per-case results**
+> All 44 honoured cases agree (rows, keys, bound; cases 14 and 42's `also` streams too): 44/44, EXPECTED_FAILURES is empty.
+>
+> Reader vectors (81): what the text lets me assert: where the reader's predicate is one of R6.64's twelve names the Forum's first skipped
+> row carries it, and where the reader says verified no row below the post is skipped. 4 cases are not compared or disagree:
+> - `foreign-identity-entry` and `unknown-lifecycle-kind`: excluded by name (`NOT_A_ROW_OF_THE_STREAM`). The reader's failure is about an entry that
+>   is not in the agent's stream (another aggregate) or not one of the four types, so the Forum has no row to decide.
+> - **`rotation-self-authorized` (named disagreement, `READER_DISAGREEMENTS`)**: reader vector says `statement-mismatch` (KF5: authorized_by == kid);
+>   R6.64 has no such step and says `rotation-unauthorized` (the authorizing key is not yet bound), and `honoured/rotation-self-authorized` pins
+>   that. The test requires this case to keep disagreeing. Owner call: either the reader vector or the R6.64 text and its vector is wrong, or the
+>   "agree with the reader" sentence needs an exception.
+> - `rotation-statement-not-text` agrees only under decision 4.
+>
+> **Gates (in rust/curia-testis)**
+> `cargo fmt --check`: clean. `cargo clippy --all-targets --locked -- -D warnings`: clean. `cargo test --locked`: all green, `honoured` 3 passed.
+>
+> **Commit**
+> Commit qzp on branch lifecycle-rows-verify (src/acta.rs, src/lifecycle.rs, tests/honoured.rs).
+>
+> **Round 2**
+> Text changes acted on:
+> - KF5: "the statement's `authorized_by` is its `kid` (KF5: a key does not authorize its own binding)" is `statement-mismatch`, a step-6 rotation check before `broken-link`. Added.
+> - "the authorizing key is not bound by the honoured prefix, or is retired or compromised in it: `rotation-unauthorized`" (rotation) and "the key is not bound by the honoured prefix or is retired or compromised in it" (retirement). Both now treat Compromised status like Retired. A compromised key authorizes nothing from its declaration's index, which the status map already marks on honouring.
+>
+> New decisions: none. KF5 sits with the statement-level checks, ahead of `prev`, as the sentence's list order gives.
+>
+> Per-case results: 49/49 honoured cases agree; reader-vector comparison agrees, READER_DISAGREEMENTS empty. Previously red: retirement-of-a-compromised-key, rotation-authorized-by-compromised-key, rotation-self-authorized (now green).
+>
+> Gates (rust/curia-testis): cargo fmt --check clean; clippy -D warnings clean on 1.96 and 1.100.0; cargo test --locked all green.
+>
+> Commit: qsm on branch lifecycle-rows-verify (src/lifecycle.rs only).
+>
+> **Round 3**
+> Text change acted on (R6.64, the root paragraph): "An enrolment with no pair after it is honoured and is the previous honoured entry of the next row (that row's `prev` is the enrolment's log index), but it binds no `kid` and no key, the honoured prefix binding a key only by the pair or a rotation, so the next row is decided with nothing bound." The fold now sets the honoured prefix's previous entry to the stream's first `agent.enrolled` at once; a pair or rotation after it moves it on. A later `agent.enrolled` does not. Before, `prev` stayed unset until a binding, so `enrolment-without-its-pair` named `broken-link` where the vector says `kid-not-bound-to-agent` and `rotation-unauthorized`.
+>
+> Harness rule applied (tests/honoured.rs): synthetic key entries go at their own `log_index` when free, else at max(all entry indices, all key `log_index` seen so far) + 1; a duplicate index panics. `compromise-declaration-keys-share-position` is excluded by name beside the other two, and the test asserts all three names exist in `conformance/lifecycle/`.
+>
+> New decisions: none.
+>
+> Per-case results: 51/51 honoured cases agree (incl. `also` streams of cases 14 and 42); previously red: `enrolment-without-its-pair` only. Reader vectors: 81 loaded, 78 compared, 3 excluded by name, READER_DISAGREEMENTS empty, no failures. EXPECTED_FAILURES empty.
+>
+> Gates (rust/curia-testis): cargo fmt --check clean; clippy --all-targets --locked -D warnings clean on default and +1.100.0 (no error at all, tests/vectors.rs included); cargo test --locked all green.
+>
+> **Round 4**
+> Text changes acted on (R6.64):
+> - The root: "the stream's first `agent.enrolled` when its payload is an object whose `agent_id` is the stream's agent (steps 1 and 4 decide it as they decide a row: an enrolment that fails either is skipped, `statement-mismatch`, and the stream has no root, so that no pair is a pair, nothing is bound, and a later `agent.enrolled` is not a root either)". The fold now decides the first `agent.enrolled` by steps 1 and 4. One that fails is a row, skipped `statement-mismatch`; the stream is then rootless: `prev` stays unset, no later `agent.enrolled` becomes a root, and the binding after it is not in a pair's position (step 5, `broken-link`).
+> - The log-key check: "the log-key check reads the `log.key` entries at a log index below the declaration's own (a `log.key` entry appended after a genuine declaration SHALL NOT undo it, and one the procedure has not reached is not yet a log key)" and "the key is also a log key published before the declaration (`declaration-key-is-log-key`)". `Published::is_log_key` takes the declaration's index and reads only log keys below it. This replaces round 1's decision 2 for the log-key check. The first-key check still reads every declaration key by index, and the publication check still compares the key's index with the declaration's.
+>
+> Found on arrival: `src/lifecycle.rs` and `tests/honoured.rs` had been edited by another builder since round 3 (the reader's `Fold` in `lifecycle.rs`, and the exclusion list and count pins in the harness). I did not touch the exclusions or the pins (53 honoured, 84 lifecycle, 53 checked, 2 `also`).
+>
+> New decisions:
+> 11. **Harness placement (changed).** A synthetic key entry now keeps the `log_index` its key set states even where an on-disk entry has that index; only two key entries colliding are displaced (the second to max + 1, as in round 3). Reason: the text now makes a log key's position relative to the declaration decide, and every reader vector lists its head log key at 0, where the enrolment is; round 3's rule moved it past the last entry, which would hand the fold a log key published after a declaration the vector states it before. No free index exists below 0, so the index is shared. The fold reads a key entry's index only, so nothing else changes. No vector's outcome differs between the two placements today (the head key is never the declaring key); the change is for fidelity, not to turn a case green.
+> 12. An enrolment whose payload is an object naming the stream's agent but whose `kid` is not a string is still the root (the text names only steps 1 and 4); no entry is then its pair.
+> 13. A skipped first enrolment counts as nothing for later rows: with no root there is no pair position, so every statement-less binding is `broken-link`, and a row carrying `prev` finds no honoured entry (`broken-link` if it reaches that step).
+>
+> Per-case results: 53/53 honoured cases agree (incl. the `also` streams of cases 14 and 42); EXPECTED_FAILURES empty. Red before this round's edits: `declaration-key-is-a-log-key-published-after-it`, `enrolment-names-another-agent`, `enrolment-payload-not-an-object`. Reader vectors: 84 loaded, 4 excluded by name, 53 compared (the pin), no failures, READER_DISAGREEMENTS empty; red before: `enrolment-names-another-agent`. No text/vector disagreement found.
+>
+> Gates (rust/curia-testis): `cargo fmt --check` clean; `cargo clippy --all-targets --locked -- -D warnings` clean on the default toolchain and on `+1.100.0`; `cargo test --locked` all green (`honoured` 3 passed).
+>
+> Commit: uvt (48dc304d) on branch lifecycle-rows-verify (src/lifecycle.rs, tests/honoured.rs).
 
 ### Task 3b: the fix round for what B found undecided (or "none")
 
+Not none. Records: `task-3b-report.md`, `task-3c-report.md`. 3b: R6.64 gained KF5 and the compromised-key rule (thirteen Old strings, each once), vectors 45 to 49, vector 18's predicate became `statement-mismatch`; counts 44 to 49, 217 to 222, 223 to 228. 3c: three more Old strings, vectors 50 and 51 (counts 51, 224, 230), the Sodium reference made private and the Infrastructure lock restored (rulings 53, 89). 3c returned one deviation that became a ruling: ULG18 measured the `jti` **not** spent by a fault of the key-resolving read (ruling 64; `R5.23 (rev.)`, filed by Task 8b).
+
 ### Task 4: the consumers and the fences; M6's third half
+
+Records: `task-4-report.md`, `task-4b-report.md`, `task-4c-report.md`.
+
+- **4:** `KeyActs.ReadLifecycleAsync` is the writers' one read; `Refusal` deleted and the compiler swept its five test files; HSU36 replaced by the Forum skipping a forged declaration; LRV7 to LRV14 green.
+- **M6, third half:** rule (b) did not fire. Task 4 recorded the flood's added cost as about 30 ms p50 with a scratch test that was not kept; **that figure is struck as a measurement of the flood** (ruling 124, trap 262): the live run's is the number of record. **LN12** (one agent, 100 comments, the forger on a second application-role connection): one forged row every 100 ms, 100 of 100 stored; one every 10 ms, 100 of 100 refused `503 curia/ingest/contended`; the rule did not fire and ruling 27 (b) was not built (item 276).
+- **4b stopped,** as its brief required: LRV31 was still red (`503 curia/ingest/contended`), the cause being the store's version counted over every row of the aggregate while every decision read `seq > 0`, and the fix was in a file the brief forbade. Amendment 6 ruled it (rulings 72 to 78).
+- **4c:** probes LRV34 to LRV37, LRV39 and LRV40 committed red on the unmodified store, then the three predicates in `PostgresEventStore.cs`. LRV38 is a recorded run of the partial fix (two predicates of three), not a test. The rule is R6.65, filed by Task 8b.
 
 ### Task 5: the operator and the client
 
+Record: `task-5-report.md`. Four commits: the operator (`lifecycle-audit`, exit 7, the withheld line naming the predicate; LRV15, LRV16), the key set's two members (LRV25), `curia verify`'s key line and the Forum's mark past the head (LRV18 to LRV20), and `curia keys`' `SKIPPED` lines from one definition in `Curia.Client`, `curia_keys` and `curia-mcp` 0.12.0 (LRV24, LRV26 to LRV28). Each probe's red text before its fix is in the report; LRV17 was already green from Task 4.
+
 ### Task 6: the whole run, the fuzz, the review, and its fix round
+
+Records: `review-spec.md`, `review-trust.md`, `review-fixtures.md`, `task-6a-report.md`, `task-6b-report.md`, `task-6c-report.md`, `blind-b/` round 4.
+
+- **The review, three lenses run** (spec, trust, fixtures; the words are the cold read's). Amendment 7 ruled them (rulings 79 to 93): one root predicate (an enrolment is decided by steps 1 and 4 as a row is), the log-key check reads only below the declaration, the writers ask whether their row was honoured and say `not-honoured` (now R4.42), and the forged-row probes are given a `prev` that reaches the predicate each names (the fixtures lens's first finding: LRV13's rows failed on the link and never reached a signature).
+- **6a, five steps, each red first:** the Infrastructure lock; the root (vectors 52 and 53 and a reader vector; LRV41); the log-key check in both folds and both readers; the writers (LRV42, LRV43); the fixtures (LRV46 among them). Counts after it: honoured 53 and lifecycle 84 (Task 7a's vector then moved the families and the corpus to 230 and 236).
+- **6b:** the first whole Api run found five failures, all PR N's and all in classes no task's filter had selected (120 of 194 classes; trap 257): four from the whole-log key read, one the stub's members. Fixed in test code. The whole Api suite then passed 1,647 of 1,647 (the report's figure).
+- **6c:** both runners assert on the same 62 reader vectors; LRV37 gained the parent and flag arms; LRV41's rows and three vectors pinned. Its first solution-wide run had six failures under a load average above 100 (five Infrastructure timeouts, one Client test), none reproduced alone; accepted as load, the two Client tests are item 163's. **LN13:** two runs of the closed fuzz passed, the slowest stored post 351 ms and 348 ms; the stop rule did not fire.
 
 ### Task 7: falsification FLRV1 to FLRV25 (counts: rows, first forms red, controls, the Rust leg, the retired)
 
+Records: `flrv-results.jsonl` (recounted by script at Task 8b: 107 records), `task-7-report.md`, `task-7a-report.md`; Amendments 8 (the table, ruling 106) and 9 (the rulings on the run).
+
+- **Task 7:** 44 rows, 76 records: **69 red, 4 green, 3 masked**; no control that was to stay green went red.
+- **The four green, each ruled:** FLRV3 (b) (ruling 109: only a vector was owed; it is vector 54); FLRV12 (a) (ruling 110: the prediction named probes that do not read the member; re-pointed at LRV12, and LRV13 gained a clause); FLRV-N5 (e) (ruling 111: an equivalent mutation, **withdrawn**; leg e2 stands as run); FLRV-N1 (b) (ruling 112: **withdrawn**, restated as b2).
+- **The three masked, each ruled by ruling 113** (a probe records the act under test and compares it; only set-up may throw): FLRV15 (a), FLRV-N14 (c), FLRV-N13 (a).
+- **Task 7a:** the seven edits, FLRV19's first-read fault (ruling 114), FLRV-N11's two legs for vector 41 (ruling 115), vector 54. Its 24 records over 17 rows are **24 red**. Its observation under FLRV-N7 (a) corrected ruling 116 (ruling 125; item 285).
+- **Task 8b:** FLRV-N15 and FLRV-N16, 7 records: **6 red, 1 masked as predicted** (below, under Task 8).
+- **Retired, not run:** FLRV17 (no memo was built), FLRV26 (`db/0006` is PR S's) and FLRV33 (ruling 27 (b) was not built).
+- **The Rust legs,** run by `cargo test` (by script: the forms whose only probe is the crate's): FLRV25; FLRV3 (c); FLRV-N2's `rust` form; FLRV-N3's four `rust` forms; FLRV-N4 (b); FLRV-N5 (c), (d) and (f); FLRV-N11's three `rust` forms.
+- **Two rows of the architect's could not fail** as written (FLRV-N5 (e), FLRV-N1 (b)) and were restated; that is trap 258.
+
 ### Task 8: the live run (controls first), the cold read against its gate, register and docs
+
+**8a, the live run** (`task-8a-report.md`, `n-task8-live.txt`; 2026-11-13, on `2e4bb9ae`; nothing committed). Builds from `git archive` exports: `n` (the tip), `ns` (its scratch copy with the guard lifted), `nf` (`ns` with FLRV20's patch), `nf2` (below); controls `c0` (`2708d826`, main before PR H), `h` and `hs` (`b348f6a9`, PR H's tip and its lifted copy), `m` and `ms` (`03487f9e`, `origin/main`). Every control ran before its leg.
+
+| Leg | Result on N, beside its control | Held |
+|---|---|---|
+| LN1 forged retirement | token `200`, post `active`, `verify` 0 after a hand-signed head, audit exit 7 naming index 11, `agent.key-retired`, `lifecycle-typ-mismatch`, 7007 at a restart, `--if-grown` exit 6 until a plain `sign-head`. Controls: `401 invalid_client` at once | held |
+| LN2 takeover | attacker's token `401`, `curia ask` exit 6, the victim's budget, post, token and key set unaffected. Controls: the attacker posts as the victim. **Corrected (ruling 120):** the victim's `curia keys` prints the `SKIPPED` line and exits 6; it is not silent | held |
+| LN3 forged declarations | no mark, the post on the page, `excluded_disputed=0`, audit `declaration-key-unpublished`. Controls (`h`, `m`): `compromised`, omitted. **Corrected (ruling 120):** the control's `excluded_disputed` was 2 | held |
+| LN4 five unreadable shapes | every exit and the key set equal the run with no row. Controls: the victim locked out. **Corrected (ruling 120):** shape (v) is `broken-link`, as its vector says | held |
+| LN5 genuine acts | rotate, retire, compromise honoured; audit exit 0; `--if-grown` exit 0 over each genuine row (the control exited 6 four times); readers 9 on the declared post | held |
+| LN6 store fault | the four answers of the control, nothing accepted, the Forum recovered | **held; a record** (ruling 126): not shown able to fail, counted in neither the legs shown able to fail nor the support for R5.22 |
+| LN7 the flood | below | held: the rule did not fire |
+| LN8 (i), (ii), (iii) | key line `FAILED` with R11.95's words, exit 6; exit 8 naming index 17 and tree size 16, exit 9 once a head covers it; `curia_verify` the same sentences. Control: `verified`, exit 0 | held |
+| LN9 the Rust fold on real logs | 19 databases, 57 agent streams, 0 disagreements with the audit and the served key set | held |
+| LN10 guard on | `publish-declaration-key` 0, `compromise` 4, audit 0 | held |
+| LN11 the agent is told | `SKIPPED` lines, exit 6, `curia_keys` identical; `curia verify` and `curia read` print the same bytes with and without the rows | held |
+| LN11, the seeded leg | `curia rotate` exit 8, `500 curia/keys/not-honoured`, no act recorded, the **first** words | **withdrawn as written** (ruling 122); the second words shown by the act recorded on the unpatched copy and the database then served by the seeded build |
+| Ruling 99's leg | `nf`: exit 0, honoured. `nf2`: exit 7, stdout empty, stderr naming index 10 and `broken-link`, the key `active` | **answered by `nf2`** (ruling 121) |
+| Ruling 104 (b) | 292 of 292 searches sent before a declaration and answered after it served the declared post, up to 21.3 s later; the same on `ms` | **confirmed, item 286**; came with #151 |
+| LN12, LN13 | cited from Tasks 4 and 6c, not repeated | cited |
+
+Thirteen rows of the report's table read held (LN1 to LN7, LN8's three, LN9, LN10 and LN11), of which LN6 is a record and not evidence (ruling 126); two legs were mis-specified by the plan and are restated (LN11's seeded leg, ruling 99's leg); one lead was confirmed; LN12 and LN13 are cited.
+
+- **`nf2`'s patch, verbatim** (it was made during the run and is in no jsonl). `nf` is FLRV20 as recorded: `src/Curia.Application/Credentials/LifecycleFold.cs:233` (`Rotation`) and `:264` (`Retirement`), Old `statement.Prev != _previous`, New `statement.Prev != _previous + 1`. `nf2` is FLRV20 plus `LifecycleFold.cs:292` (`Declaration`), the same Old and the same New.
+- **LN7, three measurements, two agree** (ruling 124). Task 2: 1,000 forged retirements with a wrong signature, one fold, in memory, about 106 ms over baseline. LN7, the same row shape on the built Forum: about 115 ms a fold (ES256, about 0.11 ms a row), about 225 ms on a path that folds twice, **228 ms at p95 on the key-set route, 91 percent of the 250 ms rule**, which did not fire. Task 4: 20 to 30 ms, by a scratch test that was deleted; a number recorded, its input not kept, struck as a measurement of the flood. By the live run's slope about 1,100 rows cross the rule on the two-fold paths and about 2,200 on the one-fold paths.
+- **Smaller things seen** (ruling 120): a refused attacker shown the `SKIPPED` line is no disclosure (the key set is an anonymous route); an older client loses the alarm and the line reads `a agent.key-retired` (item 291).
+
+**The cold read** (`cold-read-results.md`; ruling 130's block above, filled by the controller). Nineteen fresh readers, none told what was tested; Fable 5.2 by the owner's instruction for the session, where the plan wrote Sonnet 5.5. Recounted from the results' tables: gate (1) 6 of 6, none said the key line holds; gate (2) 6 of 6, each naming index 25; gate (3) 4 of 4 control readers would cite the past-head post (at least 2 required); gate (4) 3 of 3; ruling 40 (a) 3 of 3 and (b) 3 of 3. **19 of 19 at or above their gate.** None inferred that the Forum is compromised. Its leads are in item 291.
+
+**8b, the documents and the register** (this task; `task-8b-report.md`).
+
+- **Step 1, the permutation:** the eight blocks' SHA-256 equal before and after, the file's sorted lines equal, `check-spec` clean, `falsify-spec-checks` four of four, Client 1,676, Mcp 985 (5 skipped) and Architecture 134 in both configurations.
+- **Step 2, G68's content:** E1 to E11 applied, each Old exactly once immediately before its replacement; R4.42 and R6.65 allocated at filing (the highest were R4.41 and R6.64); three index rows and three revision rows. **Already applied by earlier tasks and not applied again:** R6.64's root sentence and its reason, R6.64's and R6.62's log-key sentences, the `R11.30 (rev.)` annotation's body. **G69's finding 3 was read before the cross-reference was pasted: it is the finding that says the by-aggregate read returns the row.** One thing the brief left to the builder: the tool's description holds two line breaks, which a paragraph cannot, so `R11.96 words (the tool)` writes each as `\n` and says so in a sentence before the two spans.
+- **Step 3, the two tests** (ruling 128), each local to its test class, no file under `tests/Shared/` touched: `ServedSkippedMembersTests.R4_41_TheServedMembersAreTheOnesTheErrataNames` and `ToolDescriptionTests.R11_96_TheKeysToolsWordsAreTheOnesTheErrataPublishes`; and two comment lines under `src/` that cite R6.65. **FLRV-N15** (a) `Jwks.cs` serves the list as `curia_skipped_rows`: red, `Expected: members curia_skipped, curia_skipped_total ... Actual: members curia_skipped_rows, curia_skipped_total`; (b) the other way, R4.41's paragraph renamed: red with the two swapped; (c) R4.41's paragraph as it stood before step 2: the reader's count assertion throws (`names 0 members that begin curia_skipped, expected two`), which the runner classes masked, as predicted. **FLRV-N16** (a) one word of `KeysSentence` and (c) one word of `KeysTemplate` changed in `ToolText.cs`: red; (b) and (d) the same words changed in the errata: red. The unpatched run was green before and after. The comment-only check passed (four changed lines under `src/` since `2e4bb9ae`, each a comment; nothing under `tests/Shared/`), so no whole Api run is owed again.
+- **Steps 4 and 5, `IMPLEMENTATION_PLAN.md`:** the "First free" line read D124, item 273, trap 248 before the edit, as ruling 129 computed. Written: D121 `fixed`; **D124**; items 247, 251, 254, 255, 256, 258, 259, 262, 263 closed; 257, 260, 261 rewritten; 163 amended; **items 273 to 291**; **traps 248 to 262**; first free now D125, item 292, trap 263. The cold read's leads are in item 291. "Not checked", in item 285: whether `curia-operator` will publish a `log.key` equal to a published declaration key.
+- **Step 6, `CLAUDE.md`:** three edits, each Old once. PR H's Task 8 had left `CLAUDE.md` unedited (it was #151's file then), and #151's edit removed the stale version clause that ruling 28 was written against, so no version clause was there to correct; `curia-mcp` 0.12.0 is said in PR N's clause.
+- **Step 7:** the README's two sentences; `conformance/README.md` already said 54 honoured cases and named vector 54, states no total for the lifecycle family, and said "Forty-four cases carry an operator's declaration" where the tree holds forty-six (Amendment 7 added two): corrected.
+- **`open-leads.md`, every entry disposed:** ULG18 (ruling 64; `R5.23 (rev.)`; item 282); ULG2's retarget (ruling 66); vector 50's runner (rulings 65, 88; item 281); vector 51's and 48's falsification (Task 7: FLRV-N5, FLRV-N11); the pair-less identity (item 281) and G67's lead (closed by ruling 82); HSU36 and LRV14 (rulings 88, 92); LRV31 (Amendment 6; R6.65; item 285); Task 5's corrected expectations (the fixtures lens, ruling 86); the Infrastructure lock (ruling 89); Rust round 4's placement (rulings 94, 95); the five Api failures and the changed read counts (Task 6b; item 278); the fuzz's one overrun (LN13; item 278); the 120 classes (trap 257); Task 6c's six failures under load (item 163); FLRV-N7 (a) against ruling 116 (ruling 125; item 285).
 
 ### Deviations, in one list
 
+- The live run had a third control, `m` (`origin/main`), which the plan did not name; its results equal `h`'s in LN1 to LN4.
+- `c0` ran for LN1 to LN4 only (it has no `--if-grown` and no lifted copy was built).
+- LN6's own control, the suite's store-fault classes, was not run in the live run (it ran green in Task 7a's whole Api run).
+- `nf2` was built during the run.
+- LN12 and LN13 were cited from Tasks 4 and 6c and not repeated.
+- The cold read's could-not-be-checked page was made with a pass-through in front of the Forum that failed one lifecycle proof; no leg makes that fault by itself.
+- `keys-b-new` was not made the way LN11 says (the act recorded on the unpatched copy, the database then served by the seeded build).
+- The cold readers were Fable 5.2 and not Sonnet 5.5, by the owner's instruction for the session.
+- Ruling 131 step 8 says "the live-run section's four sentences corrected by ruling 120"; ruling 120 corrects three (LN2, LN3, LN4). Those three are annotated in place, and LN6 (ruling 126), LN7 (ruling 124) and LN11's seeded sentence (ruling 122) beside them.
+- Task 8b's steps 1 to 7 are one commit each; this section, G68's Status and the gates' results are three more (the Status is written from this section and the gates run on the tip that holds it).
+- Task 8b added one form to each falsification row beyond ruling 128's (FLRV-N15 (c), the errata before step 2; FLRV-N16 (c) and (d), the description's word), and wrote trap 256 without the plan's `LRV32; FLRV33`, which name a probe and a row that were never built.
+- The suites' totals of Tasks 1 to 7 and the live run's numbers are read from each task's record and were not recomputed (said where each stands).
+
 ### Gates
+
+Written by Task 8b's last commit, from the runs on the tip that holds this section and G68's Status.
+
+*(The results are recorded here by Task 8b's last commit, after the runs.)*
 
 ### Not run, and left open
 
-The PR is #___, on `main` at ________.
+- The bystander's read on a flooded log (ruling 124: one `GET` of a bystander's post before and after the flood, on LN7's database). Predicted to cost every read about one fold; item 278.
+- Item 286's withhold case: a moderation record appended while a search waits. By reading, not run.
+- The operator's `not-honoured` path for any predicate but `broken-link` (the handler branches on the error's type, not the predicate; LRV43 (d) holds that). Item 287.
+- Why Task 4's flood figure differs from Task 2's and the live run's: its input was not kept (trap 262).
+- A hosted Forum: the guard is on, `db/0006` is the owner's to apply, and nothing here ran against one.
+- The whole Api suite after Task 8b: not owed by ruling 128 (the comment-only check); the controller's final whole run and preflight follow this task, and CI runs the whole suite on the PR.
+
+The PR is #155, on `main` at `03487f9e`.
