@@ -47,5 +47,7 @@
     <!-- Errata G52 (the D95 PR): the words of the entry, read from the errata at test time. -->
     <Compile Include="../Shared/PublishedStoreFaults.cs" Link="Shared/PublishedStoreFaults.cs" />
     <Compile Include="../Shared/PublishedResendWords.cs" Link="Shared/PublishedResendWords.cs" />
+    <!-- Errata G65 (SEM3): a clock whose timers fire when it is advanced, to drive the 2-second bound of the vector step. -->
+    <Compile Include="../Shared/TimerManualTimeProvider.cs" Link="Shared/TimerManualTimeProvider.cs" />
   </ItemGroup>
 </Project>

@@ -39,10 +39,10 @@ public sealed class HybridSearchCursorBindingTests
 
         public EmbeddingModel Model => inner.Model;
 
-        public Result<Embedding> Embed(string text)
+        public Task<Result<Embedding>> EmbedAsync(string text, EmbeddingRole role, CancellationToken cancellationToken)
         {
             Calls++;
-            return inner.Embed(text);
+            return inner.EmbedAsync(text, role, cancellationToken);
         }
     }
 

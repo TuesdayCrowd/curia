@@ -34,11 +34,28 @@ public sealed class EmbeddingReconcileService : IHostedService
         _log = log;
     }
 
+    /// <summary>How many posts pass between two progress lines.</summary>
+    private const int ProgressEvery = 1000;
+
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         // The reconcile is a check (errata G54, R8.83): its beginning is the instant of the last check, taken before it ran.
         var began = _clock.GetUtcNow();
-        var reconciled = await _indexer.ReconcileAsync(_events, _sweep, cancellationToken).ConfigureAwait(false);
+        var started = _clock.GetTimestamp();
+
+        // The first start under a model id the database holds no rows for reindexes the whole log before the Forum listens (errata G65, Amendment 1 ruling 24; Task 0 M7 and M9:
+        // the port is refused for the whole reconcile, 304.7 s over 9,975 posts, 30.5 ms a post, on the build machine). It says how far it is, by count, and names no post.
+        var counted = await _indexer.CountAbsentAsync(_events, cancellationToken).ConfigureAwait(false);
+        var total = counted.TryGetValue(out var absent, out _) ? absent : 0;
+
+        var reconciled = await _indexer.ReconcileAsync(
+            _events,
+            _sweep,
+            stored =>
+            {
+                if (stored % ProgressEvery == 0 && stored < total) Progress(_log, stored, total, null);
+            },
+            cancellationToken).ConfigureAwait(false);
         if (!reconciled.TryGetValue(out var indexed, out var error))
         {
             throw new InvalidOperationException(
@@ -48,13 +65,20 @@ public sealed class EmbeddingReconcileService : IHostedService
         }
 
         _sweep.Completed(began);
-        Reconciled(_log, _indexer.Model.Id, indexed, null);
+        var seconds = _clock.GetElapsedTime(started).TotalSeconds;
+        var rate = seconds > 0 ? indexed / seconds : 0;
+        Reconciled(_log, _indexer.Model.Id, indexed, seconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture), rate.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture), null);
     }
 
-    private static readonly Action<ILogger, string, long, Exception?> Reconciled = LoggerMessage.Define<string, long>(
+    private static readonly Action<ILogger, long, long, Exception?> Progress = LoggerMessage.Define<long, long>(
+        LogLevel.Information,
+        new EventId(2, "VectorIndexReconciling"),
+        "Reconciling {Stored} of {Total}");
+
+    private static readonly Action<ILogger, string, long, string, string, Exception?> Reconciled = LoggerMessage.Define<string, long, string, string>(
         LogLevel.Information,
         new EventId(1, "VectorIndexReconciled"),
-        "Vector index reconciled under {Model}: {Indexed} post(s) embedded at startup");
+        "Vector index reconciled under {Model}: {Indexed} post(s) embedded in {Seconds} s ({Rate} per second)");
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

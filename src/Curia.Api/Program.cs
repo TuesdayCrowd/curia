@@ -18,8 +18,10 @@ using Curia.Domain.Authorization;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Curia.Infrastructure;
+using Curia.Infrastructure.Embedder;
 using Curia.Infrastructure.Lifecycle;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Curia.Api;
 
@@ -162,11 +164,17 @@ public sealed class Program
         // Task 0 seam: registered, entered by no route yet.
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().AgentWriteGate);
 
-        // The vector half of hybrid retrieval (§9.2). The embedder is the dependency-free hashed
-        // model (see HashedNGramEmbedding for what it is and is not); the index is pgvector through
-        // the same adapters object as every other Postgres port; the reconcile brings the index up
-        // to the log before the first request and refuses to start without pgvector.
-        builder.Services.AddSingleton<ITextEmbedder, HashedNGramEmbedder>();
+        // The vector half of hybrid retrieval (§9.2). The embedder is bge-small-en-v1.5 run by ONNX Runtime
+        // (errata G65, R11.91): the Forum has no other embedder and no configuration key that selects one, and
+        // the start-up check below stops the host when the model's files or its canaries are not the build's.
+        // The index is pgvector through the same adapters object as every other Postgres port; the reconcile
+        // brings the index up to the log before the first request and refuses to start without pgvector. The
+        // first start under a model id the database has no rows for reindexes the whole log first, with the
+        // port closed (about 30 ms a post on the build machine, Task 0 M8): it logs how far it is.
+        // TryAdd: a caller of Build that has registered an embedder in code (a test that never reaches the model) keeps it; nothing in configuration can.
+        // This door is for an in-process caller of Build and is outside SEM13's fence, which reads the shipped assemblies' IL for a construction of the real embedder and not for who registered first;
+        // no configuration value reaches it, and the check below runs only for an embedder that implements IStartupChecked.
+        builder.Services.TryAddSingleton(_ => EmbeddingComposition.Create(builder.Configuration[EmbeddingComposition.ConfigurationKey]));
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().VectorIndex);
         builder.Services.AddSingleton(sp => new EmbeddingIndexer(
             sp.GetRequiredService<ITextEmbedder>(),
@@ -363,6 +371,12 @@ public sealed class Program
         // Lock 2 at startup: the gate is built now, so a refused opt-in fails the start rather than the
         // first append.
         _ = app.Services.GetRequiredService<ILifecycleAppendGate>();
+
+        // R11.91 (errata G65): the embedding model is verified before the host is returned and so before it listens: both digests, the session and every committed canary.
+        // A failure throws, naming the configuration key, the file or the canary; there is no fallback. A host that replaced the embedder (the test fixture's one explicit door) has
+        // nothing to check.
+        if (app.Services.GetRequiredService<ITextEmbedder>() is IStartupChecked startupChecked)
+            startupChecked.Check();
 
         // R11.71 (errata G52): outermost of the Forum's own middleware, before the status-code pages, so a fault of a store is answered by one rule on
         // every route and in every hosting environment (the developer exception page, which WebApplication adds in Development, sits above this).

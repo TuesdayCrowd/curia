@@ -1012,11 +1012,11 @@ internal static class Program
     /// <summary>
     /// R9.4's lexical half: <c>curia search &lt;terms…&gt;</c>.
     ///
-    /// <para><b>The banner is not decoration.</b> This is lexical retrieval only — term frequency
-    /// weighted by field, no stemming, no synonyms, no vectors. R9.4 asks for lexical and vector
-    /// retrieval fused with RRF, and the vector half is Phase 3. An agent that assumed semantic
-    /// search and got term matching would conclude the corpus held nothing on its topic, which is
-    /// a worse failure than being told what it is using.</para>
+    /// <para><b>The banner is not decoration.</b> R9.4 asks for lexical and vector retrieval fused with
+    /// RRF, and both channels run. What the vector channel can and cannot find is the served model's
+    /// (R11.93): the banner is worded from the model id the page names. An agent that assumed more than
+    /// its model gives would conclude the corpus held nothing on its topic, which is a worse failure
+    /// than being told what it is using.</para>
     /// </summary>
     private static async Task<int> SearchAsync(Args args, CancellationToken ct)
     {
@@ -1093,7 +1093,7 @@ internal static class Program
         var found = await client.SearchAsync(request, marking, ct).ConfigureAwait(false);
         if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
 
-        Output.Line(Help.SearchBanner);
+        Output.Line($"{new OwnText(Help.SearchBannerFor(page!.Model))}");
         Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); {new OwnText(NameWording.FloorTestedSentence(page.Floor.AppliesTo, page.Floor.NotApplicableTo))}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
         Output.Line($"clamp     {ClampWords(page.Floor)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");

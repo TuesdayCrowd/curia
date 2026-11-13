@@ -220,7 +220,7 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
         var embedder = forum.Services.GetRequiredService<ITextEmbedder>();
         foreach (var text in new[] { "?!\n?!", "??\n!?" })
         {
-            var embedded = embedder.Embed(text);
+            var embedded = await embedder.EmbedAsync(text, Curia.Domain.Search.EmbeddingRole.Passage, Ct);
             Assert.False(embedded.TryGetValue(out _, out var embedError), $"NOT REACHED: the embedder placed {text.Replace("\n", " / ", StringComparison.Ordinal)}");
             Assert.Equal(Curia.Domain.Search.EmbeddingErrors.NoFeatures().Type, embedError!.Type);
         }

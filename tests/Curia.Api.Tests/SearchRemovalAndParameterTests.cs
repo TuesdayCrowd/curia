@@ -54,7 +54,7 @@ public sealed partial class SearchRemovalAndParameterTests(ForumFixture forum) :
         {
             var nonce = Guid.NewGuid().ToString("N");
             // On a board of their own: they exist for the tier. On the searched board a question passes the floor, and a random nonce can overlap the random term in the
-            // hashed-ngram channel, which CI once showed as a second hit under the V1 floor.
+            // hashed-ngram channel (the test host's embedder, errata G65), which CI once showed as a second hit under the V1 floor.
             using var warmup = await dpop.PostAsync(http, PostsUrl, token, author.SignQuestion(board + "-warmup", $"warmup {i} {nonce}", $"Warmup {i} {nonce}", forum.Now), forum.Now, ct);
             Assert.Equal(HttpStatusCode.Created, warmup.StatusCode);
         }

@@ -69,8 +69,8 @@ public sealed class DuplicateCheckTests
 
         var verdict = await AssessAsync(h, Envelope(PostKind.Question, "connection reset by peer", "a pooled connection comes back reset when reused"), ct);
 
-        // This is the hashed embedder being honest about what it is: a lexical geometry, not a
-        // semantic one. conformance/retrieval/ measures exactly this gap.
+        // This is the test adapter (the hashed embedder, which the Forum no longer runs: errata G65) being honest about what it is: a lexical
+        // geometry, not a semantic one. conformance/retrieval/ measures exactly this gap for that adapter.
         Assert.NotEqual(DuplicateVerdict.Refuse, verdict.Verdict);
     }
 

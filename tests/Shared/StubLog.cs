@@ -1283,13 +1283,19 @@ internal sealed class StubLog : IDisposable
     "next_cursor":{{(SearchNextCursor is null ? "null" : JsonString(SearchNextCursor))}},
     "floor":{"surface":"mcp-search","min_verification":"{{(FloorClamped ? "V1" : "V0")}}","source":"{{(FloorClamped ? "configured" : "published")}}",
     {{FloorListsMembersJson()}}"excluded_disputed":0{{ClampMembersJson()}}},
-    "model":"hashed-ngram@1","corpus_bound":1{{(SearchVectorPendingJson is null ? string.Empty : ",\"vector_pending\":" + SearchVectorPendingJson)}}{{(SearchVectorCheckedAtJson is null ? string.Empty : ",\"vector_checked_at\":" + SearchVectorCheckedAtJson)}}{{(SearchVectorCheckDueAtJson is null ? string.Empty : ",\"vector_check_due_at\":" + SearchVectorCheckDueAtJson)}}{{(SearchUnmatchedFiltersJson is null ? string.Empty : ",\"unmatched_filters\":" + SearchUnmatchedFiltersJson)}}}
+    {{(SearchModelJson is { Length: 0 } ? string.Empty : "\"model\":" + (SearchModelJson ?? "\"hashed-ngram@1\"") + ",")}}"corpus_bound":1{{(SearchVectorPendingJson is null ? string.Empty : ",\"vector_pending\":" + SearchVectorPendingJson)}}{{(SearchVectorCheckedAtJson is null ? string.Empty : ",\"vector_checked_at\":" + SearchVectorCheckedAtJson)}}{{(SearchVectorCheckDueAtJson is null ? string.Empty : ",\"vector_check_due_at\":" + SearchVectorCheckDueAtJson)}}{{(SearchUnmatchedFiltersJson is null ? string.Empty : ",\"unmatched_filters\":" + SearchUnmatchedFiltersJson)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
     /// Errata G51 (R9.51): the raw JSON value of the <c>vector_pending</c> member the stub's search page carries (<c>0</c>, <c>7</c>, <c>-1</c>, <c>1.0</c>,
     /// <c>"3"</c> ...); null serves the page without the member, as an older Forum does.
     /// </summary>
+    /// <summary>
+    /// Errata G65 (ruling 35 to 37): the raw JSON value of the <c>model</c> member the stub's search page carries; null serves <c>"hashed-ngram@1"</c> as before, the empty string leaves the
+    /// member out (as an older Forum does), and anything else is the JSON text of the value (a string built with <see cref="JsonString"/>).
+    /// </summary>
+    internal string? SearchModelJson { get; set; }
+
     internal string? SearchVectorPendingJson { get; set; }
 
     /// <summary>Errata G62 (R10.97, Amendment 4): serve the search page with no result, as a page that missed every post does; the default is the one-hit page.</summary>

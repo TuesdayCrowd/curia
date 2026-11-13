@@ -159,4 +159,16 @@ public static class EmbeddingErrors
         "curia/embedding/no-features",
         "The text contains no letters or digits and has no embedding",
         null);
+
+    /// <summary>The model could not embed the text: a fixed error whose detail is the type name of the fault, never its message, a path or the input (R11.92).</summary>
+    public static Error ModelFault(string? exceptionTypeName = null) => new(
+        "curia/embedding/model-fault",
+        "The embedding model could not embed the text",
+        exceptionTypeName);
+
+    /// <summary>The model is not loaded or not checked (R11.91): nothing is embedded until it is.</summary>
+    public static Error ModelNotReady() => new(
+        "curia/embedding/model-not-ready",
+        "The embedding model is not ready",
+        null);
 }

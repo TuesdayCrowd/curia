@@ -14,7 +14,7 @@ namespace Curia.Application.Tests.Retrieval;
 
 /// <summary>
 /// Phase 3's "dedupe measured on a real query set", and R10.5's canaries: <c>conformance/retrieval/</c>
-/// run against the deployed embedder and thresholds, held to its baselines by name. See that
+/// run against the test adapter (<c>HashedNGramEmbedder</c>, which the Forum no longer runs: errata G65) and the published thresholds, held to its baselines by name. See that
 /// directory's README for what each file is and what the numbers mean.
 /// </summary>
 [SuppressMessage(
@@ -25,6 +25,8 @@ public sealed class RetrievalQuerySetTests
 {
     private sealed record Pair(string Id, string Class, string Verdict, string A, string B);
     private sealed record Measured(Pair Pair, double Cosine, double Overlap, DuplicateVerdict Verdict);
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static readonly string Root = FindRoot();
     private static readonly DuplicateThresholds Thresholds = DuplicateThresholds.Published;
@@ -59,8 +61,8 @@ public sealed class RetrievalQuerySetTests
         var measured = new List<Measured>();
         foreach (var pair in Pairs())
         {
-            var a = Require(embedder.Embed(pair.A)).Vector;
-            var b = Require(embedder.Embed(pair.B)).Vector;
+            var a = Require(embedder.EmbedAsync(pair.A, EmbeddingRole.Passage, Ct).GetAwaiter().GetResult()).Vector;
+            var b = Require(embedder.EmbedAsync(pair.B, EmbeddingRole.Passage, Ct).GetAwaiter().GetResult()).Vector;
             var cosine = HashedNGramEmbedding.Cosine(a, b);
             var overlap = LexicalOverlap.Jaccard(pair.A, pair.B);
             measured.Add(new Measured(pair, cosine, overlap, DuplicatePolicy.Assess(PostKind.Question, cosine, overlap, false, Thresholds)));
@@ -114,16 +116,16 @@ public sealed class RetrievalQuerySetTests
             Assert.Contains(m.Pair.Id, baseline);
     }
 
-    /// <summary>The set is measuring semantics only if the deployed model can be told apart from a lexical one.</summary>
+    /// <summary>The set is measuring semantics only if the model under test can be told apart from a lexical one.</summary>
     [Fact]
-    public void R9_5_TheParaphraseBlockRecordsWhatTheDeployedModelCannotDo()
+    public void R9_5_TheParaphraseBlockRecordsWhatTheDeployedModelCannotDo() // the name is kept (D10b rewrites it); the model is the test adapter's, not the Forum's
     {
         var measured = Measure();
         var paraphrases = measured.Where(m => m.Pair.Class == "paraphrase").ToList();
         Assert.NotEmpty(paraphrases);
 
-        // hashed-ngram@1 is a lexical geometry: it misses every paraphrase. When a semantic model
-        // is configured this assertion is the one that flips, and RESULTS.md with it.
+        // hashed-ngram@1 is a lexical geometry: it misses every paraphrase. This is the TEST adapter's table (the Forum runs bge-small-en-v1.5@1 since errata G65);
+        // D10b measures the Forum's model, and this assertion and RESULTS.md move with it.
         Assert.Equal(HashedNGramEmbedding.Model, new HashedNGramEmbedder().Model);
         Assert.All(paraphrases, m => Assert.NotEqual(DuplicateVerdict.Refuse, m.Verdict));
     }

@@ -1,7 +1,9 @@
 # Retrieval query set — results
 
 Reproduced by `Curia.Application.Tests/Retrieval/RetrievalQuerySetTests` on every build; the
-per-pair report is what `TheMeasurementIsPrinted` computes. Numbers below are for:
+per-pair report is what `TheMeasurementIsPrinted` computes. **The table below is the test adapter's** (`HashedNGramEmbedder`, which the Forum no longer runs: errata G65): it
+measures what that adapter does and nothing the deployed model does, and the deployed model's numbers are D10b's (the thirteenth fixture's and these sixteen pairs' raw cosines under
+`bge-small-en-v1.5@1` are recorded in the PR that changed the model). Numbers below are for:
 
 | embedding model | refuse cosine | refuse lexical overlap | annotate cosine |
 |---|---|---|---|

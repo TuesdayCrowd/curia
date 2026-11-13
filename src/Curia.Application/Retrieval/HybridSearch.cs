@@ -175,7 +175,9 @@ public sealed class HybridSearch
         if (string.IsNullOrWhiteSpace(filters.Text))
             return Result<ImmutableArray<VectorHit>>.Ok([]);
 
-        var embedded = _embedder.Embed(filters.Text);
+        // A search query is embedded in the query role (errata G65, R9.63): a model with an instruction on one side means something different on each. A stored post and a
+        // submitted question are passages.
+        var embedded = await _embedder.EmbedAsync(filters.Text, EmbeddingRole.Query, cancellationToken).ConfigureAwait(false);
         if (!embedded.TryGetValue(out var embedding, out var embedError))
         {
             return string.Equals(embedError!.Type, EmbeddingErrors.NoFeatures().Type, StringComparison.Ordinal)

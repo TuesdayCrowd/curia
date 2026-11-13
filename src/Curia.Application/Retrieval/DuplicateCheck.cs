@@ -72,7 +72,7 @@ public sealed class DuplicateCheck
         var text = EmbeddedText.Of(envelope);
         var none = new DuplicateAssessment(DuplicateVerdict.None, null, 0, 0, _thresholds, _embedder.Model, overridden, 0);
 
-        var embedded = _embedder.Embed(text);
+        var embedded = await _embedder.EmbedAsync(text, EmbeddingRole.Passage, cancellationToken).ConfigureAwait(false);
         if (!embedded.TryGetValue(out var embedding, out var embedError))
         {
             return string.Equals(embedError!.Type, EmbeddingErrors.NoFeatures().Type, StringComparison.Ordinal)

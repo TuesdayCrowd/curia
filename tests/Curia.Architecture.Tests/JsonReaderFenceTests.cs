@@ -224,6 +224,10 @@ public sealed class JsonReaderFenceTests
             "reads after CompactJws's guarded parse"),
         ("Curia.Api.ActaEndpoints", "PublicKeyOf", "System.Text.Json.JsonDocument::Parse",
             "parses the Forum's own log bytes: a log key's JWK, canonicalized from the Acta's own key set"),
+        ("Curia.Infrastructure.Embedder.EmbeddingManifest", "Parse", "System.Text.Json.JsonDocument::Parse",
+            "parses the build's own embedded manifest (models/bge-small-en-v1.5/manifest.json), never a caller's bytes"),
+        ("Curia.Infrastructure.Embedder.EmbeddingManifest", "Text", "System.Text.Json.JsonElement::GetString",
+            "reads a string member of the build's own embedded manifest, never a caller's bytes"),
         ("Curia.Api.ActaEndpoints", "ToNode", "System.Text.Json.Nodes.JsonValue::Create",
             "builds a node from the Forum's own Canon value (a string, number or bool), never from a JsonElement"),
     ];
@@ -363,7 +367,11 @@ public sealed class JsonReaderFenceTests
     [Fact]
     public async Task R11_34_EveryBodyAHostBindsIsAListedType()
     {
-        await using var app = Curia.Api.Program.Build(WebApplication.CreateBuilder());
+        // The Forum's embedder is checked against its model files when the host is built (errata G65, R11.91). This test reads the host's routes and reaches no model, so it registers one that
+        // needs none, in code, which Program.Build leaves in place; no configuration can do that.
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddSingleton<Curia.Application.Ports.ITextEmbedder, Curia.Application.Retrieval.HashedNGramEmbedder>();
+        await using var app = Curia.Api.Program.Build(builder);
         var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(d => d.Endpoints).ToList();
         Assert.True(endpoints.Count >= 20, $"the host's endpoint data source yielded only {endpoints.Count} endpoints");
 

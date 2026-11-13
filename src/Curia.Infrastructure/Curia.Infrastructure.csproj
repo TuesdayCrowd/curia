@@ -17,6 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Npgsql" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
   </ItemGroup>
   <ItemGroup>
     <!--
@@ -25,6 +26,7 @@
       enrollment's rule (errata G14, R4.31); its tests still reach it.
     -->
     <InternalsVisibleTo Include="Curia.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Curia.Embedding.Tests" />
   </ItemGroup>
   <ItemGroup>
     <!--
@@ -41,6 +43,15 @@
     -->
     <EmbeddedResource Include="../../db/*.sql">
       <LogicalName>Curia.Infrastructure.Migrations.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Errata G65 (D10a): the embedding model's identity, embedded so the build carries the digests, the prefix and the canaries the Forum checks at start. The same file is the
+      input of tools/model/fetch-model.py, so the digest the fetch checks and the digest the Forum checks are one string.
+    -->
+    <EmbeddedResource Include="../../models/bge-small-en-v1.5/manifest.json">
+      <LogicalName>Curia.Infrastructure.Embedding.manifest.json</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>

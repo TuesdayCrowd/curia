@@ -20,5 +20,11 @@
       is CS-9's own idiom rather than a container resolving a clock out of sight.
     -->
     <PackageVersion Include="ModelContextProtocol.Core" Version="2.2.0" />
+    <!--
+      The embedding model's runtime (errata G65, D10a). MIT (the LICENSE file inside the package), with Microsoft.ML.OnnxRuntime.Managed and
+      System.Numerics.Tensors 9.0.0 as its transitives. 1.31.0, listed 2026-10-09: the newest stable version at least 21 days old on the day
+      Task 0 read the registry. No tokenizer package: the tokenizer is written in this repository (Amendment 1, ruling 22).
+    -->
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" />
   </ItemGroup>
 </Project>
