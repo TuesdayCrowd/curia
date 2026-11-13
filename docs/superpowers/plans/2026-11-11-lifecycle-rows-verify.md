@@ -2540,7 +2540,31 @@ Thirteen rows of the report's table read held (LN1 to LN7, LN8's three, LN9, LN1
 
 Written by Task 8b's last commit, from the runs on the tip that holds this section and G68's Status.
 
-*(The results are recorded here by Task 8b's last commit, after the runs.)*
+Run once on 2026-11-13, on the tip that holds this section and G68's Status (`fce2a692`), with the two clauses of `IMPLEMENTATION_PLAN.md` that this commit corrects already in the working tree (trap 256's citation; the Current work block's "thirteen rows held"). Throwaway databases on a local Postgres with pgvector; the model directory fetched by `tools/model/fetch-model.py`.
+
+| Gate | Command | Result |
+|---|---|---|
+| Locked restore | `dotnet restore Curia.sln --locked-mode` | exit 0; no `packages.lock.json` changed |
+| Build, Release | `dotnet build Curia.sln --no-restore --configuration Release` | 0 warnings, 0 errors |
+| Build, Debug | `dotnet build Curia.sln --configuration Debug` | 0 warnings, 0 errors |
+| Specification | `python3 tools/spec-checks/check-spec.py` | `spec-checks: clean`, exit 0 |
+| Its falsification | `python3 tools/spec-checks/falsify-spec-checks.py` | all 4 checks red naming their cell; tree untouched |
+| Architecture, Debug | `dotnet test tests/Curia.Architecture.Tests --no-build --configuration Debug` | 134 passed, 0 failed |
+| Architecture, Release | the same with `--configuration Release` | 134 passed, 0 failed |
+| All but Api | CI's command: `dotnet test Curia.sln --no-build --configuration Release --filter "FullyQualifiedName!~ScreeningCostTests&FullyQualifiedName!~Curia.Api.Tests"` | Domain.Primitives 64, AuthN 140, Canon.Sodium 32, Architecture 134, Domain 1,043, Mcp 986 (5 skipped), Canon 333, Embedding 15, Application 765, Infrastructure 292: all passed. **Client 1,675 of 1,676: one failure**, below |
+| Client, alone | `dotnet test tests/Curia.Client.Tests --no-build -c Release` | 1,676 passed, 0 failed |
+| Api, the classes that read the errata or that this task touched | 80 files of `tests/Curia.Api.Tests` that read the errata directly or through a `Published*` reader, `ServedSkippedMembersTests` among them, by a filter of their class names | 803 passed, 0 failed (20 m 23 s) |
+| Rust, format | `cargo fmt --check` | exit 0 |
+| Rust, clippy | `cargo clippy --all-targets --locked -- -D warnings`, on the default toolchain and on `+1.100.0` | exit 0 on both |
+| Rust, tests | `cargo test --locked` | 22 suites, 287 passed, 0 failed (nothing under `rust/` changed in Task 8b; the run is the check that nothing did) |
+| Differential | `node tools/differential-oracle/compare.mjs --fail-on-divergence`, both endpoints built first | compared 22,520 lines, 0 divergence classes, exit 0 |
+| Comment-only (ruling 128) | a script over `git diff -U0 2e4bb9ae -- src/` and `git diff --name-only 2e4bb9ae -- tests/Shared/` | 2 files under `src/`, 4 changed lines, 0 that are not comment lines; nothing under `tests/Shared/`: pass |
+| Privacy | a grep for home paths, the user's name, the host's name, private and tailnet addresses and scratch paths over the 546 files the branch changes, and a scan of the branch's added lines for invisible code points | nothing of this task's; one earlier line of this plan (Amendment 1) names a scratch script by a relative fragment with no user in it, as two merged plans do; no invisible code point |
+| Approval record | `cat src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` | `{"version":1,"approved":[]}` |
+
+**The one failure.** `ExternalSignerContractTests.R11_20_ASignerThatDeclinesIsReportedAsARefusal` failed once in the solution-wide run (eleven test hosts at once): the error's type was `curia/jws/signer-refused` and its detail read `kid=contract-1: Broken pipe` where the test expects the signer's own word, `refuse`. The test signer exits as soon as it sees it is to refuse, and the client was still writing the signing input to it. The class then passed alone five times of five (11 tests each) and the Client assembly passed alone, 1,676 of 1,676. Task 8b changed no file under `src/Curia.Client` and none the test reads. Filed under register item 163 with the other tests that fail in a whole parallel run and pass alone; not promoted.
+
+**Not run by this task, by its brief:** `tools/preflight/preflight.py`, the screening-cost step and the whole Api suite (ruling 128's check passed). The controller's final whole run, preflight and the PR follow.
 
 ### Not run, and left open
 
