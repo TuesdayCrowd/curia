@@ -133,6 +133,27 @@ public sealed class LifecycleVerifierTests
         return data;
     }
 
+    /// <summary>
+    /// Amendment 8, ruling 97: LRV41 runs nine mutations over three vectors, 27 rows, and each vector is a directory of <c>conformance/honoured/</c>. A vector or a mutation that left the tables would
+    /// otherwise make the theory run fewer rows and stay green.
+    /// </summary>
+    [Fact]
+    public void LRV41_TheTheoryRunsTwentySevenRowsOverThreeHonouredVectors()
+    {
+        var rows = RootCases().Select(r => ((ITheoryDataRow)r).GetData()).Select(d => (Vector: (string)d[0]!, Mutation: (string)d[1]!)).ToArray();
+        var vectors = rows.Select(r => r.Vector).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var distinct = rows.Distinct().Count();
+
+        Assert.Equal(
+            "27 rows, 27 distinct, over declaration-honoured, enrolment-pair-only, rotation-honoured",
+            $"{rows.Length} rows, {distinct} distinct, over {string.Join(", ", vectors)}");
+        foreach (var vector in vectors)
+        {
+            Assert.Contains(vector, ConformanceLog.Names("honoured"));
+            Assert.True(Directory.Exists(Path.Combine(ConformanceLog.Root(), "honoured", vector)), $"Expected: conformance/honoured/{vector} is a directory");
+        }
+    }
+
     private static Curia.Canon.Json.JsonValue.Object Without(Curia.Canon.Json.JsonValue.Object o, string member) =>
         new([.. o.Members.Where(m => m.Key != member)]);
 
