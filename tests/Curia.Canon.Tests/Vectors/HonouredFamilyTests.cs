@@ -11,7 +11,7 @@ namespace Curia.Canon.Tests.Vectors;
 public sealed class HonouredFamilyTests
 {
     /// <summary>The number of cases, counted from the plan's table (vector 49 included); the generator's count is the oracle, and this literal is the control.</summary>
-    private const int Cases = 53;
+    private const int Cases = 54;
 
     /// <summary>R6.64's predicates, by the names the Forum publishes and no others.</summary>
     private static readonly string[] Predicates =

@@ -129,6 +129,7 @@ internal static partial class LifecycleCases
             HMalformedKeyEntryDoesNotListTheGenuineKeysKid(root, k0),
             HEnrolmentNamesAnotherAgent(k0),
             HEnrolmentPayloadNotAnObject(k0),
+            HRotationAuthorizationMadeByTheNewKey(k0, k1),
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -685,6 +686,20 @@ internal static partial class LifecycleCases
         return new HCase("enrolment-payload-not-an-object",
             "The stream's first agent.enrolled at 0 carries a JSON string for a payload, and the standard pair is at 1. The enrolment fails R6.64's step 1 and is skipped as statement-mismatch, so the stream has no root: the pair is skipped as broken-link and nothing is bound.",
             log, Agent_(rows: [HRow.Skipped(0, "agent.enrolled", "statement-mismatch"), HRow.Skipped(1, KeyBound, "broken-link")], keys: [], bound: []));
+    }
+
+    /// <summary>
+    /// Vector 54 (errata G68, Amendment 9, ruling 109): the authorization carries the authorizer's header kid and the rotation header typ and is signed by the key being bound. Both keys are Ed25519, which the
+    /// case needs: with different algorithms the row would stop on the header's alg and never reach the signature.
+    /// </summary>
+    private static HCase HRotationAuthorizationMadeByTheNewKey(Key k0, Key k1)
+    {
+        if (k0.Alg != k1.Alg) throw new InvalidOperationException("rotation-authorization-made-by-the-new-key: the two keys must share an algorithm, or the row stops on the header's alg before the signature is read");
+        var log = EnrolledAndBound(k0);
+        AddRotation(log, new Rot(k0, k1, Prev: 1) { AuthSigner = k1 });
+        return new HCase("rotation-authorization-made-by-the-new-key",
+            "A rotation whose authorization has the authorizer's header kid and the right header typ and is signed by the key being bound; the possession is genuine. A key does not authorize its own binding by signing under another key's kid.",
+            log, Agent_(rows: [HRow.Skipped(2, KeyBound, "rotation-unauthorized")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
     }
 
     /// <summary>Vector 51 (errata G68, ruling 57): an entry that is not a key lists nothing, so it does not displace the genuine key's earliest listing.</summary>

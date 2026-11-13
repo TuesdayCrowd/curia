@@ -100,7 +100,7 @@ public sealed class HonouredVectorTests
     {
         var failures = new List<string>();
         var cases = ConformanceLog.Names("honoured");
-        Assert.True(cases.Length == 53, $"Expected: 53 honoured vectors  Actual: {cases.Length} (the pin is counted in six places: conformance/index.json, the README, HonouredFamilyTests, here, vectors.rs and honoured.rs)");
+        Assert.True(cases.Length == 54, $"Expected: 54 honoured vectors  Actual: {cases.Length} (the pin is counted in six places: conformance/index.json, the README, HonouredFamilyTests, here, vectors.rs and honoured.rs)");
         Assert.Contains("enrolment-without-its-pair", cases);
         foreach (var name in cases)
         {

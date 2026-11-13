@@ -122,8 +122,8 @@ fn r6_64_every_honoured_case_reaches_its_rows_keys_and_bound() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.honoured.len(),
-        53,
-        "conformance/honoured/ holds 53 cases"
+        54,
+        "conformance/honoured/ holds 54 cases"
     );
 
     let mut failures = Vec::new();
