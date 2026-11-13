@@ -3628,7 +3628,7 @@ public static class ForumEndpoints
     /// slug; a refusal the table does not list is the Forum's, 500, never a 4xx that tells an agent its
     /// request was at fault. Errata G67: the three declaration-key refusals (<c>declaration-key-not-published</c>, <c>declaration-key-is-log-key</c> and
     /// <c>declaration-key-already-published</c>) are the operator tool's, and no route reaches them; they are listed at 409 because
-    /// <c>R4_18_EveryRefusalTheUseCasesReturnIsMappedByTheRoutes</c> holds every <c>KeyActErrors</c> type to a status other than 500 (Amendment 3 ruling 42).
+    /// <c>R4_18_EveryRefusalTheUseCasesReturnIsMappedByTheRoutes</c> holds every <c>KeyActErrors</c> type to a status other than 500 (Amendment 3 ruling 42). <c>not-honoured</c> (Amendment 7 ruling 81) is the one deliberate 500: a writer that appended a row its own fold skips is a fault of the Forum, and a route states no detail for it (R11.33).
     /// </summary>
     private static int StatusForKeyAct(Error error) => error.Type switch
     {
@@ -3658,6 +3658,7 @@ public static class ForumEndpoints
             or KeyActErrors.LastLiveKeyType
             or KeyActErrors.DeclarationKeyNotPublishedType
             or KeyActErrors.DeclarationKeyIsLogKeyType
+            or KeyActErrors.DeclarationKeyNotFirstType
             or KeyActErrors.DeclarationKeyAlreadyPublishedType => StatusCodes.Status409Conflict,
 
         KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,

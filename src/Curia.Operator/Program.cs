@@ -242,7 +242,8 @@ public static class OperatorCommands
              latest head this tool signed -- nothing was written; stderr names the log indices, types
              and predicates
           7  lifecycle-audit found a lifecycle row the Forum does not honour -- nothing was written;
-             stdout names the rows
+             stdout names the rows; compromise appended a declaration the Forum then skips --
+             the row is in the log, stderr names its index and the predicate, no key is marked
         """;
 
     /// <summary>
@@ -1129,7 +1130,9 @@ public static class OperatorCommands
         await stderr.WriteLineAsync(
             $"error: {error.Title} ({error.Type}){(error.Detail is { Length: > 0 } d ? ": " + d : string.Empty)}")
             .ConfigureAwait(false);
-        return ExitCode.Refused;
+
+        // A row the Forum recorded and skips is the audit's finding, not a refusal of the request (errata G68, ruling 81): the same exit code as lifecycle-audit.
+        return string.Equals(error.Type, KeyActErrors.NotHonouredType, StringComparison.Ordinal) ? ExitCode.LifecycleRowsSkipped : ExitCode.Refused;
     }
 
     private sealed record Parsed(

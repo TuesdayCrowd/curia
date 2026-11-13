@@ -59,10 +59,10 @@ public sealed class DeclareCompromise
         if (read!.LatestIndex is not { } latest)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.UnknownKey());
 
-        // The key is bound to this identity, and from_index is no lower than that binding.
+        // The key is bound to this identity, and from_index is no lower than that binding. A key's binding is the honoured pair's or rotation's index (R6.64), both of type
+        // agent.key-bound; the enrolment names a kid and binds none, so it is never the index (ruling 81).
         var binding = read.Lifecycle.Entries.FirstOrDefault(e =>
-            (string.Equals(e.Type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
-                || string.Equals(e.Type, AgentStandingProjector.EnrolledType, StringComparison.Ordinal))
+            string.Equals(e.Type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
             && string.Equals(e.Kid, kid.Value, StringComparison.Ordinal));
         if (binding is null || read.Log.IndexOf(binding.EventId) is not { } boundAt)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.UnknownKey());
@@ -86,11 +86,16 @@ public sealed class DeclareCompromise
                 kids.Add(entry.Kid);
         }
 
-        // R6.62: the signing key's log.declaration-key entry is in the log already, and the key is no log key. After the gate and the key read,
-        // before anything is signed.
+        // R6.62: the signing key's log.declaration-key entry is in the log already, it is the first declaration key published, and the key is no log key by kid or by public key,
+        // as the fold decides it (ruling 81). After the gate and the key read, before anything is signed.
         if (!Published(read.Log, signer))
             return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyNotPublished());
-        if (read.Log.Keys.Any(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal)))
+        var named = read.Log.DeclarationKeys.First(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal));
+        if (read.Log.DeclarationKeys.Any(k => k.LogIndex <= named.LogIndex && !string.Equals(k.Kid, named.Kid, StringComparison.Ordinal)))
+            return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyNotFirst());
+        var signingKey = ClosedJwk.Read(signer.PublicJwk(), signer.Kid);
+        if (read.Log.Keys.Any(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal)
+            || (signingKey is not null && ClosedJwk.Read(k.Jwk, k.Kid) is { } logKey && logKey.SamePublicKey(signingKey))))
             return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyIsLogKey());
 
         var statementObject = new JsonValue.Object(

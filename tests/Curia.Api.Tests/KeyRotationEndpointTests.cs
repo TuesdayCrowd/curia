@@ -1031,6 +1031,7 @@ public sealed class KeyRotationRefusalTests(ForumFixture forum) : IClassFixture<
         {
             Curia.Application.Credentials.KeyActErrors.NotOwnType,
             Curia.Application.Credentials.KeyActErrors.LifecycleNotEnabledType,
+            Curia.Application.Credentials.KeyActErrors.NotHonouredType,
         };
 
         var types = new[] { typeof(Curia.Application.Credentials.KeyActErrors), typeof(KeyStatementErrors) }
@@ -1051,5 +1052,8 @@ public sealed class KeyRotationRefusalTests(ForumFixture forum) : IClassFixture<
         Assert.Equal(409, Status(Curia.Application.Credentials.KeyActErrors.RotationCeilingReachedType));
         Assert.Equal(503, Status(Curia.Application.Credentials.LogBoundKeys.LogUnreadableType));
         Assert.Equal(500, Status("curia/keys/something-unlisted"));
+
+        // Amendment 7 ruling 81: a row the Forum recorded and skips is its own fault, 500 with no detail (R11.33); the only KeyActErrors type left at 500 on purpose.
+        Assert.Equal(500, Status(Curia.Application.Credentials.KeyActErrors.NotHonouredType));
     }
 }
