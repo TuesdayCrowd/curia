@@ -193,7 +193,10 @@ public sealed class VerifiedStopTests
         await VerifiedStopSupport.EnrolAsync(forum, "lrv15n", ct);
         var resumed = await VerifiedStopSupport.OperatorAsync(forum, ct, ["sign-head", "--by", "ops", "--if-grown"], () => pem);
 
-        WholeText.Same("plain 0; resumed 0", $"plain {covered.Exit}; resumed {resumed.Exit}");
+        // The resume is tied to a head it signed, as the genuine-row half above ties its exit: an exit 0 with no head would pass a bare exit check.
+        WholeText.Same(
+            "plain 0; resumed 0 signed head",
+            $"plain {covered.Exit}; resumed {resumed.Exit} {(resumed.Out.Contains("signed head", StringComparison.Ordinal) ? "signed head" : "no head: " + resumed.Err.Split('\n')[0])}");
     }
 }
 
@@ -269,7 +272,12 @@ public sealed partial class LifecycleAuditTests
             ["lifecycle-audit"], "Host=localhost;Port=1;Database=nothing;Username=nobody;Timeout=1", forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
             readLogSigningKeyPem: () => throw new InvalidOperationException("the audit asked for the log key"), readDeclarationSigningKeyPem: () => throw new InvalidOperationException("the audit asked for the declaration key"));
 
-        WholeText.Same("exit 5", $"exit {exit}");
+        // Exit 5 is also what any thrown exception maps to, so the cause is asserted: the store fault is named, and neither key was asked for (Amendment 7, ruling 88).
+        var said = stderr.ToString();
+        WholeText.Same(
+            "exit 5; stderr names the store fault; no key asked for",
+            $"exit {exit}; stderr {(said.Contains("store", StringComparison.OrdinalIgnoreCase) ? "names the store fault" : "does not name it: [" + said.Trim() + "]")}; "
+            + (said.Contains("asked for the log key", StringComparison.Ordinal) || said.Contains("asked for the declaration key", StringComparison.Ordinal) ? "a key was asked for" : "no key asked for"));
     }
 }
 
@@ -291,10 +299,12 @@ public sealed class RowsSkippedAtStartGuardOffTests(ForumFixture forum) : IClass
         await using var captured = new CapturedForum(forum);
         var logged = captured.Log.All.Where(e => e.EventId == 7007).ToArray();
 
+        // The structured Count the event carries is asserted (one row skipped), not a literal that is on both sides.
+        var count = logged.Length == 1 ? logged[0].Values.FirstOrDefault(v => v.Key == "Count").Value?.ToString() : null;
         WholeText.Same(
-            "one event 7007, Error, with a Count and the predicate",
+            "one event 7007, Error, with Count 1 and the predicate",
             logged.Length == 1
-                ? $"one event 7007, {(logged[0].Level == LogLevel.Error ? "Error" : logged[0].Level.ToString())}, with a Count and {(logged[0].Message.Contains("lifecycle-typ-mismatch", StringComparison.Ordinal) ? "the predicate" : "no predicate")}"
+                ? $"one event 7007, {(logged[0].Level == LogLevel.Error ? "Error" : logged[0].Level.ToString())}, with Count {count ?? "none"} and {(logged[0].Message.Contains("lifecycle-typ-mismatch", StringComparison.Ordinal) ? "the predicate" : "no predicate")}"
                 : $"{logged.Length} events 7007: a log entry with EventId 7007 was expected, none");
     }
 }
@@ -315,9 +325,12 @@ public sealed class RowsSkippedAtStartGuardOnTests(GuardedForumFixture forum) : 
 
         await using var captured = new CapturedForum(forum);
 
+        // 7007 is an Error that names the predicate, as the guard-off arm asserts, and not only an event that was logged.
+        var skipped = captured.Log.All.Where(e => e.EventId == 7007).ToArray();
         WholeText.Same(
-            "7006 and 7007",
-            string.Join(" and ", VerifiedStopSupport.StartIds.Where(id => captured.Log.All.Any(e => e.EventId == id)).Select(id => id.ToString(CultureInfo.InvariantCulture)).DefaultIfEmpty("neither")));
+            "7006 and 7007; 7007 Error naming lifecycle-typ-mismatch",
+            string.Join(" and ", VerifiedStopSupport.StartIds.Where(id => captured.Log.All.Any(e => e.EventId == id)).Select(id => id.ToString(CultureInfo.InvariantCulture)).DefaultIfEmpty("neither"))
+            + $"; 7007 {(skipped.Length == 1 && skipped[0].Level == LogLevel.Error ? "Error" : "not one Error")} {(skipped.Length == 1 && skipped[0].Message.Contains("lifecycle-typ-mismatch", StringComparison.Ordinal) ? "naming lifecycle-typ-mismatch" : "naming no predicate")}");
     }
 }
 

@@ -120,14 +120,14 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
 
     private const string Healthy = "token 200; issued-token ask 201; key_status active; key set 200 without the row; rotate 201";
 
-    private static JsonObject Retirement(string agent, string kid, bool withAgent = true, string typ = KeyStatements.RetirementStatementTyp, bool extra = false)
+    private static JsonObject Retirement(string agent, string kid, bool withAgent = true, string typ = KeyStatements.RetirementStatementTyp, bool extra = false, long prev = 1, string authorization = "this-is-not-a-signature-qq7")
     {
-        var statement = $"{{\"agent_id\":\"{agent}\",\"kid\":\"{kid}\",\"prev\":1,\"typ\":\"{typ}\"}}";
+        var statement = $"{{\"agent_id\":\"{agent}\",\"kid\":\"{kid}\",\"prev\":{prev.ToString(CultureInfo.InvariantCulture)},\"typ\":\"{typ}\"}}";
         var row = new JsonObject();
         if (withAgent) row["agent_id"] = agent;
-        row["authorization"] = "this-is-not-a-signature-qq7";
+        row["authorization"] = authorization;
         row["kid"] = kid;
-        row["prev"] = 1;
+        row["prev"] = prev;
         row["statement"] = statement;
         if (extra) row["surprise"] = "x";
         return row;
@@ -211,48 +211,125 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
         WholeText.Same(Healthy, await LegsAsync(victim, index, ct));
     }
 
-    /// <summary>The five shapes of the forgery probe, each a leg of one class: (a) to (d) are declarations, (e) the takeover.</summary>
-    public static TheoryData<string> ForgeryLegs => ["a-zero-bytes", "b-signed-by-the-log-key", "c-forged-retirement", "d-log-key-over-the-real-kid-and-an-invented-one"];
+    /// <summary>The legs of the forgery probe, each a class of forged row: (a) to (d), (f) and (g) are rows the fold skips, each by the predicate it is meant to reach; (e) is the takeover.</summary>
+    public static TheoryData<string, string> ForgeryLegs => new()
+    {
+        // (a) carries the compromise header typ and the victim's kid (ZeroBytes), so the typ check passes and the kid names no declaration key; its zero signature is never read.
+        { "a-zero-bytes", "declaration-key-unpublished" },
+        { "b-signed-by-the-log-key", "declaration-key-unpublished" },
+        { "c-forged-retirement", "lifecycle-typ-mismatch" },
+        { "d-log-key-over-the-real-kid-and-an-invented-one", "declaration-key-unpublished" },
+        { "f-declaration-under-the-published-key-over-other-bytes", "declaration-signature-invalid" },
+        { "g-retirement-signed-by-another-key", "rotation-unauthorized" },
+    };
 
     /// <summary>
-    /// LRV13 (a) to (d): a forged declaration or retirement leaves the victim's token request 200, the post's key status active, not omitted from search (<c>excluded_disputed</c> 0), no <c>disputed_by_log_index</c>.
-    /// Red on the seam: <c>Expected: 200  Actual: 401 invalid_client</c> on the token request, and the post marked.
+    /// A <see cref="IAgentSigner"/> over the declaration key's port: the key signs, <see cref="DetachedJws"/> builds the header and the signing input (as <c>DeclareCompromise</c>'s own does).
+    /// </summary>
+    private sealed class PortSigner(Curia.Application.Credentials.ILifecycleStatementSigner port) : IAgentSigner
+    {
+        public string Alg => "ES256";
+
+        public string Kid => port.Kid;
+
+        public ReadOnlyMemory<byte> PublicKey => ReadOnlyMemory<byte>.Empty;
+
+        public byte[] Sign(ReadOnlySpan<byte> signingInput) => port.SignStatement(signingInput).Match(s => s, e => throw new InvalidOperationException(e.Type));
+    }
+
+    private sealed class NamesES256Only : IContentSigner
+    {
+        public byte[] Sign(ReadOnlySpan<byte> input, SigningKey key) => throw new InvalidOperationException("the delegated signer signs");
+    }
+
+    /// <summary>A real signature by the published declaration key over <paramref name="statement"/>, under the declaration header <c>typ</c>.</summary>
+    private static string SignWithTheDeclarationKey(string statement, string declarationPem)
+    {
+        var port = OperatorCommands.LoadDeclarationSigner(declarationPem).Match(k => k, e => throw new InvalidOperationException(e.Type));
+        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(statement), AdmitLimits.Default).Match(v => v, e => throw new InvalidOperationException(e.Type));
+        var canonical = CanonicalJson.CanonicalizeWithNfc(parsed).Match(c => c, e => throw new InvalidOperationException(e.Type));
+        var jws = new DetachedJws(
+            new Dictionary<string, IContentSigner> { ["ES256"] = new NamesES256Only() },
+            new Dictionary<string, IContentVerifier>(),
+            KeyStatements.CompromiseHeaderTyp);
+        return jws.Sign(canonical, new PortSigner(port)).Match(s => s.Compact, e => throw new InvalidOperationException(e.Type));
+    }
+
+    /// <summary>The predicate the Forum serves for the row at <paramref name="rowIndex"/> of <paramref name="agentId"/>'s stream: the key set's <c>curia_skipped</c> entry for it, or <c>none</c> when the row is not listed.</summary>
+    private async Task<string> ServedPredicateAsync(string agentId, long rowIndex, CancellationToken ct)
+    {
+        using var keySet = await KeyActRequests.KeySetAsync(forum.Client, agentId, ct);
+        foreach (var skipped in keySet.RootElement.GetProperty("curia_skipped").EnumerateArray())
+            if (skipped.GetProperty("log_index").GetInt64() == rowIndex)
+                return skipped.GetProperty("predicate").GetString()!;
+
+        return "none";
+    }
+
+    /// <summary>
+    /// LRV13 (a) to (d), (f) and (g) (errata G68, ruling 86; (a) is predicted <c>lifecycle-typ-mismatch</c> there and serves <c>declaration-key-unpublished</c>, because its zero-byte JWS has the declaration header <c>typ</c> and a <c>kid</c> no declaration key carries): a forged declaration or retirement is skipped by the predicate its leg is meant to reach, and leaves the victim's token request 200, the post's key
+    /// status active, not omitted from search (<c>excluded_disputed</c> 0), no <c>disputed_by_log_index</c>. Every forged row takes the victim's last honoured lifecycle index as its <c>prev</c>, so the row is
+    /// decided on its own defect and not skipped <c>broken-link</c> before the header, the key or the signature is read. Red on the tip for the stated reason: with <c>prev</c> hard-coded to 1 the victim's pair
+    /// is not at index 1, and each leg was served <c>broken-link</c>.
     /// </summary>
     [Theory]
     [MemberData(nameof(ForgeryLegs))]
-    public async Task LRV13_AForgedDeclarationOrRetirementIsInert(string leg)
+    public async Task LRV13_AForgedDeclarationOrRetirementIsInert(string leg, string expectedPredicate)
     {
         var ct = TestContext.Current.CancellationToken;
-        var control = await VictimAsync("lrv13c", ct);
         var victim = await VictimAsync("lrv13", ct);
-        var index = await EventCountAsync(ct);
+        var client = forum.Client;
         var agent = victim.Agent.AgentId;
         var kid = victim.Agent.Kid;
+        var prev = await KeyActRequests.LatestLifecycleAsync(client, agent, ct);
+        var index = await EventCountAsync(ct);
 
         using var logKey = LogSigningKey.FromPem(LogSigningKey.GeneratePem());
         switch (leg)
         {
             case "a-zero-bytes":
-                await InsertRowAsync("agent.key-compromised", agent, Declaration(agent, [kid], 1, 1, ZeroBytes(kid)).ToJsonString(), ct);
+                await InsertRowAsync("agent.key-compromised", agent, Declaration(agent, [kid], prev, prev, ZeroBytes(kid)).ToJsonString(), ct);
                 break;
 
             case "b-signed-by-the-log-key":
             {
-                var row = Declaration(agent, [kid], 1, 1, "x");
+                var row = Declaration(agent, [kid], prev, prev, "x");
                 row["declaration"] = SignDeclaration(StatementOf(row), logKey);
                 await InsertRowAsync("agent.key-compromised", agent, row.ToJsonString(), ct);
                 break;
             }
 
             case "c-forged-retirement":
-                await InsertRowAsync("agent.key-retired", agent, Retirement(agent, kid).ToJsonString(), ct);
+                await InsertRowAsync("agent.key-retired", agent, Retirement(agent, kid, prev: prev).ToJsonString(), ct);
                 break;
 
             case "d-log-key-over-the-real-kid-and-an-invented-one":
             {
-                var row = Declaration(agent, [kid, "invented-" + Suffix()], 1, 1, "x");
+                var row = Declaration(agent, [kid, "invented-" + Suffix()], prev, prev, "x");
                 row["declaration"] = SignDeclaration(StatementOf(row), logKey);
                 await InsertRowAsync("agent.key-compromised", agent, row.ToJsonString(), ct);
+                break;
+            }
+
+            case "f-declaration-under-the-published-key-over-other-bytes":
+            {
+                // The published declaration key signs a statement that is not the row's own (another reason): a real signature that does not cover the row.
+                var declarationPem = await DeclarationKeyHost.PemAsync(forum, ct);
+                index = await EventCountAsync(ct);
+                var row = Declaration(agent, [kid], prev, prev, "x");
+                var other = StatementOf(row).Replace("owner-reported", "operator-observed", StringComparison.Ordinal);
+                row["declaration"] = SignWithTheDeclarationKey(other, declarationPem);
+                await InsertRowAsync("agent.key-compromised", agent, row.ToJsonString(), ct);
+                break;
+            }
+
+            case "g-retirement-signed-by-another-key":
+            {
+                // The right header (the retirement typ and the victim's kid), a signature by a key that is not the victim's.
+                var stranger = KeyActRequests.KeyPair.New("stranger-" + Suffix());
+                var statement = KeyActRequests.RetirementStatement(agent, kid, prev);
+                var authorization = KeyActRequests.Sign(statement, KeyStatements.RetirementHeaderTyp, new SigningKey("ES256", kid, stranger.Signing.Private.ToArray()));
+                await InsertRowAsync("agent.key-retired", agent, Retirement(agent, kid, prev: prev, authorization: authorization).ToJsonString(), ct);
                 break;
             }
 
@@ -260,19 +337,16 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
                 throw new ArgumentOutOfRangeException(nameof(leg), leg, "not one of the forgery probe's legs");
         }
 
-        var client = forum.Client;
-        var term = "zforge" + Suffix();
         var (tokenStatus, tokenBody) = await victim.Dpop.RequestTokenAsync(client, KeyActRequests.TokenEndpoint, forum.Now, agent, ct);
         var provenance = (await client.GetFromJsonAsync<JsonElement>($"/v1/posts/{victim.PostId}", ct)).GetProperty("provenance");
         using var search = JsonDocument.Parse(await client.GetStringAsync(new Uri($"/v1/search?q=Before&board={victim.Board}", UriKind.Relative), ct));
         var excluded = search.RootElement.GetProperty("floor").GetProperty("excluded_disputed").GetInt32();
-        _ = (control, term);
+        var served = await ServedPredicateAsync(agent, index, ct);
 
         WholeText.Same(
-            "token 200; key_status active; no disputed_by_log_index; excluded_disputed 0",
-            $"token {(tokenStatus == HttpStatusCode.OK ? "200" : $"{(int)tokenStatus} {ErrorOf(tokenBody)}")}; key_status {provenance.GetProperty("key_status").GetString()}; "
+            $"row skipped {expectedPredicate}; token 200; key_status active; no disputed_by_log_index; excluded_disputed 0",
+            $"row skipped {served}; token {(tokenStatus == HttpStatusCode.OK ? "200" : $"{(int)tokenStatus} {ErrorOf(tokenBody)}")}; key_status {provenance.GetProperty("key_status").GetString()}; "
             + $"{(provenance.TryGetProperty("disputed_by_log_index", out var by) ? "disputed_by_log_index " + by.GetInt64().ToString(CultureInfo.InvariantCulture) : "no disputed_by_log_index")}; excluded_disputed {excluded}");
-        _ = index;
     }
 
     /// <summary>
@@ -325,12 +399,18 @@ public sealed class ForgedLifecycleRowsTests(ForumFixture forum) : IClassFixture
             attackerAsked = ((int)asked.StatusCode).ToString(CultureInfo.InvariantCulture);
         }
 
+        // The leg that reaches ingest's resolution (ruling 86): a post signed by the planted key, submitted under the victim's own token. The token is refused to the planted key (R4.35), so this is the only
+        // way the key is ever asked to verify a post; ingest resolves the author's key from the log and must refuse it.
+        using var planted = await victim.Dpop.PostAsync(client, PostsUrl, victim.Token, hole.SignQuestion(victim.Board, "Signed under the planted key. " + Suffix(), "Planted " + Suffix(), forum.Now), forum.Now, ct);
+        var plantedProblem = await KeyActRequests.ProblemOfAsync(planted, ct);
+
         var after = await EventCountAsync(ct);
         using var own = await victim.Dpop.PostAsync(client, PostsUrl, victim.Token, victim.Agent.SignQuestion(victim.Board, "The victim's own. " + Suffix(), "Own " + Suffix(), forum.Now), forum.Now, ct);
 
         WholeText.Same(
-            "attacker token 401 invalid_client; attacker ask n/a; events 0; victim ask 201",
-            $"attacker token {(status == HttpStatusCode.OK ? "200" : $"{(int)status} {ErrorOf(body)}")}; attacker ask {attackerAsked}; events {after - before}; victim ask {(int)own.StatusCode}");
+            "attacker token 401 invalid_client; attacker ask n/a; planted-key post is a 4xx curia/keys/not-bound-by-the-log; events 0; victim ask 201",
+            $"attacker token {(status == HttpStatusCode.OK ? "200" : $"{(int)status} {ErrorOf(body)}")}; attacker ask {attackerAsked}; "
+            + $"planted-key post is a {((int)planted.StatusCode is >= 400 and < 500 ? "4xx" : ((int)planted.StatusCode).ToString(CultureInfo.InvariantCulture))} {plantedProblem.Type}; events {after - before}; victim ask {(int)own.StatusCode}");
     }
 
     /// <summary>LRV13's control: a genuine declaration under a published declaration key still marks the post compromised and omits it from search (R6.57), where the probes above must not.</summary>

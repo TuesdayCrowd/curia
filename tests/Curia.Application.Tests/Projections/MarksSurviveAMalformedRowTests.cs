@@ -73,20 +73,28 @@ public sealed class MarksSurviveAMalformedRowTests
             TestContext.Current.CancellationToken).ConfigureAwait(true));
     }
 
-    /// <summary>LRV9: a forged declaration (zero signature; signed by a key the log never published as a declaration key) disputes no post, and the key is active.</summary>
+    /// <summary>
+    /// LRV9: a forged declaration (zero signature; signed by a key the log never published as a declaration key) disputes no post, and the key is active. Each forged row takes <c>prev</c> 1, the last
+    /// honoured index (a skipped row moves nothing), so it is decided on its own defect: the predicates are asserted, and a row skipped <c>broken-link</c> would fail them (ruling 86).
+    /// </summary>
     [Fact]
     public async Task LRV9_AForgedDeclarationDisputesNoPost()
     {
         var (harness, victim) = await EnrolledAsync().ConfigureAwait(true);
         var post = PostBy(harness, Alice, victim, await AppendPostAsync(harness, "post-before-forgery").ConfigureAwait(true));
-        await AppendRowAsync(harness, Alice, "agent.key-compromised", Declaration(Alice, [victim.Kid], 1, 1, string.Empty)).ConfigureAwait(true);
-        var statement = ((JsonValue.String)Declaration(Alice, [victim.Kid], 1, 2, "x").Members.First(m => m.Key == "statement").Value).Value;
+        var zero = await AppendRowAsync(harness, Alice, "agent.key-compromised", Declaration(Alice, [victim.Kid], 1, 1, string.Empty)).ConfigureAwait(true);
+        var statement = ((JsonValue.String)Declaration(Alice, [victim.Kid], 1, 1, "x").Members.First(m => m.Key == "statement").Value).Value;
         var bySomeKey = harness.Sign(statement, KeyStatements.CompromiseHeaderTyp, TestIdentity.New("log-key").Signing).Value;
-        await AppendRowAsync(harness, Alice, "agent.key-compromised", Declaration(Alice, [victim.Kid], 1, 2, bySomeKey)).ConfigureAwait(true);
+        var unpublished = await AppendRowAsync(harness, Alice, "agent.key-compromised", Declaration(Alice, [victim.Kid], 1, 1, bySomeKey)).ConfigureAwait(true);
 
-        var disputed = DisputedPosts.Fold(VerifierOf(harness).OfLog(await LogAsync(harness).ConfigureAwait(true)), [post]);
+        var log = await LogAsync(harness).ConfigureAwait(true);
+        var verified = VerifierOf(harness).OfLog(log);
+        var disputed = DisputedPosts.Fold(verified, [post]);
+        var predicates = verified.For(Typed.Agent(Alice)).Skipped.ToDictionary(r => r.LogIndex, r => r.Predicate);
 
-        WholeText.Same("Count 0, key active", $"Count {disputed.Count}, key {disputed.KeyStatusOf(post)}");
+        WholeText.Same(
+            $"Count 0, key active; {zero} lifecycle-typ-mismatch; {unpublished} declaration-key-unpublished",
+            $"Count {disputed.Count}, key {disputed.KeyStatusOf(post)}; {zero} {predicates.GetValueOrDefault(zero, "none")}; {unpublished} {predicates.GetValueOrDefault(unpublished, "none")}");
     }
 
     /// <summary>LRV9's control: a genuine declaration under the published declaration key disputes the posts in its window, by log position as before.</summary>

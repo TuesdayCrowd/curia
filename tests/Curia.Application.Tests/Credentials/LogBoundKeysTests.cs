@@ -269,4 +269,29 @@ public sealed class LogBoundKeysTests
             "Active; unbound: Unbound",
             $"{bound.Match(s => s.ToString(), e => $"{e.Type} detail={e.Detail}")}; unbound: {unbound.Match(s => s.ToString(), e => e.Type)}");
     }
+    /// <summary>
+    /// LRV46 (errata G68, ruling 83, F-M1): the parity probe. For each algorithm the Forum accepts, an enrolment through <c>EnrollAgent</c> yields a pair the fold honours (no row skipped) and a binding that carries the
+    /// key (<c>Jwk</c> not null). If it were red, the key the enrolment publishes (<c>PublicJwk.Of</c>) and the key the fold reads (<c>ClosedJwk</c>) would disagree, and an honest enrolment's pair would be skipped.
+    /// </summary>
+    [Theory]
+    [InlineData("ES256")]
+    [InlineData("EdDSA")]
+    public async Task LRV46_AnEnrolmentThroughEnrollAgentIsHonouredWithItsKeyForEachAlgorithm(string alg)
+    {
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
+        var key = alg == "ES256"
+            ? TestKeys.Es256("alice-lrv46")
+            : new PublicKeyMaterial("EdDSA", "alice-lrv46", Convert.FromBase64String("HRzJlnTufZYYTZyCDBpyP5ldQ38JlbCeDOQHgIozgg8="));
+        var verifier = ConformanceLog.Verifier();
+        Require(await new EnrollAgent(events, verifier, clock).RecordAsync(Typed.Agent(Alice), key, CancellationToken.None).ConfigureAwait(true));
+
+        var verified = verifier.OfLog(Require(await events.ReadAllAsync(CancellationToken.None).ConfigureAwait(true))).For(Typed.Agent(Alice));
+
+        var skipped = string.Join(", ", verified.Skipped.Select(r => $"{r.LogIndex} {r.Predicate}"));
+        var held = verified.Binding?.For(Typed.Kid("alice-lrv46"));
+        Assert.Equal(
+            $"{alg}: skipped [none]; binding carries the key: True",
+            $"{alg}: skipped [{(skipped.Length == 0 ? "none" : skipped)}]; binding carries the key: {held?.Jwk is not null}");
+    }
 }

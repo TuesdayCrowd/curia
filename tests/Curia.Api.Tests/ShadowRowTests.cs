@@ -10,12 +10,12 @@ using Xunit;
 namespace Curia.Api.Tests;
 
 /// <summary>
-/// LRV31 (errata G68, ruling 36): a row at <c>seq</c> 0, which no forward read returns, is honoured by nobody. Since PR N's ruling 72 the store counts and returns only the rows at <c>seq &gt; 0</c>,
-/// so no read sees it: it is inert, not detected. LRV36 are its siblings: the same at <c>seq</c> -1 (which answered a read fault before ruling 72) and two posts by the victim (a skew
-/// the store kept permanent showed on the second post too). The row is planted as the administrator, because the
-/// application role cannot plant it once <c>db/0006</c> is applied (PR S, errata G69). The victim's token request, an issued token's next request, a post, the key set and the audit
-/// all behave as if the row were absent; the audit's silence is asserted as the control that the detector of a shadow row is PR S's start-up check and not the audit (the row is invisible to the whole log).
-/// On the control build (<c>b348f6a9</c>, before the seam) the token request answers <c>401 invalid_client</c>, and no detector sees the row: the first form is the harm.
+/// LRV31 and LRV36 (errata G68, ruling 36, Amendment 6 rulings 72 to 78, Amendment 7 ruling 87): a row at <c>seq</c> 0 or below, which no forward read returns, is counted and returned by nobody: since ruling 72 the store counts
+/// and returns only the rows at <c>seq &gt; 0</c>, so the version the next append is conditioned on is the real log's. What these discriminate is that count: the victim's token request, an issued token's next request, a post
+/// (two, for the permanent skew of LRV36), the key set and the audit all behave as if the row were absent, and each is red on the unmodified store (the token request answered <c>401 invalid_client</c>, a post <c>503</c>, the
+/// version skewed by one). They do not show that a reader would honour the row if it read it: a row at <c>seq &lt;= 0</c> precedes every real row, so any reader decides it against an empty prefix and skips it
+/// <c>broken-link</c> (ruling 87); the readers that act on a row's content are LRV37's by-aggregate arms. The row is planted as the administrator, because the application role cannot plant it once <c>db/0006</c> is
+/// applied (PR S, errata G69). The audit's silence is asserted as the control that the detector of a shadow row is PR S's start-up check and not the audit (the row is invisible to the whole log).
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -27,15 +27,15 @@ public sealed class ShadowRowTests(ForumFixture forum) : IClassFixture<ForumFixt
     private static string Suffix() => Guid.NewGuid().ToString("N")[..8];
 
     [Fact]
-    public async Task LRV31_ARowAtSeqZeroIsHonouredByNobody() => await ShadowAsync(0, 1);
+    public async Task LRV31_TheStoreCountsAndReturnsNoRowAtSeqZero() => await ShadowAsync(0, 1);
 
-    /// <summary>LRV36: a row at seq -1, which the by-aggregate read answered as a fault before ruling 72.</summary>
+    /// <summary>LRV36: a row at seq -1, which the by-aggregate read answered as a fault before ruling 72; the count is what is discriminated.</summary>
     [Fact]
-    public async Task LRV36_ARowAtSeqMinusOneIsHonouredByNobody() => await ShadowAsync(-1, 1);
+    public async Task LRV36_TheStoreCountsAndReturnsNoRowAtSeqMinusOne() => await ShadowAsync(-1, 1);
 
     /// <summary>LRV36: a permanent skew shows on the victim's second post too.</summary>
     [Fact]
-    public async Task LRV36_TheVictimsSecondPostLandsToo() => await ShadowAsync(-2, 2);
+    public async Task LRV36_ThePermanentSkewOfTheCountWouldShowOnTheSecondPostToo() => await ShadowAsync(-2, 2);
 
     private async Task ShadowAsync(long seq, int posts)
     {

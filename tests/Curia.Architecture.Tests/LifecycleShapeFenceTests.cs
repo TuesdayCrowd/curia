@@ -76,23 +76,56 @@ public sealed class LifecycleShapeFenceTests
         Assert.All(folds, m => Assert.Equal(typeof(VerifiedLog), m.GetParameters()[0].ParameterType));
     }
 
+    /// <summary>The type a call site's caller is declared in, the state machine of an async method folded into its method's own type (<c>Type+&lt;Method&gt;d__3</c> is <c>Type</c>).</summary>
+    private static string OwningType(string callerType)
+    {
+        var plus = callerType.IndexOf("+<", StringComparison.Ordinal);
+        return plus < 0 ? callerType : callerType[..plus];
+    }
+
     /// <summary>
-    /// Ruling 36: <c>LogBoundKeys</c>, <c>KeyActs</c>, <c>EnrollIdentity</c> and <c>EnrollAgent</c> do not call <c>ReadByAggregateAsync</c>; the whole-log read is the only way a lifecycle
-    /// is read, so that a row the whole-log read cannot see is honoured by nobody. Red on the seam, which keeps today's per-aggregate reads.
+    /// Every type in a shipped assembly that calls <c>IEventReader.ReadByAggregateAsync</c> (Amendment 7, ruling 88), each with the reason it reads one aggregate and why that is not a lifecycle decision: a
+    /// lifecycle is read from the whole log, because a by-aggregate read sees rows the forward read does not (ruling 26 (b)); none of these reads an identity's key lifecycle. A caller that is not here is red, and a row
+    /// whose type no longer calls is red ("stale row").
+    /// </summary>
+    private static readonly (string Type, string Reason)[] ByAggregateReaders =
+    [
+        ("Curia.Application.Credentials.AttestOwner", "folds one agent's owner standing (agent.owner-attested) to refuse a second owner: owner standing is not a key lifecycle and no key is read or bound by it"),
+        ("Curia.Application.Ingest.ParentLookup", "reads a post's own stream for the post.accepted that names it, to find a reply's parent: no lifecycle row is read"),
+        ("Curia.Application.Moderation.AcceptAnswer", "reads a thread root's stream for the answer that stands accepted (R8.68, R8.71), conditioning its append on the version it read: a thread, not an identity"),
+        ("Curia.Application.Moderation.RaiseFlag", "reads a post's stream for the flags it holds (R10.70, one flag of a type per raiser per post) and the post's own facts: a post, not an identity"),
+    ];
+
+    /// <summary>The decision classes that read a lifecycle: each is asserted to exist in the scanned IL and to read the whole log, so that renaming one cannot make this fence go quiet (the mirror of <c>verifierCalls &gt; 0</c>).</summary>
+    private static readonly string[] LifecycleDecisions =
+    [
+        "Curia.Application.Credentials.LogBoundKeys", "Curia.Application.Credentials.KeyActs", "Curia.Application.Credentials.EnrollIdentity", "Curia.Application.Credentials.EnrollAgent",
+    ];
+
+    /// <summary>
+    /// Ruling 36, as Amendment 7's ruling 88 states it: the set of types that call <c>ReadByAggregateAsync</c> over all twelve shipped assemblies is the pinned list, so no lifecycle decision reads an aggregate by
+    /// itself and a new caller is a decision read in review; and each of <c>LogBoundKeys</c>, <c>KeyActs</c>, <c>EnrollIdentity</c> and <c>EnrollAgent</c> is found and reads the whole log (<c>ReadAllAsync</c>).
     /// </summary>
     [Fact]
-    public void LRV11_NoLifecycleDecisionReadsAnAggregateByItself()
+    public void LRV11_TheTypesThatReadAnAggregateByItselfAreTheListedOnesAndNoLifecycleDecision()
     {
-        var application = Shipped.ShippedAssemblies().Single(p => Path.GetFileNameWithoutExtension(p) == "Curia.Application");
-        string[] decisions = ["LogBoundKeys", "KeyActs", "EnrollIdentity", "EnrollAgent"];
+        var sites = Shipped.ShippedAssemblies().SelectMany(path => IlCallSites.CallSites(path)).ToArray();
+        var byAggregate = sites.Where(c => c.CalleeMember == "ReadByAggregateAsync").Select(c => OwningType(c.CallerType)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var listed = ByAggregateReaders.Select(r => r.Type).Order(StringComparer.Ordinal).ToArray();
 
-        var sites = IlCallSites.CallSites(application)
-            .Where(c => c.CalleeMember == "ReadByAggregateAsync" && decisions.Contains(c.CallerType.Split('.')[^1], StringComparer.Ordinal))
-            .Select(c => $"{c.CallerType.Split('.')[^1]}.{c.CallerMethod}")
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+        Assert.All(ByAggregateReaders, r => Assert.False(string.IsNullOrWhiteSpace(r.Reason), $"{r.Type} has no reason"));
+        var unlisted = byAggregate.Except(listed, StringComparer.Ordinal).ToArray();
+        var stale = listed.Except(byAggregate, StringComparer.Ordinal).ToArray();
+        Assert.True(
+            unlisted.Length == 0 && stale.Length == 0,
+            $"Expected: the listed callers  Actual: unlisted [{string.Join(", ", unlisted)}]; stale rows [{string.Join(", ", stale)}]");
 
-        Assert.True(sites.Length == 0, $"Expected: no caller  Actual: {string.Join("; ", sites)} call IEventReader.ReadByAggregateAsync");
+        foreach (var decision in LifecycleDecisions)
+        {
+            var calls = sites.Where(c => OwningType(c.CallerType) == decision).ToArray();
+            Assert.True(calls.Length > 0, $"{decision} is not found in the scanned IL, so this fence would go quiet");
+            Assert.True(calls.Any(c => c.CalleeMember == "ReadAllAsync"), $"{decision} does not read the whole log (ReadAllAsync)");
+            Assert.DoesNotContain(decision, byAggregate);
+        }
     }
 }

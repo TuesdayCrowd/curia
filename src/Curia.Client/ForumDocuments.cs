@@ -1368,22 +1368,25 @@ internal static class ForumDocuments
         var total = ClientJson.Member(o, "curia_skipped_total");
         if (rows is null && total is null) return Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Ok((null, null));
 
-        static Result<(ImmutableArray<SkippedRowDocument>? Rows, long? Total)> Malformed() =>
-            Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Fail(ClientErrors.ResponseMalformed("curia_skipped"));
+        // One malformed response naming curia_skipped, and the cause after it (Amendment 7, ruling 88): each shape names its own, so a parser that refuses two shapes for one shared reason is told apart.
+        static Result<(ImmutableArray<SkippedRowDocument>? Rows, long? Total)> Malformed(string cause) =>
+            Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Fail(ClientErrors.ResponseMalformed("curia_skipped: " + cause));
 
-        if (rows is not JsonValue.Array array || total is not JsonValue.Number { Value: var count }
-            || !double.IsInteger(count) || count < 0 || count > long.MaxValue
-            || array.Items.Length > MaxSkippedListed || array.Items.Length > count || array.Items.Length < Math.Min(count, MaxSkippedListed))
-            return Malformed();
+        if (rows is not JsonValue.Array array) return Malformed("it is not an array");
+        if (total is not JsonValue.Number { Value: var count } || !double.IsInteger(count) || count < 0 || count > long.MaxValue)
+            return Malformed("curia_skipped_total is not a whole number");
+        if (array.Items.Length > MaxSkippedListed) return Malformed("the list is longer than 20");
+        if (array.Items.Length > count) return Malformed("curia_skipped_total is below the list's length");
+        if (array.Items.Length < Math.Min(count, MaxSkippedListed)) return Malformed("the list is shorter than the total allows");
 
         var listed = ImmutableArray.CreateBuilder<SkippedRowDocument>(array.Items.Length);
         foreach (var item in array.Items)
         {
-            if (item is not JsonValue.Object row || row.Members.Length != 3
-                || ClientJson.WholeNumber(row, "log_index") is not { } index || index < 0
-                || ClientJson.String(row, "type") is not { } type
-                || ClientJson.String(row, "predicate") is not { } predicate)
-                return Malformed();
+            if (item is not JsonValue.Object row) return Malformed("an entry is not an object");
+            if (row.Members.Length < 3) return Malformed("an entry lacks a member");
+            if (row.Members.Length > 3) return Malformed("an entry carries a member beyond log_index, type and predicate");
+            if (ClientJson.WholeNumber(row, "log_index") is not { } index || index < 0) return Malformed("an entry's log_index is not a whole number");
+            if (ClientJson.String(row, "type") is not { } type || ClientJson.String(row, "predicate") is not { } predicate) return Malformed("an entry's type or predicate is not a string");
 
             listed.Add(new SkippedRowDocument(index, type, predicate));
         }

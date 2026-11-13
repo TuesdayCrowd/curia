@@ -28,7 +28,10 @@ public sealed class ServedSkippedMembersTests(ForumFixture forum) : IClassFixtur
     private static string Words(JsonElement keySet)
     {
         if (!keySet.TryGetProperty("curia_skipped_total", out var total)) return "curia_skipped_total: member absent";
-        var listed = keySet.TryGetProperty("curia_skipped", out var list) ? list.EnumerateArray().ToArray() : [];
+
+        // Amendment 7, ruling 88: a total beside no list is a defect (R4.41 serves both members, an empty list included), so it is said and never defaults to an empty list.
+        if (!keySet.TryGetProperty("curia_skipped", out var list)) return $"curia_skipped_total {total.GetInt64().ToString(CultureInfo.InvariantCulture)}; curia_skipped member absent";
+        var listed = list.EnumerateArray().ToArray();
         return $"curia_skipped_total {total.GetInt64().ToString(CultureInfo.InvariantCulture)}; listed {listed.Length.ToString(CultureInfo.InvariantCulture)}; "
             + string.Join(" ", listed.Select(e => $"[{string.Join(",", e.EnumerateObject().Select(p => p.Name))}]").Distinct(StringComparer.Ordinal));
     }

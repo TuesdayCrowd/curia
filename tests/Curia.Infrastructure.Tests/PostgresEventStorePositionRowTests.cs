@@ -77,7 +77,10 @@ public sealed class PostgresEventStorePositionRowTests
         return (long)(await count.ExecuteScalarAsync(ct))!;
     }
 
-    /// <summary>LRV34: the read by aggregate, the forward read and the raw log count are one set of rows.</summary>
+    /// <summary>
+    /// LRV34: the read by aggregate, the forward read and the raw log count are one set of rows. The forward-read leg is a control: <c>ReadForwardAsync(Zero)</c> is <c>seq &gt; 0</c> by definition and agrees under any
+    /// store; the legs that discriminate the filter are the by-aggregate read against the raw count (Amendment 7, ruling 87).
+    /// </summary>
     [Theory]
     [MemberData(nameof(Plants))]
     public async Task LRV34_TheThreeBasesAgree(string plants)
@@ -108,11 +111,14 @@ public sealed class PostgresEventStorePositionRowTests
 
         var tooHigh = await store.AppendAsync(a, Version((int)expected + 1), [NewEvent("lrv34-b-high")], ct);
         var tooLow = await store.AppendAsync(a, Version((int)expected - 1), [NewEvent("lrv34-b-low")], ct);
+
+        // The third leg of a refusal (ruling 88): the refused appends wrote nothing, so the aggregate still holds exactly the rows it held before them.
+        var afterRefusals = Require(await store.ReadByAggregateAsync(a, ct)).Select(e => e.Event.Id.Value).ToArray();
         var honest = await store.AppendAsync(a, Version((int)expected), [NewEvent("lrv34-b-honest")], ct);
 
         Assert.Equal(
-            $"3 refused {DomainErrors.ConcurrencyConflictType}; 1 refused {DomainErrors.ConcurrencyConflictType}; 2 landed",
-            $"3 {Outcome(tooHigh)}; 1 {Outcome(tooLow)}; 2 {Outcome(honest)}");
+            $"3 refused {DomainErrors.ConcurrencyConflictType}; 1 refused {DomainErrors.ConcurrencyConflictType}; held [lrv34-b-1, lrv34-b-2]; 2 landed",
+            $"3 {Outcome(tooHigh)}; 1 {Outcome(tooLow)}; held [{string.Join(", ", afterRefusals)}]; 2 {Outcome(honest)}");
     }
 
     /// <summary>LRV35: the condition's version is the log's count too (the 503 of Task 4b, stated with no Forum in front of it).</summary>
@@ -130,9 +136,12 @@ public sealed class PostgresEventStorePositionRowTests
         var honest = await store.AppendAsync(Agg("lrv35-p2"), AggregateVersion.New, [NewEvent("lrv35-p2-1")], new StreamCondition(c, Version(2)), ct);
 
         var actual = tooHigh.Match(_ => "none", e => e.Detail ?? string.Empty);
+
+        // The third leg of a refusal (ruling 88): the refused condition wrote nothing to the aggregate it guarded.
+        var refusedAggregate = Require(await store.ReadByAggregateAsync(Agg("lrv35-p3"), ct)).Count;
         Assert.Equal(
-            $"condition 3 refused {DomainErrors.ConditionConflictType} aggregate=lrv35-c expected=3 actual=2; condition 2 landed",
-            $"condition 3 {Outcome(tooHigh)} {actual}; condition 2 {Outcome(honest)}");
+            $"condition 3 refused {DomainErrors.ConditionConflictType} aggregate=lrv35-c expected=3 actual=2; lrv35-p3 holds 0; condition 2 landed",
+            $"condition 3 {Outcome(tooHigh)} {actual}; lrv35-p3 holds {refusedAggregate}; condition 2 {Outcome(honest)}");
     }
 
     private static string Outcome(Result<IReadOnlyList<AppendedEvent>> result) =>

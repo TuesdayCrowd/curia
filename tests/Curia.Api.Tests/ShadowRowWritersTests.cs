@@ -36,6 +36,23 @@ internal static class ShadowRows
         Assert.Equal(1, await insert.ExecuteNonQueryAsync(ct));
     }
 
+    /// <summary>Plants the row <paramref name="type"/> with <paramref name="payloadJson"/> on <paramref name="aggregate"/> at <paramref name="seq"/>, as the administrator: a row a reader would act on, were it to read it.</summary>
+    internal static async Task PlantRowAsync(ForumFixture forum, string aggregate, long seq, string type, string payloadJson, CancellationToken ct)
+    {
+        await using var admin = new NpgsqlConnection(forum.ConnectionString);
+        await admin.OpenAsync(ct);
+        await using var insert = new NpgsqlCommand(
+            "INSERT INTO events (seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts) OVERRIDING SYSTEM VALUE VALUES (@seq, @id, @type, @aggregate, 'operator:ops', @payload::jsonb, @ts);",
+            admin);
+        insert.Parameters.AddWithValue("seq", seq);
+        insert.Parameters.AddWithValue("id", "shadow-" + Guid.NewGuid().ToString("N")[..12]);
+        insert.Parameters.AddWithValue("type", type);
+        insert.Parameters.AddWithValue("aggregate", aggregate);
+        insert.Parameters.AddWithValue("payload", payloadJson);
+        insert.Parameters.AddWithValue("ts", forum.Now);
+        Assert.Equal(1, await insert.ExecuteNonQueryAsync(ct));
+    }
+
     /// <summary>Removes the row at seq 0, as the administrator (the application role has no DELETE).</summary>
     internal static async Task RemoveSeqZeroAsync(ForumFixture forum, CancellationToken ct)
     {
@@ -60,6 +77,12 @@ internal static class ShadowRows
 /// LRV37: every writer that appends to an aggregate, driven through its real entry point against the Postgres-backed Forum, with a row planted at seq 0 or -1 on the aggregate it appends to.
 /// The outcome of each writer, and the number of rows it added to the log (<c>seq &gt; 0</c>, raw SQL), are the same as the control arm's, which plants nothing: a skew the fix
 /// does not touch shows as a difference between arms and not as a bare red. The writer is named by its use case: rotate, retire, declare, attest, accept, moderate, post, enrol.
+///
+/// <para>Amendment 7, ruling 87: a plant is useful only if a reader that read it would decide differently. The by-aggregate readers (<c>AttestOwner</c>, <c>AcceptAnswer</c>) get a plant each acts on: an owner
+/// attestation by another owner (the attestation is refused as an immutable binding if read), an acceptance of the very answer the arm accepts (the acceptance is a replay, <c>200</c> and no row, if read). The
+/// <c>enrol</c> arm plants an <c>agent.enrolled</c> and its pair under another key on the unenrolled identity, which the honest enrolment would be refused for if either were read. <c>rotate</c>, <c>retire</c>,
+/// <c>declare</c> and <c>post</c> read the whole log, where a forged lifecycle row is skipped wherever it sits, so for them the plant is the forged row and the probe is that the count and the version are the log's.
+/// <c>moderate</c> reads no aggregate (<c>ApplyModeration</c> appends and reads nothing by aggregate), so no payload could change it: its arm is the count.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -91,7 +114,7 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
         "accept" => "201; +1",
         "moderate" => "0; +1",
         "post" => "201; +1",  // counted over the whole log: the post is a new aggregate, and the Forum's tests run one at a time in this collection
-        "enrol" => "201; +2",
+        "enrol" => "201; honest token 200; planter token 401 invalid_client; key set [honest]; +2",
         _ => throw new ArgumentOutOfRangeException(nameof(writer)),
     };
 
@@ -104,6 +127,9 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
 
+        // A "zero" arm that failed before its cleanup must not leave the one position 0 taken for the next: removal is idempotent.
+        if (plant == "zero") await ShadowRows.RemoveSeqZeroAsync(forum, ct);
+
         async Task PlantAsync(string aggregate, bool onAgent)
         {
             // A position is the table's primary key, so each plant in the one database needs a position of its own: a distinct negative one for "below", and seq 0 for "zero", which the
@@ -112,6 +138,19 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
                 await ShadowRows.PlantAsync(forum, aggregate, -(long)RandomNumberGenerator.GetInt32(1, int.MaxValue), onAgent, ct);
             else if (plant == "zero")
                 await ShadowRows.PlantAsync(forum, aggregate, 0, onAgent, ct);
+        }
+
+        // The one position 0 is taken by the first row of an arm that plants one; a second row of the same arm (the enrolment and its pair) takes a position of its own below it.
+        var zeroTaken = false;
+        async Task PlantRowAsync(string onAggregate, string type, string payloadJson)
+        {
+            if (plant == "below" || (plant == "zero" && zeroTaken))
+                await ShadowRows.PlantRowAsync(forum, onAggregate, -(long)RandomNumberGenerator.GetInt32(1, int.MaxValue), type, payloadJson, ct);
+            else if (plant == "zero")
+            {
+                zeroTaken = true;
+                await ShadowRows.PlantRowAsync(forum, onAggregate, 0, type, payloadJson, ct);
+            }
         }
 
         string aggregate;
@@ -180,7 +219,7 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
                 var agent = ForumAgent.Create(KeyActRequests.Unique("lrv37-attest"), "a-" + Suffix());
                 await agent.AuthenticateAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
                 aggregate = agent.AgentId;
-                await PlantAsync(aggregate, true);
+                await PlantRowAsync(aggregate, "agent.owner-attested", $"{{\"agent_id\":\"{agent.AgentId}\",\"owner_id\":\"owner:planted-{Suffix()}\",\"owner_verified\":true,\"method\":\"manual\",\"reason\":\"planted\"}}");
                 act = async () =>
                 {
                     try
@@ -200,7 +239,7 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
             {
                 var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
                 aggregate = scene.Question.PostId;
-                await PlantAsync(aggregate, false);
+                await PlantRowAsync(aggregate, "answer.accepted", $"{{\"thread_root\":\"{scene.Question.PostId}\",\"answer_id\":\"{scene.Answer1.PostId}\",\"accepted_by\":\"{scene.Asker.Agent.AgentId}\"}}");
                 act = async () =>
                 {
                     try
@@ -248,12 +287,24 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
             case "enrol":
             {
                 var agent = ForumAgent.Create(KeyActRequests.Unique("lrv37-enrol"), "e-" + Suffix());
+                var planter = ForumAgent.Create(agent.AgentId, "planter-" + Suffix());
                 aggregate = agent.AgentId;
-                await PlantAsync(aggregate, true);
+
+                // The plant is one a reader would honour if it read it: an enrolment of the identity and its pair, under the planter's key.
+                await PlantRowAsync(aggregate, "agent.enrolled", $"{{\"agent_id\":\"{agent.AgentId}\",\"kid\":\"{planter.Kid}\"}}");
+                await PlantRowAsync(aggregate, "agent.key-bound", $"{{\"agent_id\":\"{agent.AgentId}\",\"jwk\":{PlanterJwkText(planter)},\"kid\":\"{planter.Kid}\"}}");
                 act = async () =>
                 {
                     using var response = await agent.EnrollAsync(client, ct);
-                    return await StatusAsync(response, ct);
+                    var enrolled = await StatusAsync(response, ct);
+
+                    // The honest key gets a token, the planter's does not, and the key set lists the honest key alone.
+                    var honest = await DpopClient.For(agent, agent.AssertionKey).RequestTokenAsync(client, KeyActRequests.TokenEndpoint, forum.Now, agent.AgentId, ct);
+                    var planted = await DpopClient.For(planter, planter.AssertionKey).RequestTokenAsync(client, KeyActRequests.TokenEndpoint, forum.Now, agent.AgentId, ct);
+                    using var keySet = await KeyActRequests.KeySetAsyncOrNull(client, agent.AgentId, ct);
+                    var kids = keySet is null ? "no key set" : string.Join(",", keySet.RootElement.GetProperty("keys").EnumerateArray().Select(k => k.GetProperty("kid").GetString() == agent.Kid ? "honest" : "other"));
+                    var plantedWords = planted.Status == HttpStatusCode.OK ? "200" : $"{(int)planted.Status} {ErrorWord(planted.Body)}";
+                    return $"{enrolled}; honest token {(int)honest.Status}; planter token {plantedWords}; key set [{kids}]";
                 };
                 break;
             }
@@ -277,6 +328,20 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
         var after = await ShadowRows.LogRowsAsync(forum, aggregate, ct);
 
         WholeText.Same(Expected(writer), $"{outcome}; +{after - before}");
+    }
+
+    private static string ErrorWord(string body)
+    {
+        try { return JsonDocument.Parse(body).RootElement.TryGetProperty("error", out var e) ? e.GetString()! : "?"; }
+        catch (JsonException) { return "?"; }
+    }
+
+    /// <summary>The planter's public key as a JWK object in the closed form the enrolment's pair carries.</summary>
+    private static string PlanterJwkText(ForumAgent planter)
+    {
+        var q = planter.AssertionKey.ExportParameters(includePrivateParameters: false).Q;
+        static string B64(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        return $"{{\"alg\":\"ES256\",\"crv\":\"P-256\",\"kid\":\"{planter.Kid}\",\"kty\":\"EC\",\"x\":\"{B64(q.X!)}\",\"y\":\"{B64(q.Y!)}\"}}";
     }
 
     /// <summary>The status code, and the problem type after it when the Forum refused.</summary>

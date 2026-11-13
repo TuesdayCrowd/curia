@@ -40,18 +40,19 @@ public sealed class KeysSkippedLinesTests
     }
 
     [Theory]
-    [InlineData("\"curia_skipped\":[{\"log_index\":\"2\",\"type\":\"agent.key-retired\",\"predicate\":\"statement-mismatch\"}],\"curia_skipped_total\":1", "a log_index that is not an integer")]
-    [InlineData("\"curia_skipped\":[{\"log_index\":2,\"type\":\"agent.key-retired\"}],\"curia_skipped_total\":1", "a missing member")]
-    [InlineData("\"curia_skipped\":[{\"log_index\":2,\"type\":\"agent.key-retired\",\"predicate\":\"statement-mismatch\",\"payload\":{}}],\"curia_skipped_total\":1", "an extra member")]
-    [InlineData("\"curia_skipped\":[{\"log_index\":2,\"type\":\"agent.key-retired\",\"predicate\":\"statement-mismatch\"}],\"curia_skipped_total\":0", "a total below the list")]
-    [InlineData("\"curia_skipped\":\"x\",\"curia_skipped_total\":1", "a list that is not an array")]
-    public void LRV26_AMemberThatIsNotWhatItSaysIsAMalformedResponseNamingIt(string members, string why)
+    [InlineData("\"curia_skipped\":[{\"log_index\":\"2\",\"type\":\"agent.key-retired\",\"predicate\":\"statement-mismatch\"}],\"curia_skipped_total\":1", "a log_index that is not an integer", "an entry's log_index is not a whole number")]
+    [InlineData("\"curia_skipped\":[{\"log_index\":2,\"type\":\"agent.key-retired\"}],\"curia_skipped_total\":1", "a missing member", "an entry lacks a member")]
+    [InlineData("\"curia_skipped\":[{\"log_index\":2,\"type\":\"agent.key-retired\",\"predicate\":\"statement-mismatch\",\"payload\":{}}],\"curia_skipped_total\":1", "an extra member", "an entry carries a member beyond log_index, type and predicate")]
+    [InlineData("\"curia_skipped\":[{\"log_index\":2,\"type\":\"agent.key-retired\",\"predicate\":\"statement-mismatch\"}],\"curia_skipped_total\":0", "a total below the list", "curia_skipped_total is below the list's length")]
+    [InlineData("\"curia_skipped\":\"x\",\"curia_skipped_total\":1", "a list that is not an array", "it is not an array")]
+    public void LRV26_AMemberThatIsNotWhatItSaysIsAMalformedResponseNamingIt(string members, string why, string cause)
     {
         var parsed = Parse(Document(members));
 
+        // Each shape names its own cause after curia_skipped (Amendment 7, ruling 88): a parser that refuses all five for one shared reason would pass a check of the member's name alone.
         Assert.True(
-            parsed.Match(_ => false, e => e.Detail is not null && e.Detail.Contains("curia_skipped", StringComparison.Ordinal)),
-            $"Expected: a malformed response naming curia_skipped ({why})  Actual: {Show(parsed)}");
+            parsed.Match(_ => false, e => e.Detail is not null && e.Detail.Contains("curia_skipped", StringComparison.Ordinal) && e.Detail.Contains(cause, StringComparison.Ordinal)),
+            $"Expected: a malformed response naming curia_skipped and its cause, {cause} ({why})  Actual: {Show(parsed)}");
     }
 
     [Fact]

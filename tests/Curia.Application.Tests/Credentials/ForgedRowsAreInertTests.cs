@@ -155,18 +155,31 @@ public sealed class ForgedRowsAreInertTests
             $"attacker: {attackerKey.Match(_ => "LiveKey", e => e.Type)}; status: {status.Match(s => s.ToString(), e => e.Type)}; victim: {victimKey.Match(_ => "LiveKey", e => e.Type)}");
     }
 
-    /// <summary>LRV8 (a): a forged retirement and a forged declaration for the victim's live kid leave it Active.</summary>
+    /// <summary>
+    /// LRV8 (a): a forged retirement and a forged declaration for the victim's live kid leave it Active. The declaration's <c>prev</c> is 1, the last honoured index (the skipped retirement moved nothing),
+    /// so each row is decided on its own defect and the predicates are asserted: the retirement's signature is bad (<c>rotation-unauthorized</c>) and the declaration's is no JWS (<c>lifecycle-typ-mismatch</c>) (ruling 86).
+    /// </summary>
     [Fact]
     public async Task LRV8_AForgedRetirementAndDeclarationLeaveTheVictimsKeyActive()
     {
         var (harness, victim) = await EnrolledAsync().ConfigureAwait(true);
-        await AppendRowAsync(harness, Alice, "agent.key-retired", Retirement(Alice, victim.Kid, 1, agentId: Alice)).ConfigureAwait(true);
-        await AppendRowAsync(harness, Alice, "agent.key-compromised", Declaration(Alice, [victim.Kid], 1, 2, "not-a-signature")).ConfigureAwait(true);
+
+        // The retirement has the right header (the retirement typ and the victim's kid) and another key's signature bytes, so it reaches the signature check: the helper's own "not-a-signature" is no JWS and is skipped
+        // at the header (lifecycle-typ-mismatch) before the signature is read.
+        var plain = Retirement(Alice, victim.Kid, 1, agentId: Alice);
+        var statement = ((JsonValue.String)plain.Members.First(m => m.Key == "statement").Value).Value;
+        var byAnotherKey = harness.Sign(statement, KeyStatements.RetirementHeaderTyp, new SigningKey("ES256", victim.Kid, TestIdentity.New("stranger").Signing.Private.ToArray())).Value;
+        var forged = new JsonValue.Object([.. plain.Members.Select(m => m.Key == "authorization" ? new KeyValuePair<string, JsonValue>("authorization", S(byAnotherKey)) : m)]);
+        var retired = await AppendRowAsync(harness, Alice, "agent.key-retired", forged).ConfigureAwait(true);
+        var declared = await AppendRowAsync(harness, Alice, "agent.key-compromised", Declaration(Alice, [victim.Kid], 1, 1, "not-a-signature")).ConfigureAwait(true);
         var keys = new LogBoundKeys(new RegistryResolver(harness.Registry), harness.Registry, harness.Events, VerifierOf(harness));
 
         var status = await keys.StatusAsync(Typed.Agent(Alice), Typed.Kid(victim.Kid), Ct).ConfigureAwait(true);
+        var predicates = VerifierOf(harness).OfLog(await LogAsync(harness).ConfigureAwait(true)).For(Typed.Agent(Alice)).Skipped.ToDictionary(r => r.LogIndex, r => r.Predicate);
 
-        WholeText.Same("Active", status.Match(s => s.ToString(), e => "Refused " + e.Type));
+        WholeText.Same(
+            $"{retired} rotation-unauthorized; {declared} lifecycle-typ-mismatch; Active",
+            $"{retired} {predicates.GetValueOrDefault(retired, "none")}; {declared} {predicates.GetValueOrDefault(declared, "none")}; {status.Match(s => s.ToString(), e => "Refused " + e.Type)}");
     }
 
     /// <summary>A reader whose every read fails, as a store fault does.</summary>

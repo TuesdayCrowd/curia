@@ -15,7 +15,7 @@ using static Curia.Application.Tests.Credentials.LifecycleProbeSupport;
 namespace Curia.Application.Tests.Credentials;
 
 /// <summary>
-/// LRV2 and LRV23 (errata G68, R6.64): the verifier agrees with the 84 reader vectors in <c>conformance/lifecycle/</c> wherever a reader's verdict names a row's predicate, and R6.64's
+/// LRV2 and LRV23 (errata G68, R6.64): the verifier agrees with the 84 reader vectors (80 asked: 56 compared, 18 about the post or the document, 6 whose reader verdict is could-not-check by a kind or a reason the Forum names too; 4 not asked) in <c>conformance/lifecycle/</c> wherever a reader's verdict names a row's predicate, and R6.64's
 /// predicate names are the vectors' names. The table of which predicates are row-level is a literal here, checked against R6.64's own text; the vectors' verdicts are another artifact from the verifier.
 /// </summary>
 [SuppressMessage(
@@ -96,6 +96,10 @@ public sealed class ReaderVectorAgreementTests
     {
         var failures = new List<string>();
         var classified = 0;
+        var compared = 0;
+        var about = 0;
+        var couldNotCheck = 0;
+        var notAsked = 0;
         var verifier = ConformanceLog.Verifier();
         foreach (var excluded in NotAsked)
             Assert.Contains(excluded, ConformanceLog.Names("lifecycle"));
@@ -110,7 +114,7 @@ public sealed class ReaderVectorAgreementTests
             // A third (and a fourth, a log key that gives no position) is a key set that no log can be: two declaration keys at one position. R6.64 reads "the log's own entries as the key set ... so that there is neither a key set that is not
             // supplied nor a position that is not given", and a log gives each entry a position of its own, so the nearest log (the second key after the last entry, the first key still first)
             // decides the row honoured and the reader's verdict, which the document's shape alone produces, has no log to agree with.
-            if (NotAsked.Contains(name)) { classified++; continue; }
+            if (NotAsked.Contains(name)) { classified++; notAsked++; continue; }
 
             var verified = verifier.OfLog(LogOf(log)).For(Typed.Agent(log.Agent));
             var skipped = verified.Skipped;
@@ -119,29 +123,36 @@ public sealed class ReaderVectorAgreementTests
             if (verdict == "failed" && RowLevel.Contains(predicate, StringComparer.Ordinal))
             {
                 classified++;
+                compared++;
                 if (skipped.Length == 0 || skipped[0].Predicate != predicate)
                     failures.Add($"{name}: Expected: skipped {predicate} at the row  Actual: {described}");
             }
             else if (verdict == "could-not-check" && UnknownKind.Contains(predicate, StringComparer.Ordinal))
             {
                 classified++;
+                couldNotCheck++;
                 if (!skipped.Any(r => r.Predicate == predicate))
                     failures.Add($"{name}: Expected: a row skipped {predicate}  Actual: {described}");
             }
             else if (verdict is "verified" or "disputed")
             {
                 classified++;
+                compared++;
                 if (skipped.Length > 0)
                     failures.Add($"{name}: Expected: no row skipped  Actual: {described}");
             }
             else if (About.Contains(predicate, StringComparer.Ordinal))
             {
                 classified++;
+                about++;
                 if (RowLevel.Contains(predicate, StringComparer.Ordinal) || UnknownKind.Contains(predicate, StringComparer.Ordinal))
                     failures.Add($"{name}: {predicate} is listed as about the post and is a row predicate");
             }
         }
 
+        // Three exact numbers (Amendment 7, ruling 88): a vector that stops being compared, or moves to About, changes one of them. They are counted from conformance/lifecycle/: the vectors the verifier is asked (a row-level
+        // verdict, an unknown kind, or a verdict of verified or disputed), the vectors about the post or the document and not a row, and the vectors not asked.
+        Assert.Equal("compared 56; about 18; could not check 6; not asked 4", $"compared {compared}; about {about}; could not check {couldNotCheck}; not asked {notAsked}");
         Assert.True(classified == ConformanceLog.Names("lifecycle").Length, $"every reader vector falls in one category of the table: {classified} of {ConformanceLog.Names("lifecycle").Length} do");
         Assert.True(
             failures.Count == 0,
@@ -164,9 +175,8 @@ public sealed class ReaderVectorAgreementTests
     [Fact]
     public void LRV23_R664sSlugsAreTheHonouredVectorsSlugs()
     {
-        // At most two: the names R6.64 gives that no honoured vector uses. None today (every one of the twelve is used).
+        // The names R6.64 gives that no honoured vector uses: none today (every one of the twelve is used), and the comparison below states it.
         string[] namedAndUnused = [];
-        Assert.True(namedAndUnused.Length <= 2);
 
         var used = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var name in ConformanceLog.Names("honoured"))

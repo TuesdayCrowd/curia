@@ -272,9 +272,10 @@ fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_p
             }
         }
     }
-    assert!(
-        checked >= 40,
-        "only {checked} reader vectors were comparable"
+    // An exact number (Amendment 7, ruling 88): twelve vectors could stop being comparable by a change to `predicate::ALL` and a floor of 40 would not notice.
+    assert_eq!(
+        checked, 53,
+        "reader vectors compared with the Forum's fold (84, less the NOT_A_ROW_OF_THE_STREAM ones, less those whose verdict names no row and is not verified)"
     );
     // No reader vector may disagree with R6.64 (ruling 44): the list is empty and every failure is a failure.
     let disagreements: &[(&str, &str)] = READER_DISAGREEMENTS;
