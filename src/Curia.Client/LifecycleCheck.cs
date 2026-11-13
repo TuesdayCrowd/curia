@@ -444,8 +444,9 @@ public static class LifecycleCheck
                 return CouldNotCheck("declaration-key-position-unknown", Text(
                     $"the log's key set gives a declaration key no log index, so this reader cannot say kid={Check.Quote(header.Kid)} was published before the declaration at {index} or is the first (R6.62)"));
 
-            // (d) A log key never declares: a log key by kid, or by public key under another kid (Amendment 3 ruling 39 (b)).
-            if (logKeys.Keys.Any(k => IsSameKey(k.Key, declarationKey.Key)))
+            // (d) A log key never declares: a log key by kid, or by public key under another kid (Amendment 3 ruling 39 (b)), among the log keys the log had published at the declaration: those at a
+            // log index below the declaration's own, and one that gives no position (a negative index), which cannot be shown to come after it (Amendment 7 ruling 82).
+            if (logKeys.Keys.Any(k => (k.LogIndex < 0 || k.LogIndex < index) && IsSameKey(k.Key, declarationKey.Key)))
                 return Failed("declaration-key-is-log-key", Text(
                     $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, which is also a log key (R6.62)"));
 

@@ -15,7 +15,7 @@ using static Curia.Application.Tests.Credentials.LifecycleProbeSupport;
 namespace Curia.Application.Tests.Credentials;
 
 /// <summary>
-/// LRV2 and LRV23 (errata G68, R6.64): the verifier agrees with the 82 reader vectors in <c>conformance/lifecycle/</c> wherever a reader's verdict names a row's predicate, and R6.64's
+/// LRV2 and LRV23 (errata G68, R6.64): the verifier agrees with the 84 reader vectors in <c>conformance/lifecycle/</c> wherever a reader's verdict names a row's predicate, and R6.64's
 /// predicate names are the vectors' names. The table of which predicates are row-level is a literal here, checked against R6.64's own text; the vectors' verdicts are another artifact from the verifier.
 /// </summary>
 [SuppressMessage(
@@ -88,8 +88,8 @@ public sealed class ReaderVectorAgreementTests
     private static AppendedEvent Filler(long index) =>
         LogEvents.At(index, $"filler-{index.ToString(CultureInfo.InvariantCulture)}", DateTimeOffset.UnixEpoch, $"synthetic-filler-{index.ToString(CultureInfo.InvariantCulture)}", "synthetic.filler", "operator:synthetic", new JsonValue.Object([]));
 
-    /// <summary>The three vectors not asked (ruling 54), by name; each is asserted to be a directory of <c>conformance/lifecycle/</c>, since an exclusion of a name that does not exist excludes nothing.</summary>
-    private static readonly string[] NotAsked = ["foreign-identity-entry", "unknown-lifecycle-kind", "compromise-declaration-keys-share-position"];
+    /// <summary>The four vectors not asked (ruling 54; the fourth, <c>compromise-log-key-position-not-given</c>, is a key set no log can be: a log gives every entry a position, and a reader fails a log key with none closed, Amendment 7 ruling 82), by name; each is asserted to be a directory of <c>conformance/lifecycle/</c>, since an exclusion of a name that does not exist excludes nothing.</summary>
+    private static readonly string[] NotAsked = ["foreign-identity-entry", "unknown-lifecycle-kind", "compromise-declaration-keys-share-position", "compromise-log-key-position-not-given"];
 
     [Fact]
     public void LRV2_TheVerifierAgreesWithTheReaderVectors()
@@ -107,7 +107,7 @@ public sealed class ReaderVectorAgreementTests
             var predicate = expected.RootElement.TryGetProperty("predicate", out var p) ? p.GetString()! : string.Empty;
 
             // The two cases with no row of the stream to decide are not asked (a foreign identity's entry; a kind no stream holds), as the Rust fold excludes them by name.
-            // A third is a key set that no log can be: two declaration keys at one position. R6.64 reads "the log's own entries as the key set ... so that there is neither a key set that is not
+            // A third (and a fourth, a log key that gives no position) is a key set that no log can be: two declaration keys at one position. R6.64 reads "the log's own entries as the key set ... so that there is neither a key set that is not
             // supplied nor a position that is not given", and a log gives each entry a position of its own, so the nearest log (the second key after the last entry, the first key still first)
             // decides the row honoured and the reader's verdict, which the document's shape alone produces, has no log to agree with.
             if (NotAsked.Contains(name)) { classified++; continue; }

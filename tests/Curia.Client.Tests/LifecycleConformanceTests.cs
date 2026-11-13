@@ -173,7 +173,7 @@ public sealed class LifecycleConformanceTests
             .GetProperty("count").GetInt32();
 
         Assert.Equal(declared, CaseNames().Count);
-        Assert.Equal(82, declared);
+        Assert.Equal(84, declared);
     }
 
     [Fact]

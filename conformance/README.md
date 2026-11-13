@@ -534,7 +534,11 @@ declaring key itself: `declaration-signature-invalid`, the point being asked at 
 `kid` that state the same points: a log key by the key as the entry states it) (both `declaration-key-is-log-key`); `disputed`:
 `compromise-other-declaration-key-off-curve` (another declaration key at `log_index` 9), `compromise-log-key-off-curve` (a `keys` entry under another
 `kid`) and `compromise-declaration-kid-twice-at-one-position-same-key` (the declaring key's entry listed again at its own position with `use` `enc` and
-another `valid_from`: one key, so its position holds). Each runner compares the
+another `valid_from`: one key, so its position holds). Amendment 7 (rulings 79 and 82) adds three and regenerates two: `enrolment-names-another-agent` (the author's chain
+starts with an enrolment naming another agent: `failed`, `statement-mismatch`), `compromise-log-key-published-after-it` (the declaration key listed in `keys` at a
+`log_index` above the declaration's own, which does not undo it: `disputed`) and `compromise-log-key-position-not-given` (a `keys` entry for the declaring key with no
+`log_index`, which counts as below the declaration, fail closed: `failed`, `declaration-key-is-log-key`); the two off-curve log-key cases above now list their log key
+below the declaration, verdicts unchanged. Each runner compares the
 predicate as well as the verdict. The ES256 declaration signatures are pinned: `dotnet run --project
 tools/GenerateEnvelopeFixtures -- --compromise` generates a case once and keeps it.
 
@@ -594,8 +598,8 @@ forged row's index 2: with 2 it would be `broken-link`, which is a different def
 
 The family holds 53 cases. Vectors 45 to 49 (errata G68, Amendment 3) pin what R6.64's text gained: `rotation-authorized-by-compromised-key` and
 `retirement-of-a-compromised-key` (a key an honoured declaration names authorizes nothing from the declaration's index), `declaration-names-a-retired-key`
-(the declaration is honoured and `compromised` outranks `retired`), `declaration-key-is-a-log-key-published-after-it` (R6.62's log-key check reads the whole
-key set, so a `log.key` entry after the declaration still skips it; this pins today's reading) and `declaration-key-entry-kid-differs-from-its-jwk` (an entry
+(the declaration is honoured and `compromised` outranks `retired`), `declaration-key-is-a-log-key-published-after-it` (R6.62's log-key check reads the log keys
+published below the declaration, so a `log.key` entry after the declaration does not skip it; flipped to honoured by Amendment 7) and `declaration-key-entry-kid-differs-from-its-jwk` (an entry
 is a key only when its `kid` and its `jwk`'s `kid` are both strings and equal, whichever of the two a header names). `rotation-self-authorized` pins KF5
 (`authorized_by` equals `kid`: `statement-mismatch`). Vectors 50 and 51 (errata G68, Amendment 4) pin `enrolment-without-its-pair` (an enrolment with no pair after it is honoured and is the next row's previous entry, but binds no kid and no key, so a declaration of its kid is `kid-not-bound-to-agent` and a retirement `rotation-unauthorized`) and `malformed-key-entry-does-not-list-the-genuine-keys-kid` (an entry that is not a key lists nothing, so it does not displace the genuine key's earliest listing). Vectors 52 and 53 (errata G68, Amendment 7) pin `enrolment-names-another-agent` and `enrolment-payload-not-an-object`: the stream's first `agent.enrolled` is decided by R6.64's steps 1 and 4 as a row is, so one that is not an object or names another agent is skipped `statement-mismatch`, the stream has no root, and the pair after it is `broken-link` and binds nothing.
 

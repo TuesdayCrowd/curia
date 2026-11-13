@@ -742,7 +742,7 @@ impl Fold {
         }
         let published_at = position.unwrap_or(u64::MAX);
         // (d) A log key never declares: by kid, or by public key under another kid.
-        if log_keys.is_log_key(declaration_key) {
+        if log_keys.is_log_key(declaration_key, index) {
             return Err(ActaError::DeclarationKeyIsLogKey {
                 at: index,
                 kid: header_kid,

@@ -32,6 +32,10 @@ const NOT_A_ROW_OF_THE_STREAM: &[(&str, &str)] = &[
         "compromise-declaration-keys-share-position",
         "NOT_A_LOG: two keys at one position cannot occur in a log",
     ),
+    (
+        "compromise-log-key-position-not-given",
+        "NOT_A_LOG: a log gives each of its entries a position, so no log is a key set whose log key states none (a reader fails it closed, Amendment 7 ruling 82)",
+    ),
 ];
 
 /// Reader vectors where the reader's predicate and R6.64's text disagree. Empty since Amendment 3 (ruling 44): R6.64 states KF5, so the reader
@@ -226,7 +230,7 @@ fn reader_log(dir: &Path) -> Vec<LogEntry> {
 #[test]
 fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
-    assert_eq!(corpus.lifecycle.len(), 82);
+    assert_eq!(corpus.lifecycle.len(), 84);
 
     for (case, _) in NOT_A_ROW_OF_THE_STREAM {
         assert!(

@@ -296,10 +296,10 @@ internal sealed class LifecycleFold
         if (!DetachedJws.ReadProtectedHeader(declaration).TryGetValue(out var header, out _) || string.IsNullOrEmpty(header!.Kid))
             return LifecyclePredicates.DeclarationKeyUnpublished;
 
-        // R6.62's checks, in R6.62's order, over the log's own key entries: the key set is the whole log's.
+        // R6.62's checks, in R6.62's order, over the log's own key entries: the log-key check reads the log.key entries at a log index below the declaration's own (Amendment 7, ruling 82).
         var named = _world.DeclarationKeys.FirstOrDefault(k => string.Equals(k.Kid, header.Kid, StringComparison.Ordinal));
         if (named is null) return LifecyclePredicates.DeclarationKeyUnpublished;
-        if (_world.LogKeys.Any(k => string.Equals(k.Kid, named.Kid, StringComparison.Ordinal) || k.Key.SamePublicKey(named.Key))) return LifecyclePredicates.DeclarationKeyIsLogKey;
+        if (_world.LogKeys.Any(k => k.LogIndex < index && (string.Equals(k.Kid, named.Kid, StringComparison.Ordinal) || k.Key.SamePublicKey(named.Key)))) return LifecyclePredicates.DeclarationKeyIsLogKey;
         if (_world.DeclarationKeys.Any(k => k.LogIndex <= named.LogIndex && !string.Equals(k.Kid, named.Kid, StringComparison.Ordinal))) return LifecyclePredicates.DeclarationKeyNotFirst;
         if (named.LogIndex >= index) return LifecyclePredicates.DeclarationKeyUnpublished;
 

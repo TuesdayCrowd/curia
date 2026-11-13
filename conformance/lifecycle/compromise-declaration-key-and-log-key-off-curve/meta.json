@@ -1,7 +1,7 @@
 {
   "profile": "lifecycle-log",
   "requirement": "R6.62",
-  "note": "The declaration key is listed at 3 with x and y of 43 A each, and the keys member lists, beside the head key, an entry under another kid with the same x and y at 5. A log key by public key is the key as the entry states it (kty, crv, x and y, as written), whether or not the point lies on its curve, and R6.62's order asks it before the signature, so the declaration fails as a log key; a reader that reads an entry with no usable point as no key skips the step and fails at the signature. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
-  "post_index": 2,
+  "note": "The declaration key is listed at 4 with x and y of 43 A each, and the keys member lists, beside the head key, an entry under another kid with the same x and y at 2, below the declaration at 5. A log key by public key is the key as the entry states it (kty, crv, x and y, as written), whether or not the point lies on its curve, and R6.62's order asks it before the signature, so the declaration fails as a log key; a reader that reads an entry with no usable point as no key skips the step and fails at the signature. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 3,
   "agent": "agent://curia.example/tuesdaycrowd/scriptor"
 }

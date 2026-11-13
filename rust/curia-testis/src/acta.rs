@@ -624,12 +624,15 @@ impl LogKeys {
         self.declaration_keys.as_deref()
     }
 
-    /// Whether a declaration key is a log key (R6.62): by `kid`, or by public key under another `kid`, the key as the entry states it: its
-    /// `kty`, `crv`, `x` and `y` compared as written, whether or not the point lies on its curve.
-    pub fn is_log_key(&self, declaration_key: &LogKey) -> bool {
-        self.keys
-            .iter()
-            .any(|k| k.kid == declaration_key.kid || k.same_key(declaration_key))
+    /// Whether a declaration key is a log key for the declaration at `declaration_index` (R6.62): by `kid`, or by public key under another `kid`, the key as
+    /// the entry states it: its `kty`, `crv`, `x` and `y` compared as written, whether or not the point lies on its curve. Only the log keys the log had
+    /// published at the declaration count: those at a `log_index` below `declaration_index`, and one that gives no position, which cannot be shown to come
+    /// after it (Amendment 7, ruling 82).
+    pub fn is_log_key(&self, declaration_key: &LogKey, declaration_index: u64) -> bool {
+        self.keys.iter().any(|k| {
+            k.log_index.is_none_or(|at| at < declaration_index)
+                && (k.kid == declaration_key.kid || k.same_key(declaration_key))
+        })
     }
 
     /// The key published under `kid`: the last one, as the head's own lookup takes the key set's last match.

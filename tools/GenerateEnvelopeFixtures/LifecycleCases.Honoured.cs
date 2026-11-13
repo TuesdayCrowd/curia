@@ -623,15 +623,15 @@ internal static partial class LifecycleCases
                 keys: [(k0.Kid, "compromised")], bound: [k0.Kid]));
     }
 
-    /// <summary>Vector 48 (errata G68, ruling 47): R6.62's log-key check reads the key set, not a position.</summary>
+    /// <summary>Vector 48 (errata G68, ruling 47, flipped by Amendment 7 ruling 82): R6.62's log-key check reads the log keys published below the declaration.</summary>
     private static HCase HDeclarationKeyIsALogKeyPublishedAfterIt(string root, Key k0)
     {
         var (log, _) = DeclarationBase(k0);
         AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid], FromIndex: 1, Prev: 1), root, "declaration-key-is-a-log-key-published-after-it");
         PublishLogKey(log, ConformanceLogKeys.Declaration);
         return new HCase("declaration-key-is-a-log-key-published-after-it",
-            "The declaration key is published at 2, a log key at 3, and a declaration it signs is at 4; at 5 a log.key entry carries the declaration key itself. R6.62 reads the log key set, not a position, so the declaration is skipped as declaration-key-is-log-key although the entry that makes it so comes after it. This pins today's reading so that the lead of ruling 47 (a log.key appended after a genuine declaration silences it) is a decision and not a drift.",
-            log, Agent_(rows: [HRow.Skipped(4, KeyCompromised, "declaration-key-is-log-key")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+            "The declaration key is published at 2, a log key at 3, and a declaration it signs is at 4; at 5 a log.key entry carries the declaration key itself. R6.62's log-key check reads the log keys published below the declaration's own index (errata G68, Amendment 7 ruling 82), and this one is published after it, so the declaration is honoured: a log.key entry appended after a genuine declaration does not undo it. The decision is made (ruling 47's lead is closed); declaration-key-is-also-a-log-key, whose log key is at 3 and declaration at 4, pins the other side.",
+            log, Agent_(rows: [HRow.Honoured(4, KeyCompromised)], keys: [(k0.Kid, "compromised")], bound: [k0.Kid]));
     }
 
     /// <summary>Vector 49 (errata G68, ruling 46): a key entry is a key only if its kid and its jwk's kid are both strings and equal.</summary>
