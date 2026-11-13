@@ -227,7 +227,7 @@ public sealed class TokenEndpointRefusalTests(ForumFixture forum) : IClassFixtur
     /// <summary>
     /// A log reader that, once the host is up, refuses the forward read the token endpoint folds standings from. Since errata G68 (R6.64) the key the assertion names is resolved from
     /// the whole log too, by a forward read from the start that precedes the standings read (the order ULG18 (c) pins), so the reader serves the first whole-log read it is asked for
-    /// once it is refusing and refuses every forward read after it: the fault is where it was, at the endpoint's own read.
+    /// once it is refusing (its first page and any further page of it) and refuses every forward read after the second begins: the fault is where it was, at the endpoint's own read.
     /// </summary>
     private sealed class WholeLogUnreadable(IEventReader store, Func<bool> refusing) : IEventReader
     {
@@ -241,7 +241,7 @@ public sealed class TokenEndpointRefusalTests(ForumFixture forum) : IClassFixtur
 
         public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(
             EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
-            refusing() && (afterSeq.Value != 0 || Interlocked.Increment(ref _wholeLogReads) > 1)
+            refusing() && (afterSeq.Value == 0 ? Interlocked.Increment(ref _wholeLogReads) : Volatile.Read(ref _wholeLogReads)) > 1
                 ? Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(Refused))
                 : store.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }

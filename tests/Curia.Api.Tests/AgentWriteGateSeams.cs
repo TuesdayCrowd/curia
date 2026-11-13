@@ -218,7 +218,7 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     internal long RequestsStarted => Volatile.Read(ref _requestsStarted);
 
     /// <summary>
-    /// The forward reads made on the request path of requests that began after request number <paramref name="afterRequest"/>: a read by the host's background
+    /// The whole-log reads (forward reads from the start) made on the request path of requests that began after request number <paramref name="afterRequest"/>: a read by the host's background
     /// work, or by a request begun earlier, is not counted. This is "what B read".
     /// </summary>
     internal int ForwardReadsOfRequestsAfter(long afterRequest) => _readRequests.Count(r => r > afterRequest);
@@ -398,7 +398,9 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _reads);
-        _readRequests.Enqueue(CurrentRequest.Value);
+        // A whole-log read is one forward read from the start and one more for each further page (EventReaderExtensions.PageSize): only the first is recorded, or a read of a log
+        // longer than a page would count as two. The class's log passes a page before its last facts run, and BRB17 then counted B's one key read as 2.
+        if (afterSeq.Value == 0) _readRequests.Enqueue(CurrentRequest.Value);
         return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
 }

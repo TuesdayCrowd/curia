@@ -116,7 +116,7 @@ internal sealed class LateInjectingStore(IEventStore inner) : IEventStore
     /// <summary>How many reads of one stream the store has been asked for since it was made (errata G58's ASA37 counts the reads a request makes by differences of these).</summary>
     internal int ReadsByAggregate => Volatile.Read(ref _byAggregate);
 
-    /// <summary>How many forward reads of the whole log the store has been asked for since it was made.</summary>
+    /// <summary>How many reads of the whole log (forward reads from the start) the store has been asked for since it was made.</summary>
     internal int ReadsForward => Volatile.Read(ref _forward);
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
@@ -127,7 +127,8 @@ internal sealed class LateInjectingStore(IEventStore inner) : IEventStore
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _forward);
+        // One per whole-log read: its first page, from the start. A further page of a log longer than EventReaderExtensions.PageSize is the same read.
+        if (afterSeq.Value == 0) Interlocked.Increment(ref _forward);
         return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
 }
