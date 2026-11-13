@@ -107,11 +107,14 @@ public sealed class ForgedRowsAreInertTests
         var (harness, victim) = await EnrolledAsync().ConfigureAwait(true);
         var index = await AppendShapeAsync(harness, victim, shape).ConfigureAwait(true);
 
-        var verified = VerifierOf(harness).OfLog(await LogAsync(harness).ConfigureAwait(true)).For(Typed.Agent(Alice));
+        // The log is read first (set-up). The act under test is the verifier deciding it, and a throw is what it did: the one assertion says so (Amendment 9, ruling 113 (3)).
+        var log = await LogAsync(harness).ConfigureAwait(true);
+        VerifiedLifecycle? verified = null;
+        var thrown = Record.Exception(() => verified = VerifierOf(harness).OfLog(log).For(Typed.Agent(Alice)));
 
         Assert.True(
-            verified.Skipped.Any(r => r.LogIndex == index && r.Predicate == predicate) && verified.Honoured.StatusNow(victim.Kid) == KeyStatus.Active,
-            $"Expected: a lifecycle, row {index} skipped {predicate}, {victim.Kid} Active  Actual: {Describe(verified)} ({victim.Kid} {verified.Honoured.StatusNow(victim.Kid)})");
+            thrown is null && verified!.Skipped.Any(r => r.LogIndex == index && r.Predicate == predicate) && verified.Honoured.StatusNow(victim.Kid) == KeyStatus.Active,
+            $"Expected: a lifecycle, row {index} skipped {predicate}, {victim.Kid} Active  Actual: {(thrown is not null ? $"For threw {thrown.GetType().Name}: {thrown.Message}" : $"{Describe(verified!)} ({victim.Kid} {verified!.Honoured.StatusNow(victim.Kid)})")}");
     }
 
     private static async Task<(KeyActHarness Harness, TestIdentity Victim, TestIdentity Attacker, LogBoundKeys Keys)> WithAttackerKeyHeldAsync()

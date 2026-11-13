@@ -58,19 +58,21 @@ public sealed class WritersRoundTripTests
         var (b1, b2) = (TestIdentity.New("bob-1"), TestIdentity.New("bob-2"));
         await harness.EnrollAsync(Alice, a1).ConfigureAwait(true);
         await harness.EnrollAsync(Bob, b1).ConfigureAwait(true);
-        var written = new List<long>
+
+        // The four writers' results are the act under test: each is recorded, ok or the error's type, and compared below. None is passed through Require, which would turn a writer
+        // saying not-honoured (the fail-open this probe guards, said by the writer) into an exception that names no expectation (Amendment 9, ruling 113 (4)).
+        var writers = new List<string>
         {
-            Require(await harness.RotateAsync(Alice, a1, a2).ConfigureAwait(true)).LogIndex,
-            Require(await harness.RotateAsync(Bob, b1, b2).ConfigureAwait(true)).LogIndex,
+            (await harness.RotateAsync(Alice, a1, a2).ConfigureAwait(true)).Match(_ => "ok", e => e.Type),
+            (await harness.RotateAsync(Bob, b1, b2).ConfigureAwait(true)).Match(_ => "ok", e => e.Type),
+            (await harness.RetireAsync(Alice, a1).ConfigureAwait(true)).Match(_ => "ok", e => e.Type),
         };
-        written.Add(Require(await harness.RetireAsync(Alice, a1).ConfigureAwait(true)).LogIndex);
 
         using var signer = new InMemoryLifecycleStatementSigner();
         await PublishAsync(harness, signer).ConfigureAwait(true);
         var bindingOfBob1 = (await LogAsync(harness).ConfigureAwait(true)).Select((e, i) => (e, i)).First(x => x.e.AggregateId.Value == Bob && x.e.Event.Type.Value == AgentStandingProjector.KeyBoundType).i;
-        var declared = Require(await new DeclareCompromise(harness.Events, VerifierOf(harness), harness.Clock)
-            .DeclareAsync(Typed.Agent(Bob), Typed.Kid(b1.Kid), fromIndex: bindingOfBob1, CompromiseReason.OwnerReported, signer, Operator, Ct).ConfigureAwait(true));
-        written.Add(declared.LogIndex);
+        writers.Add((await new DeclareCompromise(harness.Events, VerifierOf(harness), harness.Clock)
+            .DeclareAsync(Typed.Agent(Bob), Typed.Kid(b1.Kid), fromIndex: bindingOfBob1, CompromiseReason.OwnerReported, signer, Operator, Ct).ConfigureAwait(true)).Match(_ => "ok", e => e.Type));
 
         var log = await LogAsync(harness).ConfigureAwait(true);
         var verified = VerifierOf(harness).OfLog(log);
@@ -79,13 +81,13 @@ public sealed class WritersRoundTripTests
         var skipped = verified.Skipped().Select(r => r.LogIndex).Concat(alice.Skipped.Select(r => r.LogIndex)).Concat(bob.Skipped.Select(r => r.LogIndex)).ToArray();
 
         var actual =
-            $"skipped [{string.Join(", ", skipped)}]; "
+            $"writers [{string.Join(", ", writers)}]; "
+            + $"skipped [{string.Join(", ", skipped)}]; "
             + $"alice-1 {alice.Honoured.StatusNow(a1.Kid)}, alice-2 {alice.Honoured.StatusNow(a2.Kid)}, bob-1 {bob.Honoured.StatusNow(b1.Kid)}, bob-2 {bob.Honoured.StatusNow(b2.Kid)}; "
             + $"honoured rows {alice.Honoured.Entries.Length}+{bob.Honoured.Entries.Length}";
         WholeText.Same(
-            "skipped []; alice-1 Retired, alice-2 Active, bob-1 Compromised, bob-2 Compromised; honoured rows 4+4",
+            "writers [ok, ok, ok, ok]; skipped []; alice-1 Retired, alice-2 Active, bob-1 Compromised, bob-2 Compromised; honoured rows 4+4",
             actual);
-        _ = written;
     }
     /// <summary>
     /// A store that replaces one member of the payload of every entry it appends (the writers' signature member) before delegating: the row lands in the log with a signature no key made, which is a row the
@@ -164,9 +166,10 @@ public sealed class WritersRoundTripTests
         var (a1, a2) = (TestIdentity.New("alice-1"), TestIdentity.New("alice-2"));
         await harness.EnrollAsync(Alice, a1).ConfigureAwait(true);
 
-        var rotated = Require(await harness.RotateAsync(Alice, a1, a2).ConfigureAwait(true));
+        // The writer's result is the act under test and is not passed through Require: a refusal is said by the one assertion (Amendment 9, ruling 113 (5)).
+        var rotated = await harness.RotateAsync(Alice, a1, a2).ConfigureAwait(true);
 
         var honoured = VerifierOf(harness).OfLog(await LogAsync(harness).ConfigureAwait(true)).For(Typed.Agent(Alice)).Honoured.Entries.Length;
-        Assert.Equal("rotation at 2; honoured 3", $"rotation at {rotated.LogIndex}; honoured {honoured}");
+        Assert.Equal("rotation at 2; honoured 3", $"{rotated.Match(r => $"rotation at {r.LogIndex}", e => e.Type)}; honoured {honoured}");
     }
 }

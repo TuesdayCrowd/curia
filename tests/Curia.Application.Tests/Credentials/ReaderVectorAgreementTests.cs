@@ -127,29 +127,35 @@ public sealed class ReaderVectorAgreementTests
             // decides the row honoured and the reader's verdict, which the document's shape alone produces, has no log to agree with.
             if (NotAsked.Contains(name)) { classified++; notAsked++; continue; }
 
-            var verified = verifier.OfLog(LogOf(log)).For(Typed.Agent(log.Agent));
-            var skipped = verified.Skipped;
-            var described = skipped.Length == 0 ? "no row skipped" : string.Join(", ", skipped.Select(r => $"{r.LogIndex} {r.Predicate}"));
+            // The act under test is the verifier deciding the case. A throw is what it did: the case keeps its class (which reads only the expected verdict and predicate), so the count pin
+            // below does not fail first, and its failure line names it. A case that threw has no decision, and is never read as "no row skipped" (Amendment 9, ruling 113 (2)).
+            var events = LogOf(log);
+            VerifiedLifecycle? verified = null;
+            var thrown = Record.Exception(() => verified = verifier.OfLog(events).For(Typed.Agent(log.Agent)));
+            var skipped = verified?.Skipped ?? [];
+            var described = thrown is not null
+                ? $"For threw {thrown.GetType().Name}: {thrown.Message}"
+                : skipped.Length == 0 ? "no row skipped" : string.Join(", ", skipped.Select(r => $"{r.LogIndex} {r.Predicate}"));
 
             if (verdict == "failed" && RowLevel.Contains(predicate, StringComparer.Ordinal))
             {
                 classified++;
                 compared++;
-                if (skipped.Length == 0 || skipped[0].Predicate != predicate)
+                if (thrown is not null || skipped.Length == 0 || skipped[0].Predicate != predicate)
                     failures.Add($"{name}: Expected: skipped {predicate} at the row  Actual: {described}");
             }
             else if (verdict == "could-not-check" && UnknownKind.Contains(predicate, StringComparer.Ordinal))
             {
                 classified++;
                 couldNotCheck++;
-                if (!skipped.Any(r => r.Predicate == predicate))
+                if (thrown is not null || !skipped.Any(r => r.Predicate == predicate))
                     failures.Add($"{name}: Expected: a row skipped {predicate}  Actual: {described}");
             }
             else if (verdict is "verified" or "disputed")
             {
                 classified++;
                 compared++;
-                if (skipped.Length > 0)
+                if (thrown is not null || skipped.Length > 0)
                     failures.Add($"{name}: Expected: no row skipped  Actual: {described}");
             }
             else if (About.Contains(predicate, StringComparer.Ordinal))
@@ -158,6 +164,8 @@ public sealed class ReaderVectorAgreementTests
                 about++;
                 if (RowLevel.Contains(predicate, StringComparer.Ordinal) || UnknownKind.Contains(predicate, StringComparer.Ordinal))
                     failures.Add($"{name}: {predicate} is listed as about the post and is a row predicate");
+                if (thrown is not null)
+                    failures.Add($"{name}: Expected: For does not throw  Actual: {described}");
             }
         }
 
