@@ -429,8 +429,11 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
             _ = await holder;
             _ = await Task.WhenAll(waiting);
 
-            var expected = $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {PublishedBudgetGate.InFlightType()} within 2 s while A is still parked";
-            var refusedAtOnce = BudgetBursts.Kind(overflow).EndsWith(PublishedBudgetGate.InFlightType(), StringComparison.Ordinal) && elapsed < TimeSpan.FromSeconds(2) && !holderDone;
+            // "At once" is judged against the published wait, not a fixed figure: a request that queued would be answered only when R7.27's wait ran out,
+            // so half of it separates the two with room for a loaded runner (CI answered in 2,007 ms once against the old fixed 2 s).
+            var atOnce = PublishedBudgetGate.Wait() / 2;
+            var expected = $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {PublishedBudgetGate.InFlightType()} within {Ms(atOnce)}, half the wait, while A is still parked";
+            var refusedAtOnce = BudgetBursts.Kind(overflow).EndsWith(PublishedBudgetGate.InFlightType(), StringComparison.Ordinal) && elapsed < atOnce && !holderDone;
             Said(
                 expected,
                 refusedAtOnce ? expected : $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {BudgetBursts.Kind(overflow)} after {Ms(elapsed)} while A is {(holderDone ? "no longer parked" : "still parked")}");
