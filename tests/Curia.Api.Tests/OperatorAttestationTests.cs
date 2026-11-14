@@ -32,7 +32,8 @@ public sealed class OperatorAttestationTests(ForumFixture forum) : IClassFixture
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct);
+        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+            readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
         return (exit, stdout.ToString(), stderr.ToString());
     }
 

@@ -38,29 +38,56 @@ public sealed class OperatorActsOperatorTests(ForumFixture forum) : IClassFixtur
 
     // ---- OAS7 ----------------------------------------------------------------------------------
 
-    /// <summary>OAS7 (control of the whole genuine path, red until it exists): <c>publish-operator-key</c> with the key in the environment publishes it once. On the tree the verb does not exist.</summary>
+    private static string OperatorKeyPem() => OperatorActsSigningKey.GeneratePem();
+
+    /// <summary>
+    /// OAS7: <c>publish-operator-key</c> with the key in the environment publishes it once; a second run is refused (exit 2, <c>curia/keys/operator-key-already-published</c>) and appends nothing; and the
+    /// key set the Forum serves lists the key's <c>kid</c> under <c>operator_keys</c>. A database of its own: the first operator key a log publishes is the one, so a fixture shared with the writers' key
+    /// would be refused.
+    /// </summary>
     [Fact]
-    public async Task OAS7_TheOperatorKeyCanBePublished()
+    public async Task OAS7_TheOperatorKeyCanBePublishedOnceAndIsServed()
     {
-        var run = await ProcessAsync(forum, new() { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = Pem() }, "publish-operator-key", "--by", "ops");
-        OperatorActsApi.Log($"OAS7 publish-operator-key: exit {run.Exit}; stderr[{run.Err.Trim().Replace('\n', '|')}]");
-        WholeText.Same("exit 0", $"exit {run.Exit}");
+        await using var own = await VerifiedStopSupport.NewAsync();
+        var api = new OperatorActsApi(own);
+        var env = new Dictionary<string, string> { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = OperatorKeyPem() };
+
+        var first = await ProcessAsync(own, env, "publish-operator-key", "--by", "ops");
+        var kid = System.Text.RegularExpressions.Regex.Match(first.Out, @"^published operator key\s+(\S+)", System.Text.RegularExpressions.RegexOptions.Multiline).Groups[1].Value;
+        var before = await api.EventCountAsync(Ct);
+        var second = await ProcessAsync(own, env, "publish-operator-key", "--by", "ops");
+        var after = await api.EventCountAsync(Ct);
+
+        using var served = JsonDocument.Parse((await api.GetBodyAsync("/v1/log/jwks", Ct))[4..]);
+        var listed = served.RootElement.GetProperty("operator_keys").EnumerateArray().Select(k => k.GetProperty("kid").GetString()).ToArray();
+        OperatorActsApi.Log($"OAS7: first exit {first.Exit} [{first.Out.Trim().Replace('\n', '|')}]; second exit {second.Exit} [{second.Err.Trim()}]");
+
+        WholeText.Same(
+            "first exit 0, a kid printed; second exit 2 (curia/keys/operator-key-already-published), nothing appended; operator_keys lists that kid once",
+            $"first exit {first.Exit}, {(kid.Length > 0 ? "a kid printed" : "no kid printed")}; second exit {second.Exit} ({ErrorType(second.Err)}), {(after == before ? "nothing appended" : "appended")}; operator_keys lists {(listed.Count(k => k == kid) == 1 ? "that kid once" : "[" + string.Join(", ", listed) + "]")}");
     }
 
     // ---- OAS16 ---------------------------------------------------------------------------------
 
+    /// <summary>
+    /// OAS16: a verb that signs refuses an environment that holds another key. The control is a correction of Task 1's: it ran <c>attest-owner</c> with a key nothing had published and expected exit 0,
+    /// which neither design can satisfy (a key the log has not published is refused, R11.97); the arrange step now publishes the key first, and the control is the verb with that one key in the environment.
+    /// </summary>
     [Fact]
     public async Task OAS16_AVerbThatSignsRefusesAnEnvironmentThatHoldsAnotherKey()
     {
-        var api = new OperatorActsApi(forum);
+        await using var own = await VerifiedStopSupport.NewAsync();
+        var api = new OperatorActsApi(own);
         var agent = await api.GenuineAsync("attested", Ct);
         var post = await api.QuestionAsync("moderated", Ct);
-        var both = new Dictionary<string, string> { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = Pem(), ["CURIA_LOG_SIGNING_KEY_PEM"] = Pem() };
-        var viaDeclaration = new Dictionary<string, string> { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = Pem(), ["CURIA_DECLARATION_SIGNING_KEY_PEM"] = DeclarationSigningKey.GeneratePem() };
+        var pem = OperatorKeyPem();
+        Assert.Equal(0, (await ProcessAsync(own, new() { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = pem }, "publish-operator-key", "--by", "ops")).Exit);
+        var both = new Dictionary<string, string> { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = pem, ["CURIA_LOG_SIGNING_KEY_PEM"] = Pem() };
+        var viaDeclaration = new Dictionary<string, string> { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = pem, ["CURIA_DECLARATION_SIGNING_KEY_PEM"] = DeclarationSigningKey.GeneratePem() };
 
-        // Control: the verb with one key in the environment runs (and appends).
+        // Control: the verb with the published key alone in the environment runs (and appends).
         var before = await api.EventCountAsync(Ct);
-        var control = await ProcessAsync(forum, new() { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = Pem() }, "attest-owner", "--agent", agent.Agent.AgentId, "--owner", "owner:control", "--by", "ops");
+        var control = await ProcessAsync(own, new() { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = pem }, "attest-owner", "--agent", agent.Agent.AgentId, "--owner", "owner:control", "--by", "ops");
         Assert.True(control.Exit == 0, $"the control attest-owner did not run: exit {control.Exit} {control.Err}");
         Assert.Equal(before + 1, await api.EventCountAsync(Ct));
 
@@ -69,17 +96,22 @@ public sealed class OperatorActsOperatorTests(ForumFixture forum) : IClassFixtur
         {
             ("attest-owner with the log key", both, ["attest-owner", "--agent", (await api.GenuineAsync("t1", Ct)).Agent.AgentId, "--owner", "owner:x", "--by", "ops"]),
             ("moderate with the log key", both, ["moderate", "--post", post.Id, "--category", "spam", "--effect", "withhold", "--reason", "probe", "--by", "ops"]),
+            ("attest-owner with the declaration key", viaDeclaration, ["attest-owner", "--agent", agent.Agent.AgentId, "--owner", "owner:control", "--by", "ops"]),
+            ("moderate with the declaration key", viaDeclaration, ["moderate", "--post", post.Id, "--category", "spam", "--effect", "withhold", "--reason", "probe", "--by", "ops"]),
             ("publish-operator-key with the declaration key", viaDeclaration, ["publish-operator-key", "--by", "ops"]),
-            ("sign-head with the operator key", new() { ["CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"] = Pem(), ["CURIA_LOG_SIGNING_KEY_PEM"] = Pem() }, ["sign-head", "--by", "ops"]),
+            ("publish-operator-key with the log key", both, ["publish-operator-key", "--by", "ops"]),
+            ("sign-head with the operator key", both, ["sign-head", "--by", "ops"]),
         })
         {
             var rows = await api.EventCountAsync(Ct);
-            var run = await ProcessAsync(forum, env, args);
+            var run = await ProcessAsync(own, env, args);
             results.Add($"{name}: exit {run.Exit}, {(await api.EventCountAsync(Ct) == rows ? "nothing appended" : "appended")}");
         }
 
         WholeText.Same(
-            "attest-owner with the log key: exit 3, nothing appended; moderate with the log key: exit 3, nothing appended; publish-operator-key with the declaration key: exit 3, nothing appended; sign-head with the operator key: exit 3, nothing appended",
+            "attest-owner with the log key: exit 3, nothing appended; moderate with the log key: exit 3, nothing appended; attest-owner with the declaration key: exit 3, nothing appended; "
+            + "moderate with the declaration key: exit 3, nothing appended; publish-operator-key with the declaration key: exit 3, nothing appended; publish-operator-key with the log key: exit 3, nothing appended; "
+            + "sign-head with the operator key: exit 3, nothing appended",
             string.Join("; ", results));
     }
 
@@ -107,6 +139,23 @@ public sealed class OperatorActsOperatorTests(ForumFixture forum) : IClassFixtur
         var listed = run.Out.Split('\n').Count(l => l.StartsWith("skipped  log_index=", StringComparison.Ordinal));
         var leaked = (run.Out + run.Err).Contains(Canary, StringComparison.Ordinal);
         WholeText.Same("exit 7; 2 skipped rows listed; no payload text", $"exit {run.Exit}; {listed} skipped rows listed; {(leaked ? "a payload member leaked" : "no payload text")}");
+
+        // The count leg: one honoured and one skipped act row and one skipped lifecycle row. The honoured number is the lifecycle rows the log honours (the agent's enrolment and its key binding: 2) plus the
+        // one honoured act row (the genuine attestation: 1); the skipped number is the skipped act row and the skipped lifecycle row (2). It lists both rows, in log order, and names no payload text.
+        await using var counted = await VerifiedStopSupport.NewAsync();
+        var countedApi = new OperatorActsApi(counted);
+        var holder = await countedApi.GenuineAsync("counted", Ct);
+        await countedApi.GenuineAttest(holder.Agent.AgentId, Ct, "owner:" + Canary);
+        await countedApi.ForgeAttestationNowAsync(holder.Agent.AgentId, "owner:forged-" + Canary, Ct);
+        await VerifiedStopSupport.InsertRowAsync(counted, "agent.key-retired", holder.Agent.AgentId, VerifiedStopSupport.ForgedRetirement(holder.Agent.AgentId, holder.Agent.Kid), Ct);
+        var both = await VerifiedStopSupport.OperatorAsync(counted, Ct, ["lifecycle-audit"]);
+        var lines = both.Out.Split((char)10, StringSplitOptions.RemoveEmptyEntries);
+        OperatorActsApi.Log($"OAS21 count leg: exit {both.Exit}; stdout[{both.Out.Replace("\n", "|")}]");
+
+        WholeText.Same(
+            "exit 7; honoured 3  skipped 2; the rows listed are agent.owner-attested then agent.key-retired, in log order; no payload text",
+            $"exit {both.Exit}; {lines[0]}; the rows listed are {string.Join(" then ", lines.Skip(1).Select(l => System.Text.RegularExpressions.Regex.Match(l, @"type=(\S+)").Groups[1].Value))}, in log order; "
+            + ((both.Out + both.Err).Contains(Canary, StringComparison.Ordinal) ? "a payload member leaked" : "no payload text"));
     }
 
     /// <summary>
@@ -232,6 +281,49 @@ public sealed class OperatorActsOperatorTests(ForumFixture forum) : IClassFixtur
             $"withhold exit {withhold.Exit}{(withhold.Exit == 0 ? " (recorded)" : " " + ErrorType(withhold.Err))}; restore exit {restore.Exit}; post {(int)get.StatusCode}");
         _ = HttpStatusCode.OK;
         _ = JsonDocument.Parse("{}");
+    }
+
+    // ---- OAS32 ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// OAS32, the comparison half: what R11.97 says, read from the errata, against what the tool says. The problem types, the variable, the verbs and the exit numbers are parsed out of the requirement's
+    /// paragraph; each problem type must be a constant the tool's code carries, the variable and every verb must be in <c>--help</c>, and the three exit numbers must be the tool's. It compares what the tool
+    /// says with what the errata says; it runs no verb that signs.
+    /// </summary>
+    [Fact]
+    public async Task OAS32_TheToolSaysWhatR11_97Says()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Curia.sln"))) dir = dir.Parent;
+        var paragraph = (await File.ReadAllLinesAsync(Path.Combine(dir!.FullName, "curia-whitepaper-ERRATA-AND-ADDENDUM.md"), Ct)).Single(l => l.StartsWith("**R11.97**", StringComparison.Ordinal));
+        var tokens = System.Text.RegularExpressions.Regex.Matches(paragraph, "`([^`]+)`").Select(m => m.Groups[1].Value).ToArray();
+
+        var types = tokens.Where(t => t.StartsWith("curia/", StringComparison.Ordinal)).Distinct().Order(StringComparer.Ordinal).ToArray();
+        var variables = tokens.Where(t => System.Text.RegularExpressions.Regex.IsMatch(t, "^CURIA_[A-Z_]+$")).Distinct().ToArray();
+        var verbs = tokens
+            .Where(t => !t.StartsWith("curia/", StringComparison.Ordinal) && !t.StartsWith("CURIA_", StringComparison.Ordinal))
+            .Select(t => t.Replace("curia-operator ", string.Empty, StringComparison.Ordinal).Split(' ')[0])
+            .Where(t => System.Text.RegularExpressions.Regex.IsMatch(t, "^[a-z]+(-[a-z]+)*$"))
+            .Distinct().Order(StringComparer.Ordinal).ToArray();
+        var exits = System.Text.RegularExpressions.Regex.Matches(paragraph, @"exit (\d)").Select(m => int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)).Distinct().Order().ToArray();
+
+        var carried = new[] { Curia.Application.Credentials.ActErrors.NotHonouredType, Curia.Application.Credentials.KeyActErrors.OperatorKeyNotPublishedType, Curia.Application.Credentials.KeyActErrors.LogKeyIsOperatorKeyType }
+            .Order(StringComparer.Ordinal).ToArray();
+        var help = await OperatorAsync();
+        var missing = verbs.Where(v => !help.Contains(v, StringComparison.Ordinal)).Concat(variables.Where(v => !help.Contains(v, StringComparison.Ordinal))).ToArray();
+
+        WholeText.Same(
+            $"types {string.Join(", ", carried)}; variable CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM; verbs attest-owner, lifecycle-audit, moderate, publish-operator-key, sign-head; exits 2, 3, 7; missing from --help: none; ExitCode 2, 3, 7",
+            $"types {string.Join(", ", types)}; variable {string.Join(", ", variables)}; verbs {string.Join(", ", verbs)}; exits {string.Join(", ", exits)}; missing from --help: {(missing.Length == 0 ? "none" : string.Join(", ", missing))}; "
+            + $"ExitCode {ExitCode.Refused}, {ExitCode.Environment}, {ExitCode.LifecycleRowsSkipped}");
+
+        async Task<string> OperatorAsync()
+        {
+            using var so = new StringWriter();
+            using var se = new StringWriter();
+            _ = await OperatorCommands.RunAsync(["--help"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, so, se, Ct);
+            return so.ToString();
+        }
     }
 
     private static string ErrorType(string stderr)

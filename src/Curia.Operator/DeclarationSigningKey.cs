@@ -1,7 +1,5 @@
-using System.Buffers.Text;
 using System.Security.Cryptography;
 using Curia.Application.Credentials;
-using Curia.AuthN.Dpop;
 using Curia.Canon.Json;
 using Curia.Domain.Primitives;
 
@@ -27,50 +25,15 @@ public sealed class DeclarationSigningKey : IDisposable, ILifecycleStatementSign
 
     public static DeclarationSigningKey FromPem(string pem)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(pem);
-
-        var key = ECDsa.Create();
-        try
-        {
-            key.ImportFromPem(pem);
-            var parameters = key.ExportParameters(includePrivateParameters: false);
-            if (parameters.Q.X is not { Length: 32 } x || parameters.Q.Y is not { Length: 32 } y)
-            {
-                throw new InvalidOperationException(
-                    "The declaration signing key must be an ECDSA P-256 key: ES256 is P-256 by definition (RFC 7518 §3.4).");
-            }
-
-            return new DeclarationSigningKey(key, JwkThumbprint.Compute(new Jwk.EcP256(x, y)));
-        }
-        catch
-        {
-            key.Dispose();
-            throw;
-        }
+        var (key, kid) = EcKeyMaterial.Import(pem, "The declaration signing key");
+        return new DeclarationSigningKey(key, kid);
     }
 
     /// <summary>A fresh P-256 key as PEM -- the persistable form, never a live key; see <c>LogSigningKey.GeneratePem</c>.</summary>
-    public static string GeneratePem()
-    {
-        using var generated = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        return generated.ExportPkcs8PrivateKeyPem();
-    }
+    public static string GeneratePem() => EcKeyMaterial.GeneratePem();
 
     /// <summary>The public JWK a <c>log.declaration-key</c> entry publishes (RFC 7518 §6.2.1's EC form), as a canonicalizable value.</summary>
-    public JsonValue.Object PublicJwk()
-    {
-        var parameters = _key.ExportParameters(includePrivateParameters: false);
-        return new JsonValue.Object(
-        [
-            new("alg", new JsonValue.String("ES256")),
-            new("crv", new JsonValue.String("P-256")),
-            new("kid", new JsonValue.String(Kid)),
-            new("kty", new JsonValue.String("EC")),
-            new("use", new JsonValue.String("sig")),
-            new("x", new JsonValue.String(Base64Url.EncodeToString(parameters.Q.X!))),
-            new("y", new JsonValue.String(Base64Url.EncodeToString(parameters.Q.Y!))),
-        ]);
-    }
+    public JsonValue.Object PublicJwk() => EcKeyMaterial.PublicJwk(_key, Kid);
 
     /// <summary>
     /// The port <see cref="DeclareCompromise"/> signs through (R6.26 rev., R6.62): ES256 in RFC 7518 section 3.4's

@@ -347,12 +347,16 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
     public async Task OAS20_TheLogKeySetCarriesOperatorKeys()
     {
         var api = Api;
+
+        // Task 4 (a literal that moves by the one log.operator-key event): the fixture publishes its own operator key before its first signed act, and which test of this class meets the log first
+        // is not this probe's to know, so the key is published here and the member is expected to carry that one entry (it was an empty array while no writer signed).
+        await forum.OperatorActsKeyAsync(Ct);
         var body = await api.GetBodyAsync("/v1/log/jwks", Ct);
         var json = body[(body.IndexOf(' ') + 1)..];
         using var doc = JsonDocument.Parse(json);
         var present = doc.RootElement.TryGetProperty("operator_keys", out var keys);
-        var actual = !present ? "operator_keys member absent" : keys.ValueKind == JsonValueKind.Array && keys.GetArrayLength() == 0 ? "operator_keys present (an empty array)" : "operator_keys present (" + keys + ")";
-        WholeText.Same("operator_keys present (an empty array)", actual);
+        var actual = !present ? "operator_keys member absent" : keys.ValueKind == JsonValueKind.Array && keys.GetArrayLength() == 1 ? "operator_keys present (one entry)" : "operator_keys present (" + keys + ")";
+        WholeText.Same("operator_keys present (one entry)", actual);
         _ = Probe.Unrelated();
     }
 }

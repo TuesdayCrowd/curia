@@ -1,3 +1,4 @@
+using Curia.Application.Tests.OperatorActs;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -255,7 +256,7 @@ public sealed class SearchProjectorTests
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await new EnrollAgent(store, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Author), TestKeys.Es256("alice-1"), ct));
-        Require(await new AttestOwner(store, clock).RecordAsync(
+        Require(await SignedActWriters.Attest(store, clock).RecordAsync(
             Curia.Domain.Primitives.Boundary.AgentId.Parse(Author),
             Require(OwnerId.Create("https://owners.example/acme")),
             true,

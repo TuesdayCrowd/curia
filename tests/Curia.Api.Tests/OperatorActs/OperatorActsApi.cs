@@ -2,6 +2,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Curia.Application.Ports;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
@@ -287,12 +288,22 @@ internal sealed class OperatorActsApi
     internal Task ForgeAttestationNowAsync(string agentId, string owner, CancellationToken ct, bool verified = true) =>
         ForgeAttestationAsync(agentId, owner, verified, _forum.Now, ct);
 
-    internal async Task<(int Exit, string Out, string Err)> OperatorAsync(CancellationToken ct, params string[] args)
+    internal Task<(int Exit, string Out, string Err)> OperatorAsync(CancellationToken ct, params string[] args) => OperatorWithKeysAsync(args, ct);
+
+    /// <summary>
+    /// The operator tool run in-process with the environment a test states. The operator-acts key defaults to the fixture's (published once, as the fixture's writers' is) for <c>attest-owner</c> and
+    /// <c>moderate</c>, and to none for any other verb; a test that needs another key, or a mixed environment, hands the readers itself.
+    /// </summary>
+    internal async Task<(int Exit, string Out, string Err)> OperatorWithKeysAsync(
+        string[] args, CancellationToken ct, Func<string?>? operatorActsKey = null, Func<string?>? logKey = null, Func<string?>? declarationKey = null, ILifecycleAppendGate? gate = null)
     {
         using var so = new StringWriter();
         using var se = new StringWriter();
         var exit = await Curia.OperatorTool.OperatorCommands.RunAsync(
-            args, _forum.ConnectionString, _forum.Clock, _forum.PermissiveGate(), Curia.OperatorTool.OperatorCommands.LoadDeclarationSigner, so, se, ct);
+            args, _forum.ConnectionString, _forum.Clock, gate ?? _forum.PermissiveGate(), Curia.OperatorTool.OperatorCommands.LoadDeclarationSigner, so, se, ct,
+            readLogSigningKeyPem: logKey,
+            readDeclarationSigningKeyPem: declarationKey,
+            readOperatorActsSigningKeyPem: operatorActsKey ?? await _forum.OperatorActsKeyForAsync(args, ct));
         return (exit, so.ToString(), se.ToString());
     }
 

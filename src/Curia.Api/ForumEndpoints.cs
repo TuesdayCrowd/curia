@@ -3628,7 +3628,7 @@ public static class ForumEndpoints
     /// slug; a refusal the table does not list is the Forum's, 500, never a 4xx that tells an agent its
     /// request was at fault. Errata G67: the three declaration-key refusals (<c>declaration-key-not-published</c>, <c>declaration-key-is-log-key</c> and
     /// <c>declaration-key-already-published</c>) are the operator tool's, and no route reaches them; they are listed at 409 because
-    /// <c>R4_18_EveryRefusalTheUseCasesReturnIsMappedByTheRoutes</c> holds every <c>KeyActErrors</c> type to a status other than 500 (Amendment 3 ruling 42). <c>not-honoured</c> (Amendment 7 ruling 81) is the one deliberate 500: a writer that appended a row its own fold skips is a fault of the Forum, and a route states no detail for it (R11.33).
+    /// <c>R4_18_EveryRefusalTheUseCasesReturnIsMappedByTheRoutes</c> holds every <c>KeyActErrors</c> type to a status other than 500 (Amendment 3 ruling 42). <c>operator-key-not-published</c> and <c>log-key-is-operator-key</c> (errata G70, R11.97) are the operator tool's, and no route reaches them; they are listed at 409 for the same reason. <c>curia/acts/not-honoured</c> is not listed: no route raises it, and an unlisted type answers 500. <c>not-honoured</c> (Amendment 7 ruling 81) is the one deliberate 500: a writer that appended a row its own fold skips is a fault of the Forum, and a route states no detail for it (R11.33).
     /// </summary>
     private static int StatusForKeyAct(Error error) => error.Type switch
     {
@@ -3663,7 +3663,9 @@ public static class ForumEndpoints
             or KeyActErrors.DeclarationKeyIsOperatorKeyType
             or KeyActErrors.OperatorKeyIsLogKeyType
             or KeyActErrors.OperatorKeyIsDeclarationKeyType
-            or KeyActErrors.OperatorKeyAlreadyPublishedType => StatusCodes.Status409Conflict,
+            or KeyActErrors.OperatorKeyAlreadyPublishedType
+            or KeyActErrors.OperatorKeyNotPublishedType
+            or KeyActErrors.LogKeyIsOperatorKeyType => StatusCodes.Status409Conflict,
 
         KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,
         LogBoundKeys.LogUnreadableType or StoreFaults.StoreUnavailableType => StatusCodes.Status503ServiceUnavailable,

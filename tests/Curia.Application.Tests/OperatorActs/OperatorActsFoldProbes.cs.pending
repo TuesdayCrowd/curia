@@ -15,7 +15,7 @@ namespace Curia.Application.Tests.OperatorActs;
 /// <summary>
 /// PR N2 (errata G70, R4.43, R6.66, R6.67), Task 1: the probes that name types a later task builds. KEPT AS <c>.cs.pending</c>: a test file naming a type that does not exist breaks this whole assembly's
 /// build, so the file is the builders' starting point and is renamed <c>.cs</c> by the task that makes it compile. OAS11 and OAS19 went to Task 2 (OperatorKeysProbes.cs); OAS8, OAS14, OAS26, OAS30 and OAS38 went to Task 3
-/// (OperatorActFoldTests.cs, with OAS8b, OAS8c, OAS30a, OAS30m, OAS33b). What remains is three probes: OAS13 and OAS24 (Task 4: they need the signing writers) and OAS15's undecidable-delta leg (Task 3b: a consumer's).
+/// (OperatorActFoldTests.cs, with OAS8b, OAS8c, OAS30a, OAS30m, OAS33b). OAS13 and OAS24 went to Task 4 (OperatorActWriterTests.cs, written against the signing writers). What remains is OAS15's undecidable-delta leg (Task 3b: a consumer's).
 /// The names are the plan's (<c>OperatorActFold</c>, <c>OperatorActPredicates.All</c>, <c>VerifiedLog.HonouredEvents</c>, <c>IOperatorActSigner</c>, <c>InMemoryOperatorActSigner</c>, <c>LogEntries.OperatorKeyType</c>,
 /// <c>PublishedKeys.OperatorKeys</c>, <c>PublishOperatorKey</c>) and are not a contract: a signature here is a guess that Tasks 2 to 4 will change.
 /// </summary>
@@ -54,33 +54,5 @@ public sealed class OperatorActsFoldProbes
         var facts = LogFacts.Of(VerifiedLog.Of(LogOf(Path.Combine(Root, "moderation-honoured"))));
         var undecidable = facts.ServableAfter([LogEvents.At(99, "01K4CQ4B0000000000000000P1", DateTimeOffset.UnixEpoch, "x", "moderation.applied", "operator:ops", new JsonValue.String("?"))]);
         Assert.False(undecidable("01K4CQ4B0000000000000000P1"));
-    }
-
-    /// <summary>OAS13: the writers' own rows are honoured: the fold, run over the log the writers left, decides every row they wrote honoured. A fold that skipped a genuine row would strip a verified owner silently.</summary>
-    [Fact]
-    public async Task OAS13_TheWritersOwnRowsAreHonoured()
-    {
-        var harness = new KeyActHarness();
-        using var signer = new InMemoryOperatorActSigner("operator-1");
-        await harness.PublishOperatorKeyAsync(signer, TestContext.Current.CancellationToken);
-        var agent = await harness.EnrollAsync("agent://curia.example/tuesdaycrowd/scriptor", TestContext.Current.CancellationToken);
-        await harness.AttestOwnerAsync(agent, "owner:alice", signer, TestContext.Current.CancellationToken);
-        var decision = OperatorActFold.Decide(await harness.ReadLogAsync(TestContext.Current.CancellationToken), agent);
-        Assert.All(decision.Rows, r => Assert.Null(r.Predicate));
-    }
-
-    /// <summary>OAS24: prev survives a moving stream: two operators attest one agent at once, both rows are honoured in the order the log gives them.</summary>
-    [Fact]
-    public async Task OAS24_PrevSurvivesAMovingStream()
-    {
-        var harness = new KeyActHarness();
-        using var signer = new InMemoryOperatorActSigner("operator-1");
-        await harness.PublishOperatorKeyAsync(signer, TestContext.Current.CancellationToken);
-        var agent = await harness.EnrollAsync("agent://curia.example/tuesdaycrowd/scriptor", TestContext.Current.CancellationToken);
-        await Task.WhenAll(
-            harness.AttestOwnerAsync(agent, "owner:alice", signer, TestContext.Current.CancellationToken),
-            harness.AttestOwnerAsync(agent, "owner:alice", signer, TestContext.Current.CancellationToken));
-        var decision = OperatorActFold.Decide(await harness.ReadLogAsync(TestContext.Current.CancellationToken), agent);
-        Assert.All(decision.Rows, r => Assert.Null(r.Predicate));
     }
 }

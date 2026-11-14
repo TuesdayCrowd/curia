@@ -40,7 +40,8 @@ public static class VerifiedStopSupport
         {
             var exit = await OperatorCommands.RunAsync(
                 args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
-                readLogSigningKeyPem: logKey, readDeclarationSigningKeyPem: null);
+                readLogSigningKeyPem: logKey, readDeclarationSigningKeyPem: null,
+                readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
             return new Run(exit, stdout.ToString(), stderr.ToString());
         }
         catch (Exception e) when (e is not OperationCanceledException)

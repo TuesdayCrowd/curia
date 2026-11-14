@@ -42,6 +42,8 @@ public sealed class VerifiedLog
     private readonly Lazy<LifecycleFold.KeyWorld> _world;
     private readonly Lazy<ImmutableArray<ActDecision>> _acts;
     private readonly Lazy<HonouredEvents> _honoured;
+    private readonly Lazy<ImmutableDictionary<string, AgentStanding>> _standings;
+    private readonly Lazy<ImmutableDictionary<string, PostModeration>> _moderation;
     private readonly Dictionary<string, VerifiedLifecycle> _memo = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LifecycleFold.Decided> _decided = new(StringComparer.Ordinal);
 
@@ -56,6 +58,8 @@ public sealed class VerifiedLog
         // The operator acts (R6.67) are decided once per VerifiedLog, whichever of the three views asks first, under Lazy's own lock: each signature is verified at most once.
         _acts = new Lazy<ImmutableArray<ActDecision>>(() => OperatorActFold.Decide(log, _published.Value, verifier.Verifiers));
         _honoured = new Lazy<HonouredEvents>(BuildHonoured);
+        _standings = new Lazy<ImmutableDictionary<string, AgentStanding>>(() => AgentStandingProjector.Fold(_honoured.Value.Events));
+        _moderation = new Lazy<ImmutableDictionary<string, PostModeration>>(() => FlagProjector.Fold(_honoured.Value.Events));
     }
 
     /// <summary>The verifier this log was verified by.</summary>
@@ -96,6 +100,12 @@ public sealed class VerifiedLog
     /// </summary>
     public HonouredEvents HonouredEvents => _honoured.Value;
 
+    /// <summary>Every agent's standing, folded from the honoured events (R4.43): an attestation the verifier skips binds no owner and sets no flag. Once per log; with <see cref="Moderation"/>, the only callers of the raw folds.</summary>
+    public ImmutableDictionary<string, AgentStanding> Standings() => _standings.Value;
+
+    /// <summary>Every moderated post's history, folded from the honoured events (R10.60, R10.61): a record the verifier skips holds nothing and releases nothing. Once per log.</summary>
+    public ImmutableDictionary<string, PostModeration> Moderation() => _moderation.Value;
+
     /// <summary>The operator-act rows the verifier does not honour (R6.67), ascending by log index, each by the predicate that skipped it (never a payload member).</summary>
     public ImmutableArray<SkippedRow> ActSkipped() =>
         [.. _acts.Value.Where(d => d.Predicate is not null).Select(d => new SkippedRow(d.LogIndex, d.Type, d.Aggregate, d.Predicate!))];
@@ -114,6 +124,12 @@ public sealed class VerifiedLog
 
     /// <summary>The rows at or past <paramref name="treeSize"/> that the verifier does not honour: what the head signer's stop withholds on (R6.63).</summary>
     public ImmutableArray<SkippedRow> SkippedPast(long treeSize) => [.. Skipped().Where(r => r.LogIndex >= treeSize)];
+
+    /// <summary>How many rows the verifier honours of both kinds: the lifecycle rows it honours and the operator-act rows it honours (the audit's first number).</summary>
+    public long AllHonouredCount() => HonouredCount() + _acts.Value.Count(d => d.Predicate is null);
+
+    /// <summary>The rows at or past <paramref name="treeSize"/> that the verifier does not honour, lifecycle rows and operator-act rows together: what the head signer's stop reads (R6.63, R11.97).</summary>
+    public ImmutableArray<SkippedRow> AllSkippedPast(long treeSize) => [.. AllSkipped().Where(r => r.LogIndex >= treeSize)];
 
     /// <summary>
     /// The stream's decision, once. The consumer-facing types are read from the honoured events alone, by the two readers of a lifecycle's shape that nothing else calls

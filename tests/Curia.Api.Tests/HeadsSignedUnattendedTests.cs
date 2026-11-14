@@ -83,7 +83,8 @@ public sealed partial class HeadsSignedUnattendedTests
         {
             var exit = await OperatorCommands.RunAsync(
                 args, connection ?? forum.ConnectionString, clock ?? forum.Clock, gate ?? forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
-                readLogSigningKeyPem: logKey, readDeclarationSigningKeyPem: declarationKey);
+                readLogSigningKeyPem: logKey, readDeclarationSigningKeyPem: declarationKey,
+                readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
             return new Run(exit, stdout.ToString(), stderr.ToString());
         }
         catch (Exception e) when (e is not OperationCanceledException)
@@ -773,6 +774,9 @@ public sealed partial class HeadsSignedUnattendedTests
                 var (agent, _, _) = await EnrolAsync(forum, "hsu35", ct);
                 await GrowAsync(forum, ct);
                 var readOnly = new NpgsqlConnectionStringBuilder(forum.ConnectionString) { Username = role, Password = password }.ConnectionString;
+
+                // Errata G70: the fixture's operator key is published before the rows are counted, so that the count is the faulted runs' alone (the attest-owner run is handed that key).
+                await forum.OperatorActsKeyAsync(ct);
                 var before = await CountAsync(forum, null, ct);
 
                 var sign = await OperatorAsync(forum, ct, ["sign-head", "--by", "ops", "--if-grown"], logKey: Pem(logPem), connection: readOnly);

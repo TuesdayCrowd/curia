@@ -189,8 +189,62 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             ct));
     }
 
+    private readonly SemaphoreSlim _operatorActsGate = new(1, 1);
+    private OperatorTool.OperatorActsSigningKey? _operatorActsKey;
+    private string? _operatorActsPem;
+
+    /// <summary>
+    /// The operator-acts key every operator act in this suite is signed with (errata G70, R4.43), published to the log once, lazily, before the first act that needs it, under a lock so that two
+    /// tests of one class racing to their first act publish it once. Returns the key's PEM: the seam a test hands <c>OperatorCommands.RunAsync</c> as <c>readOperatorActsSigningKeyPem</c>. The PEM is the
+    /// test's own key, generated here; nothing in it guards anything.
+    /// </summary>
+    internal async Task<string> OperatorActsKeyAsync(CancellationToken ct)
+    {
+        await _operatorActsGate.WaitAsync(ct);
+        try
+        {
+            if (_operatorActsPem is not null) return _operatorActsPem;
+
+            var pem = OperatorTool.OperatorActsSigningKey.GeneratePem();
+            var key = OperatorTool.OperatorActsSigningKey.FromPem(pem);
+            var published = await new PublishOperatorKey(Services.GetRequiredService<IEventStore>(), Clock)
+                .PublishAsync(key, Require(ActorId.Create("operator:fixture")), ct);
+            _ = Require(published);
+            (_operatorActsKey, _operatorActsPem) = (key, pem);
+            return pem;
+        }
+        finally
+        {
+            _operatorActsGate.Release();
+        }
+
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+    }
+
+    /// <summary>
+    /// The reader of the operator-acts key a test hands <c>OperatorCommands.RunAsync</c> for the verb <paramref name="args"/> names: the fixture's key for <c>attest-owner</c> and <c>moderate</c>, which refuse
+    /// without one (exit 3, before the log is read), and none for any other verb, which must not run in an environment that holds it (R12.18: <c>sign-head</c>, <c>publish-declaration-key</c> and
+    /// <c>compromise</c> refuse it). The key is published only when a verb asks for it.
+    /// </summary>
+    internal async Task<Func<string?>?> OperatorActsKeyForAsync(IReadOnlyList<string> args, CancellationToken ct)
+    {
+        if (args.Count == 0 || args[0] is not ("attest-owner" or "moderate")) return null;
+
+        var pem = await OperatorActsKeyAsync(ct);
+        return () => pem;
+    }
+
+    /// <summary>The key <see cref="OperatorActsKeyAsync"/> published, as the signer the writers take.</summary>
+    private async Task<OperatorTool.OperatorActsSigningKey> OperatorActsSignerAsync(CancellationToken ct)
+    {
+        _ = await OperatorActsKeyAsync(ct);
+        return _operatorActsKey!;
+    }
+
     private async Task ModerateAsync(string postId, ModerationEffect effect, CancellationToken ct)
     {
+        var signer = await OperatorActsSignerAsync(ct);
         using var scope = Services.CreateScope();
         var moderate = scope.ServiceProvider.GetRequiredService<ApplyModeration>();
 
@@ -203,6 +257,7 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             FlagKind.Spam,
             Rationale.Parse("moderated by the test fixture"),
             Require(ActorId.Create("operator:fixture")),
+            signer,
             ct));
     }
 
@@ -280,6 +335,7 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     internal async Task AttestOwnerAsync(
         string agentId, CancellationToken ct, string owner = "owner:test", bool verified = true)
     {
+        var signer = await OperatorActsSignerAsync(ct);
         using var scope = Services.CreateScope();
         var attest = scope.ServiceProvider.GetRequiredService<AttestOwner>();
 
@@ -293,6 +349,7 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             OwnerVerificationMethod.Manual,
             "attested by the test fixture",
             Require(ActorId.Create("operator:fixture")),
+            signer,
             ct));
     }
 
@@ -443,6 +500,8 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     public override async ValueTask DisposeAsync()
     {
         await base.DisposeAsync();
+        _operatorActsKey?.Dispose();
+        _operatorActsGate.Dispose();
 
         await using var admin = new NpgsqlDataSourceBuilder(AdminConnectionString).Build();
         await using (var drop = admin.CreateCommand($"DROP DATABASE IF EXISTS \"{_database}\" WITH (FORCE)"))

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Canon.Json;
@@ -51,17 +52,24 @@ public sealed class ApplyModeration
 
     private readonly IEventStore _events;
     private readonly IFlagDetailStore _details;
+    private readonly LifecycleVerifier _verifier;
     private readonly TimeProvider _clock;
     private readonly UlidGenerator _ids;
 
-    public ApplyModeration(IEventStore events, IFlagDetailStore details, TimeProvider clock)
+    /// <summary>
+    /// The verifier decides which operator-act rows are honoured (R4.43, R6.67): a record is decided over the honoured facts, so a forged row never changes what an operator is told, and the
+    /// writer re-reads after its own append to learn whether the row it wrote is one the Forum honours (R11.97).
+    /// </summary>
+    public ApplyModeration(IEventStore events, IFlagDetailStore details, LifecycleVerifier verifier, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(details);
+        ArgumentNullException.ThrowIfNull(verifier);
         ArgumentNullException.ThrowIfNull(clock);
 
         _events = events;
         _details = details;
+        _verifier = verifier;
         _clock = clock;
         _ids = new UlidGenerator(clock);
     }
@@ -83,6 +91,7 @@ public sealed class ApplyModeration
     /// own condition.
     /// </param>
     /// <param name="moderator">The operator recording it.</param>
+    /// <param name="signer">The operator-acts key (R6.66), per call: the Forum holds no part of it (R4.43). Must be the first operator key the log publishes.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<ModerationRecorded>> RecordAsync(
         Result<PostId> postId,
@@ -90,8 +99,11 @@ public sealed class ApplyModeration
         FlagKind category,
         Result<Rationale> rationale,
         ActorId moderator,
+        IOperatorActSigner signer,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(signer);
+
         if (moderator.Value is null
             || !moderator.Value.StartsWith(OperatorPrefix, StringComparison.Ordinal)
             || moderator.Value.Length == OperatorPrefix.Length)
@@ -127,8 +139,15 @@ public sealed class ApplyModeration
         if (!read.TryGetValue(out var log, out var readError))
             return Result<ModerationRecorded>.Fail(readError!);
 
+        var seen = _verifier.OfLog(log!);
+
         var post = PostProjector.Fold(log!).FirstOrDefault(p => string.Equals(p.PostId, target.Value, StringComparison.Ordinal));
         if (post is null)
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoSuchPost(target.Value));
+
+        // R6.67: the stream's root is its first event, and a post's stream begins with its acceptance. Without one no prev exists and every row would be skipped.
+        var chain = OperatorActStatements.ChainOf(seen, target.Value, PostProjector.PostAcceptedType, FlagProjector.ModerationAppliedType);
+        if (chain.Prev is not { } prev)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoSuchPost(target.Value));
 
         var rows = await _details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
@@ -155,7 +174,7 @@ public sealed class ApplyModeration
         if (FlagDisclosure.Repeated(reason.Value, onPost, FlagDirectory.RationalesByFlag(log!, details!)) is { } field)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RationaleDisclosesFlag(field));
 
-        ImmutableArray<ModerationAction> before = FlagProjector.Fold(log!).TryGetValue(target.Value, out var moderation)
+        ImmutableArray<ModerationAction> before = seen.Moderation().TryGetValue(target.Value, out var moderation)
             ? moderation.History
             : [];
 
@@ -184,11 +203,15 @@ public sealed class ApplyModeration
         if (effect == ModerationEffect.Dismiss && holdsBefore.ContainsKey(category))
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.DismissalOfHeldCategory(target.Value, category));
 
+        // A row signed under any key but the first the log published is skipped, so none is written (R6.67 step 6, R11.97).
+        if (!OperatorActStatements.IsFirstOperatorKey(log!, signer))
+            return Result<ModerationRecorded>.Fail(KeyActErrors.OperatorKeyNotPublished());
+
         // The expected version comes from the read the decision was made on, not from a second read.
         // A record another operator appended to this post since then fails this append, rather than
         // standing beside a record decided without it (R10.39 counts records). A flag committed since
         // is on its own aggregate and is not caught here; it stays open until a later record names it.
-        if (!AggregateVersion.From(log!.Count(e => e.AggregateId == aggregate)).TryGetValue(out var version, out var versionError))
+        if (!AggregateVersion.From(chain.Version).TryGetValue(out var version, out var versionError))
             return Result<ModerationRecorded>.Fail(versionError!);
 
         if (!_ids.Next().TryGetValue(out var ulid, out var idError))
@@ -200,24 +223,39 @@ public sealed class ApplyModeration
         if (!EventType.Create(FlagProjector.ModerationAppliedType).TryGetValue(out var type, out var typeError))
             return Result<ModerationRecorded>.Fail(typeError!);
 
+        if (!OperatorActStatements
+                .SignModeration(
+                    moderator.Value, adjudicates, FlagKinds.Wire(category), post.Digest, ModerationEffects.Wire(effect), target.Value, prev, reason.Value, signer)
+                .TryGetValue(out var signed, out var signError))
+            return Result<ModerationRecorded>.Fail(signError!);
+
+        // The row states the statement's members (R6.67 step 3: each equal to the statement's own) beside the statement and its authorization; prev and typ are the statement's alone.
         var payload = new JsonValue.Object(
         [
-            new(FlagProjector.PostIdField, new JsonValue.String(target.Value)),
-            new(FlagProjector.DigestField, new JsonValue.String(post.Digest)),
-            new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(action.Moderator))),
-            new(FlagProjector.ActorIdField, new JsonValue.String(moderator.Value)),
-            new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(effect))),
-            new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),
-            new(FlagProjector.RationaleField, new JsonValue.String(reason.Value)),
-            new(FlagProjector.AdjudicatesField, new JsonValue.Array([.. adjudicates.Select(id => (JsonValue)new JsonValue.String(id))])),
+            .. OperatorActStatements.Without(signed!.Members, "prev", "typ"),
+            new(OperatorActStatements.StatementMember, new JsonValue.String(signed.Statement)),
+            new(OperatorActStatements.AuthorizationMember, new JsonValue.String(signed.Authorization)),
         ]);
 
         var appended = await _events
             .AppendAsync(aggregate, version, [new DomainEvent(eventId, type, moderator, payload)], cancellationToken)
             .ConfigureAwait(false);
+        if (!appended.TryGetValue(out var written, out var appendError))
+            return Result<ModerationRecorded>.Fail(appendError!);
 
-        return appended.Map(events => new ModerationRecorded(
-            target.Value, post.Digest, effect, category, adjudicates, moderator, events[0].ServerTimestamp.Value));
+        // R11.97: the writer cannot see its own row skipped and call it done. The row is in the log either way; whether the Forum honours it is the fold's to say.
+        var again = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!again.TryGetValue(out var logAfter, out var afterError))
+            return Result<ModerationRecorded>.Fail(afterError!);
+
+        var found = OperatorActStatements.Find(_verifier.OfLog(logAfter!), eventId.Value);
+        if (found is not { } row)
+            return Result<ModerationRecorded>.Fail(ActErrors.NotHonoured(-1, "unread"));
+        if (row.Predicate is { } skipped)
+            return Result<ModerationRecorded>.Fail(ActErrors.NotHonoured(row.Index, skipped));
+
+        return Result<ModerationRecorded>.Ok(new ModerationRecorded(
+            target.Value, post.Digest, effect, category, adjudicates, moderator, written[0].ServerTimestamp.Value));
     }
 
     /// <summary>
