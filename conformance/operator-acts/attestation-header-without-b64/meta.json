@@ -1,0 +1,8 @@
+{
+  "profile": "operator-acts-log",
+  "requirement": "R6.67",
+  "stream": "agent",
+  "subject": "agent://curia.example/tuesdaycrowd/scriptor",
+  "primitive_calls": 1,
+  "note": "A genuine statement whose authorization header has typ, alg and kid and no b64, with a signature that verifies under O over RFC 7515's signing input (the base64url of the header, a full stop, the base64url of the statement), then a genuine attestation at 4: R6.37 shapes a detached signature with b64 false, so the row is act-signature-invalid. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests."
+}

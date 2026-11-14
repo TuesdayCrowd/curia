@@ -56,7 +56,14 @@ internal static partial class LifecycleCases
     }
 
     /// <summary>One operator-act case. <paramref name="State"/> is the expected state beside the rows: owner and verified for an agent's stream, served for a post's.</summary>
-    private sealed record OaCase(string Name, string Note, string Subject, string StreamKind, Log Log, IReadOnlyList<OaRow> Rows, JsonObject State);
+    private sealed record OaCase(string Name, string Note, string Subject, string StreamKind, Log Log, IReadOnlyList<OaRow> Rows, JsonObject State, int? PrimitiveCalls = null);
+
+    /// <summary>The bytes an authorization's signature is over: the canonical form after the encoded header and a full stop (R6.37, RFC 7797), or its base64url (RFC 7515's attached form).</summary>
+    private enum OaInput
+    {
+        Canonical,
+        Encoded,
+    }
 
     /// <summary>
     /// How an authorization departs from the genuine one (the ladder of vectors 39 to 47 and the arms of 48 to 59). <see cref="Auth"/> builds the authorization from a header
@@ -82,6 +89,18 @@ internal static partial class LifecycleCases
         public bool OmitKid { get; init; }
         public bool Attached { get; init; }
         public P256LogKey? Signer { get; init; }
+
+        /// <summary>The protected header's text as the case writes it (a repeated member, no <c>b64</c>, no <c>crit</c>); it replaces the composed header.</summary>
+        public string? HeaderText { get; init; }
+
+        /// <summary>The signing input the signature is made over.</summary>
+        public OaInput Input { get; init; } = OaInput.Canonical;
+
+        /// <summary>When set, the generator asserts the signature verifies under the signer over the signing input of this form (the vector is valid under the other reading: R6.37's header shape is what refuses it).</summary>
+        public OaInput? AssertValidUnder { get; init; }
+
+        /// <summary>When set, the signature part is these bytes and nothing is signed (a row whose key cannot verify anything).</summary>
+        public byte[]? FixedSignature { get; init; }
     }
 
     private static readonly OaAuth Stranger = new() { Typ = "curia-head+jws", Signer = ConformanceLogKeys.Unpublished };
@@ -102,6 +121,8 @@ internal static partial class LifecycleCases
         public string? ExtraRowMember { get; init; }
         public JsonValue? StatementOverride { get; init; }
         public string Reason { get; init; } = "owner verified by hand";
+        public string? RowReason { get; init; }
+        public string Method { get; init; } = "manual";
         public OaForm Form { get; init; } = new();
     }
 
@@ -112,6 +133,7 @@ internal static partial class LifecycleCases
         public string Aggregate { get; init; } = OaPost;
         public string Moderator { get; init; } = "human";
         public string StatementTyp { get; init; } = OaModerationTyp;
+        public string Category { get; init; } = "spam";
         public string StatementDigest { get; init; } = OaDigest;
         public string? RowDigest { get; init; }
         public P256LogKey? Signer { get; init; }
@@ -138,6 +160,11 @@ internal static partial class LifecycleCases
         var ky = Ed("conformance-ed25519-other-identity", Enumerable.Repeat((byte)0x0A, 32).ToArray());
 
         OaSelfCheck(o);
+
+        var shared = OaKey("shared-p");
+        var keyQ = OaKey("key-q");
+        var keyR = OaKey("key-r");
+        var offCurve = OaOffCurveKey(o);
 
         var a1 = new OaAttest(OaAlice, true, 0);
         var w = new OaModerate("withhold", 3);
@@ -309,6 +336,67 @@ internal static partial class LifecycleCases
             OaA("second-owner-unverified-changes-nothing", "A genuine attestation naming Alice, verified, at 3 and one naming Bob with owner_verified false at 4 (prev 3): both are honoured as acts, the second binds nothing and sets nothing, so Alice stays verified (R4.1, R6.67).",
                 R(k0, o), log => { log.Add(a1, o); log.Add(a1 with { Owner = OaBob, Verified = false, Prev = 3 }, o); },
                 [OaRow.Honoured(3, OaAttested), OaRow.Honoured(4, OaAttested)], Alice(true)),
+
+            // 61 to 72 (Task 5b): the places the 60 did not pin and two folds parted (Amendment 5, rulings 65 to 70).
+            OaA("attestation-stream-begins-with-a-forged-row", "An attestation in X's stream with no statement is the first event of the stream, then X's enrolment and binding at 2 and 3, then a genuine attestation at 4 whose prev is 2 (the enrolment): the stream's root is its first event, so the stream has no root, and the row at 1 is act-unsigned and the row at 4 is act-broken-link.",
+                new Log(), log => { log.PublishOaKey(OaOperatorKeyType, OaOperatorKeysAggregate, o); log.Add(a1 with { NoStatement = true }, o); EnrollX(log, k0); log.Add(a1 with { Prev = 2 }, o); },
+                [OaRow.Skipped(1, OaAttested, "act-unsigned"), OaRow.Skipped(4, OaAttested, "act-broken-link")], NoOwner()),
+            OaA("operator-key-off-curve-holds-a-position", "A log.operator-key entry whose jwk is in R6.62's closed form and whose point is not on its curve holds a position (on the curve is asked of a key when it must verify), and an attestation whose header kid names it and whose signature is 64 arbitrary bytes is act-signature-invalid, not act-key-unpublished.",
+                E(k0), log => { log.PublishOaKey(OaOperatorKeyType, OaOperatorKeysAggregate, offCurve); log.Add(a1 with { Form = new OaForm { Auth = new OaAuth { Signer = offCurve, FixedSignature = Enumerable.Repeat((byte)0x5A, 64).ToArray() } } }, o); },
+                [OaRow.Skipped(3, OaAttested, "act-signature-invalid")], NoOwner(), primitiveCalls: 0),
+            OaA("operator-key-kid-listed-again-after-a-clash", "A log key P (kid LK) at 0; a log.operator-key at 1 that lists kid OK with the same public key P (it clashes with the log key and holds no position); a log.operator-key at 2 that lists kid OK again with another key Q (an earlier entry of the class that reads as a key lists OK, so it holds none either). An attestation at 5 signed by Q under kid OK is act-key-unpublished; a log.operator-key at 6 (kid O3, key R) holds the first position and the attestation at 7 signed by it is honoured.",
+                new Log(), log =>
+                {
+                    log.PublishOaKey("log.key", "log:keys", Renamed(shared, "LK"));
+                    log.PublishOaKey(OaOperatorKeyType, OaOperatorKeysAggregate, Renamed(shared, "OK"));
+                    log.PublishOaKey(OaOperatorKeyType, OaOperatorKeysAggregate, Renamed(keyQ, "OK"));
+                    EnrollX(log, k0);
+                    log.Add(a1 with { Prev = 3, Form = new OaForm { Auth = new OaAuth { Signer = Renamed(keyQ, "OK") } } }, o);
+                    log.PublishOaKey(OaOperatorKeyType, OaOperatorKeysAggregate, Renamed(keyR, "O3"));
+                    log.Add(a1 with { Prev = 3, Form = new OaForm { Auth = new OaAuth { Signer = Renamed(keyR, "O3") } } }, o);
+                }, [OaRow.Skipped(5, OaAttested, "act-key-unpublished"), OaRow.Honoured(7, OaAttested)], Alice(true)),
+            OaA("log-key-repeating-a-kid-publishes-nothing", "A log key P (kid LK) at 0; a second log.key at 1 that lists kid LK again with another key Q (it holds no position and publishes no key); a log.operator-key at 2 (kid OK, key Q), which is therefore no log key and holds a position. An attestation at 5 signed by Q under kid OK is honoured.",
+                new Log(), log =>
+                {
+                    log.PublishOaKey("log.key", "log:keys", Renamed(shared, "LK"));
+                    log.PublishOaKey("log.key", "log:keys", Renamed(keyQ, "LK"));
+                    log.PublishOaKey(OaOperatorKeyType, OaOperatorKeysAggregate, Renamed(keyQ, "OK"));
+                    EnrollX(log, k0);
+                    log.Add(a1 with { Prev = 3, Form = new OaForm { Auth = new OaAuth { Signer = Renamed(keyQ, "OK") } } }, o);
+                }, [OaRow.Honoured(5, OaAttested)], Alice(true)),
+            OaA("attestation-header-repeats-a-member", "A genuine statement whose authorization header is the text of a header that lists kid twice (a stranger's, then O's), signed validly by O over that text, then a genuine attestation at 4: the ADMIT profile refuses a repeated member, so the header is no object the procedure reads (a reader that takes the last kid honours the row, one that takes the first skips it as act-key-unpublished).",
+                R(k0, o), log =>
+                {
+                    log.Add(a1 with { Form = new OaForm { Auth = new OaAuth { HeaderText = $"{{\"alg\":\"ES256\",\"b64\":false,\"crit\":[\"b64\"],\"kid\":\"{stranger.Kid}\",\"kid\":\"{o.Kid}\",\"typ\":\"{OaHeaderTyp}\"}}" } } }, o);
+                    log.Add(a1, o);
+                }, [OaRow.Skipped(3, OaAttested, "act-typ-mismatch"), OaRow.Honoured(4, OaAttested)], Alice(true)),
+            OaA("attestation-header-without-b64", "A genuine statement whose authorization header has typ, alg and kid and no b64, with a signature that verifies under O over RFC 7515's signing input (the base64url of the header, a full stop, the base64url of the statement), then a genuine attestation at 4: R6.37 shapes a detached signature with b64 false, so the row is act-signature-invalid.",
+                R(k0, o), log =>
+                {
+                    log.Add(a1 with { Form = new OaForm { Auth = new OaAuth { HeaderText = $"{{\"alg\":\"ES256\",\"kid\":\"{o.Kid}\",\"typ\":\"{OaHeaderTyp}\"}}", Input = OaInput.Encoded, AssertValidUnder = OaInput.Encoded } } }, o);
+                    log.Add(a1, o);
+                }, [OaRow.Skipped(3, OaAttested, "act-signature-invalid"), OaRow.Honoured(4, OaAttested)], Alice(true), primitiveCalls: 1),
+            OaA("attestation-header-without-crit", "A genuine statement whose authorization header has typ, alg, kid and b64 false and no crit, with a signature that verifies under O over RFC 7797's signing input (the base64url of the header, a full stop, the statement), then a genuine attestation at 4: R6.37 shapes a detached signature with crit exactly [b64], so the row is act-signature-invalid.",
+                R(k0, o), log =>
+                {
+                    log.Add(a1 with { Form = new OaForm { Auth = new OaAuth { HeaderText = $"{{\"alg\":\"ES256\",\"b64\":false,\"kid\":\"{o.Kid}\",\"typ\":\"{OaHeaderTyp}\"}}", Input = OaInput.Canonical, AssertValidUnder = OaInput.Canonical } } }, o);
+                    log.Add(a1, o);
+                }, [OaRow.Skipped(3, OaAttested, "act-signature-invalid"), OaRow.Honoured(4, OaAttested)], Alice(true), primitiveCalls: 1),
+            OaA("attestation-row-differs-from-the-statement-by-normalization", "A genuine attestation whose statement states reason as e-acute (one code point, NFC) and whose row states it as e followed by U+0301, then a genuine attestation at 4: a row member that is not the same JSON value as the statement's differs from it, strings compared code point for code point, never normalized.",
+                R(k0, o), log => { log.Add(a1 with { Reason = ((char)0xE9).ToString(), RowReason = "e" + (char)0x0301 }, o); log.Add(a1, o); },
+                [OaRow.Skipped(3, OaAttested, "act-statement-mismatch"), OaRow.Honoured(4, OaAttested)], Alice(true)),
+            OaA("attestation-method-outside-the-four", "A genuine, validly signed attestation whose statement and row state method carrier-pigeon, then a genuine attestation at 4: the closed form closes method to R4.24's four proofs.",
+                R(k0, o), log => { log.Add(a1 with { Method = "carrier-pigeon" }, o); log.Add(a1, o); },
+                [OaRow.Skipped(3, OaAttested, "act-statement-mismatch"), OaRow.Honoured(4, OaAttested)], Alice(true)),
+            OaM("moderation-effect-outside-the-four", "A human, validly signed record whose statement and row state effect obliterate, then a genuine withhold at 5: the closed form closes effect to quarantine, withhold, restore and dismiss.",
+                Q(k0, o), log => { log.Add(new OaModerate("obliterate", 3), o); log.Add(w, o); },
+                [OaRow.Skipped(4, OaModerated, "act-statement-mismatch"), OaRow.Honoured(5, OaModerated)], false),
+            OaM("moderation-category-outside-the-seven", "A human, validly signed withhold whose statement and row state category vibes, then a genuine withhold at 5: the closed form closes category to R10.35's seven flag types.",
+                Q(k0, o), log => { log.Add(w with { Category = "vibes" }, o); log.Add(w, o); },
+                [OaRow.Skipped(4, OaModerated, "act-statement-mismatch"), OaRow.Honoured(5, OaModerated)], false),
+            OaM("moderation-restore-in-another-category-leaves-the-hold", "A withhold in spam at 4, a quarantine in incorrect at 5 and a restore in spam at 6, each honoured: R10.61 holds a post in the category each record cites until a restore citing it, so incorrect still holds it and the post is not served (the last record is a restore).",
+                Q(k0, o), log => { log.Add(new OaModerate("withhold", 3), o); log.Add(new OaModerate("quarantine", 4) with { Category = "incorrect" }, o); log.Add(new OaModerate("restore", 5), o); },
+                [OaRow.Honoured(4, OaModerated), OaRow.Honoured(5, OaModerated), OaRow.Honoured(6, OaModerated)], false),
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -330,6 +418,12 @@ internal static partial class LifecycleCases
 
         static Log E(Key k0) => EnrolledAndBound(k0);
 
+        static void EnrollX(Log log, Key k0)
+        {
+            log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(k0.Kid))));
+            AddBinding(log, k0);
+        }
+
         static Log Q(Key k0, P256LogKey o)
         {
             var log = R(k0, o);
@@ -346,10 +440,10 @@ internal static partial class LifecycleCases
     }
 
     /// <summary>An attestation case: <paramref name="build"/> adds the rows after the base, each signed under the key given, and the rows are the verdicts of the construction.</summary>
-    private static OaCase OaA(string name, string note, Log log, Action<Log> build, IReadOnlyList<OaRow> rows, JsonObject state)
+    private static OaCase OaA(string name, string note, Log log, Action<Log> build, IReadOnlyList<OaRow> rows, JsonObject state, int? primitiveCalls = null)
     {
         build(log);
-        return new OaCase(name, note, Agent, "agent", log, rows, state);
+        return new OaCase(name, note, Agent, "agent", log, rows, state, primitiveCalls);
     }
 
     private static OaCase OaM(string name, string note, Log log, Action<Log> build, IReadOnlyList<OaRow> rows, bool served)
@@ -370,7 +464,7 @@ internal static partial class LifecycleCases
     private static JsonValue AttestationStatement(OaAttest a) => a.StatementOverride ?? WithMembers(a.Form, [
         ("actor_id", Str(a.StatementActor)),
         ("agent_id", Str(a.Agent)),
-        ("method", Str("manual")),
+        ("method", Str(a.Method)),
         ("owner_id", Str(a.Owner)),
         ("owner_verified", Bool(a.Verified)),
         ("prev", Num(a.Prev)),
@@ -398,11 +492,11 @@ internal static partial class LifecycleCases
         var row = new List<(string, JsonValue)>
         {
             ("agent_id", Str(a.Agent)),
-            ("method", Str("manual")),
+            ("method", Str(a.Method)),
             ("owner_id", Str(a.RowOwner ?? a.Owner)),
             ("owner_verified", Bool(a.Verified)),
             ("prev", Num(a.Prev)),
-            ("reason", Str(a.Reason)),
+            ("reason", Str(a.RowReason ?? a.Reason)),
         };
         if (a.ExtraRowMember is { } extra) row.Add((extra, Str("not a member of the statement")));
         if (a.StatementOverride is not null) row.Clear();
@@ -412,7 +506,7 @@ internal static partial class LifecycleCases
     private static JsonValue ModerationStatement(OaModerate m) => WithMembers(m.Form, [
         ("actor_id", Str(OaActor)),
         ("adjudicates", Arr()),
-        ("category", Str("spam")),
+        ("category", Str(m.Category)),
         ("digest", Str(m.StatementDigest)),
         ("effect", Str(m.Effect)),
         ("moderator", Str(m.Moderator)),
@@ -427,7 +521,7 @@ internal static partial class LifecycleCases
         {
             ("actor_id", Str(OaActor)),
             ("adjudicates", Arr()),
-            ("category", Str("spam")),
+            ("category", Str(m.Category)),
             ("digest", Str(m.RowDigest ?? m.StatementDigest)),
             ("effect", Str(m.Effect)),
             ("moderator", Str(m.Moderator)),
@@ -487,19 +581,27 @@ internal static partial class LifecycleCases
     private static string OaCustomAuthorization(CanonicalBytes canonical, string text, OaAuth auth, P256LogKey operatorKey)
     {
         var signer = auth.Signer ?? operatorKey;
-        var header = new Dictionary<string, object> { ["alg"] = auth.Alg ?? "ES256" };
-        if (!auth.OmitKid) header["kid"] = signer.Kid;
-        header["typ"] = auth.Typ ?? OaHeaderTyp;
-        header["b64"] = false;
-        header["crit"] = new[] { "b64" };
-        var encodedHeader = Jwk.Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(header));
+        var alg = auth.Alg ?? "ES256";
+        string encodedHeader;
+        if (auth.HeaderText is { } headerText) encodedHeader = Jwk.Base64UrlEncode(Encoding.UTF8.GetBytes(headerText));
+        else
+        {
+            var header = new Dictionary<string, object> { ["alg"] = alg };
+            if (!auth.OmitKid) header["kid"] = signer.Kid;
+            header["typ"] = auth.Typ ?? OaHeaderTyp;
+            header["b64"] = false;
+            header["crit"] = new[] { "b64" };
+            encodedHeader = Jwk.Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(header));
+        }
+
         var payload = auth.Attached ? Jwk.Base64UrlEncode(canonical.Span.ToArray()) : "";
 
         string signature;
-        if (header["alg"] is "none") signature = "";
+        if (auth.FixedSignature is { } fixedSignature) signature = Jwk.Base64UrlEncode(fixedSignature);
+        else if (alg is "none") signature = "";
         else
         {
-            var input = Encoding.ASCII.GetBytes(encodedHeader + ".").Concat(canonical.Span.ToArray()).ToArray();
+            var input = OaSigningInput(encodedHeader, canonical, auth.Input);
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportSubjectPublicKeyInfo(signer.Spki, out _);
             signature = "";
@@ -521,10 +623,24 @@ internal static partial class LifecycleCases
                 if (!ecdsa.VerifyData(input, fresh, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation)) throw new InvalidOperationException("a signature does not verify under its own signer");
                 signature = Jwk.Base64UrlEncode(fresh);
             }
+
+            // The vector is valid under the other reading of its signing input: the signature verifies under the signer over the input of the form the case names.
+            if (auth.AssertValidUnder is { } reading)
+            {
+                var other = OaSigningInput(encodedHeader, canonical, reading);
+                if (!ecdsa.VerifyData(other, Jwk.Base64UrlDecode(signature), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
+                    throw new InvalidOperationException($"the signature over {text} does not verify under its signer over the {reading} signing input the vector claims");
+            }
         }
 
         return $"{encodedHeader}.{payload}.{signature}";
     }
+
+    /// <summary>The signing input of a detached authorization: the encoded header, a full stop, then the canonical bytes (R6.37, RFC 7797) or their base64url (RFC 7515).</summary>
+    private static byte[] OaSigningInput(string encodedHeader, CanonicalBytes canonical, OaInput form) =>
+        form is OaInput.Encoded
+            ? Encoding.ASCII.GetBytes(encodedHeader + "." + Jwk.Base64UrlEncode(canonical.Span.ToArray()))
+            : [.. Encoding.ASCII.GetBytes(encodedHeader + "."), .. canonical.Span.ToArray()];
 
     /// <summary>Once per run: an authorization built by <see cref="OaCustomAuthorization"/> with the default header verifies under the production verifier, so the composition above is the production one.</summary>
     private static void OaSelfCheck(P256LogKey operatorKey)
@@ -592,6 +708,34 @@ internal static partial class LifecycleCases
         return new P256LogKey(kid, p.Q.X!, p.Q.Y!, ecdsa.ExportECPrivateKey(), ecdsa.ExportSubjectPublicKeyInfo(), jwk);
     }
 
+    /// <summary>
+    /// A key in R6.62's closed form whose point is not on its curve: the operator key's x and an y whose last character is changed within the set a 32-byte coordinate's last
+    /// character may take, until <c>ECDsa.ImportParameters</c> refuses the point. It carries no private key, so nothing can be signed under it.
+    /// </summary>
+    private static P256LogKey OaOffCurveKey(P256LogKey from)
+    {
+        var x = Jwk.Base64UrlEncode(from.X32);
+        var y = Jwk.Base64UrlEncode(from.Y32);
+        foreach (var last in "AEIMQUYcgkosw048")
+        {
+            var yy = y[..^1] + last;
+            if (yy == y) continue;
+            var yBytes = Jwk.Base64UrlDecode(yy);
+            try
+            {
+                using var probe = ECDsa.Create(new ECParameters { Curve = ECCurve.NamedCurves.nistP256, Q = new ECPoint { X = from.X32, Y = yBytes } });
+            }
+            catch (CryptographicException)
+            {
+                var kid = Jwk.Base64UrlEncode(SHA256.HashData(Encoding.UTF8.GetBytes($$"""{"crv":"P-256","kty":"EC","x":"{{x}}","y":"{{yy}}"}""")));
+                var jwk = Obj(("alg", Str("ES256")), ("crv", Str("P-256")), ("kid", Str(kid)), ("kty", Str("EC")), ("use", Str("sig")), ("x", Str(x)), ("y", Str(yy)));
+                return new P256LogKey(kid, from.X32, yBytes, [], [], jwk);
+            }
+        }
+
+        throw new InvalidOperationException("no y whose last character is in R6.62's set puts the operator key's x off its curve");
+    }
+
     // ---- output ---------------------------------------------------------------------------------
 
     private static void WriteOa(string root, OaCase c)
@@ -627,8 +771,9 @@ internal static partial class LifecycleCases
             ["requirement"] = "R6.67",
             ["stream"] = c.StreamKind,
             ["subject"] = c.Subject,
-            ["note"] = c.Note + " Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
         };
+        if (c.PrimitiveCalls is { } primitiveCalls) meta["primitive_calls"] = primitiveCalls;
+        meta["note"] = c.Note + " Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.";
         File.WriteAllText(Path.Combine(dir, "meta.json"), meta.ToJsonString(Jwk.PrettyOptions) + "\n");
         Console.WriteLine($"  wrote operator-acts/{c.Name}");
     }

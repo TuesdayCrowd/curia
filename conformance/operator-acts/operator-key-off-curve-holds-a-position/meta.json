@@ -1,0 +1,8 @@
+{
+  "profile": "operator-acts-log",
+  "requirement": "R6.67",
+  "stream": "agent",
+  "subject": "agent://curia.example/tuesdaycrowd/scriptor",
+  "primitive_calls": 0,
+  "note": "A log.operator-key entry whose jwk is in R6.62's closed form and whose point is not on its curve holds a position (on the curve is asked of a key when it must verify), and an attestation whose header kid names it and whose signature is 64 arbitrary bytes is act-signature-invalid, not act-key-unpublished. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests."
+}

@@ -367,6 +367,36 @@ fn is_closed_form(statement: &str, fields: &Map<String, Value>, members: &[&str]
         && fields.len() == members.len()
         && members.iter().all(|m| fields.contains_key(*m))
         && members.iter().all(|m| member_type_ok(fields, m))
+        && members.iter().all(|m| member_value_ok(fields, m))
+}
+
+/// R4.24's four proofs.
+const METHODS: [&str; 4] = ["domain", "email", "attestation", "manual"];
+/// The four effects of a moderation record (R10.60).
+const EFFECTS: [&str; 4] = ["quarantine", "withhold", "restore", "dismiss"];
+/// R10.35's seven flag types, as the wire spells them.
+const CATEGORIES: [&str; 7] = [
+    "injection",
+    "credential_leak",
+    "incorrect",
+    "spam",
+    "duplicate",
+    "license_violation",
+    "malicious_code",
+];
+
+/// R6.67 step 3: the closed form closes the values of `method`, `effect` and `category`, so that no honoured row carries
+/// a value a consumer cannot read.
+fn member_value_ok(fields: &Map<String, Value>, name: &str) -> bool {
+    let allowed: &[&str] = match name {
+        "method" => &METHODS,
+        "effect" => &EFFECTS,
+        "category" => &CATEGORIES,
+        _ => return true,
+    };
+    fields[name]
+        .as_str()
+        .is_some_and(|value| allowed.contains(&value))
 }
 
 fn member_type_ok(fields: &Map<String, Value>, name: &str) -> bool {
@@ -419,26 +449,32 @@ struct OperatorKeys {
 }
 
 impl OperatorKeys {
-    /// R6.66: a `log.operator-key` entry that reads as a key holds a position unless an earlier entry of its class lists
-    /// its `kid`, or the log published its key (by `kid` or by public key) earlier as a log key or a declaration key; a
-    /// `log.key` or `log.declaration-key` entry that publishes a key (by `kid` or by public key) an earlier operator entry
-    /// that holds a position lists, holds none.
+    /// R6.66: a `log.operator-key` entry that reads as a key holds a position unless an earlier operator-class entry that
+    /// reads as a key lists its `kid` (whether or not that entry holds a position), or the log published its key (by
+    /// `kid` or by public key) earlier as a log key or a declaration key that holds a position; a `log.key` or
+    /// `log.declaration-key` entry that lists a `kid` an earlier entry of its own class that reads as a key lists, or
+    /// that publishes a key (by `kid` or by public key) an earlier operator entry that holds a position lists, holds none.
+    /// An entry that holds no position publishes no key.
     fn read(ordered: &[&ActEntry]) -> Self {
         let mut operator: Vec<(LogKey, OperatorKey)> = Vec::new();
         let mut other: Vec<LogKey> = Vec::new();
+        // The `kid`s each class has listed so far in entries that read as a key, position or not.
+        let mut listed: [BTreeSet<String>; 3] = Default::default();
         for event in ordered {
             let entry = &event.entry;
-            let class_is_operator = match entry.event_type.as_str() {
-                LOG_OPERATOR_KEY => true,
-                LOG_KEY | LOG_DECLARATION_KEY => false,
+            let (class, class_is_operator) = match entry.event_type.as_str() {
+                LOG_OPERATOR_KEY => (0, true),
+                LOG_KEY => (1, false),
+                LOG_DECLARATION_KEY => (2, false),
                 _ => continue,
             };
             let Some((key, jwk)) = Self::read_key(entry) else {
                 continue;
             };
+            let repeated = !listed[class].insert(key.kid.clone());
             let clashes = |other_key: &LogKey| other_key.kid == key.kid || other_key.same_key(&key);
             if class_is_operator {
-                if operator.iter().any(|(k, _)| k.kid == key.kid) || other.iter().any(clashes) {
+                if repeated || other.iter().any(clashes) {
                     continue;
                 }
                 operator.push((
@@ -450,7 +486,7 @@ impl OperatorKeys {
                     },
                 ));
             } else {
-                if operator.iter().any(|(k, _)| clashes(k)) {
+                if repeated || operator.iter().any(|(k, _)| clashes(k)) {
                     continue;
                 }
                 other.push(key);

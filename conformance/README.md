@@ -642,8 +642,8 @@ Its shape is its own (`"shape": "operator-acts"` in `index.json`, profile `opera
 `rows` lists every act row of the stream (neither the root, nor the enrolment's pair, nor a `log.*` entry) in log order with its `verdict` and, for a
 skipped row, the `predicate` that decided it: `act-unsigned`, `act-statement-mismatch`, `act-unknown-kind`, `act-broken-link`, `act-typ-mismatch`,
 `act-key-unpublished`, `act-key-not-first` or `act-signature-invalid`. `state` is what the honoured rows alone decide: for an agent's stream `owner` (the
-first honoured attestation's owner, or `null`) and `verified` (the last honoured attestation's `owner_verified`, `false` when none); for a post's stream
-`served`, false while the last honoured record is a `withhold` or a `quarantine`.
+first honoured attestation's owner, or `null`) and `verified` (the `owner_verified` of the latest honoured attestation naming the bound owner, `false` when none); for a post's stream
+`served`, true only while no category holds the post (R10.61: a `withhold` or a `quarantine` holds the category it cites until a `restore` citing it; a dismissal holds nothing).
 
 A skipped row moves nothing, so every `prev` names the last row the procedure honours before it (or the stream's root, the first event of the stream:
 `agent.enrolled` for an agent, `post.accepted` for a post). Statements are the exact output of `CanonicalizeWithNfc`; each signature is detached ES256 under
@@ -652,7 +652,7 @@ scalar), so the public keys are reproducible; ES256 signing is randomized, so th
 the header kid and the signer are the same, and a regeneration over the existing output is byte-identical. "Garbage" is the string `FORGED-NO-VALID-SIGNATURE`,
 which is not a JWS; a "bad signature" is a well-formed JWS of the right header whose signature bytes are another key's.
 
-The family holds 60 cases: vectors 1 to 33 are the plan's table, vectors 34 to 38 are Amendment 1's and vectors 39 to 60 are Amendment 4's. Vectors 34 and 35 pin that `curia.moderation/1` honours
+The family holds 72 cases: vectors 1 to 33 are the plan's table, vectors 34 to 38 are Amendment 1's, vectors 39 to 60 are Amendment 4's and vectors 61 to 72 are Amendment 5's. Vectors 34 and 35 pin that `curia.moderation/1` honours
 `moderator` `human` only (`automated` and `delegated_agent` are skipped `act-statement-mismatch`: no automated actor holds a key and no delegation exists, item 294);
 vectors 36 and 37 pin a forged unsigned restore after and between genuine rows; vector 38 pins "the stream's root is its first event" for a stream with two
 `agent.enrolled` rows.
@@ -665,9 +665,22 @@ pin one arm each of step 5 and step 6 with a signature that is valid (a header `
 the row so that the row's difference from the statement cannot decide it), and vector 60 pins that a later honoured attestation naming another owner sets nothing, `owner_verified`
 included.
 
-**What these 60 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effects other than
-`withhold` and `restore` (every effect shares the procedure), a flag's `adjudicates` list beyond its type, which of step 3's clauses decides a row that has two defects of step 3's
-own (the order of the steps is pinned, the order of one step's clauses is not), and the types of the closed form's remaining string members.
+Vectors 61 to 72 pin the places a second implementation, written from the text and the first 60 vectors alone, decided differently from the first (Amendment 5, rulings 65 to 70). Vector 61:
+the stream's root is its first event, so a stream whose first event is a forged attestation has no root (not "the first event of the root's type"). Vector 62: an operator key whose point
+is off its curve holds a position (on the curve is asked where the key must verify), so a row naming it is `act-signature-invalid`, not `act-key-unpublished`. Vectors 63 and 64: a `kid`
+listed again by an operator entry is refused whether or not the earlier entry holds a position (63), and an entry that holds no position publishes no key, so a `log.key` that repeats a
+`kid` makes no log key of its key (64). Vector 65: a header that repeats a member is no object the ADMIT profile accepts (`act-typ-mismatch`; a reader that takes the last `kid`
+honours the row and one that takes the first skips it as `act-key-unpublished`). Vectors 66 and 67: a header with no `b64` (the signature valid over RFC 7515's signing input) and a header
+with no `crit` (valid over RFC 7797's) are `act-signature-invalid`, as R6.37 shapes a detached signature; the generator asserts that each signature verifies under the operator key over
+the input it claims, and these two vectors carry `meta.json`'s `primitive_calls`, the case's total number of primitive verifications (62: 0, 66 and 67: 1, the control row's), because a row
+can reach step 7 without the primitive being called. Vector 68: a row member that differs from the statement's only by normalization differs (`e` + U+0301 against one code point).
+Vectors 69, 70 and 71: the closed form closes the values of `method` (R4.24's four proofs), `effect` (four) and `category` (R10.35's seven). Vector 72: a post is held in the category each
+record cites until a restore citing it, so a withhold in `spam`, a quarantine in `incorrect` and a restore in `spam` leave it not served (R10.61).
+
+**What these 72 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effect `dismiss` (every effect
+shares the procedure), a flag's `adjudicates` list beyond its type, which of step 3's clauses decides a row that has two defects of step 3's own (the order of the steps is pinned, the
+order of one step's clauses is not), the types of the closed form's remaining string members, a protected-header segment whose last base64url character carries non-zero trailing bits, a
+row member whose number is spelled differently from the statement's (`0.0` and `0`), and the state of an honoured row that omits a member its statement states (the state follows the statement).
 
 The cases are **proposals**, as `honoured/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --operator-acts-cases` regenerates them until the owner's
 lift record pins their digests.

@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Collections.Immutable;
 using System.Text;
 using Curia.Application.Projections;
@@ -6,6 +7,8 @@ using Curia.Canon.Envelope;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
+using Curia.Domain.Credentials;
+using Curia.Domain.Moderation;
 
 namespace Curia.Application.Credentials;
 
@@ -158,9 +161,10 @@ internal static class OperatorActFold
         var expectedPrev = stream.LastHonoured ?? root;
         if (expectedPrev is null || Find(statement, "prev") is not JsonValue.Number prev || prev.Value != expectedPrev.Value) return OperatorActPredicates.BrokenLink;
 
-        // 5. No authorization that is a detached JWS (a compact JWS whose payload part is empty, R6.67 step 5) whose header typ is the act's and whose alg is ES256.
+        // 5. No authorization that is a detached JWS (a compact JWS whose payload part is empty, R6.67 step 5) whose protected header is a JSON object the ADMIT profile accepts (a repeated member refuses it), whose typ is the act's and whose alg is ES256.
         if (Find(row, "authorization") is not JsonValue.String authorization
-            || authorization.Value.Split('.') is not [_, "", _]
+            || authorization.Value.Split('.') is not [var headerSegment, "", _]
+            || !IsAdmittedObject(headerSegment)
             || !DetachedJws.ReadProtectedHeader(new JwsSignature(authorization.Value)).TryGetValue(out var header, out _)
             || !string.Equals(header!.Typ, HeaderTyp, StringComparison.Ordinal)
             || !string.Equals(header.Alg, HeaderAlg, StringComparison.Ordinal))
@@ -180,6 +184,12 @@ internal static class OperatorActFold
 
         return null;
     }
+
+    /// <summary>The protected header's base64url segment decodes to text the ADMIT profile accepts as a JSON object: a repeated member name, at any depth, is no object (R6.67 step 5).</summary>
+    private static bool IsAdmittedObject(string headerSegment) =>
+        Base64Url.IsValid(headerSegment)
+        && JsonReader.Parse(Base64Url.DecodeFromChars(headerSegment), AdmitLimits.Default).TryGetValue(out var root, out _)
+        && root is JsonValue.Object;
 
     /// <summary>The statement as a JSON object, or null when it is not text that parses to one.</summary>
     private static JsonValue.Object? ParseObject(string text) =>
@@ -207,7 +217,11 @@ internal static class OperatorActFold
             if (!ok) return false;
         }
 
-        return string.Equals(Text(statement, "typ"), kind.StatementTyp, StringComparison.Ordinal);
+        // The closed form closes the values of the members a consumer reads (R6.67 step 3): R4.24's four proofs, the four effects, R10.35's seven flag types.
+        var valuesOk = kind.IsModeration
+            ? ModerationEffects.Parse(Text(statement, "effect") ?? string.Empty).IsOk && FlagKinds.Parse(Text(statement, "category") ?? string.Empty).IsOk
+            : OwnerVerificationMethods.Parse(Text(statement, "method") ?? string.Empty).IsOk;
+        return valuesOk && string.Equals(Text(statement, "typ"), kind.StatementTyp, StringComparison.Ordinal);
     }
 
     /// <summary>Every member the row states beside <c>statement</c> and <c>authorization</c> is the statement's member of the same name and equals it; a row member that is neither is a disagreement.</summary>
@@ -222,9 +236,10 @@ internal static class OperatorActFold
         return true;
     }
 
+    /// <summary>The same JSON value (R6.67 step 3): equal under RFC 8785, no normalization, so a string is compared code point for code point.</summary>
     private static bool SameValue(JsonValue a, JsonValue b) =>
-        CanonicalJson.CanonicalizeWithNfc(a).TryGetValue(out var left, out _)
-        && CanonicalJson.CanonicalizeWithNfc(b).TryGetValue(out var right, out _)
+        CanonicalJson.Canonicalize(a).TryGetValue(out var left, out _)
+        && CanonicalJson.Canonicalize(b).TryGetValue(out var right, out _)
         && left.Span.SequenceEqual(right.Span);
 
     private static string? Text(JsonValue.Object o, string name) => Find(o, name) is JsonValue.String s ? s.Value : null;

@@ -103,8 +103,8 @@ fn r6_67_every_operator_acts_case_reaches_its_rows_and_state() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.operator_acts.len(),
-        60,
-        "conformance/operator-acts/ holds 60 cases"
+        72,
+        "conformance/operator-acts/ holds 72 cases"
     );
 
     let mut failures = Vec::new();
