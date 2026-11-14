@@ -35,6 +35,7 @@ pub mod jws;
 pub mod lifecycle;
 pub mod merkle;
 pub mod nfc;
+pub mod operator_acts;
 
 /// `Canonicalize` — pure RFC 8785 canonicalization, performing **no**
 /// Unicode normalization. Errata D1 (revised R6.8). Implemented in Task 2;
