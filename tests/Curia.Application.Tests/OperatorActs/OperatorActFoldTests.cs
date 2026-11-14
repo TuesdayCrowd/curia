@@ -142,28 +142,28 @@ public sealed class OperatorActFoldTests
     {
         HonouredEventsIsTheLogLess("moderation-forged-row-between-genuine-ones", 5);
         HonouredEventsIsTheLogLess("skipped-row-does-not-move-the-chain", 3);
-    }
 
-    private static void HonouredEventsIsTheLogLess(string name, int skippedIndex)
-    {
-        var log = ActVectors.LogOf(name);
-        var honoured = ActVectors.Verified(log).HonouredEvents;
+        static void HonouredEventsIsTheLogLess(string name, int skippedIndex)
+        {
+            var log = ActVectors.LogOf(name);
+            var honoured = ActVectors.Verified(log).HonouredEvents;
 
-        var expectedEvents = log.Where((_, i) => i != skippedIndex).ToArray();
-        Assert.Equal(expectedEvents.Select(e => e.Seq.Value), honoured.Events.Select(e => e.Seq.Value));
-        Assert.Equal(expectedEvents.Select(e => e.Event.Id.Value), honoured.Events.Select(e => e.Event.Id.Value));
-        Assert.Equal(log.Count - 1, honoured.Events.Length);
+            var expectedEvents = log.Where((_, i) => i != skippedIndex).ToArray();
+            Assert.Equal(expectedEvents.Select(e => e.Seq.Value), honoured.Events.Select(e => e.Seq.Value));
+            Assert.Equal(expectedEvents.Select(e => e.Event.Id.Value), honoured.Events.Select(e => e.Event.Id.Value));
+            Assert.Equal(log.Count - 1, honoured.Events.Length);
 
-        // Not a log: the last event's Seq is the whole log's length, its position in Events is one less (R6.47).
-        Assert.Equal(log.Count, honoured.Events[^1].Seq.Value);
-        Assert.NotEqual(honoured.Events.Length, honoured.Events[^1].Seq.Value);
+            // Not a log: the last event's Seq is the whole log's length, its position in Events is one less (R6.47).
+            Assert.Equal(log.Count, honoured.Events[^1].Seq.Value);
+            Assert.NotEqual(honoured.Events.Length, honoured.Events[^1].Seq.Value);
 
-        Assert.Equal(log.Select(e => e.Event.Id.Value), honoured.Log.Select(e => e.Event.Id.Value));
+            Assert.Equal(log.Select(e => e.Event.Id.Value), honoured.Log.Select(e => e.Event.Id.Value));
 
-        // A lifecycle row (the key pair at 1), the operator key's entry (2) and the post or enrolment root are kept.
-        Assert.Contains(honoured.Events, e => e.Event.Type.Value == "agent.key-bound");
-        Assert.Contains(honoured.Events, e => e.Event.Type.Value == "log.operator-key");
-        Assert.DoesNotContain(honoured.Events, e => e.Event.Id.Value == log[skippedIndex].Event.Id.Value);
+            // A lifecycle row (the key pair at 1), the operator key's entry (2) and the post or enrolment root are kept.
+            Assert.Contains(honoured.Events, e => e.Event.Type.Value == "agent.key-bound");
+            Assert.Contains(honoured.Events, e => e.Event.Type.Value == "log.operator-key");
+            Assert.DoesNotContain(honoured.Events, e => e.Event.Id.Value == log[skippedIndex].Event.Id.Value);
+        }
     }
 
     private static JsonValue.Object Object(params (string Name, JsonValue Value)[] members) =>
