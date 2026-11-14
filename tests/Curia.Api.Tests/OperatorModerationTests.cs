@@ -279,6 +279,8 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var client = forum.Client;
         var author = await PartyAsync(client, "op-author", ct);
         var (postId, _) = await AskAsync(client, author, ct);
+        // The operator-acts key is published before the log is measured: a first refusal that reaches the writer publishes it (SignedActWriters), so an unseeded test's count depends on which test ran first (errata G70).
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(client, ct);
 
         var (exit, _, stderr) = await RunAsync(Moderate(postId, "withhold", reason: new string('a', 4_097)), ct);
@@ -337,6 +339,8 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var client = forum.Client;
         var author = await PartyAsync(client, "op-author", ct);
         var (postId, _) = await AskAsync(client, author, ct);
+        // The operator-acts key is published before the log is measured: a first refusal that reaches the writer publishes it (SignedActWriters), so an unseeded test's count depends on which test ran first (errata G70).
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(client, ct);
 
         var (exit, _, stderr) = await RunAsync(["moderate", "--post", postId, "--effect", "withhold", "--reason", "r", "--by", "x"], ct);
@@ -367,6 +371,8 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var client = forum.Client;
         var author = await PartyAsync(client, "op-author", ct);
         var (postId, _) = await AskAsync(client, author, ct);
+        // The operator-acts key is published before the log is measured: a first refusal that reaches the writer publishes it (SignedActWriters), so an unseeded test's count depends on which test ran first (errata G70).
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(client, ct);
 
         var args = Moderate(postId, "withhold");

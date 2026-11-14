@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::Path;
 
-use curia_testis::conformance::{conformance_dir, Corpus};
+use curia_testis::conformance::{conformance_dir, Corpus, OperatorActsVector};
 use curia_testis::lifecycle::Verdict;
 use curia_testis::operator_acts::{operator_acts, predicate, ActEntry, Acts, State, Stream};
 use serde_json::Value;
@@ -15,6 +15,58 @@ use serde_json::Value;
 /// Cases where the vector and this reading disagree: a case listed here is expected to fail, and the test fails
 /// if a listed case agrees. Empty: every case agrees.
 const EXPECTED_FAILURES: &[&str] = &[];
+
+/// The cases to decide: the directory `CURIA_OPERATOR_ACTS_DIR` names when it is set (OAS29: a generated corpus whose
+/// `expected.json` the Forum's fold wrote), else the family `conformance/operator-acts/`. Never empty: a run that decided
+/// nothing proves nothing.
+fn vectors() -> Vec<OperatorActsVector> {
+    let Ok(dir) = std::env::var("CURIA_OPERATOR_ACTS_DIR") else {
+        let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
+        assert_eq!(
+            corpus.operator_acts.len(),
+            74,
+            "conformance/operator-acts/ holds 74 cases"
+        );
+        return corpus.operator_acts;
+    };
+    let mut cases: Vec<_> = fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("CURIA_OPERATOR_ACTS_DIR {dir} must be readable: {e}"))
+        .map(|f| f.expect("a directory entry").path())
+        .filter(|p| p.is_dir())
+        .collect();
+    cases.sort();
+    let vectors: Vec<OperatorActsVector> = cases
+        .into_iter()
+        .map(|path| {
+            let meta: Value = serde_json::from_slice(
+                &fs::read(path.join("meta.json"))
+                    .unwrap_or_else(|e| panic!("{}: meta.json: {e}", path.display())),
+            )
+            .unwrap_or_else(|e| panic!("{}: meta.json is JSON: {e}", path.display()));
+            let text = |key: &str| {
+                meta[key]
+                    .as_str()
+                    .unwrap_or_else(|| {
+                        panic!("{}: meta.json has no string `{key}`", path.display())
+                    })
+                    .to_string()
+            };
+            OperatorActsVector {
+                case: path.file_name().unwrap().to_string_lossy().into_owned(),
+                requirement: text("requirement"),
+                note: None,
+                stream: text("stream"),
+                subject: text("subject"),
+                dir: path,
+            }
+        })
+        .collect();
+    assert!(
+        !vectors.is_empty(),
+        "CURIA_OPERATOR_ACTS_DIR {dir} holds no case: a run that decided nothing proves nothing"
+    );
+    vectors
+}
 
 fn read_entries(dir: &Path) -> Vec<ActEntry> {
     let entries = dir.join("entries");
@@ -100,15 +152,10 @@ fn expected_of(vector: &curia_testis::conformance::OperatorActsVector) -> Value 
 
 #[test]
 fn r6_67_every_operator_acts_case_reaches_its_rows_and_state() {
-    let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
-    assert_eq!(
-        corpus.operator_acts.len(),
-        74,
-        "conformance/operator-acts/ holds 74 cases"
-    );
+    let vectors = vectors();
 
     let mut failures = Vec::new();
-    for vector in &corpus.operator_acts {
+    for vector in &vectors {
         let outcome = compare(&decide_case(vector), &expected_of(vector));
         match (outcome, EXPECTED_FAILURES.contains(&vector.case.as_str())) {
             (Err(e), false) => failures.push(format!("{}: {e}", vector.case)),
@@ -120,12 +167,12 @@ fn r6_67_every_operator_acts_case_reaches_its_rows_and_state() {
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    println!("operator-acts cases decided: {}", vectors.len());
 }
 
 #[test]
 fn r6_67_every_skipped_predicate_is_one_of_the_eight_names() {
-    let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
-    for vector in &corpus.operator_acts {
+    for vector in &vectors() {
         for row in decide_case(vector).rows {
             if let Verdict::Skipped(p) = row.verdict {
                 assert!(predicate::ALL.contains(&p), "{}: {p}", vector.case);
