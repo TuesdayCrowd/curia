@@ -109,6 +109,30 @@ public sealed class OperatorActsOperatorTests(ForumFixture forum) : IClassFixtur
         WholeText.Same("exit 7; 2 skipped rows listed; no payload text", $"exit {run.Exit}; {listed} skipped rows listed; {(leaked ? "a payload member leaked" : "no payload text")}");
     }
 
+    /// <summary>
+    /// OAS21g, the golden: a lifecycle-only log prints the bytes it printed before N2, whatever this PR adds to the audit. The golden below was captured from the operator as it stood before any act row was
+    /// listed (stdout, stderr and exit code) over a fixed log: one enrolment (log index 0), its key binding (1) and a retirement with no signature (2), the last skipped. The ids are fixed so that the
+    /// bytes are.
+    /// </summary>
+    [Fact]
+    public async Task OAS21g_ALifecycleOnlyAuditPrintsTheBytesItPrintedBefore()
+    {
+        await using var own = await VerifiedStopSupport.NewAsync();
+        const string Agent = "https://agents.example/golden-agent";
+        const string Kid = "golden-kid-1";
+        const string Jwk = "{\"alg\":\"ES256\",\"crv\":\"P-256\",\"kid\":\"" + Kid + "\",\"kty\":\"EC\",\"use\":\"sig\",\"x\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"y\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}";
+        await VerifiedStopSupport.InsertRowAsync(own, "agent.enrolled", Agent, $"{{\"agent_id\":\"{Agent}\",\"kid\":\"{Kid}\",\"reason\":\"golden\"}}", Ct);
+        await VerifiedStopSupport.InsertRowAsync(own, "agent.key-bound", Agent, $"{{\"agent_id\":\"{Agent}\",\"jwk\":{Jwk},\"kid\":\"{Kid}\"}}", Ct);
+        await VerifiedStopSupport.InsertRowAsync(own, "agent.key-retired", Agent, VerifiedStopSupport.ForgedRetirement(Agent, Kid), Ct);
+
+        var run = await VerifiedStopSupport.OperatorAsync(own, Ct, ["lifecycle-audit"]);
+        OperatorActsApi.Log($"OAS21g golden: exit {run.Exit}; stdout[{run.Out.Replace("\n", "|")}]; stderr[{run.Err.Replace("\n", "|")}]");
+
+        WholeText.Same(
+            "exit 7\nstdout[honoured 2  skipped 1\nskipped  log_index=2  type=agent.key-retired  aggregate=\"https://agents.example/golden-agent\"  predicate=lifecycle-typ-mismatch\n]\nstderr[]",
+            $"exit {run.Exit}\nstdout[{run.Out}]\nstderr[{run.Err}]");
+    }
+
     // ---- OAS22 ---------------------------------------------------------------------------------
 
     [Theory]

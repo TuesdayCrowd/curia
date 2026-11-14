@@ -49,7 +49,8 @@ public sealed class PublishDeclarationKey
         if (!acta!.DeclarationKeys.IsEmpty)
             return Result<long>.Fail(KeyActErrors.DeclarationKeyAlreadyPublished());
 
-        var published = acta.DeclarationKeys.Length;
+        // The aggregate's version is the entries it holds, which is not the keys that hold a position (register item 300): a row of the aggregate that holds none still counts.
+        var published = log!.Count(e => string.Equals(e.AggregateId.Value, LogEntries.DeclarationKeysAggregate, StringComparison.Ordinal));
         if (!AggregateId.Create(LogEntries.DeclarationKeysAggregate).TryGetValue(out var aggregate, out var aggregateError))
             return Result<long>.Fail(aggregateError!);
         if (!AggregateVersion.From(published).TryGetValue(out var version, out var versionError))

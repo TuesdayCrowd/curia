@@ -515,7 +515,7 @@ public static class OperatorCommands
                 if (!acta!.Keys.Any(k => string.Equals(k.Kid, key.Kid, StringComparison.Ordinal)))
                 {
                     var published = await AppendAsync(
-                        store, ids, LogEntries.KeysAggregate, acta.Keys.Length, LogEntries.KeyType, actor,
+                        store, ids, LogEntries.KeysAggregate, acta.Events.Count(e => string.Equals(e.AggregateId.Value, LogEntries.KeysAggregate, StringComparison.Ordinal)), LogEntries.KeyType, actor,
                         new JsonValue.Object(
                         [
                             new(LogEntries.KidMember, new JsonValue.String(key.Kid)),
