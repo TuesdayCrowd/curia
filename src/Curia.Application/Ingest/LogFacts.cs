@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Curia.Application.Credentials;
 using Curia.Application.Projections;
 using Curia.Domain;
 using Curia.Domain.Primitives;
@@ -19,11 +20,13 @@ public sealed class LogFacts
     private sealed record State(ImmutableArray<PostView> Posts, ImmutableDictionary<string, PostModeration> Moderation);
 
     private readonly Lazy<State> _state;
+    private readonly VerifiedLog? _verified;
 
-    private LogFacts(EventSequence position, Lazy<State> state)
+    private LogFacts(EventSequence position, Lazy<State> state, VerifiedLog? verified = null)
     {
         Position = position;
         _state = state;
+        _verified = verified;
     }
 
     /// <summary>The sequence of the last event of the list these facts were folded from; <see cref="EventSequence.Zero"/> for an empty list.</summary>
@@ -44,7 +47,26 @@ public sealed class LogFacts
     /// </summary>
     public bool Servable(string postId) => !Moderation.TryGetValue(postId, out var state) || state.MayServe;
 
-    /// <summary>Facts of <paramref name="read"/>, folded when first needed and never again. The list is checked as the projectors check a list.</summary>
+    /// <summary>
+    /// Facts of a verified log (errata G70, R4.43, R6.67; Amendment 6, rulings 73 and 75): the posts are the log's, the moderation is the operator acts the Forum honours (<c>Moderation()</c>), and the position is
+    /// the <b>whole</b> log's last sequence, not the honoured events': a skipped act at the tail would otherwise sit above the position and be read again as a delta. The one entry point production uses;
+    /// <see cref="Of"/> is its unfiltered sibling, for the tests (OAS12 bans its production callers).
+    /// </summary>
+    public static LogFacts OfHonoured(VerifiedLog verified)
+    {
+        ArgumentNullException.ThrowIfNull(verified);
+
+        var log = verified.Log;
+        return new LogFacts(
+            log.Count == 0 ? EventSequence.Zero : log[^1].Seq,
+            new Lazy<State>(() => new State(PostProjector.Fold(log), verified.Moderation()), LazyThreadSafetyMode.ExecutionAndPublication),
+            verified);
+    }
+
+    /// <summary>
+    /// Facts of <paramref name="read"/>, folded when first needed and never again. The list is checked as the projectors check a list, and every operator-act row in it is read as a genuine one: production
+    /// builds <see cref="OfHonoured"/> instead.
+    /// </summary>
     public static LogFacts Of(IReadOnlyList<AppendedEvent> read)
     {
         ArgumentNullException.ThrowIfNull(read);
@@ -63,6 +85,8 @@ public sealed class LogFacts
     {
         ArgumentNullException.ThrowIfNull(delta);
         if (delta.Count == 0) return this;
+        if (_verified is not null)
+            throw new InvalidOperationException("Facts built from a verified log are not extended: the guard asks ServableAfter, which decides the delta's operator acts over the verified log.");
 
         CheckAbovePosition(delta);
 
@@ -74,6 +98,9 @@ public sealed class LogFacts
     /// <summary>
     /// R10.36's serving filter, by post id, over these facts followed by <paramref name="delta"/>: the moderation extended by the delta's records only (persistent, so no copy of
     /// the read's), and nothing of the posts (errata G57, ruling 31). The delta is held to the same rule as <see cref="Extend"/>.
+    /// For facts of a verified log (<see cref="OfHonoured"/>), a delta that holds no <c>moderation.applied</c> event changes nothing (the common case, and it costs nothing); one that holds one is decided over the
+    /// verified log of the read followed by the delta (errata G70, ruling 73): a skipped act in it is inert, a genuine one acts. The fold is total, so there is no delta it cannot decide and nothing to catch here;
+    /// an exception is a defect and aborts the append.
     /// </summary>
     public Func<string, bool> ServableAfter(IReadOnlyList<AppendedEvent> delta)
     {
@@ -83,7 +110,10 @@ public sealed class LogFacts
         if (delta.Count > 0)
         {
             CheckAbovePosition(delta);
-            moderation = FlagProjector.Extend(moderation, delta);
+            if (_verified is null)
+                moderation = FlagProjector.Extend(moderation, delta);
+            else if (delta.Any(e => string.Equals(e.Event.Type.Value, FlagProjector.ModerationAppliedType, StringComparison.Ordinal)))
+                moderation = _verified.Verifier.OfLog([.. _verified.Log, .. delta]).Moderation();
         }
 
         return postId => !moderation.TryGetValue(postId, out var state) || state.MayServe;

@@ -1163,7 +1163,8 @@ public static class OperatorCommands
         }
 
         var directory = FlagDirectory.Join(log, details);
-        var moderation = FlagProjector.Fold(log);
+        // The history that decides a flag's state is that of the moderation records the Forum honours (errata G70, R4.43, R10.61): a record it skips upholds and adjudicates nothing.
+        var moderation = Verifier.OfLog(log).Moderation();
         var rationales = FlagDirectory.RationalesByFlag(log, details);
 
         var listed = 0;

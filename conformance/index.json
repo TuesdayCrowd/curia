@@ -71,7 +71,7 @@
       "profiles": [
         "operator-acts-log"
       ],
-      "count": 72
+      "count": 74
     },
     {
       "name": "lifecycle",

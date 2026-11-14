@@ -181,12 +181,37 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
         // Leg 2: a voter pre-poisoned with the author's owner is refused (same-owner); with no forgery it votes.
         var author = await api.ProvenanceAsync(scene.Answer1.PostId, Ct);
         var legit = await api.GenuineAsync("legit-voter", Ct);
-        for (var i = 0; i < 3; i++) await api.AskAsync(legit, board, Ct);
+
+        // Task 3b (T3bF7, a probe that did not go red): the forged row names the author's owner and comes FIRST (the first binding is immutable, R4.1, so a raw reader keeps it), then the voter's own genuine attestation
+        // (another owner) is recorded, which the writer does because the forged row is skipped (OAS5). The voter is T1 on its own attestation; a consumer that reads the forged owner refuses its vote as the author's.
+        // Without a genuine attestation the voter is T0 and "with no forgery it votes" is false of any T0 voter.
         await api.ForgeAttestationNowAsync(legit.Agent.AgentId, author.Owner ?? "owner:none", Ct);
+        await api.GenuineAttest(legit.Agent.AgentId, Ct, "owner:legit-" + OperatorActsApi.Suffix());
+        for (var i = 0; i < 3; i++) await api.AskAsync(legit, board, Ct);
         forum.Clock.Advance(TimeSpan.FromHours(49));
         var legitVote = await VoteAsync(legit, scene.Answer2);
 
         WholeText.Same("V0; 201 (accepted)", $"{level}; {legitVote}");
+
+        // Leg 3 (T3bF8, a probe that did not go red): two voters, each pre-poisoned with the same forged owner (first) and then genuinely attested under owners of their own, vote on a third answer: it is V1,
+        // as the two genuine voters of the control made one V1. A reader that takes the owners from the forged rows sees one owner for both and says V0.
+        var third = await api.PostRawAsync(Conv(scene.Answerer), scene.Answerer.Agent.SignAnswer(board, "The third way " + Probe.Unrelated(), scene.Question.PostId, forum.Now), Ct);
+        Assert.Equal(201, third.Status);
+        var sharedForgedOwner = "owner:shared-forged-" + OperatorActsApi.Suffix();
+        var poisoned = new List<OperatorActsApi.Actor>();
+        for (var n = 0; n < 2; n++)
+        {
+            var voter = await api.GenuineAsync("poisoned-voter-" + n, Ct);
+            await api.ForgeAttestationNowAsync(voter.Agent.AgentId, sharedForgedOwner, Ct);
+            await api.GenuineAttest(voter.Agent.AgentId, Ct, "owner:own-" + n + "-" + OperatorActsApi.Suffix());
+            for (var i = 0; i < 3; i++) await api.AskAsync(voter, board, Ct);
+            poisoned.Add(voter);
+        }
+
+        forum.Clock.Advance(TimeSpan.FromHours(49));
+        foreach (var voter in poisoned)
+            Assert.Equal("201 (accepted)", OperatorActsApi.Said(await api.PostRawAsync(voter, voter.Agent.SignVote(board, third.Digest, forum.Now), Ct)));
+        WholeText.Same("V1", await api.LevelAsync(third.PostId, Ct));
     }
 
     // ---- OAS25 (owner and served leg), OAS33 ---------------------------------------------------
@@ -237,6 +262,79 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
             $"token {token.Reply.Status}; ask {ask.Status}; key set {keySet}; post {served}");
     }
 
+    // ---- OAS33c: the vectors' skipped rows, as a request meets them (Task 3b, ruling 80 (b)) ------------------
+
+    private static string OperatorActsVectors()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Curia.sln"))) dir = dir.Parent;
+        return Path.Combine(dir!.FullName, "conformance", "operator-acts");
+    }
+
+    /// <summary>The cases of <c>conformance/operator-acts/</c> whose <c>expected.json</c> has at least one skipped act row, each with the log indices of those rows: parsed from the files, never listed here.</summary>
+    private static List<(string Case, int[] SkippedIndices)> CasesWithSkippedRows() =>
+        [.. Directory.GetDirectories(OperatorActsVectors()).Order(StringComparer.Ordinal).Select(d =>
+        {
+            using var expected = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(d, "expected.json")));
+            var skipped = expected.RootElement.GetProperty("rows").EnumerateArray()
+                .Where(r => r.GetProperty("verdict").GetString() == "skipped").Select(r => r.GetProperty("log_index").GetInt32()).ToArray();
+            return (Path.GetFileName(d), skipped);
+        }).Where(c => c.skipped.Length > 0)];
+
+    public static TheoryData<string> CasesWithSkipped()
+    {
+        var data = new TheoryData<string>();
+        foreach (var (name, _) in CasesWithSkippedRows()) data.Add(name);
+        return data;
+    }
+
+    private async Task<int> SkippedRowsListedAsync(OperatorActsApi api)
+    {
+        var audit = await api.OperatorAsync(Ct, "lifecycle-audit");
+        return audit.Out.Split('\n').Count(l => l.StartsWith("skipped  log_index=", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// OAS33c: for every case of the vectors that has a skipped act row (61 today, 63 rows), that case's skipped rows are appended onto a live agent's or a live post's own stream (the aggregate and every
+    /// occurrence of the case's subject id in the row, statement text included, replaced by the live id), as the application role; then a token request is 200, an ask is 201, the key set is 200 and the served post
+    /// is 200, as they were before the rows. The vacuity guard (ruling 80 (b)): the case count equals the count parsed from the files, and the Forum's own audit lists exactly as many more skipped rows after the
+    /// insert as were inserted, so a probe whose rows the Forum never reads cannot pass.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(CasesWithSkipped))]
+    public async Task OAS33c_NoRequestIsRefusedForTheSkippedRowsOfTheVectors(string caseName)
+    {
+        ArgumentNullException.ThrowIfNull(caseName);
+        var api = Api;
+        var cases = CasesWithSkippedRows();
+        Assert.Equal(cases.Count, CasesWithSkipped().Count);
+        var skippedIndices = cases.Single(c => c.Case == caseName).SkippedIndices;
+        Assert.NotEmpty(skippedIndices);
+
+        var board = OperatorActsApi.Board();
+        var agent = await api.GenuineAsync("c33c", Ct);
+        var post = await api.QuestionAsync("c33c-post", Ct);
+
+        async Task<string> ObserveAsync(bool ask) =>
+            $"token {(await api.TokenAsync(agent, Ct)).Reply.Status}; ask {(ask ? (await api.AskAsync(agent, board, Ct)).Status : 201)}; key set {await api.GetStatusAsync($"/v1/jwks?agent={Uri.EscapeDataString(agent.Agent.AgentId)}", Ct)}; post {await PostStatusAsync(api, post.Id)}";
+        WholeText.Same("token 200; ask 201; key set 200; post 200", await ObserveAsync(ask: false));
+
+        var listedBefore = await SkippedRowsListedAsync(api);
+        foreach (var index in skippedIndices)
+        {
+            using var entryDoc = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(OperatorActsVectors(), caseName, "entries", $"{index}.json"), Ct));
+            var entry = entryDoc.RootElement.GetProperty("entry");
+            var type = entry.GetProperty("event_type").GetString()!;
+            var subject = entry.GetProperty("aggregate_id").GetString()!;
+            var live = type == "agent.owner-attested" ? agent.Agent.AgentId : post.Id;
+            var payload = entry.GetProperty("payload").GetRawText().Replace(subject, live, StringComparison.Ordinal);
+            await api.InsertRowAsync(type, live, payload, entry.GetProperty("actor_id").GetString()!, forum.Now, Ct);
+        }
+
+        Assert.Equal(listedBefore + skippedIndices.Length, await SkippedRowsListedAsync(api));
+        WholeText.Same("token 200; ask 201; key set 200; post 200", await ObserveAsync(ask: true));
+    }
+
     // ---- OAS34 to OAS36 -------------------------------------------------------------------------
 
     [Fact]
@@ -281,9 +379,9 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
             return (r, r.Digest);
         }
 
-        async Task<OperatorActsApi.Reply> DuplicateAsync()
+        async Task<OperatorActsApi.Reply> DuplicateAsync(OperatorActsApi.Actor? enrolled = null)
         {
-            var d = await api.GenuineAsync("dup", Ct);
+            var d = enrolled ?? await api.GenuineAsync("dup", Ct);
             return await api.PostRawAsync(d, d.Agent.SignQuestion(board, body + " Please advise.", title, forum.Now), Ct);
         }
 
@@ -298,8 +396,10 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
         board = OperatorActsApi.Board();
         var forgedOriginal = await OriginalAsync();
         await api.ForgeModerationAsync(forgedOriginal.Original.PostId, forgedOriginal.Digest, "withhold", Ct);
+        // Task 3b (ruling 79 (b), a count that moves by rows the arrangement itself appends): the duplicate's author is enrolled first, so that the count compares the refused request alone.
+        var duplicateAuthor = await api.GenuineAsync("dup", Ct);
         var before = await api.EventCountAsync(Ct);
-        var dup = await DuplicateAsync();
+        var dup = await DuplicateAsync(duplicateAuthor);
         WholeText.Same("409 curia/posts/duplicate-question", $"{dup.Status} {dup.Type}");
         Assert.Equal(before, await api.EventCountAsync(Ct));
     }

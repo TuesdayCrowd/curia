@@ -652,7 +652,7 @@ scalar), so the public keys are reproducible; ES256 signing is randomized, so th
 the header kid and the signer are the same, and a regeneration over the existing output is byte-identical. "Garbage" is the string `FORGED-NO-VALID-SIGNATURE`,
 which is not a JWS; a "bad signature" is a well-formed JWS of the right header whose signature bytes are another key's.
 
-The family holds 72 cases: vectors 1 to 33 are the plan's table, vectors 34 to 38 are Amendment 1's, vectors 39 to 60 are Amendment 4's and vectors 61 to 72 are Amendment 5's. Vectors 34 and 35 pin that `curia.moderation/1` honours
+The family holds 74 cases: vectors 1 to 33 are the plan's table, vectors 34 to 38 are Amendment 1's, vectors 39 to 60 are Amendment 4's, vectors 61 to 72 are Amendment 5's and vectors 73 and 74 are Amendment 6's. Vectors 34 and 35 pin that `curia.moderation/1` honours
 `moderator` `human` only (`automated` and `delegated_agent` are skipped `act-statement-mismatch`: no automated actor holds a key and no delegation exists, item 294);
 vectors 36 and 37 pin a forged unsigned restore after and between genuine rows; vector 38 pins "the stream's root is its first event" for a stream with two
 `agent.enrolled` rows.
@@ -677,10 +677,12 @@ can reach step 7 without the primitive being called. Vector 68: a row member tha
 Vectors 69, 70 and 71: the closed form closes the values of `method` (R4.24's four proofs), `effect` (four) and `category` (R10.35's seven). Vector 72: a post is held in the category each
 record cites until a restore citing it, so a withhold in `spam`, a quarantine in `incorrect` and a restore in `spam` leave it not served (R10.61).
 
-**What these 72 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effect `dismiss` (every effect
+Vectors 73 and 74 pin where an honoured act's state is read from (Amendment 6, ruling 74; R6.67's closing paragraph): the statement, which is what the key signed, and never the row, which need not state any member its statement states (step 3). Vector 73: two genuine attestations naming one owner (the first `owner_verified` true, the second false), each row stating only `statement` and `authorization`; both are honoured and the state is the owner and `verified` false. A fold that reads the row's members ignores both rows and says there is no owner. Vector 74: one genuine human withhold whose row states only `statement` and `authorization`; it is honoured and the post is not served. A fold that reads the row's members ignores it and serves the post.
+
+**What these 74 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effect `dismiss` (every effect
 shares the procedure), a flag's `adjudicates` list beyond its type, which of step 3's clauses decides a row that has two defects of step 3's own (the order of the steps is pinned, the
-order of one step's clauses is not), the types of the closed form's remaining string members, a protected-header segment whose last base64url character carries non-zero trailing bits, a
-row member whose number is spelled differently from the statement's (`0.0` and `0`), and the state of an honoured row that omits a member its statement states (the state follows the statement).
+order of one step's clauses is not), the types of the closed form's remaining string members, a protected-header segment whose last base64url character carries non-zero trailing bits, and a
+row member whose number is spelled differently from the statement's (`0.0` and `0`).
 
 The cases are **proposals**, as `honoured/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --operator-acts-cases` regenerates them until the owner's
 lift record pins their digests.

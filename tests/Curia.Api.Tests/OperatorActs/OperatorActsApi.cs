@@ -25,14 +25,19 @@ internal sealed class OperatorActsApi
     internal const string Token = "http://localhost/oauth/token";
     internal const string Posts = "http://localhost/v1/posts";
     private readonly ForumFixture _forum;
+    private readonly HttpClient? _client;
 
-    internal OperatorActsApi(ForumFixture forum) => _forum = forum;
+    internal OperatorActsApi(ForumFixture forum, HttpClient? client = null)
+    {
+        _forum = forum;
+        _client = client;
+    }
 
     internal ForumFixture Forum => _forum;
 
     internal HttpClient Http()
     {
-        var c = _forum.Client;
+        var c = _client ?? _forum.Client;
         c.DefaultRequestHeaders.Host = "localhost";
         return c;
     }
@@ -327,6 +332,49 @@ internal sealed class OperatorActsApi
         var m = System.Text.RegularExpressions.Regex.Match(ops.Out, @"^flag\s+(\S+)", System.Text.RegularExpressions.RegexOptions.Multiline);
         Assert.True(m.Success, ops.Out + ops.Err);
         return m.Groups[1].Value;
+    }
+
+    /// <summary>What an agent's inbox says of a post on a board: <c>lists the post</c> or <c>omits the post</c>, with the status (Task 3b, C8).</summary>
+    internal async Task<string> InboxListsAsync(Actor reader, string board, string postId, CancellationToken ct)
+    {
+        var token = await reader.Dpop.GetTokenAsync(Http(), Token, _forum.Now, ct);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/v1/inbox?board={board}");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("DPoP", token);
+        request.Headers.Add("DPoP", reader.Dpop.Proof("GET", "http://localhost/v1/inbox", _forum.Now, token, nonce: null));
+        using var response = await Http().SendAsync(request, ct);
+        var text = await response.Content.ReadAsStringAsync(ct);
+        return $"{(int)response.StatusCode} {(text.Contains(postId, StringComparison.Ordinal) ? "lists the post" : "omits the post")}";
+    }
+
+    /// <summary>
+    /// A forged flag (Task 3b, C20): a <c>flag_details</c> row and the <c>flag.committed</c> event that commits to it, both inserted as the application role. The commitment opens, so the Forum's directory
+    /// lists the flag as a genuine one. Returns the flag's id.
+    /// </summary>
+    internal async Task<string> ForgeFlagAsync(string postId, string raiserAgentId, CancellationToken ct)
+    {
+        var flagId = new Curia.Domain.Primitives.UlidGenerator(_forum.Clock).Next().Match(u => u.ToString(), f => throw new InvalidOperationException(f.Type));
+        const string salt = "c2FsdHNhbHRzYWx0c2FsdHNhbHRzYWx0c2FsdHNhbHQ";
+        const string rationale = "forged flag by a probe";
+        var commitment = Curia.Domain.Moderation.FlagCommitment.Of(postId, raiserAgentId, rationale, salt).Match(k => k, f => throw new InvalidOperationException(f.Type));
+        await using var conn = new NpgsqlConnection(RoleConn());
+        await conn.OpenAsync(ct);
+        await using (var d = new NpgsqlCommand("INSERT INTO flag_details (event_id, post_id, raised_by, rationale, salt) VALUES (@id, @post, @raiser, @r, @s);", conn))
+        {
+            d.Parameters.AddWithValue("id", flagId);
+            d.Parameters.AddWithValue("post", postId);
+            d.Parameters.AddWithValue("raiser", raiserAgentId);
+            d.Parameters.AddWithValue("r", rationale);
+            d.Parameters.AddWithValue("s", salt);
+            await d.ExecuteNonQueryAsync(ct);
+        }
+
+        await using var committed = new NpgsqlCommand("INSERT INTO events (event_id, event_type, aggregate_id, actor_id, payload, server_ts) VALUES (@id, 'flag.committed', @agg, NULL, @p::jsonb, @ts);", conn);
+        committed.Parameters.AddWithValue("id", flagId);
+        committed.Parameters.AddWithValue("agg", "flag:" + flagId);
+        committed.Parameters.AddWithValue("p", $"{{\"commitment\":\"{commitment}\",\"kind\":\"spam\"}}");
+        committed.Parameters.AddWithValue("ts", _forum.Now);
+        await committed.ExecuteNonQueryAsync(ct);
+        return flagId;
     }
 
     internal async Task<string> EnrollBodyMemberAsync(ForumAgent agent, string member, CancellationToken ct)

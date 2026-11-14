@@ -277,7 +277,8 @@ public static class AgentStandingProjector
                     break;
 
                 case OwnerAttestedType:
-                    ApplyOwnerAttestation(builders, Members(payload), appended);
+                    // R6.67's closing paragraph (ruling 74): the attestation is read from its statement, and from its own members only when it has none.
+                    if (FlagProjector.StatedMembers(payload) is { } attested) ApplyOwnerAttestation(builders, attested, appended);
                     break;
 
                 case PostProjector.PostAcceptedType:

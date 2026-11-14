@@ -106,6 +106,19 @@ public sealed class VerifiedLog
     /// <summary>Every moderated post's history, folded from the honoured events (R10.60, R10.61): a record the verifier skips holds nothing and releases nothing. Once per log.</summary>
     public ImmutableDictionary<string, PostModeration> Moderation() => _moderation.Value;
 
+    /// <summary>
+    /// One agent's standing, folded from the honoured events of that agent's own stream (R4.43): an attestation the verifier skips binds no owner and sets no flag. Null when that stream holds no honoured event
+    /// that makes a standing. The acts are decided once per log, whichever view asks first, so asking for several agents verifies nothing again. With <see cref="Standings"/> and <see cref="Moderation"/>, the
+    /// only callers of the raw folds (OAS12).
+    /// </summary>
+    public AgentStanding? StandingOf(AgentId agent)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+
+        var own = _honoured.Value.Events.Where(e => string.Equals(e.AggregateId.Value, agent.Value, StringComparison.Ordinal)).ToArray();
+        return AgentStandingProjector.Fold(own).GetValueOrDefault(agent.Value);
+    }
+
     /// <summary>The operator-act rows the verifier does not honour (R6.67), ascending by log index, each by the predicate that skipped it (never a payload member).</summary>
     public ImmutableArray<SkippedRow> ActSkipped() =>
         [.. _acts.Value.Where(d => d.Predicate is not null).Select(d => new SkippedRow(d.LogIndex, d.Type, d.Aggregate, d.Predicate!))];

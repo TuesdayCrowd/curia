@@ -53,16 +53,10 @@ public sealed class DuplicateCheck
 
     public DuplicateThresholds Thresholds => _thresholds;
 
-    public Task<Result<DuplicateAssessment>> AssessAsync(
-        IReadOnlyList<AppendedEvent> log, PostEnvelope envelope, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(log);
-        ArgumentNullException.ThrowIfNull(envelope);
-
-        return AssessAsync(SearchProjector.Fold(log), envelope, cancellationToken);
-    }
-
-    /// <summary>The same assessment over a corpus the caller folded (errata G62, ruling 18): the route folds once and shares the corpus with <c>board_new</c>.</summary>
+    /// <summary>
+    /// The assessment over a corpus the caller folded (errata G62, ruling 18): the route folds once and shares the corpus with <c>board_new</c>. There is no overload that takes a log: the corpus is folded from a
+    /// verified log (<c>SearchProjector.FoldHonoured</c>), and a duplicate check that folded its own would read operator acts nobody verified (errata G70, ruling 75).
+    /// </summary>
     public async Task<Result<DuplicateAssessment>> AssessAsync(
         ImmutableArray<SearchablePost> corpus, PostEnvelope envelope, CancellationToken cancellationToken = default)
     {

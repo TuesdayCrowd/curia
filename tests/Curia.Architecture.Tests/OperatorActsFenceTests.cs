@@ -19,6 +19,12 @@ public sealed class OperatorActsFenceTests
         ("Curia.Application.Projections.AgentStandingProjector", "Fold"),
         ("Curia.Application.Projections.FlagProjector", "Fold"),
         ("Curia.Application.Projections.FlagProjector", "Extend"),
+
+        // Task 3b (Amendment 6, ruling 75 (c)): the unfiltered siblings of the honoured entry points. They stay public for the tests, and a production caller of one is a raw read of a log nobody verified.
+        ("Curia.Application.Projections.SearchProjector", "Fold"),
+        ("Curia.Application.Ingest.LogFacts", "Of"),
+        ("Curia.Application.Ingest.LogFacts", "Extend"),
+        ("Curia.Application.Projections.InboxSelector", "Select"),
     ];
 
     /// <summary>Callers that may fold a raw log, each with its reason. The verifier's own honoured view is the one reader of the raw fold: it feeds the fold only rows the procedure decided honoured.</summary>
@@ -27,6 +33,9 @@ public sealed class OperatorActsFenceTests
         ("Curia.Application.Credentials.VerifiedLog", "HonouredEvents: the raw fold is fed only the rows the act procedure honoured (R6.67)"),
         ("Curia.Application.Projections.AgentStandingProjector", "the projector's own overloads call each other"),
         ("Curia.Application.Projections.FlagProjector", "the projector's own overloads call each other"),
+        ("Curia.Application.Projections.SearchProjector", "the unfiltered Fold's own body folds the raw moderation and standings; its production callers are banned by the SearchProjector.Fold callee row, and FoldHonoured feeds the same private body from a VerifiedLog"),
+        ("Curia.Application.Ingest.LogFacts", "the unfiltered Of, Extend and ServableAfter branch fold the raw moderation in their own bodies; production callers of Of and Extend are banned by their callee rows, and OfHonoured decides from a VerifiedLog"),
+        ("Curia.Application.Projections.InboxSelector", "the unfiltered Select's own body folds SearchProjector.Fold; its production callers are banned by the InboxSelector.Select callee row, and SelectHonoured folds SearchProjector.FoldHonoured"),
     ];
 
     private static string OwningType(string callerType)

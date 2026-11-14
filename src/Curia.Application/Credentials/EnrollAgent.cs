@@ -133,14 +133,15 @@ public sealed class EnrollAgent
             if (!read.TryGetValue(out var log, out var readError))
                 return Result<AgentEnrollment>.Fail(readError!);
 
-            var history = log!.Where(e => e.AggregateId.Value == aggregate.Value).ToList();
+            // One verified log per attempt (errata G70, ruling 76), shared by the standing and the binding below.
+            var verified = _verifier.OfLog(log!);
 
             // This aggregate's slice carries credential events only -- posts live in their own
             // streams -- so the standing folded here has no question count and no reached-T1
             // instant, and neither is read below. What is read is what this stream is the whole
             // record of: whether an enrollment exists, when it was, and what the owner's standing is.
-            var standing = AgentStandingProjector.Fold(history)
-                .GetValueOrDefault(agentId.Value);
+            // The owner's standing is that of the attestations the Forum honours (R4.43, R6.67), and no other.
+            var standing = verified.StandingOf(agentId);
 
             if (standing?.EnrolledAt is { } enrolledAt)
             {
@@ -149,7 +150,7 @@ public sealed class EnrollAgent
                 // second key under an enrolled identity used to be waved through as a success; and
                 // for other bytes under a bound kid, how a lost row's recovery registered whatever it
                 // was sent.
-                if (_verifier.OfLog(log).For(agentId).Binding?.For(key) is not { } bound)
+                if (verified.For(agentId).Binding?.For(key) is not { } bound)
                     return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId.Value));
 
                 if (!bound.Holds(key))

@@ -69,7 +69,23 @@ public static class InboxSelector
         ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
         ArgumentNullException.ThrowIfNull(agentId);
 
-        var corpus = SearchProjector.Fold(eventsInSeqOrder);
+        return SelectFrom(eventsInSeqOrder, SearchProjector.Fold(eventsInSeqOrder), agentId);
+    }
+
+    /// <summary>
+    /// <see cref="Select"/> over a verified log (errata G70, R4.43, R6.67): the corpus is <see cref="SearchProjector.FoldHonoured"/>'s, so a withhold the Forum does not honour takes no question out of an
+    /// inbox. The one entry point production uses; <see cref="Select"/> is its unfiltered sibling, for the tests (OAS12 bans its production callers).
+    /// </summary>
+    public static InboxCorpus SelectHonoured(Credentials.VerifiedLog verified, AgentId agentId)
+    {
+        ArgumentNullException.ThrowIfNull(verified);
+        ArgumentNullException.ThrowIfNull(agentId);
+
+        return SelectFrom(verified.Log, SearchProjector.FoldHonoured(verified), agentId);
+    }
+
+    private static InboxCorpus SelectFrom(IReadOnlyList<AppendedEvent> eventsInSeqOrder, ImmutableArray<SearchablePost> corpus, AgentId agentId)
+    {
         var resolved = AcceptanceProjector.Fold(eventsInSeqOrder);
 
         // Which threads this agent has already answered. Read from the post read model rather than

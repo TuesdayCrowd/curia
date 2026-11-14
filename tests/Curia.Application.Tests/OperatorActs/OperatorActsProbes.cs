@@ -104,7 +104,7 @@ public sealed class OperatorActsProbes
     public void OAS15_AForgedWithholdInTheDeltaDoesNotMakeAPostUnservable()
     {
         const string post = "01K4CQ4B0000000000000000P1";
-        var facts = LogFacts.Of([]);
+        var facts = LogFacts.OfHonoured(SignedActWriters.Verifier.OfLog([]));
         var control = facts.ServableAfter([])(post);
         var forged = facts.ServableAfter([ModerationEvent(0, post, "withhold")])(post);
         Assert.True(control, "the control, a delta with no act, must say servable");

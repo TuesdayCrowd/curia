@@ -3,6 +3,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Curia.Canon.Jws;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -10,7 +14,8 @@ namespace Curia.Api.Tests;
 /// <summary>
 /// OAS31 (PR N2, errata G70, Amendment 1's consumers table, rows C1 to C20): every consumer Task 0 found reads honoured acts. Each consumer is observed before and after a forged act row is inserted as the
 /// application role, by the same observer, and the test fails by the consumer's name when its output moved. The rows covered here are C1, C2, C3, C4, C5, C7, C11, C13 and C19; C6, C9, C10, C12, C14 to C18 are
-/// the rows of OAS36, OAS6, OAS15, OAS37, OAS27, OAS22 and OAS21 (each named in its own probe), C8 (the inbox) and C20 (a forged flag) are not run by Task 1: see the report.
+/// the rows of OAS36, OAS6, OAS15, OAS37, OAS27, OAS22 and OAS21 (each named in its own probe). Task 3b adds C8 (the inbox) and C12 (a vote on a post a forged row withheld) here, and C20 (a forged flag) is
+/// OAS40's characterization.
 /// </summary>
 [Collection("forum")]
 public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixture<ForumFixture>
@@ -91,9 +96,181 @@ public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixtu
         foreach (var p in posters) await api.ForgeAttestationNowAsync(p.Agent.AgentId, "owner:one-farm", Ct);
         rows.Add(("C7 search diversification", divBefore, await DeferredAsync()));
 
+        // C8: the inbox lists an open question before and after a forged withhold of it (Task 3b; observed on the unmodified consumers, where the forged row removed it).
+        var inboxQuestion = await api.QuestionAsync("c8asker", Ct);
+        var inboxReader = await api.GenuineAsync("c8reader", Ct);
+        var inboxBefore = await api.InboxListsAsync(inboxReader, inboxQuestion.Board, inboxQuestion.Id, Ct);
+        await api.ForgeModerationAsync(inboxQuestion.Id, inboxQuestion.Digest, "withhold", Ct);
+        rows.Add(("C8 inbox", inboxBefore, await api.InboxListsAsync(inboxReader, inboxQuestion.Board, inboxQuestion.Id, Ct)));
+
+        // C12: a vote on a served answer after a forged withhold of it says what a vote on an answer with no such row says (the control, in the same test). The delta path is OAS15's.
+        var c12Board = OperatorActsApi.Board();
+        var c12Asker = await api.GenuineAsync("c12asker", Ct);
+        var c12Target = await api.QuestionByAsync(c12Asker, c12Board, Ct);
+        var c12Answerer = await api.GenuineT1Async("c12answerer", c12Board, Ct);
+        var control = await api.AnswerAsync(c12Answerer, c12Board, c12Target, Ct);
+        var forgedAnswer = await api.AnswerAsync(c12Answerer, c12Board, c12Target, Ct);
+        Assert.Equal(201, control.Status);
+        Assert.Equal(201, forgedAnswer.Status);
+        var c12Voter = await api.GenuineT1Async("c12voter", c12Board, Ct);
+        var voteControl = OperatorActsApi.Said(await api.PostRawAsync(c12Voter, c12Voter.Agent.SignVote(c12Board, control.Digest, forum.Now), Ct));
+        await api.ForgeModerationAsync(forgedAnswer.PostId, forgedAnswer.Digest, "withhold", Ct);
+        var voteForged = OperatorActsApi.Said(await api.PostRawAsync(c12Voter, c12Voter.Agent.SignVote(c12Board, forgedAnswer.Digest, forum.Now), Ct));
+        Assert.Equal("201 (accepted)", voteControl);
+        rows.Add(("C12 vote on an answer a forged row withheld", voteControl, voteForged));
+
         WholeText.Same(
             string.Join("; ", rows.Select(r => $"{r.Consumer}: {r.Before}")),
             string.Join("; ", rows.Select(r => $"{r.Consumer}: {r.After}")));
         _ = HttpStatusCode.OK;
+    }
+
+    /// <summary>
+    /// OAS40, a characterization (green by design, as OAS39 is; Amendment 6, ruling 78; register item 304, filed under 298): C20, a forged <c>flag.committed</c> row with its <c>flag_details</c> row, inserted as the
+    /// application role. Observed on the unmodified consumers: the operator's flag listing shows it as an open flag and nothing else moves. Asserted: the listing holds the flag and, beside the control (a flag raised
+    /// through the route), says what the genuine one says; and a tier (the author's, the raiser's), an owner, the post's serving state and the search result are what they were before the row. A flag has no
+    /// standing of its own: an upheld flag demotes only through an honoured moderation record naming it. The fix of item 298 must edit this probe.
+    /// </summary>
+    [Fact]
+    public async Task OAS40_AForgedFlagIsListedAsOpenAndMovesNoTierOwnerOrWithholding()
+    {
+        var api = new OperatorActsApi(forum);
+        var post = await api.QuestionAsync("c20author", Ct);
+        var raiser = await api.GenuineAsync("c20raiser", Ct);
+
+        async Task<string> ObserveAsync()
+        {
+            var provenance = await api.ProvenanceAsync(post.Id, Ct);
+            return string.Join("; ",
+                $"author tier {(await api.TokenAsync(post.Who, Ct)).Tier}",
+                $"raiser tier {(await api.TokenAsync(raiser, Ct)).Tier}",
+                $"owner {provenance.Owner ?? "none"} verified {provenance.OwnerVerified.ToString()?.ToLowerInvariant()}",
+                $"post {await api.GetStatusAsync($"/v1/posts/{post.Id}", Ct)}",
+                $"search {await api.SearchCountAsync(post.Words, post.Board, Ct)}");
+        }
+
+        // The control, the genuine path: a flag raised through the route is listed open on another post, by the same observer.
+        var other = await api.QuestionAsync("c20other", Ct);
+        var flagger = await api.GenuineAsync("c20flagger", Ct);
+        _ = await api.RaiseFlagAsync(flagger, other.Id, Ct);
+        var genuineState = await api.FlagStateAsync(other.Id, Ct);
+        WholeText.Same("state open", genuineState);
+
+        var listedBefore = await api.OperatorAsync(Ct, "flags", "--post", post.Id);
+        var before = await ObserveAsync();
+        var flagId = await api.ForgeFlagAsync(post.Id, raiser.Agent.AgentId, Ct);
+        var listedAfter = await api.OperatorAsync(Ct, "flags", "--post", post.Id);
+        var after = await ObserveAsync();
+
+        Assert.Contains("0 flag(s)", listedBefore.Out, StringComparison.Ordinal);
+        Assert.Contains("1 flag(s)", listedAfter.Out, StringComparison.Ordinal);
+        Assert.Contains(flagId, listedAfter.Out, StringComparison.Ordinal);
+        WholeText.Same(genuineState, await api.FlagStateAsync(post.Id, Ct));
+        WholeText.Same(before, after);
+    }
+}
+
+/// <summary>
+/// OAS41 (PR N2, errata G70, Amendment 6, ruling 76 (c)): one <c>VerifiedLog</c> per request. A counting <see cref="IContentVerifier"/> is registered on a second host over the fixture's database
+/// (<c>WithWebHostBuilder</c>), in place of the verifier dictionary every route's <c>LifecycleVerifier</c> is composed from. For each of five routes the verifications the request makes are counted over the log
+/// as it stands, then again after three more genuine operator acts have been recorded (each reaches R6.67's step 7, where the signature is verified); the difference is exactly three, never a multiple. The request's
+/// own verifications (the DPoP proof, the client assertion, the post's signature) are the same both times and cancel: the comparison is of two counts over logs that differ by the three rows, so the baseline
+/// needs no log with no act rows, which a database shared by the class's other legs cannot give.
+/// </summary>
+[Collection("forum")]
+public sealed class OperatorActsRequestCostTests(ForumFixture forum) : IClassFixture<ForumFixture>
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private sealed class Counter
+    {
+        private long _calls;
+
+        internal long Calls => Interlocked.Read(ref _calls);
+
+        internal void Add() => Interlocked.Increment(ref _calls);
+    }
+
+    private sealed class CountingVerifier(IContentVerifier inner, Counter counter) : IContentVerifier
+    {
+        public bool Verify(ReadOnlySpan<byte> input, ReadOnlySpan<byte> sig, PublicKeyMaterial key)
+        {
+            counter.Add();
+            return inner.Verify(input, sig, key);
+        }
+    }
+
+    [Theory]
+    [InlineData("GET /v1/posts/{id}")]
+    [InlineData("GET /v1/search")]
+    [InlineData("POST an ask")]
+    [InlineData("POST /oauth/token")]
+    [InlineData("POST /v1/agents (re-announcement)")]
+    public async Task OAS41_ARequestVerifiesEachActRowOnceAndNeverTwice(string route)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        var counter = new Counter();
+        var real = forum.Services.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>();
+        var counting = real.ToDictionary(p => p.Key, p => (IContentVerifier)new CountingVerifier(p.Value, counter), StringComparer.Ordinal);
+        await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IReadOnlyDictionary<string, IContentVerifier>>();
+            services.AddSingleton<IReadOnlyDictionary<string, IContentVerifier>>(counting);
+        }));
+        using var client = host.CreateClient();
+        var api = new OperatorActsApi(forum, client);
+
+        var board = OperatorActsApi.Board();
+        var subject = await api.QuestionAsync("c41subject", Ct);
+        var actor = await api.GenuineAsync("c41actor", Ct);
+
+        // The request under measurement is one HTTP request. An ask is a token request and a post: the token is acquired first, outside the count, so that what is counted is the post's own.
+        async Task<Func<Task<string>>> PrepareAsync()
+        {
+            if (route == "POST an ask")
+            {
+                var (_, tokenBody) = await actor.Dpop.RequestTokenAsync(api.Http(), OperatorActsApi.Token, forum.Now, actor.Agent.AgentId, Ct);
+                var token = JsonDocument.Parse(tokenBody).RootElement.GetProperty("access_token").GetString()!;
+                var wire = actor.Agent.SignQuestion(board, RevisionProbe.Unrelated(), "Q " + RevisionProbe.Unrelated(), forum.Now);
+                return async () =>
+                {
+                    using var response = await actor.Dpop.PostAsync(api.Http(), OperatorActsApi.Posts, token, wire, forum.Now, Ct);
+                    return $"{(int)response.StatusCode}";
+                };
+            }
+
+            return () => RequestAsync();
+        }
+
+        async Task<string> RequestAsync() => route switch
+        {
+            "GET /v1/posts/{id}" => $"{await api.GetStatusAsync($"/v1/posts/{subject.Id}", Ct)}",
+            "GET /v1/search" => $"{await api.SearchCountAsync(subject.Words, subject.Board, Ct)} result(s)",
+            "POST /oauth/token" => $"{(await api.TokenAsync(actor, Ct)).Reply.Status}",
+            _ => await api.EnrollBodyMemberAsync(actor.Agent, "enrolled_at", Ct) is { } said ? said[..3] : "-",
+        };
+
+        async Task<(long Calls, string Said)> MeasureAsync()
+        {
+            var request = await PrepareAsync();
+            var before = counter.Calls;
+            var said = await request();
+            return (counter.Calls - before, said);
+        }
+
+        // Warm the host (its first request builds things the second does not), then count over the log as it stands.
+        _ = await MeasureAsync();
+        var (baseline, baselineSaid) = await MeasureAsync();
+
+        // Three more genuine acts, each over an agent of its own so that each is honoured and reaches step 7.
+        for (var i = 0; i < 3; i++)
+        {
+            var attested = await api.GenuineAsync("c41attested", Ct);
+            await api.GenuineAttest(attested.Agent.AgentId, Ct, "owner:c41-" + OperatorActsApi.Suffix());
+        }
+
+        var (grown, grownSaid) = await MeasureAsync();
+        Assert.Equal(baselineSaid, grownSaid);
+        WholeText.Same("3 more verifications", $"{grown - baseline} more verifications");
     }
 }

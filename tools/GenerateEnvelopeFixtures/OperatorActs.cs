@@ -103,6 +103,12 @@ internal static partial class LifecycleCases
         public byte[]? FixedSignature { get; init; }
     }
 
+    /// <summary>Every member an attestation row states beside <c>statement</c> and <c>authorization</c>: a row that omits all of them states only the two (vector 73).</summary>
+    private static readonly string[] AttestationRowMembers = ["agent_id", "method", "owner_id", "owner_verified", "prev", "reason"];
+
+    /// <summary>Every member a moderation row states beside <c>statement</c> and <c>authorization</c> (vector 74).</summary>
+    private static readonly string[] ModerationRowMembers = ["actor_id", "adjudicates", "category", "digest", "effect", "moderator", "post_id", "prev", "rationale"];
+
     private static readonly OaAuth Stranger = new() { Typ = "curia-head+jws", Signer = ConformanceLogKeys.Unpublished };
 
     /// <summary>An attestation row to build. The defaults are a genuine attestation by <c>operator:ops</c> signed by the operator key.</summary>
@@ -397,6 +403,14 @@ internal static partial class LifecycleCases
             OaM("moderation-restore-in-another-category-leaves-the-hold", "A withhold in spam at 4, a quarantine in incorrect at 5 and a restore in spam at 6, each honoured: R10.61 holds a post in the category each record cites until a restore citing it, so incorrect still holds it and the post is not served (the last record is a restore).",
                 Q(k0, o), log => { log.Add(new OaModerate("withhold", 3), o); log.Add(new OaModerate("quarantine", 4) with { Category = "incorrect" }, o); log.Add(new OaModerate("restore", 5), o); },
                 [OaRow.Honoured(4, OaModerated), OaRow.Honoured(5, OaModerated), OaRow.Honoured(6, OaModerated)], false),
+
+            // 73 and 74 (Task 3b, Amendment 6, ruling 81): an honoured act is read from its statement, and a row need not state any member its statement states (step 3).
+            OaA("attestation-row-omits-members-the-statement-states", "The agent's root, then two genuine attestations naming Alice (the first owner_verified true, the second false, prev 3), each row stating only statement and authorization: both are honoured, and the state is the statement's (owner Alice, verified false), because the row is a copy and the statement is the act (R6.67).",
+                R(k0, o), log => { log.Add(a1 with { Form = new OaForm { OmitRow = AttestationRowMembers } }, o); log.Add(a1 with { Verified = false, Prev = 3, Form = new OaForm { OmitRow = AttestationRowMembers } }, o); },
+                [OaRow.Honoured(3, OaAttested), OaRow.Honoured(4, OaAttested)], Alice(false)),
+            OaM("moderation-row-omits-members-the-statement-states", "The post's root, then one genuine human withhold (spam), its row stating only statement and authorization: the row is honoured and the post is not served, because the state is the statement's.",
+                Q(k0, o), log => log.Add(w with { Form = new OaForm { OmitRow = ModerationRowMembers } }, o),
+                [OaRow.Honoured(4, OaModerated)], false),
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
