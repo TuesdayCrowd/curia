@@ -1,0 +1,8 @@
+{
+  "profile": "operator-acts-log",
+  "requirement": "R6.67",
+  "stream": "agent",
+  "subject": "01K4CQ4B0000000000000000P1",
+  "primitive_calls": 1,
+  "note": "One aggregate P is a post's and an agent's: the post's root at 0, the agent's enrolment and binding at 1 and 2, the operator key at 3, a genuine human withhold of P at 4 (prev 0, honoured: the aggregate's moderation row), then a validly signed attestation naming Alice for the agent P at 5 whose prev is the withhold's index 4. Each kind chains to the previous honoured row of its own kind and the aggregate's first event is a post.accepted, so the attestation has no root and no previous attestation: act-broken-link. The stream is the agent's, so its rows are the attestation rows (the withhold is the post stream's row), and the agent has no owner. A fold that chains the two kinds together honours the attestation. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests."
+}

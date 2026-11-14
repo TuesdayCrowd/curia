@@ -101,6 +101,16 @@ internal static partial class LifecycleCases
 
         /// <summary>When set, the signature part is these bytes and nothing is signed (a row whose key cannot verify anything).</summary>
         public byte[]? FixedSignature { get; init; }
+
+        /// <summary>
+        /// Vector 76, row A: the protected-header segment is spelled another way. One space (JSON whitespace, which the ADMIT profile accepts) follows the opening brace, and again until the header's
+        /// byte length is not a multiple of 3, so its last base64url character carries trailing bits; that character is replaced by the one that differs in the lowest bit only (the same bytes under
+        /// a lenient decoder). The signature is made over the segment as spelled.
+        /// </summary>
+        public bool NonCanonicalHeader { get; init; }
+
+        /// <summary>Vector 76, row B: the signature segment is spelled another way: its last character (it carries four trailing bits, 64 bytes being 86 characters) is replaced by the one that differs in the lowest bit only.</summary>
+        public bool NonCanonicalSignature { get; init; }
     }
 
     /// <summary>Every member an attestation row states beside <c>statement</c> and <c>authorization</c>: a row that omits all of them states only the two (vector 73).</summary>
@@ -411,6 +421,18 @@ internal static partial class LifecycleCases
             OaM("moderation-row-omits-members-the-statement-states", "The post's root, then one genuine human withhold (spam), its row stating only statement and authorization: the row is honoured and the post is not served, because the state is the statement's.",
                 Q(k0, o), log => log.Add(w with { Form = new OaForm { OmitRow = ModerationRowMembers } }, o),
                 [OaRow.Honoured(4, OaModerated)], false),
+
+            // 75 and 76 (Task 6b, Amendment 8, rulings 102 and 103): the chain is per kind of act in the aggregate's own stream; a segment spelled another way is not honoured.
+            OaMixedAggregate(k0, o, a1, w),
+            OaA("non-canonical-base64url-segments-are-not-honoured", "A genuine attestation naming Alice at 3, then two rows signed by the operator key and spelled another way, each with prev 3 (a skipped row moves nothing, so each decides alone), each naming Bob. Row A at 4: the protected-header segment's last character carries non-zero trailing bits (the header JSON has one space after the opening brace, which the ADMIT profile accepts, so that its length is not a multiple of 3; the last character is replaced by the one that differs in the lowest bit; the signature is made over the segment as spelled, so a lenient decoder would honour the row): the segment is not the unpadded base64url spelling of its bytes, act-typ-mismatch (step 5). Row B at 5: a canonical header and a signature segment whose last character (4 trailing bits of its 86) is replaced by the one that differs in the lowest bit, the same signature bytes under a lenient decoder: the signature does not verify, act-signature-invalid (step 7). The state is Alice, verified, which a second honoured owner would also leave (R4.1): the rows are what discriminate, so a fold that honoured both spellings passes the state and fails the rows.",
+                R(k0, o), log =>
+                {
+                    log.Add(a1, o);
+                    log.Add(a1 with { Owner = OaBob, Prev = 3, Form = new OaForm { Auth = new OaAuth { NonCanonicalHeader = true } } }, o);
+                    log.Add(a1 with { Owner = OaBob, Prev = 3, Form = new OaForm { Auth = new OaAuth { NonCanonicalSignature = true } } }, o);
+                },
+                [OaRow.Honoured(3, OaAttested), OaRow.Skipped(4, OaAttested, "act-typ-mismatch"), OaRow.Skipped(5, OaAttested, "act-signature-invalid")], Alice(true),
+                primitiveCalls: 1), // row 3 is verified once; row A is skipped at step 5; row B reaches step 7 and the primitive is not called, because its signature segment is not base64url
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -451,6 +473,28 @@ internal static partial class LifecycleCases
             members.ToDictionary(m => m.Name, m => m.Value, StringComparer.Ordinal);
 
         static JsonObject NoOwner() => new() { ["owner"] = null, ["verified"] = false };
+    }
+
+    /// <summary>
+    /// Vector 75: one aggregate (the id P) is a post's stream and an agent's. The post's root is its first event (0); the agent's enrolment and binding follow (1, 2), then the operator key (3), a genuine human
+    /// withhold of P whose prev is the root (4: honoured, the aggregate's moderation row), then a validly signed attestation naming Alice for the agent P whose prev is the withhold's index (5). Each kind chains to
+    /// the previous honoured row of its own kind (R6.67 step 4), and the aggregate's first event is not an <c>agent.enrolled</c>, so the attestation has no root and no previous attestation: act-broken-link.
+    /// The case's stream is the agent's, so its rows are the attestation rows (the withhold is the post stream's row), and the agent has no owner.
+    /// </summary>
+    private static OaCase OaMixedAggregate(Key k0, P256LogKey o, OaAttest a1, OaModerate w)
+    {
+        var log = new Log();
+        log.Add("post.accepted", OaPost, "agent://curia.example/tuesdaycrowd/scriptor", Obj(("digest", Str(OaDigest)), ("post_id", Str(OaPost))));
+        log.Add("agent.enrolled", OaPost, OaPost, Obj(("agent_id", Str(OaPost)), ("kid", Str(k0.Kid))));
+        log.Add("agent.key-bound", OaPost, OaPost, Obj(("agent_id", Str(OaPost)), ("jwk", k0.Jwk), ("kid", Str(k0.Kid))));
+        log.PublishOaKey(OaOperatorKeyType, OaOperatorKeysAggregate, o);
+        log.Add(w with { Prev = 0 }, o);
+        log.Add(a1 with { Agent = OaPost, Aggregate = OaPost, Prev = 4 }, o);
+        return new OaCase(
+            "mixed-stream-attestation-does-not-chain-to-a-moderation-row",
+            "One aggregate P is a post's and an agent's: the post's root at 0, the agent's enrolment and binding at 1 and 2, the operator key at 3, a genuine human withhold of P at 4 (prev 0, honoured: the aggregate's moderation row), then a validly signed attestation naming Alice for the agent P at 5 whose prev is the withhold's index 4. Each kind chains to the previous honoured row of its own kind and the aggregate's first event is a post.accepted, so the attestation has no root and no previous attestation: act-broken-link. The stream is the agent's, so its rows are the attestation rows (the withhold is the post stream's row), and the agent has no owner. A fold that chains the two kinds together honours the attestation.",
+            OaPost, "agent", log, [OaRow.Skipped(5, OaAttested, "act-broken-link")], new JsonObject { ["owner"] = null, ["verified"] = false },
+            PrimitiveCalls: 1); // the withhold at 4 reaches step 7 and is verified once; the attestation is skipped at step 4 and costs none
     }
 
     /// <summary>An attestation case: <paramref name="build"/> adds the rows after the base, each signed under the key given, and the rows are the verdicts of the construction.</summary>
@@ -605,7 +649,16 @@ internal static partial class LifecycleCases
             header["typ"] = auth.Typ ?? OaHeaderTyp;
             header["b64"] = false;
             header["crit"] = new[] { "b64" };
-            encodedHeader = Jwk.Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(header));
+            var headerBytes = JsonSerializer.SerializeToUtf8Bytes(header);
+            if (auth.NonCanonicalHeader)
+            {
+                var spaced = "{ " + Encoding.UTF8.GetString(headerBytes)[1..];
+                while (Encoding.UTF8.GetByteCount(spaced) % 3 == 0) spaced = "{ " + spaced[1..];
+                headerBytes = Encoding.UTF8.GetBytes(spaced);
+            }
+
+            encodedHeader = Jwk.Base64UrlEncode(headerBytes);
+            if (auth.NonCanonicalHeader) encodedHeader = WithTrailingBits(encodedHeader, headerBytes);
         }
 
         var payload = auth.Attached ? Jwk.Base64UrlEncode(canonical.Span.ToArray()) : "";
@@ -647,7 +700,26 @@ internal static partial class LifecycleCases
             }
         }
 
+        if (auth.NonCanonicalSignature && signature.Length > 0) signature = WithTrailingBits(signature, Jwk.Base64UrlDecode(signature));
         return $"{encodedHeader}.{payload}.{signature}";
+    }
+
+    private const string Base64UrlAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+    /// <summary>
+    /// The segment with its last character replaced by the one whose lowest bit is set (the trailing bits of a canonical segment are zero, so this sets one; a segment already so spelled is returned as it is): another spelling of the same bytes, which a
+    /// lenient decoder reads as <paramref name="bytes"/> and a strict one refuses. Throws when the segment has no trailing bits (its bytes are a multiple of 3) or the spelling does not decode to the same bytes.
+    /// </summary>
+    private static string WithTrailingBits(string segment, byte[] bytes)
+    {
+        if (bytes.Length % 3 == 0) throw new InvalidOperationException("a segment of a multiple of 3 bytes has no trailing bits to set");
+        var value = Base64UrlAlphabet.IndexOf(segment[^1], StringComparison.Ordinal);
+        if (value < 0) throw new InvalidOperationException("the segment's last character is not in the base64url alphabet");
+
+        // A kept signature (a regeneration over the existing output) is already spelled this way: setting the bit again changes nothing.
+        var altered = segment[..^1] + Base64UrlAlphabet[value | 1];
+        if (!Jwk.Base64UrlDecode(altered).AsSpan().SequenceEqual(bytes)) throw new InvalidOperationException("the other spelling does not decode to the same bytes");
+        return altered;
     }
 
     /// <summary>The signing input of a detached authorization: the encoded header, a full stop, then the canonical bytes (R6.37, RFC 7797) or their base64url (RFC 7515).</summary>

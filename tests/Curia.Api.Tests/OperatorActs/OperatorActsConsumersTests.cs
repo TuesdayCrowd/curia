@@ -36,13 +36,37 @@ public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixtu
         return body.Contains(postId, StringComparison.Ordinal) ? "lists the post" : "omits the post";
     }
 
-    [Fact]
-    public async Task OAS31_EveryConsumerReadsHonouredActs()
+    /// <summary>
+    /// Every consumer of the table, observed before and after one act of one shape. <paramref name="genuine"/> true: the act is the genuine one (the fixture's signing writers); false: it is a forged row inserted as the application
+    /// role, and <paramref name="forged"/> is called once per row forged, so the test knows how many rows the Forum was to read and skip. Each call builds its own subjects, so the genuine and the forged run share nothing.
+    /// </summary>
+    private async Task<List<(string Consumer, string Before, string After)>> ConsumerRowsAsync(OperatorActsApi api, bool genuine, Action forged, List<string> refusals)
     {
-        var api = new OperatorActsApi(forum);
         var rows = new List<(string Consumer, string Before, string After)>();
 
-        // A forged withhold of a served post: C2 (GetPost), C3 (thread), C4 (board), C5 (batch), C7 (search), C11 (the serving filter).
+        // A genuine writer whose row the Forum then skips says so (R6.65: curia/acts/not-honoured). The row is appended all the same, so the leg goes on and observes: a Forum that skips every genuine act then
+        // fails by naming the consumers that did not move, with the writer's refusal beside them, and not by an exception of the fixture.
+        async Task GenuineAsync(Func<Task> write)
+        {
+            try { await write(); }
+            catch (InvalidOperationException e) when (e.Message.StartsWith("curia/acts/not-honoured", StringComparison.Ordinal)) { refusals.Add(e.Message); }
+        }
+
+        async Task WithholdAsync(string postId, string digest)
+        {
+            if (genuine) { await GenuineAsync(() => api.GenuineWithhold(postId, Ct)); return; }
+            await api.ForgeModerationAsync(postId, digest, "withhold", Ct);
+            forged();
+        }
+
+        async Task AttestAsync(string agentId, string owner)
+        {
+            if (genuine) { await GenuineAsync(() => api.GenuineAttest(agentId, Ct, owner)); return; }
+            await api.ForgeAttestationNowAsync(agentId, owner, Ct);
+            forged();
+        }
+
+        // A withhold of a served post: C2 (GetPost), C3 (thread), C4 (board), C5 (batch), C7 (search), C11 (the serving filter).
         var victim = await api.QuestionAsync("victim", Ct);
         async Task<string[]> PostConsumersAsync() =>
         [
@@ -54,11 +78,11 @@ public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixtu
         ];
         string[] names = ["C2 GetPost", "C3 GetThread", "C4 ListBoard", "C5 Batch", "C7/C11 Search and the serving filter"];
         var postBefore = await PostConsumersAsync();
-        await api.ForgeModerationAsync(victim.Id, victim.Digest, "withhold", Ct);
+        await WithholdAsync(victim.Id, victim.Digest);
         var postAfter = await PostConsumersAsync();
         for (var i = 0; i < names.Length; i++) rows.Add((names[i], postBefore[i], postAfter[i]));
 
-        // A forged attestation for an aged genuine agent: C1 (the token's tier claim), C2 (provenance), C13 (re-announcement), C19 (the write gate).
+        // An attestation for an aged agent: C1 (the token's tier claim), C2 (provenance), C13 (re-announcement), C19 (the write gate).
         var board = OperatorActsApi.Board();
         var asker = await api.GenuineAsync("asker", Ct);
         var target = await api.QuestionByAsync(asker, board, Ct);
@@ -75,11 +99,11 @@ public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixtu
         ];
         string[] agentNames = ["C1 token tier", "C2 provenance owner_verified", "C13 re-announcement owner_verified", "C19 write gate (answer)"];
         var agentBefore = await AgentConsumersAsync();
-        await api.ForgeAttestationNowAsync(x.Agent.AgentId, "owner:forged-" + OperatorActsApi.Suffix(), Ct);
+        await AttestAsync(x.Agent.AgentId, "owner:aged-" + OperatorActsApi.Suffix());
         var agentAfter = await AgentConsumersAsync();
         for (var i = 0; i < agentNames.Length; i++) rows.Add((agentNames[i], agentBefore[i], agentAfter[i]));
 
-        // Search diversification: six authors on one board, a forged same-owner attestation for each.
+        // Search diversification: six authors on one board, a same-owner attestation for each.
         var term = "zdiv" + OperatorActsApi.Suffix();
         var divBoard = OperatorActsApi.Board();
         var posters = new List<OperatorActsApi.Actor>();
@@ -93,31 +117,74 @@ public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixtu
         async Task<string> DeferredAsync() =>
             $"deferred_by_diversification x{Regex.Count(await api.GetBodyAsync($"/v1/search?q={term}&board={divBoard}&limit=3&why=true", Ct), "\"deferred_by_diversification\":true")}";
         var divBefore = await DeferredAsync();
-        foreach (var p in posters) await api.ForgeAttestationNowAsync(p.Agent.AgentId, "owner:one-farm", Ct);
+        var oneFarm = "owner:one-farm-" + OperatorActsApi.Suffix();
+        foreach (var p in posters) await AttestAsync(p.Agent.AgentId, oneFarm);
         rows.Add(("C7 search diversification", divBefore, await DeferredAsync()));
 
-        // C8: the inbox lists an open question before and after a forged withhold of it (Task 3b; observed on the unmodified consumers, where the forged row removed it).
+        // C8: the inbox lists an open question before and after a withhold of it (Task 3b; observed on the unmodified consumers, where the forged row removed it).
         var inboxQuestion = await api.QuestionAsync("c8asker", Ct);
         var inboxReader = await api.GenuineAsync("c8reader", Ct);
         var inboxBefore = await api.InboxListsAsync(inboxReader, inboxQuestion.Board, inboxQuestion.Id, Ct);
-        await api.ForgeModerationAsync(inboxQuestion.Id, inboxQuestion.Digest, "withhold", Ct);
+        await WithholdAsync(inboxQuestion.Id, inboxQuestion.Digest);
         rows.Add(("C8 inbox", inboxBefore, await api.InboxListsAsync(inboxReader, inboxQuestion.Board, inboxQuestion.Id, Ct)));
 
-        // C12: a vote on a served answer after a forged withhold of it says what a vote on an answer with no such row says (the control, in the same test). The delta path is OAS15's.
-        var c12Board = OperatorActsApi.Board();
-        var c12Asker = await api.GenuineAsync("c12asker", Ct);
-        var c12Target = await api.QuestionByAsync(c12Asker, c12Board, Ct);
-        var c12Answerer = await api.GenuineT1Async("c12answerer", c12Board, Ct);
-        var control = await api.AnswerAsync(c12Answerer, c12Board, c12Target, Ct);
-        var forgedAnswer = await api.AnswerAsync(c12Answerer, c12Board, c12Target, Ct);
-        Assert.Equal(201, control.Status);
-        Assert.Equal(201, forgedAnswer.Status);
-        var c12Voter = await api.GenuineT1Async("c12voter", c12Board, Ct);
-        var voteControl = OperatorActsApi.Said(await api.PostRawAsync(c12Voter, c12Voter.Agent.SignVote(c12Board, control.Digest, forum.Now), Ct));
-        await api.ForgeModerationAsync(forgedAnswer.PostId, forgedAnswer.Digest, "withhold", Ct);
-        var voteForged = OperatorActsApi.Said(await api.PostRawAsync(c12Voter, c12Voter.Agent.SignVote(c12Board, forgedAnswer.Digest, forum.Now), Ct));
-        Assert.Equal("201 (accepted)", voteControl);
-        rows.Add(("C12 vote on an answer a forged row withheld", voteControl, voteForged));
+        // C12: a vote on a served answer after a withhold of it says what a vote on an answer with no such row says (the control, in the same test). The delta path is OAS15's.
+        // Its two actors are genuine T1 agents, made by the genuine writer: on a Forum that skips genuine acts the genuine leg cannot make them, and says so as a row that did not move.
+        async Task C12Async()
+        {
+            var c12Board = OperatorActsApi.Board();
+            var c12Asker = await api.GenuineAsync("c12asker", Ct);
+            var c12Target = await api.QuestionByAsync(c12Asker, c12Board, Ct);
+            var c12Answerer = await api.GenuineT1Async("c12answerer", c12Board, Ct);
+            var control = await api.AnswerAsync(c12Answerer, c12Board, c12Target, Ct);
+            var withheldAnswer = await api.AnswerAsync(c12Answerer, c12Board, c12Target, Ct);
+            Assert.Equal(201, control.Status);
+            Assert.Equal(201, withheldAnswer.Status);
+            var c12Voter = await api.GenuineT1Async("c12voter", c12Board, Ct);
+            var voteControl = OperatorActsApi.Said(await api.PostRawAsync(c12Voter, c12Voter.Agent.SignVote(c12Board, control.Digest, forum.Now), Ct));
+            await WithholdAsync(withheldAnswer.PostId, withheldAnswer.Digest);
+            var voteAfter = OperatorActsApi.Said(await api.PostRawAsync(c12Voter, c12Voter.Agent.SignVote(c12Board, withheldAnswer.Digest, forum.Now), Ct));
+            Assert.Equal("201 (accepted)", voteControl);
+            rows.Add(("C12 vote on an answer a row withheld", voteControl, voteAfter));
+        }
+
+        if (!genuine) await C12Async();
+        else
+        {
+            try { await C12Async(); }
+            catch (InvalidOperationException e) when (e.Message.StartsWith("curia/acts/not-honoured", StringComparison.Ordinal))
+            {
+                refusals.Add(e.Message);
+                rows.Add(("C12 vote on an answer a row withheld", "(setup refused)", "(setup refused)"));
+            }
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// OAS31 (Task 6b, ruling 99): the table of consumers is run twice. First with the genuine act of each shape, and every consumer must move (<c>genuine != before</c>: a consumer that cannot move, an observer on the wrong
+    /// route or a Forum that skipped every row and every genuine one too, would pass a before-equals-after test); then with the forged row of the same shape, and every consumer must not (<c>forged == before</c>, the
+    /// probe). The forged rows are shown read: the audit's skipped total rises by exactly the number of rows the test forged.
+    /// </summary>
+    [Fact]
+    public async Task OAS31_EveryConsumerReadsHonouredActs()
+    {
+        var api = new OperatorActsApi(forum);
+
+        var refusals = new List<string>();
+        var genuine = await ConsumerRowsAsync(api, genuine: true, () => { }, refusals);
+        var unmoved = genuine.Where(r => r.After == r.Before).Select(r => $"{r.Consumer} ({r.Before})").ToArray();
+        Assert.True(unmoved.Length == 0, $"Expected: a genuine act of the same shape moves every consumer  Actual: {unmoved.Length} did not move: {string.Join("; ", unmoved)}; the genuine writers refused {refusals.Count} time(s){(refusals.Count > 0 ? ": " + refusals[0] : "")}");
+
+        var skippedBefore = await api.SkippedRowsAsync(Ct);
+        var forgedRows = 0;
+        var rows = await ConsumerRowsAsync(api, genuine: false, () => forgedRows++, []);
+        var skippedAfter = await api.SkippedRowsAsync(Ct);
+
+        Assert.Equal(genuine.Select(r => r.Consumer), rows.Select(r => r.Consumer));
+        Assert.True(forgedRows > 0, "the test forged no row");
+        Assert.Equal(forgedRows, skippedAfter - skippedBefore);
 
         WholeText.Same(
             string.Join("; ", rows.Select(r => $"{r.Consumer}: {r.Before}")),

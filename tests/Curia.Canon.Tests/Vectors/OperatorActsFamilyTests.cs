@@ -10,8 +10,8 @@ namespace Curia.Canon.Tests.Vectors;
 /// </summary>
 public sealed class OperatorActsFamilyTests
 {
-    /// <summary>The number of cases, counted from the plan's table (vectors 1 to 33), Amendment 1 (34 to 38) and Amendment 4 (39 to 60) and Amendment 5 (61 to 72) and Amendment 6 (73 and 74); the generator's count is the oracle, and this literal is the control.</summary>
-    private const int Cases = 74;
+    /// <summary>The number of cases, counted from the plan's table (vectors 1 to 33), Amendment 1 (34 to 38) and Amendment 4 (39 to 60) and Amendment 5 (61 to 72) and Amendment 6 (73 and 74) and Amendment 8 (75 and 76); the generator's count is the oracle, and this literal is the control.</summary>
+    private const int Cases = 76;
 
     /// <summary>R6.67's predicates, by the names the Forum publishes and no others (the eight slugs of the procedure's steps).</summary>
     private static readonly string[] Predicates =

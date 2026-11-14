@@ -652,7 +652,7 @@ scalar), so the public keys are reproducible; ES256 signing is randomized, so th
 the header kid and the signer are the same, and a regeneration over the existing output is byte-identical. "Garbage" is the string `FORGED-NO-VALID-SIGNATURE`,
 which is not a JWS; a "bad signature" is a well-formed JWS of the right header whose signature bytes are another key's.
 
-The family holds 74 cases: vectors 1 to 33 are the plan's table, vectors 34 to 38 are Amendment 1's, vectors 39 to 60 are Amendment 4's, vectors 61 to 72 are Amendment 5's and vectors 73 and 74 are Amendment 6's. Vectors 34 and 35 pin that `curia.moderation/1` honours
+The family holds 76 cases: vectors 1 to 33 are the plan's table, vectors 34 to 38 are Amendment 1's, vectors 39 to 60 are Amendment 4's, vectors 61 to 72 are Amendment 5's vectors 73 and 74 are Amendment 6's and vectors 75 and 76 are Amendment 8's. Vectors 34 and 35 pin that `curia.moderation/1` honours
 `moderator` `human` only (`automated` and `delegated_agent` are skipped `act-statement-mismatch`: no automated actor holds a key and no delegation exists, item 294);
 vectors 36 and 37 pin a forged unsigned restore after and between genuine rows; vector 38 pins "the stream's root is its first event" for a stream with two
 `agent.enrolled` rows.
@@ -679,9 +679,11 @@ record cites until a restore citing it, so a withhold in `spam`, a quarantine in
 
 Vectors 73 and 74 pin where an honoured act's state is read from (Amendment 6, ruling 74; R6.67's closing paragraph): the statement, which is what the key signed, and never the row, which need not state any member its statement states (step 3). Vector 73: two genuine attestations naming one owner (the first `owner_verified` true, the second false), each row stating only `statement` and `authorization`; both are honoured and the state is the owner and `verified` false. A fold that reads the row's members ignores both rows and says there is no owner. Vector 74: one genuine human withhold whose row states only `statement` and `authorization`; it is honoured and the post is not served. A fold that reads the row's members ignores it and serves the post.
 
-**What these 74 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effect `dismiss` (every effect
+Vectors 75 and 76 pin two things R6.67 says and a fold can miss (Amendment 8, rulings 102 and 103; errata E6, E7a and E7b). Vector 75: one aggregate id is both a post's and an agent's (the post's root at 0, the agent's enrolment and binding, the operator key, a genuine human withhold of the post honoured with `prev` 0, then a validly signed attestation for the agent whose `prev` is the withhold's index); each kind chains to the previous honoured row of its own kind and the aggregate's first event is not an `agent.enrolled`, so the attestation is skipped `act-broken-link` and the agent has no owner. A fold that keeps one chain per aggregate honours it. Its stream is the agent's, so its rows are the attestation rows. Vector 76: a genuine attestation, then two rows signed by the operator key and spelled another way, the first with a protected-header segment whose last base64url character carries non-zero trailing bits (`act-typ-mismatch`), the second with a canonical header and a signature segment spelled the same way (`act-signature-invalid`); both would be honoured by a lenient decoder, and the state alone (the first owner, verified) cannot tell, so the rows are what pin it.
+
+**What these 76 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effect `dismiss` (every effect
 shares the procedure), a flag's `adjudicates` list beyond its type, which of step 3's clauses decides a row that has two defects of step 3's own (the order of the steps is pinned, the
-order of one step's clauses is not), the types of the closed form's remaining string members, a protected-header segment whose last base64url character carries non-zero trailing bits, and a
+order of one step's clauses is not), the types of the closed form's remaining string members, and a
 row member whose number is spelled differently from the statement's (`0.0` and `0`).
 
 The cases are **proposals**, as `honoured/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --operator-acts-cases` regenerates them until the owner's

@@ -82,19 +82,6 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         Assert.True(exit == ExitCode.Ok, $"curia-operator {string.Join(' ', args)} exited {exit}: {stderr}");
     }
 
-    /// <summary>
-    /// How many rows the operator's own audit lists as skipped (R6.67: a row the act fold does not honour). The audit exits 7 when it lists any, so this reads its lines and does not assert the exit.
-    /// </summary>
-    private async Task<int> SkippedRowsAsync(CancellationToken ct)
-    {
-        string[] args = ["lifecycle-audit"];
-        using var stdout = new StringWriter();
-        using var stderr = new StringWriter();
-        await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
-            readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
-        return stdout.ToString().Split('\n').Count(l => l.StartsWith("skipped  log_index=", StringComparison.Ordinal));
-    }
-
     private async Task<string> InboxAsync(HttpClient client, Party party, string board, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri($"/v1/inbox?board={board}", UriKind.Relative));
@@ -288,10 +275,12 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         await FlagAsync(client, reporterB, second.PostId, "incorrect", "The premise is wrong.", ct);
 
         // An out-of-rule input, not a stand-in for the writer (trap 16): an automated record naming B before
-        // anyone reviewed it. The act fold skips it (R6.67 step 1: act-unsigned), as it does every row no
-        // operator key signed; it is not R10.61's table that decides it. A consumer that counted it would
-        // time B's action at 30 minutes, not 90.
-        var skippedBefore = await SkippedRowsAsync(ct);
+        // anyone reviewed it. Both derivations below ignore it under R10.61's reviewing rule (Moderation.cs,
+        // Reviewed: an automated record is no review) whether or not the act fold skips it, so what this test
+        // shows of the act fold is only that the Forum read and skipped the row (R6.67 step 1: act-unsigned),
+        // by the count assertion further down. That the Forum's decisions depend on the skip is OAS2, OAS4,
+        // OAS27 and OAS38, which forge `human` rows.
+        var skippedBefore = await new OperatorActsApi(forum).SkippedRowsAsync(ct);
         forum.Clock.Advance(TimeSpan.FromMinutes(30));
         await AppendAnAutomatedDismissalAsync(second, ct);
 
@@ -299,12 +288,12 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         await OperatorAsync(ct, "moderate", "--post", first.PostId, "--category", "spam", "--effect", "withhold", "--reason", "Reviewed: advertising.", "--by", "reviewer");
 
         // The same out-of-rule input again, not a stand-in for the writer (trap 16): an automated
-        // dismissal naming A after a human upheld it, skipped by the act fold (R6.67 step 1). A consumer
-        // that honoured it would release A and count no flag upheld.
+        // dismissal naming A after a human upheld it. R10.61's reviewing rule ignores it whether or not the
+        // act fold skips it (R6.67 step 1), so this too is shown as read and skipped, not as decided by the skip.
         await AppendAnAutomatedDismissalAsync(first, ct);
-        // The vacuity guard (Task 3d, ruling 88): the Forum read both rows and skipped them, so the figures below
-        // ignore them because the fold did, not because the rows never reached it.
-        Assert.Equal(skippedBefore + 2, await SkippedRowsAsync(ct));
+        // The vacuity guard (Task 3d, ruling 88): the Forum read both rows and skipped them, so the rows reached
+        // the fold; the figures below ignore them under R10.61's reviewing rule either way (Task 6b, ruling 101).
+        Assert.Equal(skippedBefore + 2, await new OperatorActsApi(forum).SkippedRowsAsync(ct));
         await OperatorAsync(ct, "moderate", "--post", second.PostId, "--category", "incorrect", "--effect", "dismiss", "--reason", "Reviewed: the premise holds.", "--by", "reviewer");
 
         // Only what an anonymous reader can fetch.

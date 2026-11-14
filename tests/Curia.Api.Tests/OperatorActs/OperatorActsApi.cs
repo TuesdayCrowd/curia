@@ -285,8 +285,24 @@ internal sealed class OperatorActsApi
     internal async Task<int> SearchCountAsync(string words, string board, CancellationToken ct)
     {
         using var r = await Http().GetAsync(new Uri($"/v1/search?q={Uri.EscapeDataString(words)}&board={board}", UriKind.Relative), ct);
-        var doc = JsonDocument.Parse(await r.Content.ReadAsStringAsync(ct)).RootElement;
-        return doc.TryGetProperty("results", out var rs) ? rs.GetArrayLength() : -1;
+        var body = await r.Content.ReadAsStringAsync(ct);
+        Assert.True(r.StatusCode == HttpStatusCode.OK, $"Expected: search answers 200  Actual: {(int)r.StatusCode} {body}");
+        var doc = JsonDocument.Parse(body).RootElement;
+        Assert.True(doc.TryGetProperty("results", out var rs), $"Expected: a results member  Actual: {body}");
+        return rs.GetArrayLength();
+    }
+
+    /// <summary>
+    /// How many rows the operator's own audit reports skipped (R6.67: a row the act fold does not honour), read from the total on its first line, <c>honoured &lt;h&gt;  skipped &lt;n&gt;</c>, which the audit does not cap:
+    /// its listing stops at 100 rows, so a count of listed lines is a count of the truncation (Task 6b, ruling 100). Throws when the line is absent or does not parse: there is no default of 0.
+    /// </summary>
+    internal async Task<int> SkippedRowsAsync(CancellationToken ct)
+    {
+        var audit = await OperatorAsync(ct, "lifecycle-audit");
+        var first = audit.Out.Split('\n')[0];
+        var match = System.Text.RegularExpressions.Regex.Match(first, @"^honoured (\d+)  skipped (\d+)\r?$");
+        if (!match.Success) throw new InvalidOperationException($"the audit's first line is not 'honoured <h>  skipped <n>': [{first}] (exit {audit.Exit}, stderr {audit.Err})");
+        return int.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>A forged attestation naming <paramref name="owner"/> for an agent a genuine enrolment made (no backdated root, no key rows).</summary>

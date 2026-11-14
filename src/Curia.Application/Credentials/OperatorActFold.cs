@@ -85,14 +85,24 @@ internal static class OperatorActFold
         ],
         IsModeration: true);
 
-    /// <summary>What the fold knows of one stream (the events of one aggregate) as it walks the log: its first event, which is its root if it is of the root's type, and the last act row it honoured.</summary>
+    /// <summary>What the fold knows of one stream (the events of one aggregate) as it walks the log: its first event, which is its root if it is of the root's type, and the last act row it honoured of each kind (R6.67 step 4: each kind chains to its own).</summary>
     private sealed class Stream(long firstIndex, string firstType)
     {
         internal long FirstIndex { get; } = firstIndex;
 
         internal string FirstType { get; } = firstType;
 
-        internal long? LastHonoured { get; set; }
+        internal long? LastHonouredAttestation { get; set; }
+
+        internal long? LastHonouredModeration { get; set; }
+
+        internal long? LastHonoured(Kind kind) => kind.IsModeration ? LastHonouredModeration : LastHonouredAttestation;
+
+        internal void Honour(Kind kind, long index)
+        {
+            if (kind.IsModeration) LastHonouredModeration = index;
+            else LastHonouredAttestation = index;
+        }
     }
 
     /// <summary>
@@ -119,7 +129,7 @@ internal static class OperatorActFold
             if (kind is null) continue;
 
             var predicate = Decide(i, appended, kind, stream, published, verifiers);
-            if (predicate is null) stream.LastHonoured = i;
+            if (predicate is null) stream.Honour(kind, i);
             decisions.Add(new ActDecision(i, type, aggregate, predicate));
         }
 
@@ -156,9 +166,9 @@ internal static class OperatorActFold
             || (kind.IsModeration && !string.Equals(Text(statement, "moderator"), Human, StringComparison.Ordinal)))
             return OperatorActPredicates.StatementMismatch;
 
-        // 4. prev is not the log index of the previous honoured act row of the stream or, when there is none, of the stream's root (its first event, of the root's type); or the stream has no root.
+        // 4. prev is not the log index of the previous honoured act row of the stream of the row's own type or, when there is none, of the stream's root (its first event, if of the row's root type); or the aggregate's first event is not that root.
         var root = string.Equals(stream.FirstType, kind.RootType, StringComparison.Ordinal) ? stream.FirstIndex : (long?)null;
-        var expectedPrev = stream.LastHonoured ?? root;
+        var expectedPrev = stream.LastHonoured(kind) ?? root;
         if (expectedPrev is null || Find(statement, "prev") is not JsonValue.Number prev || prev.Value != expectedPrev.Value) return OperatorActPredicates.BrokenLink;
 
         // 5. No authorization that is a detached JWS (a compact JWS whose payload part is empty, R6.67 step 5) whose protected header is a JSON object the ADMIT profile accepts (a repeated member refuses it), whose typ is the act's and whose alg is ES256.

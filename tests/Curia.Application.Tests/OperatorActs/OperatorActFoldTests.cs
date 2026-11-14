@@ -94,7 +94,7 @@ public sealed class OperatorActFoldTests
     private const string PostP1 = "01K4CQ4B0000000000000000P1";
 
     /// <summary>
-    /// OAS8: the fold decides every one of the 74 cases' rows as <c>expected.json</c> says (index, verdict, predicate), and the raw projectors fed <see cref="HonouredEvents"/> alone say what its
+    /// OAS8: the fold decides every one of the 76 cases' rows as <c>expected.json</c> says (index, verdict, predicate), and the raw projectors fed <see cref="HonouredEvents"/> alone say what its
     /// <c>state</c> says (the owner and whether it is verified; whether the post is served). Every disagreement is collected and the test fails once with the whole list.
     /// </summary>
     [Fact]
@@ -102,7 +102,7 @@ public sealed class OperatorActFoldTests
     {
         var failures = new List<string>();
         var cases = ActVectors.Cases();
-        Assert.True(cases.Length == 74, $"Expected: 74 cases  Actual: {cases.Length}");
+        Assert.True(cases.Length == 76, $"Expected: 76 cases  Actual: {cases.Length}");
         foreach (var name in cases)
         {
             try
@@ -115,7 +115,9 @@ public sealed class OperatorActFoldTests
 
                 var want = string.Join(";", expected.RootElement.GetProperty("rows").EnumerateArray()
                     .Select(r => $"{r.GetProperty("log_index").GetInt64()} {r.GetProperty("verdict").GetString()} {(r.TryGetProperty("predicate", out var p) ? p.GetString() : "-")}"));
-                var got = ActVectors.Rows(ActVectors.Decide(log).Where(d => d.Aggregate == subject));
+                // The stream's own rows: an agent's stream is its attestation rows and a post's its moderation rows (vector 75's aggregate is both, and holds one row of each kind).
+                var rowType = stream == "agent" ? "agent.owner-attested" : "moderation.applied";
+                var got = ActVectors.Rows(ActVectors.Decide(log).Where(d => d.Aggregate == subject && d.Type == rowType));
                 if (want != got) failures.Add($"{name} rows: Expected: [{want}]  Actual: [{got}]");
 
                 var wantState = ActVectors.StateOf(stream, expected.RootElement);
@@ -334,7 +336,7 @@ public sealed class OperatorActFoldTests
     }
 
     /// <summary>
-    /// OAS30a, the cost, deterministic: over each of the 74 cases the primitive is called once for each row that reaches step 7 (a row <c>expected.json</c> says is honoured, or skipped as
+    /// OAS30a, the cost, deterministic: over each of the 76 cases the primitive is called once for each row that reaches step 7 (a row <c>expected.json</c> says is honoured, or skipped as
     /// <c>act-signature-invalid</c>) and for no other, except that a case whose <c>meta.json</c> carries <c>primitive_calls</c> states its total (a row can reach step 7 without the primitive being called: a key
     /// off its curve, and a header R6.37 refuses, are <c>act-signature-invalid</c> and cost no verification, vectors 62, 66 and 67); and asking a <see cref="VerifiedLog"/> for <c>HonouredEvents</c> a second time, or for the skipped act rows, verifies nothing again.
     /// </summary>

@@ -73,12 +73,12 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
 
         var victim = await api.QuestionAsync("victim", Ct);
         WholeText.Same("200; search=1", $"{await PostStatusAsync(api, victim.Id)}; search={await api.SearchCountAsync(victim.Words, victim.Board, Ct)}");
-        var skippedBefore = await SkippedRowsListedAsync(api);
+        var skippedBefore = await api.SkippedRowsAsync(Ct);
         await api.ForgeModerationAsync(victim.Id, victim.Digest, effect, Ct, moderator: moderator);
         var actual = $"{await PostStatusAsync(api, victim.Id)}; search={await api.SearchCountAsync(victim.Words, victim.Board, Ct)}";
         WholeText.Same("200; search=1", actual);
         // Task 3d (ruling 86 (c)): the forged row was read and skipped, so the served post is not for want of a row the Forum never saw. For the automated row this is the whole characterization of the arm.
-        Assert.Equal(skippedBefore + 1, await SkippedRowsListedAsync(api));
+        Assert.Equal(skippedBefore + 1, await api.SkippedRowsAsync(Ct));
     }
 
     private static async Task<string> PostStatusAsync(OperatorActsApi api, string id)
@@ -291,12 +291,6 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
         return data;
     }
 
-    private async Task<int> SkippedRowsListedAsync(OperatorActsApi api)
-    {
-        var audit = await api.OperatorAsync(Ct, "lifecycle-audit");
-        return audit.Out.Split('\n').Count(l => l.StartsWith("skipped  log_index=", StringComparison.Ordinal));
-    }
-
     /// <summary>
     /// OAS33c: for every case of the vectors that has a skipped act row (61 today, 63 rows), that case's skipped rows are appended onto a live agent's or a live post's own stream (the aggregate and every
     /// occurrence of the case's subject id in the row, statement text included, replaced by the live id), as the application role; then a token request is 200, an ask is 201, the key set is 200 and the served post
@@ -322,7 +316,7 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
             $"token {(await api.TokenAsync(agent, Ct)).Reply.Status}; ask {(ask ? (await api.AskAsync(agent, board, Ct)).Status : 201)}; key set {await api.GetStatusAsync($"/v1/jwks?agent={Uri.EscapeDataString(agent.Agent.AgentId)}", Ct)}; post {await PostStatusAsync(api, post.Id)}";
         WholeText.Same("token 200; ask 201; key set 200; post 200", await ObserveAsync(ask: false));
 
-        var listedBefore = await SkippedRowsListedAsync(api);
+        var listedBefore = await api.SkippedRowsAsync(Ct);
         foreach (var index in skippedIndices)
         {
             using var entryDoc = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(OperatorActsVectors(), caseName, "entries", $"{index}.json"), Ct));
@@ -334,7 +328,7 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
             await api.InsertRowAsync(type, live, payload, entry.GetProperty("actor_id").GetString()!, forum.Now, Ct);
         }
 
-        Assert.Equal(listedBefore + skippedIndices.Length, await SkippedRowsListedAsync(api));
+        Assert.Equal(listedBefore + skippedIndices.Length, await api.SkippedRowsAsync(Ct));
         WholeText.Same("token 200; ask 201; key set 200; post 200", await ObserveAsync(ask: true));
     }
 

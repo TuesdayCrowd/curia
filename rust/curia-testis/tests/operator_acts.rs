@@ -24,8 +24,8 @@ fn vectors() -> Vec<OperatorActsVector> {
         let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
         assert_eq!(
             corpus.operator_acts.len(),
-            74,
-            "conformance/operator-acts/ holds 74 cases"
+            76,
+            "conformance/operator-acts/ holds 76 cases"
         );
         return corpus.operator_acts;
     };
