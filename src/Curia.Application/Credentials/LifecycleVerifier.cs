@@ -38,7 +38,10 @@ public sealed class VerifiedLog
     private readonly LifecycleVerifier _verifier;
     private readonly IReadOnlyList<AppendedEvent> _log;
     private readonly Lazy<IReadOnlyDictionary<string, List<(long Index, AppendedEvent Event)>>> _streams;
+    private readonly Lazy<PublishedKeys> _published;
     private readonly Lazy<LifecycleFold.KeyWorld> _world;
+    private readonly Lazy<ImmutableArray<ActDecision>> _acts;
+    private readonly Lazy<HonouredEvents> _honoured;
     private readonly Dictionary<string, VerifiedLifecycle> _memo = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LifecycleFold.Decided> _decided = new(StringComparer.Ordinal);
 
@@ -47,7 +50,12 @@ public sealed class VerifiedLog
         _verifier = verifier;
         _log = log;
         _streams = new Lazy<IReadOnlyDictionary<string, List<(long Index, AppendedEvent Event)>>>(Streams);
-        _world = new Lazy<LifecycleFold.KeyWorld>(() => new LifecycleFold.KeyWorld(PublishedKeys.OfLog(log)));
+        _published = new Lazy<PublishedKeys>(() => PublishedKeys.OfLog(log));
+        _world = new Lazy<LifecycleFold.KeyWorld>(() => new LifecycleFold.KeyWorld(_published.Value));
+
+        // The operator acts (R6.67) are decided once per VerifiedLog, whichever of the three views asks first, under Lazy's own lock: each signature is verified at most once.
+        _acts = new Lazy<ImmutableArray<ActDecision>>(() => OperatorActFold.Decide(log, _published.Value, verifier.Verifiers));
+        _honoured = new Lazy<HonouredEvents>(BuildHonoured);
     }
 
     /// <summary>The verifier this log was verified by.</summary>
@@ -81,6 +89,25 @@ public sealed class VerifiedLog
     /// <summary>Every row the verifier does not honour, in log order: the rows of every stream, each by the predicate that skipped it.</summary>
     public ImmutableArray<SkippedRow> Skipped() =>
         [.. _streams.Value.Keys.SelectMany(aggregate => Decided(aggregate).Skipped).OrderBy(r => r.LogIndex)];
+
+    /// <summary>
+    /// The log less the operator-act rows the verifier does not honour (R4.43, R6.67), each event with its own <c>Seq</c>: what the raw projectors are fed. Computed once; asking again verifies nothing.
+    /// It is not a log, and <see cref="Skipped()"/> does not list the rows it leaves out (<see cref="ActSkipped"/> does).
+    /// </summary>
+    public HonouredEvents HonouredEvents => _honoured.Value;
+
+    /// <summary>The operator-act rows the verifier does not honour (R6.67), ascending by log index, each by the predicate that skipped it (never a payload member).</summary>
+    public ImmutableArray<SkippedRow> ActSkipped() =>
+        [.. _acts.Value.Where(d => d.Predicate is not null).Select(d => new SkippedRow(d.LogIndex, d.Type, d.Aggregate, d.Predicate!))];
+
+    /// <summary>Every row the verifier does not honour, lifecycle rows and operator-act rows together, ascending by log index.</summary>
+    public ImmutableArray<SkippedRow> AllSkipped() => [.. Skipped().Concat(ActSkipped()).OrderBy(r => r.LogIndex)];
+
+    private HonouredEvents BuildHonoured()
+    {
+        var skipped = _acts.Value.Where(d => d.Predicate is not null).Select(d => d.LogIndex).ToHashSet();
+        return new HonouredEvents([.. _log.Where((_, i) => !skipped.Contains(i))], _log);
+    }
 
     /// <summary>How many lifecycle rows the verifier honours, over every stream: the audit's first number (errata G68, ruling 13).</summary>
     public long HonouredCount() => _streams.Value.Keys.Sum(aggregate => (long)Decided(aggregate).Honoured.Length);

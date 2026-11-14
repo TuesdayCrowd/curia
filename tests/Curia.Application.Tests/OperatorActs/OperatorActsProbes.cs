@@ -6,6 +6,7 @@ using Curia.Application.Projections;
 using Curia.Application.Tests.Credentials;
 using Curia.Canon.Json;
 using Curia.Domain;
+using Curia.Domain.Acta;
 using Xunit;
 
 namespace Curia.Application.Tests.OperatorActs;
@@ -48,6 +49,29 @@ public sealed class OperatorActsProbes
         Assert.Equal(
             ["act-statement-mismatch", "act-unsigned", "act-unknown-kind", "act-broken-link", "act-typ-mismatch", "act-key-unpublished", "act-key-not-first", "act-signature-invalid"],
             slugs);
+    }
+
+    /// <summary>OAS9, comparison half: <c>OperatorActPredicates.All</c> is R6.67's eight slugs, in the paragraph's order, parsed from the errata and not from the type.</summary>
+    [Fact]
+    public void OAS9_TheTypeCarriesTheErratasEightPredicatesInOrder()
+    {
+        var slugs = Regex.Matches(Paragraph("R6.67"), @"`(act-[a-z-]+)`").Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray();
+        Assert.Equal(8, slugs.Length);
+        Assert.Equal(slugs, OperatorActPredicates.All.ToArray());
+    }
+
+    /// <summary>
+    /// OAS9b: the header <c>typ</c> of an operator act is written in two places in the code, the third row of <c>PublishedKeys.Classes</c> and the fold's step 5, and nothing ties them but this test: each is
+    /// compared with the <c>typ</c> parsed out of R6.66's paragraph in the errata, a third artifact (Amendment 3, ruling 43).
+    /// </summary>
+    [Fact]
+    public void OAS9b_BothHeaderTypLiteralsAreTheOneTheErrataStates()
+    {
+        var typ = Regex.Match(Paragraph("R6.66"), @"header `typ` `([^`]+)`");
+        Assert.True(typ.Success, "R6.66 does not state a header `typ`");
+        var stated = typ.Groups[1].Value;
+        Assert.Equal(stated, PublishedKeys.Classes.Single(c => c.Class == LogEntries.OperatorKeyType).HeaderTyp);
+        Assert.Equal(OperatorActFold.HeaderTyp, stated);
     }
 
     /// <summary>OAS32, parse half: R11.97 states the problem type of a row that is not honoured and the two exit codes; green once the entry is pasted. The comparison with the words the tool prints is pending.</summary>

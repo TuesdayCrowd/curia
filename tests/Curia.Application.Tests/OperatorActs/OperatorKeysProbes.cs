@@ -91,6 +91,34 @@ public sealed class OperatorKeysProbes
             Lists(PublishedKeys.OfLog(log)));
     }
 
+    /// <summary>
+    /// OAS11d: rule (c) compares by <c>kid</c> and by public key, each arm alone. An operator key <c>operator-1</c> (K1); a log key under another <c>kid</c> carrying K1 (public-key arm only); a declaration key
+    /// under <c>operator-1</c> carrying another key K2 (<c>kid</c> arm only); a log key under a fresh <c>kid</c> with a fresh key (the control). Written from R6.66: the first two hold no position.
+    /// The legs share a kid or a key on purpose; the control's key and kid are shared with nothing.
+    /// </summary>
+    [Fact]
+    public void OAS11d_AnEntryRepublishingTheOperatorKeyByEitherArmHoldsNoPosition()
+    {
+        var harness = new KeyActHarness();
+        using var k1 = new InMemoryOperatorActSigner("operator-1");
+        using var k1UnderAnotherKid = k1.WithKid("operator-1-as-log");
+        using var k2UnderTheKid = new InMemoryOperatorActSigner("operator-1");
+        using var control = new InMemoryOperatorActSigner("control-1");
+        Assert.NotEqual(k1.PublicJwk().Members.Single(m => m.Key == "x").Value, k2UnderTheKid.PublicJwk().Members.Single(m => m.Key == "x").Value);
+        Assert.NotEqual(k1.PublicJwk().Members.Single(m => m.Key == "x").Value, control.PublicJwk().Members.Single(m => m.Key == "x").Value);
+        var log = new[]
+        {
+            Entry(harness, 0, LogEntries.OperatorKeyType, LogEntries.OperatorKeysAggregate, "operator-1", k1.PublicJwk()),
+            Entry(harness, 1, LogEntries.KeyType, LogEntries.KeysAggregate, "operator-1-as-log", k1UnderAnotherKid.PublicJwk()),
+            Entry(harness, 2, LogEntries.DeclarationKeyType, LogEntries.DeclarationKeysAggregate, "operator-1", k2UnderTheKid.PublicJwk()),
+            Entry(harness, 3, LogEntries.KeyType, LogEntries.KeysAggregate, "control-1", control.PublicJwk()),
+        };
+
+        Assert.Equal(
+            "log keys [control-1]; declaration keys []; operator keys [operator-1]",
+            Lists(PublishedKeys.OfLog(log)));
+    }
+
     /// <summary>OAS11c: the Acta (what the Forum serves) and the verifier (what a reader decides on) list the same <c>kid</c>s per class, for the shapes of vectors 10 (first published as a log key), 11 (first as the operator key) and 12 (two operator keys).</summary>
     [Fact]
     public void OAS11c_TheActaAndTheVerifierListTheSameKeysPerClass()
