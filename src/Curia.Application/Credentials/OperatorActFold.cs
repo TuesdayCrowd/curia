@@ -158,8 +158,9 @@ internal static class OperatorActFold
         var expectedPrev = stream.LastHonoured ?? root;
         if (expectedPrev is null || Find(statement, "prev") is not JsonValue.Number prev || prev.Value != expectedPrev.Value) return OperatorActPredicates.BrokenLink;
 
-        // 5. No authorization that is a detached JWS whose header typ is the act's and whose alg is ES256.
+        // 5. No authorization that is a detached JWS (a compact JWS whose payload part is empty, R6.67 step 5) whose header typ is the act's and whose alg is ES256.
         if (Find(row, "authorization") is not JsonValue.String authorization
+            || authorization.Value.Split('.') is not [_, "", _]
             || !DetachedJws.ReadProtectedHeader(new JwsSignature(authorization.Value)).TryGetValue(out var header, out _)
             || !string.Equals(header!.Typ, HeaderTyp, StringComparison.Ordinal)
             || !string.Equals(header.Alg, HeaderAlg, StringComparison.Ordinal))

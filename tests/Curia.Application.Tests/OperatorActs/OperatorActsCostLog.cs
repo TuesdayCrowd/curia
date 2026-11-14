@@ -6,6 +6,7 @@ using Curia.Application.Tests.Credentials;
 using Curia.Application.Tests.InMemory;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
+using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Acta;
 using Xunit;
@@ -118,6 +119,20 @@ internal static class OperatorActsCostLog
         Assert.Equal(forgedActs, decisions.Count(d => d.Predicate == OperatorActPredicates.SignatureInvalid));
         Assert.Equal(acts, decisions.Length);
         return new Built(log, honouredActs, forgedActs);
+    }
+
+    /// <summary>
+    /// One genuine signing input, its signature and the key's material: what <c>c</c> (the cost of one call of the ES256 verifier port, Amendment 4 ruling 52) is measured over, built with the builder's own
+    /// <see cref="Sign"/> so the input is the one a fold hands the port (the encoded header, a full stop, the canonical bytes).
+    /// </summary>
+    internal static (byte[] Input, byte[] Signature, PublicKeyMaterial Key) PrimitiveSample()
+    {
+        using var signer = new InMemoryOperatorActSigner("operator-1");
+        var canonical = Encoding.UTF8.GetBytes("{\"typ\":\"curia.owner-attestation/1\"}");
+        var compact = Sign(signer, signer.Kid, canonical).Split('.');
+        var input = Encoding.ASCII.GetBytes(compact[0] + ".").Concat(canonical).ToArray();
+        var key = ClosedJwk.Read(signer.PublicJwk(), signer.Kid)?.Material(signer.Kid) ?? throw new InvalidOperationException("the operator key's JWK does not read");
+        return (input, Base64Url.DecodeFromChars(compact[2]), key);
     }
 
     /// <summary>The p50 and p95 (the 15th and the 29th of 30 sorted runs) of <paramref name="run"/>, after three warm-up runs.</summary>

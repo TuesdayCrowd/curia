@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Curia.Application.Credentials;
@@ -93,7 +94,7 @@ public sealed class OperatorActFoldTests
     private const string PostP1 = "01K4CQ4B0000000000000000P1";
 
     /// <summary>
-    /// OAS8: the fold decides every one of the 38 cases' rows as <c>expected.json</c> says (index, verdict, predicate), and the raw projectors fed <see cref="HonouredEvents"/> alone say what its
+    /// OAS8: the fold decides every one of the 60 cases' rows as <c>expected.json</c> says (index, verdict, predicate), and the raw projectors fed <see cref="HonouredEvents"/> alone say what its
     /// <c>state</c> says (the owner and whether it is verified; whether the post is served). Every disagreement is collected and the test fails once with the whole list.
     /// </summary>
     [Fact]
@@ -101,7 +102,7 @@ public sealed class OperatorActFoldTests
     {
         var failures = new List<string>();
         var cases = ActVectors.Cases();
-        Assert.True(cases.Length == 38, $"Expected: 38 cases  Actual: {cases.Length}");
+        Assert.True(cases.Length == 60, $"Expected: 60 cases  Actual: {cases.Length}");
         foreach (var name in cases)
         {
             try
@@ -333,7 +334,7 @@ public sealed class OperatorActFoldTests
     }
 
     /// <summary>
-    /// OAS30a, the cost, deterministic: over each of the 38 cases the primitive is called once for each row that reaches step 7 (a row <c>expected.json</c> says is honoured, or skipped as
+    /// OAS30a, the cost, deterministic: over each of the 60 cases the primitive is called once for each row that reaches step 7 (a row <c>expected.json</c> says is honoured, or skipped as
     /// <c>act-signature-invalid</c>) and for no other; and asking a <see cref="VerifiedLog"/> for <c>HonouredEvents</c> a second time, or for the skipped act rows, verifies nothing again.
     /// </summary>
     [Fact]
@@ -380,15 +381,37 @@ public sealed class OperatorActCostTests
     private static void Report(string line) => TestContext.Current.TestOutputHelper?.WriteLine(line);
 
     /// <summary>
-    /// OAS30m, a measurement: the plan's two cases on a <see cref="VerifiedLog"/> built fresh per run, 3 warm-up and 30 timed runs. (a) 10,000 events, 20 lifecycle rows, 200 honoured act rows; (b) the same with 1,000
-    /// forged well-structured rows. Baseline is the lifecycle view alone (<c>Skipped()</c>); folded adds <c>HonouredEvents</c>. The numbers go to the test output and to the report. The assertion is a ceiling ten
-    /// times the plan's rule (250 ms for (a), 2,500 ms for (b), at p95 over baseline): a guard against a gross regression, not ruling 11's discharge, which the architect makes from the numbers.
+    /// OAS30m, a measurement (restated by Amendment 4, rulings 52 and 53): <c>c</c> is the median of 2,000 calls of the ES256 verifier port over one signing input and one key, taken in this process just before the
+    /// timed runs. Then, on a <see cref="VerifiedLog"/> built fresh per run, 3 warm-up and 30 timed runs: (a) 10,000 events with 20 lifecycle rows and N honoured act rows, N in {50, 100, 200, 400}; (b) N = 200
+    /// with 1,000 forged well-structured rows. Baseline is the lifecycle view alone (<c>Skipped()</c>); folded adds <c>HonouredEvents</c>. The assertions are ratios to <c>c</c>, which a loaded host moves in the
+    /// same breath: (a) <c>(F p50 - B p50) &lt;= 5 * N * c</c>, (b) <c>&lt;= 5 * forged * c</c>. Ruling 52's stops ((a1) linearity, (a2) the fold's cost against the primitive's) are not assertions: the implementer
+    /// reads them from the numbers this writes. A report-only leg folds K fresh logs at once and reports wall time per fold and process CPU per fold. Every number goes to the test output.
     /// </summary>
     [Fact]
-    public void OAS30m_TheFoldsCostOnTenThousandEventsStaysUnderTenTimesTheRule()
+    public async Task OAS30m_TheFoldsCostOnTenThousandEventsStaysWithinFiveTimesThePrimitive()
     {
         var verifier = ConformanceLog.Verifier();
-        foreach (var (label, honoured, forged, ceiling) in new[] { ("(a) 200 honoured", 200, 0, 250.0), ("(b) 200 honoured and 1,000 forged", 200, 1000, 2500.0) })
+
+        var (input, signature, key) = OperatorActsCostLog.PrimitiveSample();
+        var es256 = new Curia.Canon.Sodium.Es256Adapter();
+        Assert.True(es256.Verify(input, signature, key), "the sample signature does not verify");
+        for (var i = 0; i < 200; i++) _ = es256.Verify(input, signature, key);
+        var calls = new double[2000];
+        for (var i = 0; i < calls.Length; i++)
+        {
+            var started = Stopwatch.GetTimestamp();
+            _ = es256.Verify(input, signature, key);
+            calls[i] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
+
+        Array.Sort(calls);
+        var c = calls[1000];
+        Report($"OAS30m c (median of 2000 ES256 verifier-port calls): {c:F4} ms; p95 {calls[1900]:F4} ms");
+
+        var failures = new List<string>();
+        var perRow = new Dictionary<int, double>();
+        double over200 = 0;
+        foreach (var (label, honoured, forged) in new[] { ("(a) N=50", 50, 0), ("(a) N=100", 100, 0), ("(a) N=200", 200, 0), ("(a) N=400", 400, 0), ("(b) N=200 + 1,000 forged", 200, 1000) })
         {
             var built = OperatorActsCostLog.Build(events: 10_000, honouredActs: honoured, forgedActs: forged);
             var baseline = OperatorActsCostLog.Time(() => _ = verifier.OfLog(built.Log).Skipped());
@@ -398,9 +421,37 @@ public sealed class OperatorActCostTests
                 _ = fresh.Skipped();
                 _ = fresh.HonouredEvents;
             });
-            var over = folded.P95 - baseline.P95;
-            Report($"OAS30m {label}: baseline p50 {baseline.P50:F2} ms p95 {baseline.P95:F2} ms; folded p50 {folded.P50:F2} ms p95 {folded.P95:F2} ms; over baseline at p50 {folded.P50 - baseline.P50:F2} ms at p95 {over:F2} ms");
-            Assert.True(over < ceiling, $"{label}: Expected: under {ceiling} ms over baseline at p95  Actual: {over:F1} ms");
+            var rows = forged > 0 ? forged : honoured;
+            var over50 = folded.P50 - baseline.P50;
+            var over95 = folded.P95 - baseline.P95;
+            Report($"OAS30m {label}: B p50 {baseline.P50:F2} p95 {baseline.P95:F2} ms; F p50 {folded.P50:F2} p95 {folded.P95:F2} ms; F-B p50 {over50:F2} p95 {over95:F2} ms; per row (F-B p50)/{(forged > 0 ? "forged" : "N")} {over50 / rows:F4} ms; (F-B p50)/(rows*c) {over50 / (rows * c):F2}");
+            if (forged == 0) perRow[honoured] = over50 / honoured;
+            if (forged == 0 && honoured == 200) over200 = over50;
+            if (over50 > 5 * rows * c) failures.Add($"{label}: Expected: (F-B) at p50 at most 5 * {rows} * c = {5 * rows * c:F1} ms  Actual: {over50:F1} ms");
         }
+
+        Report($"OAS30m (a1) per-row cost by N: {string.Join(", ", perRow.OrderBy(p => p.Key).Select(p => $"N={p.Key}: {p.Value:F4} ms"))}; dearest/cheapest {perRow.Values.Max() / perRow.Values.Min():F2} (stop above 1.5)");
+        Report($"OAS30m (a2) (F-B p50 at N=200)/(N*c) {over200 / (200 * c):F2} (stop above 2); break-even: 25 ms / per-row cost = {25 / perRow[200]:F0} honoured acts; 250 ms / forged per-row cost, see the (b) row");
+
+        var concurrent = OperatorActsCostLog.Build(events: 10_000, honouredActs: 200, forgedActs: 0);
+        var k = Math.Min(8, Environment.ProcessorCount);
+        var process = Process.GetCurrentProcess();
+        var cpuBefore = process.TotalProcessorTime;
+        var wall = Stopwatch.StartNew();
+        var each = Enumerable.Range(0, k).Select(fold => Task.Run(() =>
+        {
+            var started = Stopwatch.GetTimestamp();
+            var fresh = verifier.OfLog(concurrent.Log);
+            _ = fresh.Skipped();
+            _ = fresh.HonouredEvents;
+            return Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        })).ToArray();
+        var perFold = await Task.WhenAll(each);
+        wall.Stop();
+        process.Refresh();
+        var cpu = (process.TotalProcessorTime - cpuBefore).TotalMilliseconds;
+        Report($"OAS30m concurrency (report only): K={k} folds of fresh logs at once, N=200: wall {wall.Elapsed.TotalMilliseconds:F1} ms for all; per fold min {perFold.Min():F1} max {perFold.Max():F1} mean {perFold.Average():F1} ms (serial figure {over200:F1} ms over baseline); process CPU {cpu:F1} ms in all, {cpu / k:F1} ms per fold");
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
     }
 }

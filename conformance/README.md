@@ -652,14 +652,22 @@ scalar), so the public keys are reproducible; ES256 signing is randomized, so th
 the header kid and the signer are the same, and a regeneration over the existing output is byte-identical. "Garbage" is the string `FORGED-NO-VALID-SIGNATURE`,
 which is not a JWS; a "bad signature" is a well-formed JWS of the right header whose signature bytes are another key's.
 
-The family holds 38 cases: vectors 1 to 33 are the plan's table and vectors 34 to 38 are Amendment 1's. Vectors 34 and 35 pin that `curia.moderation/1` honours
+The family holds 60 cases: vectors 1 to 33 are the plan's table, vectors 34 to 38 are Amendment 1's and vectors 39 to 60 are Amendment 4's. Vectors 34 and 35 pin that `curia.moderation/1` honours
 `moderator` `human` only (`automated` and `delegated_agent` are skipped `act-statement-mismatch`: no automated actor holds a key and no delegation exists, item 294);
 vectors 36 and 37 pin a forged unsigned restore after and between genuine rows; vector 38 pins "the stream's root is its first event" for a stream with two
 `agent.enrolled` rows.
 
-**What these 38 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effects other than
-`withhold` and `restore` (every effect shares the procedure), a flag's `adjudicates` list, which of step 3's clauses decides a row that has two defects, and an authorization
-whose `alg` is not `ES256` (step 5, `act-typ-mismatch`, is pinned by the garbage authorization alone).
+Vectors 39 to 60 pin the order of the procedure and the arms of three of its steps. Vectors 39 to 47 are the ladder ("the first step that applies decides"): each holds a row that
+fails the step it names and every step after it (a header `typ` `curia-head+jws`, the unpublished stranger's `kid` and signature), so a fold that tries a later step first reports
+that step's predicate; each but 39 ends with a genuine honoured row (a skipped row moves nothing), and 46 and 47 repeat steps 3 and 4 for a moderation record. Vectors 48 to 53
+pin one arm each of step 5 and step 6 with a signature that is valid (a header `typ`, an `alg` of `ES384` and of `none`, an attached JWS, no `authorization`, a header with no
+`kid`), vectors 54 to 59 one arm each of step 3 (a statement not in RFC 8785 order, not NFC, and the JSON types of `prev`, `owner_verified` and `adjudicates`, the member left out of
+the row so that the row's difference from the statement cannot decide it), and vector 60 pins that a later honoured attestation naming another owner sets nothing, `owner_verified`
+included.
+
+**What these 60 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effects other than
+`withhold` and `restore` (every effect shares the procedure), a flag's `adjudicates` list beyond its type, which of step 3's clauses decides a row that has two defects of step 3's
+own (the order of the steps is pinned, the order of one step's clauses is not), and the types of the closed form's remaining string members.
 
 The cases are **proposals**, as `honoured/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --operator-acts-cases` regenerates them until the owner's
 lift record pins their digests.

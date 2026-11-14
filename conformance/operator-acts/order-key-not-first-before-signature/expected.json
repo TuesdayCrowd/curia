@@ -1,0 +1,1 @@
+{"rows":[{"log_index":4,"type":"agent.owner-attested","verdict":"skipped","predicate":"act-key-not-first"},{"log_index":5,"type":"agent.owner-attested","verdict":"honoured"}],"state":{"owner":"owner:alice","verified":true}}
