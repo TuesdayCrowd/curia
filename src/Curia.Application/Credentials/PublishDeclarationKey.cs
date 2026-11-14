@@ -11,7 +11,7 @@ namespace Curia.Application.Credentials;
 /// Errata G67, R6.62: the operator publishes the declaration key to the log, out of band, as a <c>log.declaration-key</c> entry (<c>{ kid, jwk, valid_from }</c>).
 /// The entry is not a lifecycle act and the lifecycle guard does not govern it (Amendment 2 ruling 29): publishing a key ends no agent's key, and the owner
 /// publishes it before the hosted instance is announced, so that the first slot (R6.62: the first declaration key published is the one) is closed. It refuses
-/// a key that is a published log key and a second declaration key, before anything is appended.
+/// a key that is a published log key or operator key (each by <c>kid</c> or by public key, R6.66) and a second declaration key, before anything is appended.
 /// </summary>
 public sealed class PublishDeclarationKey
 {
@@ -40,9 +40,13 @@ public sealed class PublishDeclarationKey
         if (!ActaLog.Fold(log!).TryGetValue(out var acta, out var foldError))
             return Result<long>.Fail(foldError!);
 
-        if (acta!.Keys.Any(k => string.Equals(k.Kid, key.Kid, StringComparison.Ordinal)))
+        // R6.66: a key is published in the class it was first published in and in no other, by kid and by public key (a log key by kid only was all this compared before).
+        var firstUnder = PublishedKeys.OfLog(log!).FirstPublishedClass(key.Kid, key.PublicJwk());
+        if (string.Equals(firstUnder, LogEntries.KeyType, StringComparison.Ordinal))
             return Result<long>.Fail(KeyActErrors.DeclarationKeyIsLogKey());
-        if (!acta.DeclarationKeys.IsEmpty)
+        if (string.Equals(firstUnder, LogEntries.OperatorKeyType, StringComparison.Ordinal))
+            return Result<long>.Fail(KeyActErrors.DeclarationKeyIsOperatorKey());
+        if (!acta!.DeclarationKeys.IsEmpty)
             return Result<long>.Fail(KeyActErrors.DeclarationKeyAlreadyPublished());
 
         var published = acta.DeclarationKeys.Length;

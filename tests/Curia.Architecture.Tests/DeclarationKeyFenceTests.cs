@@ -63,20 +63,21 @@ public sealed class DeclarationKeyFenceTests
     }
 
     /// <summary>
-    /// What a <c>LogEntries</c> type constant may be without the guard classifying it, each with its reason (Amendment 2 ruling 29). Three rows: heads are not
+    /// What a <c>LogEntries</c> type constant may be without the guard classifying it, each with its reason (Amendment 2 ruling 29). Four rows: heads are not
     /// lifecycle; a log key's publication is the signer's own R6.50 act and grants no declaration power; and publishing a declaration key ends no agent's key
-    /// (honouring a declaration under it is the guarded compromise act), and the owner must publish it before the hosted instance is announced.
+    /// (honouring a declaration under it is the guarded compromise act), and the owner must publish it before the hosted instance is announced; and publishing an operator-acts key (PR N2, R6.66) ends no agent's key and grants no act without the owner's choice to publish.
     /// </summary>
     private static readonly Dictionary<string, string> Unclassified = new(StringComparer.Ordinal)
     {
         [nameof(LogEntries.HeadType)] = "a signed head is not a lifecycle act",
         [nameof(LogEntries.KeyType)] = "a log key's publication is the signer's own R6.50 act and grants no declaration power after errata G67",
         [nameof(LogEntries.DeclarationKeyType)] = "publishing a key ends no agent's key; honouring a declaration under it is the guarded compromise act, and the first-published slot must be closed by the owner before hosting",
+        [nameof(LogEntries.OperatorKeyType)] = "publishing a key ends no agent's key and grants no act without the owner's choice to publish; the first-published slot must be closed by the owner before the hosted instance is announced",
     };
 
     /// <summary>
     /// HSU6. Control on the seam (the seam declares the constant and classifies nothing); red under FHSU6, where <c>Classify</c> is made to return a kind for a
-    /// <c>log.*</c> type or a fourth constant is added with no decision. The constants are selected by value (every <c>public const string</c> whose value begins <c>log.</c>), not by a name
+    /// <c>log.*</c> type or a fifth constant is added with no decision. The constants are selected by value (every <c>public const string</c> whose value begins <c>log.</c>), not by a name
     /// ending in <c>Type</c>: a constant named otherwise is still an event type (Amendment 3 ruling 43; FHSU39 adds <c>ExampleKind = "log.example"</c>).
     /// </summary>
     [Fact]
@@ -103,7 +104,7 @@ public sealed class DeclarationKeyFenceTests
         foreach (var name in Unclassified.Keys.Where(n => !types.ContainsKey(n)))
             problems.Add($"the allowlist names {name}, which LogEntries no longer declares");
 
-        Assert.Equal(3, Unclassified.Count);
+        Assert.Equal(4, Unclassified.Count);
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 

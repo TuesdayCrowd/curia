@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Curia.Application.Credentials;
 using Curia.Canon.Acta;
 using Curia.Canon.Json;
 using Curia.Domain;
@@ -31,6 +32,12 @@ public sealed record LogKey(long LogIndex, string Kid, JsonValue.Object Jwk, str
 /// A declaration key as published to the log (errata G67, R6.62): the key that signs compromise declarations and never a head.
 /// </summary>
 public sealed record DeclarationKey(long LogIndex, string Kid, JsonValue.Object Jwk, string ValidFrom);
+
+/// <summary>
+/// An operator key as published to the log (errata G70, R6.66): the key that signs the operator's out-of-band acts and never a head or a declaration. Every entry that holds a position is listed;
+/// "the" operator key is the first, and deciding that is the fold's.
+/// </summary>
+public sealed record OperatorKey(long LogIndex, string Kid, JsonValue.Object Jwk, string ValidFrom);
 
 /// <summary>An audit path and everything a verifier needs to check it (R6.48).</summary>
 public sealed record InclusionProof(
@@ -73,6 +80,7 @@ public sealed class ActaLog
         ImmutableArray<SignedHead> heads,
         ImmutableArray<LogKey> keys,
         ImmutableArray<DeclarationKey> declarationKeys,
+        ImmutableArray<OperatorKey> operatorKeys,
         ImmutableDictionary<string, long> indexByEventId)
     {
         Events = events;
@@ -80,6 +88,7 @@ public sealed class ActaLog
         Heads = heads;
         Keys = keys;
         DeclarationKeys = declarationKeys;
+        OperatorKeys = operatorKeys;
         IndexByEventId = indexByEventId;
         Root = MerkleTree.Root(leaves);
     }
@@ -105,6 +114,12 @@ public sealed class ActaLog
 
     /// <summary>Every declaration key published to the log, in log order (errata G67, R6.62). A reader holds a declaration to the first.</summary>
     public ImmutableArray<DeclarationKey> DeclarationKeys { get; }
+
+    /// <summary>
+    /// Every operator key published to the log that holds a position, in log order (errata G70, R6.66): <see cref="PublishedKeys.OfLog"/>'s own list, so that what the Forum serves and what a
+    /// verifier reads are one decision (Amendment 2 ruling 40). <see cref="Keys"/> and <see cref="DeclarationKeys"/> leave out an entry of an operator key's class.
+    /// </summary>
+    public ImmutableArray<OperatorKey> OperatorKeys { get; }
 
     /// <summary>
     /// The latest head for which <paramref name="signedByTheSigner"/> holds, or <see langword="null"/> when none does (errata G67, R6.63; Amendment 3 ruling 34). <see cref="LatestHead"/>
@@ -241,12 +256,28 @@ public sealed class ActaLog
                     declarationKeys.Add(declarationKey!);
                     break;
 
+                case LogEntries.OperatorKeyType:
+                    if (!ReadOperatorKey(i, appended.Event.Payload).IsOk)
+                        return Result<ActaLog>.Fail(ActaErrors.MalformedOperatorKey(i));
+                    break;
+
                 default:
                     break;
             }
         }
 
-        return Result<ActaLog>.Ok(new ActaLog(log, leaves.ToImmutable(), heads.ToImmutable(), keys.ToImmutable(), declarationKeys.ToImmutable(), index.ToImmutable()));
+        // R6.66, ruling 40: one function decides which key entries hold a position (the verifier's), and an entry of an operator key's class is no log key and no declaration key.
+        var decided = PublishedKeys.Decide(log);
+        var ofOperatorClass = decided.Where(d => d.Standing == PublishedKeys.Standing.OperatorKeyClass).Select(d => d.Index).ToHashSet();
+
+        return Result<ActaLog>.Ok(new ActaLog(
+            log,
+            leaves.ToImmutable(),
+            heads.ToImmutable(),
+            [.. keys.Where(k => !ofOperatorClass.Contains(k.LogIndex))],
+            [.. declarationKeys.Where(k => !ofOperatorClass.Contains(k.LogIndex))],
+            PublishedKeys.From(decided).OperatorKeys,
+            index.ToImmutable()));
     }
 
     private static Result<SignedHead> ReadHead(long logIndex, JsonValue payload)
@@ -287,6 +318,17 @@ public sealed class ActaLog
         return Result<DeclarationKey>.Ok(new DeclarationKey(logIndex, kid.Value, jwk, validFrom.Value));
     }
 
+    internal static Result<OperatorKey> ReadOperatorKey(long logIndex, JsonValue payload)
+    {
+        if (payload is not JsonValue.Object o
+            || Member(o, LogEntries.KidMember) is not JsonValue.String kid
+            || Member(o, LogEntries.JwkMember) is not JsonValue.Object jwk
+            || Member(o, LogEntries.ValidFromMember) is not JsonValue.String validFrom)
+            return Result<OperatorKey>.Fail(ActaErrors.MalformedOperatorKey(logIndex));
+
+        return Result<OperatorKey>.Ok(new OperatorKey(logIndex, kid.Value, jwk, validFrom.Value));
+    }
+
     private static JsonValue? Member(JsonValue.Object o, string name)
     {
         foreach (var m in o.Members)
@@ -316,6 +358,11 @@ public static class ActaErrors
     public static Error MalformedDeclarationKey(long logIndex) => new(
         "curia/acta/malformed-declaration-key",
         "A log.declaration-key entry does not carry { kid, jwk, valid_from }",
+        $"log_index={logIndex}");
+
+    public static Error MalformedOperatorKey(long logIndex) => new(
+        "curia/acta/malformed-operator-key",
+        "A log.operator-key entry does not carry { kid, jwk, valid_from }",
         $"log_index={logIndex}");
 
     public static Error MalformedKey(long logIndex) => new(
