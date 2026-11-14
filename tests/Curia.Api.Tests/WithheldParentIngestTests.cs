@@ -135,18 +135,18 @@ public sealed class WithheldParentIngestTests(ForumFixture forum) : IClassFixtur
         Assert.True(controlStatus == HttpStatusCode.Created, controlBody);
     }
 
-    /// <summary>PH7b. R8.72, R10.36: a comment under a post an automated detector quarantined is refused <c>parent-withheld</c>, as under a human record; nothing is stored.</summary>
+    /// <summary>PH7b. R8.72, R10.36: a comment under a post a human moderator quarantined is refused <c>parent-withheld</c>; nothing is stored. (Task 3d, ruling 86: restated from the automated arm, which the act fold skips, R6.67 step 3.)</summary>
     [Fact]
-    public async Task R8_72_ACommentUnderAnAutomatedQuarantineIsRefused()
+    public async Task R8_72_ACommentUnderAHumanQuarantineIsRefused()
     {
         var ct = TestContext.Current.CancellationToken;
         var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
-        await forum.QuarantineAsAutomatedAsync(scene.Answer1.PostId, scene.Answer1.Digest, ct);
+        await forum.QuarantineAsync(scene.Answer1.PostId, ct);
         var all = await PostsAsync(ct);
 
-        var (status, body) = await SubmitAsync(scene.Answerer, CommentOf(scene, scene.Answerer, scene.Answer1.PostId, "Under an automated quarantine"), ct);
+        var (status, body) = await SubmitAsync(scene.Answerer, CommentOf(scene, scene.Answerer, scene.Answer1.PostId, "Under a human quarantine"), ct);
 
-        AssertRefusedAsWithheld(status, body, scene.Answer1.PostId, "a comment under an automated quarantine");
+        AssertRefusedAsWithheld(status, body, scene.Answer1.PostId, "a comment under a human quarantine");
         Assert.Equal(all, await PostsAsync(ct));
     }
 

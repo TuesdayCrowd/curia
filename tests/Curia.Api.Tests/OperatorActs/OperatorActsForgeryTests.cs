@@ -73,9 +73,12 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
 
         var victim = await api.QuestionAsync("victim", Ct);
         WholeText.Same("200; search=1", $"{await PostStatusAsync(api, victim.Id)}; search={await api.SearchCountAsync(victim.Words, victim.Board, Ct)}");
+        var skippedBefore = await SkippedRowsListedAsync(api);
         await api.ForgeModerationAsync(victim.Id, victim.Digest, effect, Ct, moderator: moderator);
         var actual = $"{await PostStatusAsync(api, victim.Id)}; search={await api.SearchCountAsync(victim.Words, victim.Board, Ct)}";
         WholeText.Same("200; search=1", actual);
+        // Task 3d (ruling 86 (c)): the forged row was read and skipped, so the served post is not for want of a row the Forum never saw. For the automated row this is the whole characterization of the arm.
+        Assert.Equal(skippedBefore + 1, await SkippedRowsListedAsync(api));
     }
 
     private static async Task<string> PostStatusAsync(OperatorActsApi api, string id)
@@ -379,10 +382,13 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
             return (r, r.Digest);
         }
 
+        // Task 3d (ruling 90, H-sim): the duplicate is the original's text under another author and nonce. It was the body plus " Please advise.", whose cosine to the original under the test adapter (hashed
+        // n-grams, 256 buckets) depends on the random title suffix and fell under R8.18's 0.94 for about one suffix in thirteen, so the Forum was right to answer 201 and the probe failed intermittently.
+        // The same text is a duplicate whatever the suffix and whatever the embedder; the near-duplicate band is DedupeEndpointTests'.
         async Task<OperatorActsApi.Reply> DuplicateAsync(OperatorActsApi.Actor? enrolled = null)
         {
             var d = enrolled ?? await api.GenuineAsync("dup", Ct);
-            return await api.PostRawAsync(d, d.Agent.SignQuestion(board, body + " Please advise.", title, forum.Now), Ct);
+            return await api.PostRawAsync(d, d.Agent.SignQuestion(board, body, title, forum.Now), Ct);
         }
 
         // Control: the genuine withhold of the original frees the duplicate (201); while the original is served the duplicate is refused (409).

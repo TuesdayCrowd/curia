@@ -82,6 +82,19 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         Assert.True(exit == ExitCode.Ok, $"curia-operator {string.Join(' ', args)} exited {exit}: {stderr}");
     }
 
+    /// <summary>
+    /// How many rows the operator's own audit lists as skipped (R6.67: a row the act fold does not honour). The audit exits 7 when it lists any, so this reads its lines and does not assert the exit.
+    /// </summary>
+    private async Task<int> SkippedRowsAsync(CancellationToken ct)
+    {
+        string[] args = ["lifecycle-audit"];
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+            readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
+        return stdout.ToString().Split('\n').Count(l => l.StartsWith("skipped  log_index=", StringComparison.Ordinal));
+    }
+
     private async Task<string> InboxAsync(HttpClient client, Party party, string board, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri($"/v1/inbox?board={board}", UriKind.Relative));
@@ -274,19 +287,24 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         var reporterB = await PartyAsync(client, NewAgent("r1039-b"), ct);
         await FlagAsync(client, reporterB, second.PostId, "incorrect", "The premise is wrong.", ct);
 
-        // R10.61's anticipated out-of-rule input, not a stand-in for the writer (trap 16): an automated
-        // record naming B before anyone reviewed it. A fold that counted it would time B's action at
-        // 30 minutes, not 90.
+        // An out-of-rule input, not a stand-in for the writer (trap 16): an automated record naming B before
+        // anyone reviewed it. The act fold skips it (R6.67 step 1: act-unsigned), as it does every row no
+        // operator key signed; it is not R10.61's table that decides it. A consumer that counted it would
+        // time B's action at 30 minutes, not 90.
+        var skippedBefore = await SkippedRowsAsync(ct);
         forum.Clock.Advance(TimeSpan.FromMinutes(30));
         await AppendAnAutomatedDismissalAsync(second, ct);
 
         forum.Clock.Advance(TimeSpan.FromMinutes(60));
         await OperatorAsync(ct, "moderate", "--post", first.PostId, "--category", "spam", "--effect", "withhold", "--reason", "Reviewed: advertising.", "--by", "reviewer");
 
-        // R10.61's anticipated out-of-rule input again, not a stand-in for the writer (trap 16): an
-        // automated dismissal naming A after a human upheld it. A fold that honoured it would release
-        // A and count no flag upheld.
+        // The same out-of-rule input again, not a stand-in for the writer (trap 16): an automated
+        // dismissal naming A after a human upheld it, skipped by the act fold (R6.67 step 1). A consumer
+        // that honoured it would release A and count no flag upheld.
         await AppendAnAutomatedDismissalAsync(first, ct);
+        // The vacuity guard (Task 3d, ruling 88): the Forum read both rows and skipped them, so the figures below
+        // ignore them because the fold did, not because the rows never reached it.
+        Assert.Equal(skippedBefore + 2, await SkippedRowsAsync(ct));
         await OperatorAsync(ct, "moderate", "--post", second.PostId, "--category", "incorrect", "--effect", "dismiss", "--reason", "Reviewed: the premise holds.", "--by", "reviewer");
 
         // Only what an anonymous reader can fetch.

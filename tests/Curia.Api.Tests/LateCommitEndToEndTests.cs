@@ -97,20 +97,33 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
         return new LateEvent(postId, digest, author, "post.accepted", postId, json);
     }
 
-    private LateEvent LateModeration(string postId, string effect)
+    /// <summary>
+    /// A signed <c>moderation.applied</c> row for <paramref name="postId"/> (Task 3d, ruling 89), chained after the log index <paramref name="prev"/>, to be held and committed late. It is the row
+    /// <c>curia-operator moderate</c> appends, built by <see cref="LateSignedModeration"/> from public types; an unsigned row would be skipped by the act fold (R6.67), and a skipped row moves nothing.
+    /// </summary>
+    private LateEvent LateModeration(string operatorKeyPem, string postId, string digest, string effect, long prev)
     {
-        var id = Require(new UlidGenerator(_forum.Clock).Next()).ToString();
-        var json = JsonSerializer.Serialize(new Dictionary<string, object?>
-        {
-            ["post_id"] = postId,
-            ["actor_id"] = "operator:fixture",
-            ["rationale"] = "moderated by the late-commit probe",
-            ["moderator"] = ModeratorKinds.Wire(ModeratorKind.Human),
-            ["effect"] = effect,
-            ["category"] = FlagKinds.Wire(FlagKind.Spam),
-            ["adjudicates"] = Array.Empty<string>(),
-        });
-        return new LateEvent(id, string.Empty, "operator:fixture", FlagProjector.ModerationAppliedType, postId, json);
+        var row = LateSignedModeration.Build(operatorKeyPem, Require(new UlidGenerator(_forum.Clock).Next()).ToString(), postId, digest, effect, prev);
+        return new LateEvent(row.EventId, string.Empty, row.Author, FlagProjector.ModerationAppliedType, postId, row.PayloadJson);
+    }
+
+    /// <summary>A log index (R6.47): how many entries the log holds before the one with <paramref name="seq"/>.</summary>
+    private Task<long> LogIndexAsync(long seq) => ScalarAsync(LateSignedModeration.LogIndexSql, ("seq", seq));
+
+    /// <summary>The log index of the first entry of <paramref name="aggregateId"/>: the stream's root (R6.67).</summary>
+    private Task<long> RootIndexAsync(string aggregateId) => IndexOfAsync("SELECT min(seq) FROM events WHERE aggregate_id = @agg;", aggregateId);
+
+    /// <summary>The log index of the last <c>moderation.applied</c> entry of <paramref name="aggregateId"/>: the previous act of the stream (R6.67 step 4), committed already.</summary>
+    private Task<long> LastActIndexAsync(string aggregateId) =>
+        IndexOfAsync("SELECT max(seq) FROM events WHERE aggregate_id = @agg AND event_type = 'moderation.applied';", aggregateId);
+
+    private async Task<long> IndexOfAsync(string seqSql, string aggregateId) => await LogIndexAsync(await ScalarAsync(seqSql, ("agg", aggregateId)));
+
+    /// <summary>The status the Forum answers a read of <paramref name="postId"/> with: <c>200</c> while it is served, <c>404</c> while it is not (R9.42).</summary>
+    private async Task<int> ServedStatusAsync(string postId)
+    {
+        using var response = await _forum.Client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), Ct);
+        return (int)response.StatusCode;
     }
 
     private Task<long> InsertAsync(LateCommitHolder holder, LateEvent late) =>
@@ -369,26 +382,35 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
         var said = new List<string>();
         var expected = new List<string>();
 
-        // (i)
+        // The operator-acts key is published to the log once, before any hold: publishing appends, and an append waits on the holder's lock.
+        var operatorKey = await _forum.OperatorActsKeyAsync(Ct);
+
+        // (i) The withholding is signed after the successor's root is inserted, chained after that root's log index (the root is the stream's first event, R6.67 step 4). The holder holds the log's
+        // lock, so every entry visible to the owner's connection precedes the root and its index is the count of entries of smaller seq.
         var p = await AskAsync(author, board);
         var r1 = LatePost(author.Agent.SignRevision(board, "First " + RevisionProbe.Unrelated(), p.PostId, p.Digest, now));
-        var withhold = LateModeration(r1.PostId, ModerationEffects.Wire(ModerationEffect.Withhold));
         var i = await SendBehindAsync(author, author.Agent.SignRevision(board, "Second " + RevisionProbe.Unrelated(), p.PostId, p.Digest, now), async holder =>
         {
-            await InsertAsync(holder, r1);
-            await InsertAsync(holder, withhold);
+            var rootSeq = await InsertAsync(holder, r1);
+            await InsertAsync(holder, LateModeration(operatorKey, r1.PostId, r1.Digest, ModerationEffects.Wire(ModerationEffect.Withhold), await LogIndexAsync(rootSeq)));
         });
         expected.Add("(i) the successor and its withholding together: 201");
         said.Add($"(i) the successor and its withholding together: {i.Says}");
+        // The vacuity guard: the Forum read the late withholding and honoured it (a skipped row would leave the successor served, and R2 would not have been 201 for this reason).
+        expected.Add("(i) the late withholding is honoured: the successor is not served (404)");
+        said.Add($"(i) the late withholding is honoured: the successor is not served ({await ServedStatusAsync(r1.PostId)})");
 
-        // (ii)
+        // (ii) The withhold is committed before the hold, so the restore is chained after its log index, read here.
         var p2 = await AskAsync(author, board);
         var s1 = await RevisionProbe.ReviseAsync(_forum, author, board, p2, "First " + RevisionProbe.Unrelated(), cancellationToken: Ct);
         await _forum.WithholdAsync(s1.PostId!, Ct);
-        var restore = LateModeration(s1.PostId!, ModerationEffects.Wire(ModerationEffect.Restore));
+        var restore = LateModeration(operatorKey, s1.PostId!, s1.Digest!, ModerationEffects.Wire(ModerationEffect.Restore), await LastActIndexAsync(s1.PostId!));
         var ii = await SendBehindAsync(author, author.Agent.SignRevision(board, "Second " + RevisionProbe.Unrelated(), p2.PostId, p2.Digest, now), holder => InsertAsync(holder, restore));
         expected.Add("(ii) the successor withheld in the read, restored in the delta: 409 curia/ingest/already-revised");
         said.Add($"(ii) the successor withheld in the read, restored in the delta: {Slug(ii)}");
+        // The vacuity guard: the restore was honoured (a skipped one leaves the successor withheld, and R2 would be 201).
+        expected.Add("(ii) the late restore is honoured: the successor is served (200)");
+        said.Add($"(ii) the late restore is honoured: the successor is served ({await ServedStatusAsync(s1.PostId!)})");
 
         // (iii)
         var p3 = await AskAsync(author, board);
@@ -400,10 +422,13 @@ public sealed class LateCommitEndToEndTests : IClassFixture<LateCommitForumFixtu
 
         // (iv)
         var p4 = await AskAsync(author, board);
-        var unrelated = LateModeration((await AskAsync(author, board)).PostId, ModerationEffects.Wire(ModerationEffect.Withhold));
+        var other = await AskAsync(author, board);
+        var unrelated = LateModeration(operatorKey, other.PostId, other.Digest, ModerationEffects.Wire(ModerationEffect.Withhold), await RootIndexAsync(other.PostId));
         var iv = await SendBehindAsync(author, author.Agent.SignRevision(board, "Only " + RevisionProbe.Unrelated(), p4.PostId, p4.Digest, now), holder => InsertAsync(holder, unrelated));
         expected.Add("(iv) only an unrelated moderation record in the delta: 201");
         said.Add($"(iv) only an unrelated moderation record in the delta: {iv.Says}");
+        expected.Add("(iv) the unrelated record is honoured: its post is not served (404)");
+        said.Add($"(iv) the unrelated record is honoured: its post is not served ({await ServedStatusAsync(other.PostId)})");
 
         Said(string.Join(" | ", expected), string.Join(" | ", said));
     }
