@@ -1,3 +1,4 @@
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Domain;
@@ -20,12 +21,18 @@ public sealed partial class LifecycleEntryScan : IHostedService
 {
     private const int PageSize = 1000;
 
+    /// <summary>How many skipped rows EventId 7007 lists (ruling 8 (a)).</summary>
+    private const int SkippedListed = 20;
+
     private readonly IEventReader _events;
     private readonly ILifecycleAppendGate _gate;
     private readonly ILogger<LifecycleEntryScan> _log;
+    private readonly LifecycleVerifier _verifier;
 
-    public LifecycleEntryScan(IEventReader events, ILifecycleAppendGate gate, ILogger<LifecycleEntryScan> log)
+    public LifecycleEntryScan(IEventReader events, ILifecycleAppendGate gate, LifecycleVerifier verifier, ILogger<LifecycleEntryScan> log)
     {
+        ArgumentNullException.ThrowIfNull(verifier);
+        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(gate);
         ArgumentNullException.ThrowIfNull(log);
@@ -38,6 +45,7 @@ public sealed partial class LifecycleEntryScan : IHostedService
     {
         var count = 0L;
         var rows = new LifecycleRows();
+        var log = new List<AppendedEvent>();
         var after = EventSequence.Zero;
 
         while (true)
@@ -55,12 +63,18 @@ public sealed partial class LifecycleEntryScan : IHostedService
 
             foreach (var appended in read)
             {
+                log.Add(appended);
                 if (rows.Observe(appended, out _))
                     count++;
             }
 
             after = read[^1].Seq;
         }
+
+        // Errata G68, ruling 8 (a): the rows the verifier skips are reported at every start, whether or not the guard is on.
+        var skipped = _verifier.OfLog(log).Skipped();
+        if (skipped.Length > 0)
+            RowsSkipped(_log, skipped.Length, string.Join("; ", skipped.Take(SkippedListed).Select(r => $"{r.LogIndex} {r.Type} {r.Predicate}")));
 
         var guarded = !(_gate.Enables(LifecycleKind.Rotation) && _gate.Enables(LifecycleKind.Retirement) && _gate.Enables(LifecycleKind.Compromise));
         if (count > 0 && guarded)
@@ -75,4 +89,11 @@ public sealed partial class LifecycleEntryScan : IHostedService
         Level = LogLevel.Error,
         Message = "The log holds {Count} lifecycle entr(ies) beyond enrolment pairs while the lifecycle guard is on (R4.38 (add.))")]
     private static partial void EntriesUnderGuard(ILogger logger, long count);
+
+    [LoggerMessage(
+        EventId = 7007,
+        EventName = "LifecycleRowsSkipped",
+        Level = LogLevel.Error,
+        Message = "The Forum skips {Count} lifecycle row(s) that do not verify (errata G68, R6.64); the first ones, as log_index type predicate: {Rows}")]
+    private static partial void RowsSkipped(ILogger logger, long count, string rows);
 }

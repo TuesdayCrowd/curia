@@ -26,13 +26,16 @@ public sealed class DeclareCompromise
 {
     private readonly IEventStore _events;
     private readonly UlidGenerator _ids;
+    private readonly LifecycleVerifier _verifier;
 
-    public DeclareCompromise(IEventStore events, TimeProvider clock)
+    public DeclareCompromise(IEventStore events, LifecycleVerifier verifier, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(verifier);
         ArgumentNullException.ThrowIfNull(clock);
 
         _events = events;
+        _verifier = verifier;
         _ids = new UlidGenerator(clock);
     }
 
@@ -50,18 +53,16 @@ public sealed class DeclareCompromise
         ArgumentNullException.ThrowIfNull(kid);
         ArgumentNullException.ThrowIfNull(signer);
 
-        // The stream's version, before the log is read; then the log and the identity's lifecycle.
-        if (!(await KeyActs.ReadStreamAsync(_events, agent, ct).ConfigureAwait(false)).TryGetValue(out var stream, out var streamError))
-            return Result<CompromiseRecorded>.Fail(streamError!);
-        if (!(await KeyActs.ReadLifecycleAsync(_events, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
+        // The stream's version, the log and the identity's honoured lifecycle, from one read.
+        if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
             return Result<CompromiseRecorded>.Fail(lifecycleError!);
         if (read!.LatestIndex is not { } latest)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.UnknownKey());
 
-        // The key is bound to this identity, and from_index is no lower than that binding.
+        // The key is bound to this identity, and from_index is no lower than that binding. A key's binding is the honoured pair's or rotation's index (R6.64), both of type
+        // agent.key-bound; the enrolment names a kid and binds none, so it is never the index (ruling 81).
         var binding = read.Lifecycle.Entries.FirstOrDefault(e =>
-            (string.Equals(e.Type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
-                || string.Equals(e.Type, AgentStandingProjector.EnrolledType, StringComparison.Ordinal))
+            string.Equals(e.Type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
             && string.Equals(e.Kid, kid.Value, StringComparison.Ordinal));
         if (binding is null || read.Log.IndexOf(binding.EventId) is not { } boundAt)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.UnknownKey());
@@ -85,11 +86,16 @@ public sealed class DeclareCompromise
                 kids.Add(entry.Kid);
         }
 
-        // R6.62: the signing key's log.declaration-key entry is in the log already, and the key is no log key. After the gate and the key read,
-        // before anything is signed.
+        // R6.62: the signing key's log.declaration-key entry is in the log already, it is the first declaration key published, and the key is no log key by kid or by public key,
+        // as the fold decides it (ruling 81). After the gate and the key read, before anything is signed.
         if (!Published(read.Log, signer))
             return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyNotPublished());
-        if (read.Log.Keys.Any(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal)))
+        var named = read.Log.DeclarationKeys.First(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal));
+        if (read.Log.DeclarationKeys.Any(k => k.LogIndex <= named.LogIndex && !string.Equals(k.Kid, named.Kid, StringComparison.Ordinal)))
+            return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyNotFirst());
+        var signingKey = ClosedJwk.Read(signer.PublicJwk(), signer.Kid);
+        if (read.Log.Keys.Any(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal)
+            || (signingKey is not null && ClosedJwk.Read(k.Jwk, k.Kid) is { } logKey && logKey.SamePublicKey(signingKey))))
             return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyIsLogKey());
 
         var statementObject = new JsonValue.Object(
@@ -125,7 +131,7 @@ public sealed class DeclareCompromise
         if (!KeyActs.NewEvent(_ids, LifecycleAppendGuard.KeyCompromisedType, operatorName, payload).TryGetValue(out var appended, out var entryError))
             return Result<CompromiseRecorded>.Fail(entryError!);
 
-        var index = await KeyActs.AppendAsync(_events, agent, stream!, appended!, ct).ConfigureAwait(false);
+        var index = await KeyActs.AppendAsync(_events, _verifier, agent, read.Stream, appended!, ct).ConfigureAwait(false);
         return index.Map(i => new CompromiseRecorded(agent.Value, kids, i));
     }
 

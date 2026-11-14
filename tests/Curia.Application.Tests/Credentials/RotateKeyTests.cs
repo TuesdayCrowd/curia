@@ -196,7 +196,7 @@ public sealed partial class RotateKeyTests
         harness.Registry = new HookedRegistry(inner, async () =>
         {
             var (statement, authorization, possession) = await harness.RotationAsync(Alice, first, third).ConfigureAwait(false);
-            var injector = new RotateKey(harness.Events, inner, harness.KeysOver(), harness.Verifiers, harness.Clock);
+            var injector = new RotateKey(harness.Events, inner, harness.KeysOver(), harness.Verifiers, new LifecycleVerifier(harness.Verifiers), harness.Clock);
             Require(await injector.RotateAsync(Typed.Agent(Alice), statement, authorization, possession, Ct).ConfigureAwait(false));
         });
 
@@ -254,7 +254,7 @@ public sealed partial class RotateKeyTests
         harness.Store = new InterceptingStore(harness.Events, async () =>
         {
             var (s, a, p) = await harness.RotationAsync(Alice, first, third).ConfigureAwait(false);
-            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, harness.Clock)
+            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, new LifecycleVerifier(harness.Verifiers), harness.Clock)
                 .RotateAsync(Typed.Agent(Alice), s, a, p, Ct).ConfigureAwait(false));
         });
 
@@ -280,7 +280,7 @@ public sealed partial class RotateKeyTests
         harness.Store = new InterceptingStore(harness.Events, afterFirstLogRead: async () =>
         {
             var (s, a, p) = await harness.RotationAsync(Alice, first, third).ConfigureAwait(false);
-            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, harness.Clock)
+            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, new LifecycleVerifier(harness.Verifiers), harness.Clock)
                 .RotateAsync(Typed.Agent(Alice), s, a, p, Ct).ConfigureAwait(false));
         });
 
@@ -485,13 +485,13 @@ public sealed partial class RotateKeyTests
         {
             var next = TestIdentity.New("k-" + (j + 1).ToString(CultureInfo.InvariantCulture));
             await AppendAsync(harness, AgentStandingProjector.KeyBoundType, "rotation-" + j,
-                KeyLifecycleTests.RotationPayload(Alice, keys[^1].Kid, next.Material, index)).ConfigureAwait(false);
+                KeyLifecycleTests.RotationPayload(Alice, keys[^1].Material, next.Material, index)).ConfigureAwait(false);
             keys.Add(next);
             index++;
 
             if (j < rotations || retireLast)
             {
-                await AppendAsync(harness, LifecycleAppendGuard.KeyRetiredType, "retirement-" + j, RetirementPayload(keys[^2].Kid, index)).ConfigureAwait(false);
+                await AppendAsync(harness, LifecycleAppendGuard.KeyRetiredType, "retirement-" + j, RetirementPayload(keys[^2].Material, index)).ConfigureAwait(false);
                 index++;
             }
         }
@@ -502,15 +502,7 @@ public sealed partial class RotateKeyTests
         return (harness, keys[^1], keys.Count >= 2 ? keys[^2] : keys[^1]);
     }
 
-    private static JsonValue.Object RetirementPayload(string kid, long prev) =>
-        new(
-        [
-            new("agent_id", new JsonValue.String(Alice)),
-            new("authorization", new JsonValue.String("signature")),
-            new("kid", new JsonValue.String(kid)),
-            new("prev", new JsonValue.Number(prev)),
-            new("statement", new JsonValue.String(RetirementStatement(Alice, kid, prev))),
-        ]);
+    private static JsonValue.Object RetirementPayload(Curia.Canon.Jws.PublicKeyMaterial key, long prev) => KeyLifecycleTests.RetirementPayload(Alice, key, prev);
 
     private static async Task AppendAsync(KeyActHarness harness, string type, string eventId, JsonValue payload)
     {

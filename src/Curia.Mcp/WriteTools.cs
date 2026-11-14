@@ -397,6 +397,22 @@ internal sealed partial class ForumTools
     }
 
     /// <summary>
+    /// R11.96's <c>curia_keys</c> (errata G68, plan ruling 30): the configured identity's key set read and reported against the acts this host recorded, in the lines <c>curia keys</c> prints (one definition,
+    /// <see cref="KeysReport"/>). It takes no argument (R11.37 refuses any by name before this runs), reads the anonymous key-set route and signs nothing. The result is a successful answer whether or not
+    /// the comparison found anything: a <c>SKIPPED</c>, <c>MISSING</c> or <c>FOREIGN</c> line is the answer, and the line that says no comparison could be made is part of the text, never an error flag.
+    /// </summary>
+    internal async Task<CallToolResult> KeysAsync(CancellationToken cancellationToken)
+    {
+        var writer = Writer();
+
+        var read = await writer.Session.KeysAsync(cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var reading, out var refusal))
+            throw new McpException(refusal.Summary);
+
+        return Said(reading.Render());
+    }
+
+    /// <summary>
     /// R8.71 (errata G40): what a recording call replaced, in the Forum's word. A named answer is quoted (R10.63); a receipt with no member
     /// is <c>NOT STATED</c>, which is not "none".
     /// </summary>

@@ -91,6 +91,10 @@ public sealed class EventStoreWriteSurfaceTests
         // of the check and about its cadence over a long log costs no append. It is a reader and writes nothing; it constructs the events it serves because there is no
         // store behind it to hand them out. A test double, not a producer; listed here so the widening is a recorded decision rather than a quiet one.
         "Curia.Application.Tests.Retrieval.GeneratedLog",
+
+        // Errata G68's probes (LRV2, LRV3, LRV30, LRV33): a log read back from a conformance vector's entries, a published key's entry, a filler where a vector holds none, so that the verifier is run over the log a
+        // vector describes and not over one a use case wrote. It reads a vector and writes nothing. A test double, not a producer; listed here so the widening is a recorded decision rather than a quiet one.
+        "Curia.Application.Tests.Credentials.LogEvents",
         "Curia.Infrastructure.PostgresEventStore",
     ];
 

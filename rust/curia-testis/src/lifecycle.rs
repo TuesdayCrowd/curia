@@ -742,7 +742,7 @@ impl Fold {
         }
         let published_at = position.unwrap_or(u64::MAX);
         // (d) A log key never declares: by kid, or by public key under another kid.
-        if log_keys.is_log_key(declaration_key) {
+        if log_keys.is_log_key(declaration_key, index) {
             return Err(ActaError::DeclarationKeyIsLogKey {
                 at: index,
                 kid: header_kid,
@@ -944,4 +944,665 @@ fn read_statement(
         _ => return Err(mismatch(at, "the statement's prev is not an integer")),
     }
     Ok(Statement { bytes, fields })
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// R6.64: which lifecycle rows the Forum acts on.
+//
+// `verify_lifecycle` answers for a post, from the rows a Forum lists and the key set it serves. This is the step before
+// it: given the log's own events, decide every lifecycle row of one identity's stream (honoured, or skipped with the
+// predicate that decided it), so a row that verifies under no published key ends, binds and marks nothing. The keys the
+// log publishes are its own `log.key` and `log.declaration-key` entries; no key set document enters.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The entry type that publishes a log key (R6.50).
+pub const LOG_KEY: &str = "log.key";
+/// The entry type that publishes a declaration key (R6.62).
+pub const LOG_DECLARATION_KEY: &str = "log.declaration-key";
+
+/// One entry of the log as the Forum reads it from its event store: the members of `entry` that R6.64 reads.
+#[derive(Debug, Clone)]
+pub struct LogEntry {
+    pub log_index: u64,
+    pub event_type: String,
+    pub aggregate_id: String,
+    pub payload: Value,
+}
+
+impl LogEntry {
+    /// Reads one `entries/<index>.json` document: `log_index` and `entry` (`aggregate_id`, `event_type`, `payload`).
+    pub fn from_document(document: &[u8]) -> Result<Self, String> {
+        let value: Value = serde_json::from_slice(document).map_err(|e| e.to_string())?;
+        let entry = value.get("entry").ok_or("no `entry` member")?;
+        let text = |name: &str| {
+            entry
+                .get(name)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or(format!("no string `{name}`"))
+        };
+        Ok(LogEntry {
+            log_index: value
+                .get("log_index")
+                .and_then(Value::as_u64)
+                .ok_or("no integer `log_index`")?,
+            event_type: text("event_type")?,
+            aggregate_id: text("aggregate_id")?,
+            payload: entry.get("payload").cloned().unwrap_or(Value::Null),
+        })
+    }
+}
+
+/// The decision for one lifecycle row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verdict {
+    Honoured,
+    /// Skipped, with R6.64's predicate.
+    Skipped(&'static str),
+}
+
+/// One lifecycle row of the stream: never the honoured enrolment, its pair, or a later `agent.enrolled`; the stream's first
+/// `agent.enrolled` is a row only when steps 1 or 4 skip it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Row {
+    pub log_index: u64,
+    pub event_type: String,
+    pub verdict: Verdict,
+}
+
+/// A key's status after the honoured prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyStatus {
+    Active,
+    Retired,
+    Compromised,
+}
+
+impl KeyStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            KeyStatus::Active => "active",
+            KeyStatus::Retired => "retired",
+            KeyStatus::Compromised => "compromised",
+        }
+    }
+}
+
+/// What the procedure decides for one identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Honoured {
+    pub rows: Vec<Row>,
+    /// Every `kid` an honoured entry names, with its status.
+    pub keys: std::collections::BTreeMap<String, KeyStatus>,
+    /// The kids the honoured prefix binds, in log order.
+    pub bound: Vec<String>,
+}
+
+/// R6.64's predicates, by the names it gives and no others.
+pub mod predicate {
+    pub const STATEMENT_MISMATCH: &str = "statement-mismatch";
+    pub const UNKNOWN_LIFECYCLE_KIND: &str = "unknown-lifecycle-kind";
+    pub const UNKNOWN_REASON: &str = "unknown-reason";
+    pub const BROKEN_LINK: &str = "broken-link";
+    pub const LIFECYCLE_TYP_MISMATCH: &str = "lifecycle-typ-mismatch";
+    pub const ROTATION_UNAUTHORIZED: &str = "rotation-unauthorized";
+    pub const DECLARATION_KEY_UNPUBLISHED: &str = "declaration-key-unpublished";
+    pub const DECLARATION_KEY_IS_LOG_KEY: &str = "declaration-key-is-log-key";
+    pub const DECLARATION_KEY_NOT_FIRST: &str = "declaration-key-not-first";
+    pub const DECLARATION_SIGNATURE_INVALID: &str = "declaration-signature-invalid";
+    pub const KID_NOT_BOUND_TO_AGENT: &str = "kid-not-bound-to-agent";
+    pub const DECLARATION_MISMATCH: &str = "declaration-mismatch";
+
+    /// All twelve.
+    pub const ALL: [&str; 12] = [
+        STATEMENT_MISMATCH,
+        UNKNOWN_LIFECYCLE_KIND,
+        UNKNOWN_REASON,
+        BROKEN_LINK,
+        LIFECYCLE_TYP_MISMATCH,
+        ROTATION_UNAUTHORIZED,
+        DECLARATION_KEY_UNPUBLISHED,
+        DECLARATION_KEY_IS_LOG_KEY,
+        DECLARATION_KEY_NOT_FIRST,
+        DECLARATION_SIGNATURE_INVALID,
+        KID_NOT_BOUND_TO_AGENT,
+        DECLARATION_MISMATCH,
+    ];
+}
+
+/// The log keys and declaration keys the log's own entries publish, in log order, each `kid` at its earliest listing.
+struct Published {
+    log_keys: Vec<LogKey>,
+    declaration_keys: Vec<LogKey>,
+}
+
+impl Published {
+    /// R6.62's closed form decides what is a key: an entry whose `jwk` is not a key the reader can read, or whose `kid` is not the key's, is
+    /// no key and holds no position. A `kid` listed again after its earliest listing is not a key.
+    fn read(ordered: &[&LogEntry]) -> Self {
+        let mut published = Published {
+            log_keys: Vec::new(),
+            declaration_keys: Vec::new(),
+        };
+        for entry in ordered {
+            let list = match entry.event_type.as_str() {
+                LOG_KEY => &mut published.log_keys,
+                LOG_DECLARATION_KEY => &mut published.declaration_keys,
+                _ => continue,
+            };
+            let Some(mut key) = Self::key_of(entry) else {
+                continue;
+            };
+            if list.iter().any(|k| k.kid == key.kid) {
+                continue;
+            }
+            key.log_index = Some(entry.log_index);
+            list.push(key);
+        }
+        published
+    }
+
+    fn key_of(entry: &LogEntry) -> Option<LogKey> {
+        let jwk = entry.payload.as_object()?.get("jwk")?;
+        let parsed = crate::json::parse(&serde_json::to_vec(jwk).ok()?).ok()?;
+        if !acta::is_readable_key_entry(&parsed) {
+            return None;
+        }
+        let key = acta::read_entry(&parsed);
+        (entry.payload.get("kid").and_then(Value::as_str) == Some(key.kid.as_str())).then_some(key)
+    }
+
+    /// The log-key check reads the `log.key` entries at a log index below the declaration's own: a `log.key` entry appended after a
+    /// declaration does not undo it.
+    fn is_log_key(&self, declaration_key: &LogKey, declaration_index: u64) -> bool {
+        self.log_keys
+            .iter()
+            .filter(|k| k.log_index.is_some_and(|at| at < declaration_index))
+            .any(|k| k.kid == declaration_key.kid || k.same_key(declaration_key))
+    }
+}
+
+/// The honoured prefix of one identity, and the rows decided against it.
+struct Prefix<'a> {
+    agent: &'a str,
+    published: &'a Published,
+    /// The log index of the previous honoured lifecycle entry.
+    prev: Option<u64>,
+    bound: Vec<String>,
+    keys_bound: HashMap<String, (JwkSet, u64)>,
+    status: std::collections::BTreeMap<String, KeyStatus>,
+    /// Honoured rotations, in log order, as (index, authorized_by, kid): the material R6.57's cascade is recomputed from.
+    rotations: Vec<(u64, String, String)>,
+}
+
+type Decision = Result<(), &'static str>;
+
+/// Decides every lifecycle row of `agent`'s stream, R6.64's procedure, against the keys `log` publishes.
+pub fn honoured(log: &[LogEntry], agent: &str) -> Honoured {
+    let mut ordered: Vec<&LogEntry> = log.iter().collect();
+    ordered.sort_by_key(|e| e.log_index);
+    let published = Published::read(&ordered);
+    let mut prefix = Prefix {
+        agent,
+        published: &published,
+        prev: None,
+        bound: Vec::new(),
+        keys_bound: HashMap::new(),
+        status: std::collections::BTreeMap::new(),
+        rotations: Vec::new(),
+    };
+
+    let mut rows = Vec::new();
+    // Lifecycle entries of the stream before the one being decided, a later `agent.enrolled` among them.
+    let mut before = 0usize;
+    let mut enrolment_kid: Option<String> = None;
+    let mut enrolled = false;
+    // The stream's first `agent.enrolled` failed step 1 or step 4: the stream has no root, and a later one is no root either.
+    let mut rootless = false;
+    for entry in ordered.iter().filter(|e| e.aggregate_id == agent) {
+        let kind = match entry.event_type.as_str() {
+            ENROLLED => {
+                if !enrolled && !rootless {
+                    // The root is decided as a row is, by steps 1 and 4.
+                    let names_agent = entry
+                        .payload
+                        .as_object()
+                        .and_then(|o| o.get("agent_id"))
+                        .and_then(Value::as_str)
+                        == Some(agent);
+                    if !names_agent {
+                        rootless = true;
+                        before += 1;
+                        rows.push(Row {
+                            log_index: entry.log_index,
+                            event_type: entry.event_type.clone(),
+                            verdict: Verdict::Skipped(predicate::STATEMENT_MISMATCH),
+                        });
+                        continue;
+                    }
+                    enrolled = true;
+                    // The enrolment is honoured and is the previous honoured entry of the next row; a pair
+                    // after it moves `prev` on to the pair's index and binds the key.
+                    prefix.prev = Some(entry.log_index);
+                    enrolment_kid = entry
+                        .payload
+                        .get("kid")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
+                before += 1;
+                continue;
+            }
+            KEY_BOUND => Kind::Bound,
+            KEY_RETIRED => Kind::Retired,
+            KEY_COMPROMISED => Kind::Compromised,
+            _ => continue,
+        };
+        // The pair's position: the first lifecycle entry after the enrolment.
+        let after_enrolment = enrolled && before == 1;
+        let decision = if kind == Kind::Bound
+            && after_enrolment
+            && prefix.is_enrolment_pair(&entry.payload, enrolment_kid.as_deref())
+        {
+            prefix.bind_root(&entry.payload, entry.log_index);
+            before += 1;
+            continue;
+        } else {
+            prefix.decide(kind, entry, after_enrolment, enrolment_kid.as_deref())
+        };
+        before += 1;
+        rows.push(Row {
+            log_index: entry.log_index,
+            event_type: entry.event_type.clone(),
+            verdict: match decision {
+                Ok(()) => Verdict::Honoured,
+                Err(predicate) => Verdict::Skipped(predicate),
+            },
+        });
+    }
+    Honoured {
+        rows,
+        keys: prefix.status,
+        bound: prefix.bound,
+    }
+}
+
+impl Prefix<'_> {
+    /// R4.38: no `statement`, the enrolment's `kid`, exactly `agent_id`, `jwk` and `kid`, and R4.34's key.
+    fn is_enrolment_pair(&self, payload: &Value, enrolment_kid: Option<&str>) -> bool {
+        let Some(object) = payload.as_object() else {
+            return false;
+        };
+        object.get("statement").is_none()
+            && enrolment_kid.is_some()
+            && object.get("kid").and_then(Value::as_str) == enrolment_kid
+            && has_exactly(object, &ENROLMENT_BINDING_MEMBERS)
+            && object.get("agent_id").and_then(Value::as_str) == Some(self.agent)
+            && Self::pair_key(object).is_some()
+    }
+
+    fn pair_key(object: &Map<String, Value>) -> Option<JwkSet> {
+        let jwk = object.get("jwk").filter(|j| j.is_object())?;
+        let kid = object.get("kid").and_then(Value::as_str)?;
+        if jwk.get("kid").and_then(Value::as_str) != Some(kid) {
+            return None;
+        }
+        key_set(jwk)
+    }
+
+    fn bind_root(&mut self, payload: &Value, index: u64) {
+        let object = payload.as_object().expect("a pair is an object");
+        let kid = object["kid"]
+            .as_str()
+            .expect("a pair has a kid")
+            .to_string();
+        let set = Self::pair_key(object).expect("a pair has a key");
+        self.bind(kid, set, index);
+    }
+
+    fn bind(&mut self, kid: String, set: JwkSet, index: u64) {
+        self.status.insert(kid.clone(), KeyStatus::Active);
+        self.keys_bound.insert(kid.clone(), (set, index));
+        self.bound.push(kid);
+        self.prev = Some(index);
+    }
+
+    /// One row, R6.64's steps in order, the first that applies deciding. On honour the prefix takes the row.
+    fn decide(
+        &mut self,
+        kind: Kind,
+        entry: &LogEntry,
+        in_pair_position: bool,
+        enrolment_kid: Option<&str>,
+    ) -> Decision {
+        // 1.
+        let Some(payload) = entry.payload.as_object() else {
+            return Err(predicate::STATEMENT_MISMATCH);
+        };
+        let statement = payload.get("statement").and_then(Value::as_str);
+        let parsed = statement.and_then(statement_object);
+
+        // 2.
+        let (current_typ, statement_members) = match kind {
+            Kind::Bound => (ROTATION_STATEMENT_TYP, &ROTATION_STATEMENT_MEMBERS[..]),
+            Kind::Retired => (RETIREMENT_STATEMENT_TYP, &RETIREMENT_STATEMENT_MEMBERS[..]),
+            _ => (COMPROMISE_STATEMENT_TYP, &COMPROMISE_STATEMENT_MEMBERS[..]),
+        };
+        if let Some(typ) = parsed
+            .as_ref()
+            .and_then(|o| o.get("typ"))
+            .and_then(Value::as_str)
+        {
+            if typ != current_typ {
+                return Err(if KNOWN_STATEMENT_TYPS.contains(&typ) {
+                    predicate::STATEMENT_MISMATCH
+                } else {
+                    predicate::UNKNOWN_LIFECYCLE_KIND
+                });
+            }
+        }
+        // 3.
+        if kind == Kind::Compromised {
+            if let Some(reason) = parsed
+                .as_ref()
+                .and_then(|o| o.get("reason"))
+                .and_then(Value::as_str)
+            {
+                if !COMPROMISE_REASONS.contains(&reason) {
+                    return Err(predicate::UNKNOWN_REASON);
+                }
+            }
+        }
+        // 4.
+        if payload.get("agent_id").and_then(Value::as_str) != Some(self.agent) {
+            return Err(predicate::STATEMENT_MISMATCH);
+        }
+        // 5.
+        // "Without a `statement`": R6.64 step 2 speaks of a statement that is a string, and a statement that is not text is no statement a
+        // row can be read by, so it is treated as absent here (the reader vectors read it so).
+        if kind == Kind::Bound && statement.is_none() {
+            let names_enrolment = enrolment_kid.is_some()
+                && payload.get("kid").and_then(Value::as_str) == enrolment_kid;
+            return Err(if in_pair_position && names_enrolment {
+                predicate::STATEMENT_MISMATCH
+            } else {
+                predicate::BROKEN_LINK
+            });
+        }
+        // 6.
+        let index = entry.log_index;
+        let statement = read_statement(payload, index, statement_members, current_typ)
+            .map_err(|_| predicate::STATEMENT_MISMATCH)?;
+        match kind {
+            Kind::Bound => self.rotation(payload, &statement, index),
+            Kind::Retired => self.retirement(payload, &statement, index),
+            _ => self.declaration(payload, &statement, index),
+        }
+    }
+
+    fn link(&self, statement: &Statement) -> Decision {
+        let stated = statement.fields.get("prev").and_then(Value::as_u64);
+        if stated.is_some() && stated == self.prev {
+            Ok(())
+        } else {
+            Err(predicate::BROKEN_LINK)
+        }
+    }
+
+    fn rotation(
+        &mut self,
+        payload: &Map<String, Value>,
+        statement: &Statement,
+        index: u64,
+    ) -> Decision {
+        let mismatch = predicate::STATEMENT_MISMATCH;
+        if !has_exactly(payload, &ROTATION_ENTRY_MEMBERS) {
+            return Err(mismatch);
+        }
+        let s = &statement.fields;
+        let (Some(authorized_by), Some(kid), Some(jwk)) = (
+            s.get("authorized_by").and_then(Value::as_str),
+            s.get("kid").and_then(Value::as_str),
+            s.get("jwk").filter(|j| j.is_object()),
+        ) else {
+            return Err(mismatch);
+        };
+        // The jwk is the key's public rendering and nothing more, under the statement's kid.
+        let members = match alg_of(jwk) {
+            Some("ES256") => vec!["alg", "crv", "kid", "kty", "x", "y"],
+            Some(_) => vec!["alg", "crv", "kid", "kty", "x"],
+            None => return Err(mismatch),
+        };
+        if jwk.get("alg").and_then(Value::as_str) != alg_of(jwk)
+            || !jwk.as_object().is_some_and(|o| has_exactly(o, &members))
+            || jwk.get("kid").and_then(Value::as_str) != Some(kid)
+        {
+            return Err(mismatch);
+        }
+        // KF5: a key does not authorize its own binding.
+        if authorized_by == kid {
+            return Err(mismatch);
+        }
+        let new_key = key_set(jwk).ok_or(mismatch)?;
+        for member in ["agent_id", "authorized_by", "jwk", "kid", "prev"] {
+            if payload.get(member) != s.get(member) {
+                return Err(mismatch);
+            }
+        }
+        self.link(statement)?;
+
+        let authorization = payload.get("authorization").and_then(Value::as_str);
+        let possession = payload.get("possession").and_then(Value::as_str);
+        let header = |c: Option<&str>| c.map_or((None, None), header_of);
+        let (authorization_header, possession_header) = (header(authorization), header(possession));
+        if authorization_header.0.as_deref() != Some(ROTATION_HEADER_TYP)
+            || possession_header.0.as_deref() != Some(ROTATION_HEADER_TYP)
+        {
+            return Err(predicate::LIFECYCLE_TYP_MISMATCH);
+        }
+        let unauthorized = predicate::ROTATION_UNAUTHORIZED;
+        if authorization_header.1.as_deref() != Some(authorized_by)
+            || possession_header.1.as_deref() != Some(kid)
+        {
+            return Err(unauthorized);
+        }
+        let Some((authorizer, _)) = self.keys_bound.get(authorized_by) else {
+            return Err(unauthorized);
+        };
+        if matches!(
+            self.status.get(authorized_by),
+            Some(KeyStatus::Retired | KeyStatus::Compromised)
+        ) {
+            return Err(unauthorized);
+        }
+        let (Some(authorization), Some(possession)) = (authorization, possession) else {
+            return Err(unauthorized);
+        };
+        jws::verify_typed(
+            authorization,
+            &statement.bytes,
+            authorizer,
+            ROTATION_HEADER_TYP,
+        )
+        .map_err(|_| unauthorized)?;
+        jws::verify_typed(possession, &statement.bytes, &new_key, ROTATION_HEADER_TYP)
+            .map_err(|_| unauthorized)?;
+
+        if self.keys_bound.contains_key(kid) {
+            return Err(mismatch);
+        }
+        self.bind(kid.to_string(), new_key, index);
+        self.rotations
+            .push((index, authorized_by.to_string(), kid.to_string()));
+        Ok(())
+    }
+
+    fn retirement(
+        &mut self,
+        payload: &Map<String, Value>,
+        statement: &Statement,
+        index: u64,
+    ) -> Decision {
+        let mismatch = predicate::STATEMENT_MISMATCH;
+        if !has_exactly(payload, &RETIREMENT_ENTRY_MEMBERS) {
+            return Err(mismatch);
+        }
+        let s = &statement.fields;
+        let kid = s.get("kid").and_then(Value::as_str).ok_or(mismatch)?;
+        for member in ["agent_id", "kid", "prev"] {
+            if payload.get(member) != s.get(member) {
+                return Err(mismatch);
+            }
+        }
+        self.link(statement)?;
+
+        let authorization = payload.get("authorization").and_then(Value::as_str);
+        let (typ, header_kid) = authorization.map_or((None, None), header_of);
+        if typ.as_deref() != Some(RETIREMENT_HEADER_TYP) {
+            return Err(predicate::LIFECYCLE_TYP_MISMATCH);
+        }
+        let unauthorized = predicate::ROTATION_UNAUTHORIZED;
+        if header_kid.as_deref() != Some(kid) {
+            return Err(unauthorized);
+        }
+        let Some((key, _)) = self.keys_bound.get(kid) else {
+            return Err(unauthorized);
+        };
+        if matches!(
+            self.status.get(kid),
+            Some(KeyStatus::Retired | KeyStatus::Compromised)
+        ) {
+            return Err(unauthorized);
+        }
+        jws::verify_typed(
+            authorization.unwrap_or_default(),
+            &statement.bytes,
+            key,
+            RETIREMENT_HEADER_TYP,
+        )
+        .map_err(|_| unauthorized)?;
+
+        // A compromised key stays compromised: the declaration is the stronger statement.
+        self.status.entry(kid.to_string()).and_modify(|s| {
+            if *s == KeyStatus::Active {
+                *s = KeyStatus::Retired;
+            }
+        });
+        self.prev = Some(index);
+        Ok(())
+    }
+
+    fn declaration(
+        &mut self,
+        payload: &Map<String, Value>,
+        statement: &Statement,
+        index: u64,
+    ) -> Decision {
+        let mismatch = predicate::STATEMENT_MISMATCH;
+        if !has_exactly(payload, &COMPROMISE_ENTRY_MEMBERS) {
+            return Err(mismatch);
+        }
+        let s = &statement.fields;
+        let from_index = match s.get("from_index").and_then(Value::as_u64) {
+            Some(n) if n <= MAX_SAFE_INTEGER => n,
+            _ => return Err(mismatch),
+        };
+        let kids: Vec<String> = match s.get("kids").and_then(Value::as_array) {
+            Some(items) if !items.is_empty() => items
+                .iter()
+                .map(|k| k.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+                .ok_or(mismatch)?,
+            _ => return Err(mismatch),
+        };
+        // Step 3 has refused a reason that is a string outside the set; one that is not a string is no closed form.
+        if s.get("reason")
+            .and_then(Value::as_str)
+            .is_none_or(|r| !COMPROMISE_REASONS.contains(&r))
+        {
+            return Err(mismatch);
+        }
+        for member in ["agent_id", "from_index", "kids", "prev", "reason"] {
+            if payload.get(member) != s.get(member) {
+                return Err(mismatch);
+            }
+        }
+        self.link(statement)?;
+
+        let declaration = payload.get("declaration").and_then(Value::as_str);
+        let (typ, header_kid) = declaration.map_or((None, None), header_of);
+        if typ.as_deref() != Some(COMPROMISE_HEADER_TYP) {
+            return Err(predicate::LIFECYCLE_TYP_MISMATCH);
+        }
+        let Some(header_kid) = header_kid else {
+            return Err(predicate::DECLARATION_KEY_UNPUBLISHED);
+        };
+
+        // R6.62, in its order, with the log's own entries as the key set.
+        let Some(declaring) = self
+            .published
+            .declaration_keys
+            .iter()
+            .find(|k| k.kid == header_kid)
+        else {
+            return Err(predicate::DECLARATION_KEY_UNPUBLISHED);
+        };
+        let position = declaring.log_index.unwrap_or(u64::MAX);
+        if self.published.is_log_key(declaring, index) {
+            return Err(predicate::DECLARATION_KEY_IS_LOG_KEY);
+        }
+        if self
+            .published
+            .declaration_keys
+            .iter()
+            .any(|k| k.kid != header_kid && k.log_index.is_some_and(|at| at <= position))
+        {
+            return Err(predicate::DECLARATION_KEY_NOT_FIRST);
+        }
+        if position >= index {
+            return Err(predicate::DECLARATION_KEY_UNPUBLISHED);
+        }
+        let invalid = predicate::DECLARATION_SIGNATURE_INVALID;
+        let jwk = declaring.key.clone().ok_or(invalid)?;
+        jws::verify_typed(
+            declaration.unwrap_or_default(),
+            &statement.bytes,
+            &JwkSet::from_keys(vec![jwk]),
+            COMPROMISE_HEADER_TYP,
+        )
+        .map_err(|_| invalid)?;
+
+        if kids.iter().any(|k| !self.keys_bound.contains_key(k)) {
+            return Err(predicate::KID_NOT_BOUND_TO_AGENT);
+        }
+        let first_bound = self.keys_bound[&kids[0]].1;
+        if first_bound > from_index || from_index >= index {
+            return Err(predicate::DECLARATION_MISMATCH);
+        }
+        // R6.57: the compromised key first, then each key it compromises, in the log order of their bindings.
+        let mut cascade = vec![kids[0].clone()];
+        for (at, authorized_by, kid) in &self.rotations {
+            if *at >= from_index && cascade.contains(authorized_by) && !cascade.contains(kid) {
+                cascade.push(kid.clone());
+            }
+        }
+        if kids != cascade {
+            return Err(predicate::DECLARATION_MISMATCH);
+        }
+
+        for kid in &kids {
+            self.status.insert(kid.clone(), KeyStatus::Compromised);
+        }
+        self.prev = Some(index);
+        Ok(())
+    }
+}
+
+/// A statement that is a string holding a JSON object a reader can admit (a repeated member is no object).
+fn statement_object(text: &str) -> Option<Map<String, Value>> {
+    crate::json::parse(text.as_bytes()).ok()?;
+    match serde_json::from_str::<Value>(text) {
+        Ok(Value::Object(object)) => Some(object),
+        _ => None,
+    }
 }

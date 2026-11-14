@@ -56,13 +56,22 @@
       "count": 8
     },
     {
+      "name": "honoured",
+      "family": true,
+      "shape": "honoured",
+      "profiles": [
+        "honoured-log"
+      ],
+      "count": 54
+    },
+    {
       "name": "lifecycle",
       "family": true,
       "shape": "lifecycle",
       "profiles": [
         "lifecycle-log"
       ],
-      "count": 81
+      "count": 84
     },
     {
       "name": "merkle",

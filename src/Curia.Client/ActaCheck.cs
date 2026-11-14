@@ -112,6 +112,22 @@ public sealed record Check(CheckOutcome Outcome, string Detail)
     public static string Quote(string? value) => DisplayLiteral.Of(value);
 }
 
+/// <summary>What a key's binding entry is, as far as the key line's dependence on the lifecycle line goes (errata G68, R11.95).</summary>
+public enum BindingKind
+{
+    /// <summary>The enrolment's own binding (R4.38's pair, or the enrolment): the root of the lifecycle, honoured as the Forum's record.</summary>
+    Enrolment,
+
+    /// <summary>A rotation (R6.54): a binding made by a statement an authorizing key signed, which the lifecycle line folds.</summary>
+    Rotation,
+}
+
+/// <summary>The binding entry the key line looked at: its kind, its leaf and the <c>kid</c> it names.</summary>
+public sealed record BindingSeen(BindingKind Kind, long Leaf, string? Kid);
+
+/// <summary>The key line's check and the binding it looked at; <paramref name="Binding"/> is null where the entry was not read as a binding.</summary>
+public readonly record struct KeyBindingVerdict(Check Check, BindingSeen? Binding);
+
 /// <summary>
 /// R6.52's inclusion and consistency checks, as pure predicates over material somebody else
 /// fetched.
@@ -243,10 +259,19 @@ public static class ActaCheck
     /// because a leaf the head does not hold says nothing about the log. The absent-material cases
     /// are decided above this method, where the fetching happens.</para>
     /// </summary>
-    public static Check KeyBinding(
+    public static KeyBindingVerdict KeyBinding(
         ProvenancePost post, LogEntryDocument postEntry, InclusionProofDocument postProof,
         LogEntryDocument keyEntry, InclusionProofDocument keyProof, SignedHeadDocument head)
     {
+        var check = KeyBindingCheck(post, postEntry, postProof, keyEntry, keyProof, head, out var seen);
+        return new KeyBindingVerdict(check, seen);
+    }
+
+    private static Check KeyBindingCheck(
+        ProvenancePost post, LogEntryDocument postEntry, InclusionProofDocument postProof,
+        LogEntryDocument keyEntry, InclusionProofDocument keyProof, SignedHeadDocument head, out BindingSeen? seen)
+    {
+        seen = null;
         ArgumentNullException.ThrowIfNull(post);
         ArgumentNullException.ThrowIfNull(postEntry);
         ArgumentNullException.ThrowIfNull(postProof);
@@ -277,6 +302,13 @@ public static class ActaCheck
         if (!enrolled && !string.Equals(type, KeyBoundType, StringComparison.Ordinal))
             return Check.Failed(Text(
                 $"the entry at leaf {keyEntry.LogIndex} is of type {Check.Quote(type)}, not {KeyBoundType} or {EnrolledType}, so it binds no key"));
+
+        // R6.54, errata G68 (ruling 14): a binding that carries a statement is a rotation, whose standing is what the lifecycle line folds; the enrolment's own (the pair, which has no statement, or the
+        // enrolment) is the root. The kind is read from the entry's shape here and is a fact about which line the binding depends on, never a verdict about the binding.
+        seen = new BindingSeen(
+            !enrolled && payload is not null && ClientJson.String(payload, "statement") is not null ? BindingKind.Rotation : BindingKind.Enrolment,
+            keyEntry.LogIndex,
+            boundKid);
 
         if (!string.Equals(aggregate, logged.Author, StringComparison.Ordinal)
             || !string.Equals(boundAgent, logged.Author, StringComparison.Ordinal)

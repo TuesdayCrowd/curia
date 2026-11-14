@@ -1,3 +1,4 @@
+using Curia.Application.Credentials;
 using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Primitives;
@@ -17,8 +18,9 @@ namespace Curia.Application.Projections;
 /// </summary>
 public static class PostureQuery
 {
-    public static Result<PostureFacts> Of(IReadOnlyList<AppendedEvent> log, AgentId agentId)
+    public static Result<PostureFacts> Of(LifecycleVerifier verifier, IReadOnlyList<AppendedEvent> log, AgentId agentId)
     {
+        ArgumentNullException.ThrowIfNull(verifier);
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(agentId);
 
@@ -27,7 +29,7 @@ public static class PostureQuery
         var moderation = FlagProjector.Fold(log);
         bool Servable(string postId) => !moderation.TryGetValue(postId, out var state) || state.MayServe;
 
-        var verification = VerificationProjector.Fold(posts, standings, Servable, DisputedPosts.Fold(log, posts));
+        var verification = VerificationProjector.Fold(posts, standings, Servable, DisputedPosts.Fold(verifier.OfLog(log), posts));
 
         return AgentStandingProjector.PostureOf(
             standings, agentId, VerificationProjector.VerifiedFindingsBy(verification, posts, agentId));

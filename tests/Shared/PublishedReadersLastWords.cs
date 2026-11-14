@@ -142,11 +142,11 @@ internal static partial class PublishedReadersLastWords
     }
 
     /// <summary>
-    /// The version: the number after "`curia-mcp` is" in R11.94's paragraph (errata G67). The one reader of a version out of an errata paragraph (ruling 23(b)); it
+    /// The version: the number after "`curia-mcp` is" in R11.95's paragraph (errata G68). The one reader of a version out of an errata paragraph (ruling 23(b)); it
     /// reads the paragraph of the entry that last bumped the version, so each bump re-points it (it read R11.70's until the D95 PR's Task 0b, which re-pointed it at G52's R11.72 (0.9.3),
-    /// the words-after-a-fault PR re-pointed it at G53's R11.74 (0.9.4), the committed-post PR re-pointed it at G54's R11.75 (0.9.5), the faulted-append PR re-pointed it at G55's R11.77 (0.9.6), the board-and-blank PR re-pointed it at G56's R11.78 (0.9.7), the resend PR re-pointed it at G58's R11.81 (0.10.0), the client-checks PR re-pointed it at G59's R11.83 (0.10.1), the reference PR re-pointed it at G60's R11.84 (0.10.2), the reply-board PR re-pointed it at G61's R11.85 (0.10.3), the names PR re-pointed it at G62's R11.87 (0.10.4), the list-of-boards PR re-pointed it at G63's R11.88 (0.11.0), and the heads-signed-unattended PR re-pointed it at G67's R11.94 (0.11.1)).
+    /// the words-after-a-fault PR re-pointed it at G53's R11.74 (0.9.4), the committed-post PR re-pointed it at G54's R11.75 (0.9.5), the faulted-append PR re-pointed it at G55's R11.77 (0.9.6), the board-and-blank PR re-pointed it at G56's R11.78 (0.9.7), the resend PR re-pointed it at G58's R11.81 (0.10.0), the client-checks PR re-pointed it at G59's R11.83 (0.10.1), the reference PR re-pointed it at G60's R11.84 (0.10.2), the reply-board PR re-pointed it at G61's R11.85 (0.10.3), the names PR re-pointed it at G62's R11.87 (0.10.4), the list-of-boards PR re-pointed it at G63's R11.88 (0.11.0), the heads-signed-unattended PR re-pointed it at G67's R11.94 (0.11.1), and the lifecycle-rows-verify PR re-pointed it at G68's R11.95 (0.12.0): its probe LRV24 is red until the catalogue is bumped).
     /// </summary>
-    internal static string Version() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.94**"), "R11.94's version");
+    internal static string Version() => One(VersionPhrase(), PublishedAcceptBudget.Paragraph("**R11.95**"), "R11.95's version");
 
     // ----- R11.67 -----
 

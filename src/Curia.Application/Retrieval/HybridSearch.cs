@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Domain;
@@ -67,9 +68,12 @@ public sealed class HybridSearch
     private readonly ITextEmbedder _embedder;
     private readonly IVectorIndex _index;
     private readonly RetrievalFloors _floors;
+    private readonly LifecycleVerifier _verifier;
 
-    public HybridSearch(ITextEmbedder embedder, IVectorIndex index, RetrievalFloors floors)
+    public HybridSearch(ITextEmbedder embedder, IVectorIndex index, RetrievalFloors floors, LifecycleVerifier verifier)
     {
+        ArgumentNullException.ThrowIfNull(verifier);
+        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(embedder);
         ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(floors);
@@ -135,7 +139,7 @@ public sealed class HybridSearch
         // It counts the disputed posts in the diversified list (those that survive the floor and
         // take a diversification slot), so it is equal on every page of one query and can be 0 while
         // a disputed post below the floor exists. `read` by id still serves a disputed post.
-        var disputed = DisputedPosts.Fold(log, PostProjector.Fold(log));
+        var disputed = DisputedPosts.Fold(_verifier.OfLog(log), PostProjector.Fold(log));
 
         var admitted = HybridRanking.Admit(fused, floor);
         var excludedByFloor = fused.Length - admitted.Length;   // R9.30: the floor's removals alone, before dispute

@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "A forged declaration at 2 (garbage), a genuine rotation at 3 with prev 1 and a genuine retirement of the enrolled key at 4 with prev 3: the forged row moves nothing, and the retirement ends the key. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

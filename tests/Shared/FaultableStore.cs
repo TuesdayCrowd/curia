@@ -30,6 +30,12 @@ internal enum EventStoreFault
     /// <summary>Every read returns a failed <see cref="Result{T}"/>; the append is healthy. This is the validator's own mapping.</summary>
     ReportAll,
 
+    /// <summary>
+    /// The first whole-log read after arming (a forward read from the start) is healthy and every whole-log read after it returns a failed <see cref="Result{T}"/>; a read of one
+    /// aggregate is healthy. Errata G68, ULG18 (c): a fault that follows the first read of a request and so follows what the request consumed between the two.
+    /// </summary>
+    ReportWholeLogFromSecondRead,
+
     /// <summary>The append returns a failed <see cref="Result{T}"/>; reads are healthy.</summary>
     ReportAppend,
 
@@ -137,6 +143,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     private int _forwardReadsAfterFault;
     private int _tailReadsAfterFault;
     private int _reads;
+    private int _wholeLogReadsSinceArmed;
     private int _appends;
     private int _committed;
 
@@ -210,6 +217,7 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
             _make = exception ?? StoreFaultKinds.Driver;
             _committedSinceArmed = false;
             _faulted = false;
+            Volatile.Write(ref _wholeLogReadsSinceArmed, 0);
             Volatile.Write(ref _readsAfterFault, 0);
             Volatile.Write(ref _forwardReadsAfterFault, 0);
             Volatile.Write(ref _tailReadsAfterFault, 0);
@@ -340,6 +348,8 @@ internal sealed class FaultableEventStore(IEventStore inner) : IEventStore
     {
         Interlocked.Increment(ref _reads);
         CountAfterFault(forward: true, tail: afterSeq.Value > 0);
+        if (afterSeq.Value == 0 && Fault == EventStoreFault.ReportWholeLogFromSecondRead && Interlocked.Increment(ref _wholeLogReadsSinceArmed) > 1)
+            return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(StoreFaultKinds.ReportedRead()));
         if (ReadFault(forward: true, cancellationToken) is { } failed) return failed;
         return TakeHold() ? HoldThenAsync(() => inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken), cancellationToken) : inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }

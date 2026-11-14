@@ -92,28 +92,18 @@ public sealed class DisputedPosts
     };
 
     /// <summary>
-    /// Folds <paramref name="posts"/> against the lifecycle <paramref name="log"/> records. A log index is a
-    /// position in <paramref name="log"/> (R6.47: leaf <i>i</i> is the <i>i</i>th event), so <paramref name="log"/>
-    /// is the whole log from its start, or a prefix of it.
+    /// Folds <paramref name="posts"/> against the lifecycle <paramref name="verified"/> records. A log index is a
+    /// position in the log it was made over (R6.47: leaf <i>i</i> is the <i>i</i>th event), so that is the whole log from its start, or a prefix of it.
+    /// No overload takes a log that was not verified (errata G68, LRV11).
     /// </summary>
-    public static DisputedPosts Fold(IReadOnlyList<AppendedEvent> log, ImmutableArray<PostView> posts)
+    public static DisputedPosts Fold(VerifiedLog verified, ImmutableArray<PostView> posts)
     {
-        ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(verified);
 
+        var log = verified.Log;
         var position = new Dictionary<string, long>(StringComparer.Ordinal);
-        var streams = new Dictionary<string, List<AppendedEvent>>(StringComparer.Ordinal);
         for (var i = 0; i < log.Count; i++)
-        {
-            var appended = log[i];
-            position[appended.Event.Id.Value] = i;
-            if (!KeyLifecycle.IsLifecycleKind(appended.Event.Type.Value)
-                && !string.Equals(appended.Event.Type.Value, AgentStandingProjector.EnrolledType, StringComparison.Ordinal))
-                continue;
-
-            var key = appended.AggregateId.Value;
-            if (!streams.TryGetValue(key, out var stream)) streams[key] = stream = [];
-            stream.Add(appended);
-        }
+            position[log[i].Event.Id.Value] = i;
 
         var lifecycles = new Dictionary<string, KeyLifecycle?>(StringComparer.Ordinal);
         var disputed = ImmutableDictionary.CreateBuilder<string, long>(StringComparer.Ordinal);
@@ -123,10 +113,10 @@ public sealed class DisputedPosts
         {
             if (!lifecycles.TryGetValue(post.Author, out var lifecycle))
             {
-                lifecycle = null;
-                if (AgentId.Parse(post.Author).TryGetValue(out var agent, out _)
-                    && KeyLifecycle.Of(streams.TryGetValue(post.Author, out var stream) ? stream : [], agent!).TryGetValue(out var folded, out _))
-                    lifecycle = folded;
+                // An author that is no identity has no lifecycle and so no mark; every identity has one, the honoured rows of its stream.
+                lifecycle = AgentId.Parse(post.Author).TryGetValue(out var agent, out _)
+                    ? verified.For(agent!).Honoured
+                    : null;
 
                 lifecycles[post.Author] = lifecycle;
             }

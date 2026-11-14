@@ -20,6 +20,7 @@ internal static class PortStringAllowlist
         ("Curia.Application.Ingest.IngestErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail (R8.77, R8.78: a post id the Forum read from its own log)"),
         ("Curia.Application.Ports.AuthorKeyErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail"),
         ("Curia.Application.Credentials.AttestOwner.RecordAsync", "reason", "not an identifier the rule retypes: the operator's own free-text reason, given out of band to curia-operator, which no caller of the Forum reaches; AttestOwner checks it before the attestation is recorded"),
+        ("Curia.Application.Credentials.LifecycleVerifier..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under"),
         ("Curia.Application.Credentials.RetireKey..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under"),
         ("Curia.Application.Credentials.RotateKey..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under"),
         ("Curia.Application.Ingest.IngestPipeline..ctor", "verifiersByAlg", "host configuration: the algorithm names the composition root registers its verifiers under"),

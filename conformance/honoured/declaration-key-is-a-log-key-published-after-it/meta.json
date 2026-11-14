@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "The declaration key is published at 2, a log key at 3, and a declaration it signs is at 4; at 5 a log.key entry carries the declaration key itself. R6.62's log-key check reads the log keys published below the declaration's own index (errata G68, Amendment 7 ruling 82), and this one is published after it, so the declaration is honoured: a log.key entry appended after a genuine declaration does not undo it. The decision is made (ruling 47's lead is closed); declaration-key-is-also-a-log-key, whose log key is at 3 and declaration at 4, pins the other side. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

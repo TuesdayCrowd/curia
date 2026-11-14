@@ -61,7 +61,7 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
     /// own stream or any wider read: only entries of the identity's aggregate that name it count. A
     /// refusal is the first entry the fold cannot accept.
     /// </summary>
-    public static Result<KeyLifecycle> Of(IReadOnlyList<AppendedEvent> stream, AgentId agent)
+    internal static Result<KeyLifecycle> Of(IReadOnlyList<AppendedEvent> stream, AgentId agent)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(agent);

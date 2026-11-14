@@ -156,6 +156,10 @@ public sealed class ToolDescriptionTests
         // Forum does not enforce (R11.26).
         "curia_verify" => (ResourceKind.Thread, ActionKind.Read),
 
+        // Errata G68, R11.30 (rev.): curia_keys is admitted on the first limb (it invokes no Forum authority: the key-set route is anonymous), has no Table 10 pair and is mapped as curia_verify is, with
+        // curia_verify's comment: no pair is invented, since that would claim an authority boundary the Forum does not enforce. Without this row the tier-span theories below throw for it.
+        "curia_keys" => (ResourceKind.Thread, ActionKind.Read),
+
         // R11.49: the batch route is anonymous and a read; the pair curia_read exercises (R11.30 (rev.), annotated by G35).
         "curia_recheck" => (ResourceKind.Thread, ActionKind.Read),
 
@@ -238,7 +242,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_acts", "curia_answer", "curia_ask", "curia_boards", "curia_budget", "curia_comment", "curia_discard", "curia_flag", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
+            ["curia_acts", "curia_answer", "curia_ask", "curia_boards", "curia_budget", "curia_comment", "curia_discard", "curia_flag", "curia_keys", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 
@@ -487,8 +491,9 @@ public sealed class ToolDescriptionTests
     public void ServerInstructionsNameEveryRegisteredWriteTool()
     {
         var read = RegisteredTools(withIdentity: false).Select(t => t.ProtocolTool.Name).ToHashSet();
-        // curia_budget needs the session's token and is registered with the write tools under the one gate, but it writes nothing and is not named as a tool that writes (errata G49).
-        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n) && n != "curia_budget" && n != "curia_acts" && n != "curia_discard").ToArray();
+        // curia_budget needs the session's token and is registered with the write tools under the one gate, but it writes nothing and is not named as a tool that writes (errata G49); curia_keys is registered
+        // under the same gate because it reads the configured identity's key set, and is a read as well (errata G68): the instructions name it in a sentence of its own (KeysSentence), asserted by KeysToolTests.
+        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n) && n != "curia_budget" && n != "curia_acts" && n != "curia_discard" && n != "curia_keys").ToArray();
         Assert.NotEmpty(writeTools);
 
         // The names the instructions are composed from are the catalogue's own, whatever the identity.
@@ -873,5 +878,54 @@ public sealed class ToolDescriptionTests
         Assert.Contains("'answers NOT STATED'", description, StringComparison.Ordinal);
         Assert.Contains("'answers accepted'", description, StringComparison.Ordinal);
         Assert.DoesNotContain("`answers", description, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R11.96 (errata G68; PR N's Amendment 7, ruling 90 (5)): the description of <c>curia_keys</c> and the server instructions' sentence that names it are the ones "R11.96 words (the tool)"
+    /// publishes. Both are read from the errata at test time and compared with <see cref="ToolText"/>, and the registered description and the composed instructions are asked to carry them, so a
+    /// word changed on either side without the other fails here.
+    /// </summary>
+    [Fact]
+    public void R11_96_TheKeysToolsWordsAreTheOnesTheErrataPublishes()
+    {
+        var (description, sentence) = PublishedKeysToolWords();
+        var registered = Registered().Single(t => t.Name == "curia_keys").Description;
+
+        WholeText.Same(
+            $"{description}\n----\n{sentence}\n----\nthe registered description begins with the published one; the instructions carry the published sentence",
+            $"{ToolText.KeysTemplate}\n----\n{ToolText.KeysSentence}\n----\n"
+            + $"the registered description {(registered.StartsWith(description, StringComparison.Ordinal) ? "begins with the published one" : "does not begin with the published one")}; "
+            + $"the instructions {(ToolText.ServerInstructions("urn:curia:agent:alice", []).Contains(sentence, StringComparison.Ordinal) ? "carry the published sentence" : "do not carry the published sentence")}");
+    }
+
+    /// <summary>
+    /// "R11.96 words (the tool)" as the errata publishes it: the span after <c>*The description:*</c> and the span after <c>*The server instructions' sentence:*</c>, each between doubled
+    /// backticks, with the paragraph's <c>\n</c> read as the line break it says it is. Each count is asserted.
+    /// </summary>
+    private static (string Description, string Sentence) PublishedKeysToolWords()
+    {
+        const string errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
+        const string anchor = "**R11.96 words (the tool).**";
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, errata)))
+            dir = dir.Parent;
+        if (dir is null) throw new InvalidOperationException($"{errata} not found above {AppContext.BaseDirectory}");
+
+        var paragraphs = File.ReadAllLines(Path.Combine(dir.FullName, errata)).Where(line => line.StartsWith(anchor, StringComparison.Ordinal)).ToArray();
+        if (paragraphs.Length != 1) throw new InvalidOperationException($"{errata} holds {paragraphs.Length} paragraphs that begin \"{anchor}\", expected one");
+
+        return (Span("*The description:* ``"), Span("*The server instructions' sentence:* ``"));
+
+        string Span(string label)
+        {
+            var paragraph = paragraphs[0];
+            var at = paragraph.IndexOf(label, StringComparison.Ordinal);
+            if (at < 0 || paragraph.IndexOf(label, at + 1, StringComparison.Ordinal) >= 0)
+                throw new InvalidOperationException($"{errata}'s R11.96 words (the tool) do not hold \"{label}\" exactly once");
+            var start = at + label.Length;
+            var end = paragraph.IndexOf("``", start, StringComparison.Ordinal);
+            if (end < 0) throw new InvalidOperationException($"{errata}'s R11.96 words (the tool) do not close the span after \"{label}\"");
+            return paragraph[start..end].Replace("\\n", "\n", StringComparison.Ordinal);
+        }
     }
 }

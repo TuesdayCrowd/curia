@@ -61,6 +61,15 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
 
     // ---- the forced interleaves (BRB16, BRB17) and their control (BRB20) ------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// The whole-log reads B makes before it reaches the gate: one, the read that decides whether its token's key is live (R5.22, <c>LogBoundKeys.StatusAsync</c> under
+    /// <c>AccessTokenValidator</c>), which authenticates the request and so precedes the gate. Until errata G68 that read was of the agent's stream alone, which the store's counter
+    /// does not count, and this was 0; R6.64 has the lifecycle decided from the whole log (a statement's prev and a declaration's from_index are positions in it), so it is a forward
+    /// read. Every other read of the log the request makes (the budget's, at AUTHORIZE; on the submit route the author's key at VERIFY) follows the gate, so a B that read more
+    /// than this while A was parked got past the gate.
+    /// </summary>
+    private const int KeyRead = 1;
+
     /// <summary>A parked at its append, B sent: what B read and stored while A was parked, and the table after A is released.</summary>
     private sealed record Interleave(string Report, long StoredAfter, string AKind, string BKind);
 
@@ -105,7 +114,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         }
     }
 
-    /// <summary>BRB16. The forced interleave, posts: with one slot left and A parked at its append, B reads nothing and stores nothing until A is released, and then is told the budget.</summary>
+    /// <summary>BRB16. The forced interleave, posts: with one slot left and A parked at its append, B reads nothing past its token's key (<see cref="KeyRead"/>) and stores nothing until A is released, and then is told the budget.</summary>
     [Fact]
     public async Task R7_27_BRB16_ARequestParkedAtItsAppendHoldsTheBudgetForTheNext()
     {
@@ -115,7 +124,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var result = await PostInterleaveAsync(passThrough: false);
 
         Said(
-            $"seeded {limit - 1} of {limit - 1}; while A is parked B read the log 0 times, was still waiting and the table held {limit - 1}; after release the table holds {limit}, A 201, B 403 {posting}",
+            $"seeded {limit - 1} of {limit - 1}; while A is parked B read the log {KeyRead} times, was still waiting and the table held {limit - 1}; after release the table holds {limit}, A 201, B 403 {posting}",
             result.Report);
     }
 
@@ -160,7 +169,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         }
     }
 
-    /// <summary>BRB17. The forced interleave, acceptances: with one acceptance left and A parked at its append, B reads nothing and records nothing until A is released, and then is told the budget.</summary>
+    /// <summary>BRB17. The forced interleave, acceptances: with one acceptance left and A parked at its append, B reads nothing past its token's key (<see cref="KeyRead"/>) and records nothing until A is released, and then is told the budget.</summary>
     [Fact]
     public async Task R7_27_BRB17_AnAcceptanceParkedAtItsAppendHoldsTheBudgetForTheNext()
     {
@@ -170,7 +179,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var (report, _) = await AcceptInterleaveAsync(passThrough: false);
 
         Said(
-            $"seeded {limit - 1} of {limit - 1}; while A is parked B read the log 0 times, was still waiting and the table held {limit - 1}; after release the table holds {limit}, A 201, B 403 {acceptance}",
+            $"seeded {limit - 1} of {limit - 1}; while A is parked B read the log {KeyRead} times, was still waiting and the table held {limit - 1}; after release the table holds {limit}, A 201, B 403 {acceptance}",
             report);
     }
 
@@ -420,8 +429,11 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
             _ = await holder;
             _ = await Task.WhenAll(waiting);
 
-            var expected = $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {PublishedBudgetGate.InFlightType()} within 2 s while A is still parked";
-            var refusedAtOnce = BudgetBursts.Kind(overflow).EndsWith(PublishedBudgetGate.InFlightType(), StringComparison.Ordinal) && elapsed < TimeSpan.FromSeconds(2) && !holderDone;
+            // "At once" is judged against the published wait, not a fixed figure: a request that queued would be answered only when R7.27's wait ran out,
+            // so half of it separates the two with room for a loaded runner (CI answered in 2,007 ms once against the old fixed 2 s).
+            var atOnce = PublishedBudgetGate.Wait() / 2;
+            var expected = $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {PublishedBudgetGate.InFlightType()} within {Ms(atOnce)}, half the wait, while A is still parked";
+            var refusedAtOnce = BudgetBursts.Kind(overflow).EndsWith(PublishedBudgetGate.InFlightType(), StringComparison.Ordinal) && elapsed < atOnce && !holderDone;
             Said(
                 expected,
                 refusedAtOnce ? expected : $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {BudgetBursts.Kind(overflow)} after {Ms(elapsed)} while A is {(holderDone ? "no longer parked" : "still parked")}");

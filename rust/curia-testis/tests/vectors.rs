@@ -677,14 +677,15 @@ fn merkle() {
 ///
 /// The literals below are counted from the corpus directory, family by
 /// family: admit-accept 5, admit-reject 14, c4 10, numbers 9, ordering 3,
-/// unicode 6, envelope 8, merkle 9, acta 12, display 16, lifecycle 81 — 173
-/// vector directories — plus the 6 vendored `rfc8785/` file pairs, 179 in all. (Envelope grew from 6 to
+/// unicode 6, envelope 8, merkle 9, acta 12, display 16, lifecycle 84, honoured 54 — 230
+/// vector directories — plus the 6 vendored `rfc8785/` file pairs, 236 in all. (`honoured/`, 44 small whole logs, arrived with errata G68's
+/// verifier: which lifecycle rows the Forum acts on, R6.64, and grew to 49 with Amendment 3's vectors 45 to 49, to 51 with Amendment 4's vectors 50 and 51 to 53 with Amendment 7's two enrolment vectors and to 54 with Amendment 9's rotation whose authorization the new key made; the 173 and the 179 are what the corpus held before it.) (Envelope grew from 6 to
 /// 8 with errata G8's `vote-minimal` and `verification-contradicted`; merkle
 /// and acta arrived with Phase 3 Stage 4 -- one merkle vector per tree size
 /// 0–8, and five acta vectors pinning R6.46's leaf input. Acta grew from 5 to 6
 /// with errata G13's `flag-committed-entry`, and from 6 to 7 with errata G16's
 /// `key-bound-entry`, and from 7 to 10 with keys-that-end's `key-rotated-entry`, `key-retired-entry`
-/// and `key-bound-entry-es256`, and from 10 to 11 with `key-compromised-entry`, and from 11 to 12 with errata G67's `declaration-key-entry`; lifecycle, 59 small whole logs (30 arrived with keys-that-end's readers, 7 with the rulings on a statement that is not text and on a statement typ the reader does not know, 16 with PR 2's compromise declarations, of which `compromise-v2-under-unknown-signer` is retired, 7 with errata G67's declaration key, 6 with Amendment 4's, 4 with Amendment 5's and 6 with Amendment 6's)
+/// and `key-bound-entry-es256`, and from 10 to 11 with `key-compromised-entry`, and from 11 to 12 with errata G67's `declaration-key-entry`; lifecycle, 59 small whole logs (30 arrived with keys-that-end's readers, 7 with the rulings on a statement that is not text and on a statement typ the reader does not know, 16 with PR 2's compromise declarations, of which `compromise-v2-under-unknown-signer` is retired, 7 with errata G67's declaration key, 6 with Amendment 4's, 4 with Amendment 5's, 6 with Amendment 6's and 3 with Amendment 7's)
 /// (R6.54 (add.), R6.57), and `tests/lifecycle.rs` is the runner that judges them.) (An earlier version of this comment
 /// cited "50 vector directories, per CHARTER.md": a count that contradicted
 /// the assertion beneath it, and a file that does not exist in this
@@ -710,12 +711,13 @@ fn corpus_size_matches_charter() {
             + c.merkle.len()
             + c.acta.len()
             + c.display.len()
-            + c.lifecycle.len(),
-        173,
+            + c.lifecycle.len()
+            + c.honoured.len(),
+        230,
         "conformance/ vector directories (c4 + ordering + unicode + numbers \
-         + admit-reject + admit-accept + envelope + merkle + acta + display + lifecycle)"
+         + admit-reject + admit-accept + envelope + merkle + acta + display + lifecycle + honoured)"
     );
-    assert_eq!(c.total_len(), 179, "every vector in conformance/");
+    assert_eq!(c.total_len(), 236, "every vector in conformance/");
 
     // `Index::load` already refuses a family entry with no `count`, so
     // `filter_map` here drops only the non-family entries (`red-team/`).
@@ -727,9 +729,31 @@ fn corpus_size_matches_charter() {
         .filter_map(|e| e.count)
         .sum();
     assert_eq!(
-        declared, 179,
+        declared, 236,
         "conformance/index.json's declared family counts"
     );
+}
+
+/// Errata G68: the loader enumerates `honoured/`, 54 cases, each naming the agent whose stream it is decided for. The verdicts are not read here:
+/// the documents stay on disk for whatever folds them.
+#[test]
+fn honoured_family_is_loaded_and_each_case_names_its_agent() {
+    let c = corpus();
+    assert_eq!(c.honoured.len(), 54, "conformance/honoured/ holds 54 cases");
+    for v in &c.honoured {
+        assert_eq!(v.requirement, "R6.64", "{}: requirement", v.case);
+        assert!(!v.agent.is_empty(), "{}: agent", v.case);
+        assert!(
+            v.dir.join("expected.json").is_file(),
+            "{}: expected.json",
+            v.case
+        );
+        assert!(
+            v.dir.join("entries").join("0.json").is_file(),
+            "{}: entries/0.json",
+            v.case
+        );
+    }
 }
 
 /// R6.45: every runner loads `conformance/index.json` and fails when it

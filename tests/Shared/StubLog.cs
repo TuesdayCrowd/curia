@@ -260,6 +260,13 @@ internal sealed class StubLog : IDisposable
     internal bool KeySetNamesNoLogIndex { get; set; }
 
     /// <summary>
+    /// Members appended to the key set <c>/v1/jwks</c> serves (errata G68, R4.41: <c>curia_skipped</c> and <c>curia_skipped_total</c>), or null for a key set that carries neither.
+    /// As the Forum serves an identity none of whose rows it skips: both members, the list empty and the total 0 (<c>StubFidelityTests</c> R6.54 holds the stub to that). Null is the
+    /// Forum that does not say.
+    /// </summary>
+    internal string? SkippedMembersJson { get; set; } = "\"curia_skipped\":[],\"curia_skipped_total\":0";
+
+    /// <summary>
     /// Serve the key as compromised (R6.57): the declaration's log index and its <c>from_index</c>, as
     /// <c>curia_compromised_log_index</c> and <c>curia_disputed_from</c>. The Forum's word on the read path.
     /// </summary>
@@ -1354,12 +1361,13 @@ internal sealed class StubLog : IDisposable
             ? "\"curia_status\":\"compromised\",\"curia_compromised_log_index\":" + c.Declaration.ToString(CultureInfo.InvariantCulture)
                 + ",\"curia_disputed_from\":" + c.From.ToString(CultureInfo.InvariantCulture)
             : "\"curia_status\":\"active\"";
-        return $$"""
+        var keySet = $$"""
         {"keys":[{"kty":"EC","crv":"P-256","alg":"ES256","kid":"{{AgentKid}}",
         "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}",
         "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}},{{status}}}],
         "curia_lifecycle_kinds":{"approved":[],"enabled":[]},"curia_lifecycle":[{{(ServedLifecycle is { } served ? string.Join(",", served) : string.Join(",", LifecycleIndices))}}{{(ForeignLifecycleIndex is { } foreign ? "," + foreign.ToString(CultureInfo.InvariantCulture) : string.Empty)}}]}
         """.ReplaceLineEndings(string.Empty);
+        return SkippedMembersJson is { } skipped ? keySet[..^1] + "," + skipped + "}" : keySet;
     }
 
     internal string LogJwksJson()

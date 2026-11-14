@@ -566,7 +566,7 @@ fn root_member(log_jwks: &[u8], name: &str) -> Option<crate::json::Value> {
     }
 }
 
-fn read_entry(item: &crate::json::Value) -> LogKey {
+pub(crate) fn read_entry(item: &crate::json::Value) -> LogKey {
     let text = |n: &str| entry_text(item, n).map(str::to_string);
     LogKey {
         kid: text("kid").unwrap_or_default(),
@@ -624,12 +624,15 @@ impl LogKeys {
         self.declaration_keys.as_deref()
     }
 
-    /// Whether a declaration key is a log key (R6.62): by `kid`, or by public key under another `kid`, the key as the entry states it: its
-    /// `kty`, `crv`, `x` and `y` compared as written, whether or not the point lies on its curve.
-    pub fn is_log_key(&self, declaration_key: &LogKey) -> bool {
-        self.keys
-            .iter()
-            .any(|k| k.kid == declaration_key.kid || k.same_key(declaration_key))
+    /// Whether a declaration key is a log key for the declaration at `declaration_index` (R6.62): by `kid`, or by public key under another `kid`, the key as
+    /// the entry states it: its `kty`, `crv`, `x` and `y` compared as written, whether or not the point lies on its curve. Only the log keys the log had
+    /// published at the declaration count: those at a `log_index` below `declaration_index`, and one that gives no position, which cannot be shown to come
+    /// after it (Amendment 7, ruling 82).
+    pub fn is_log_key(&self, declaration_key: &LogKey, declaration_index: u64) -> bool {
+        self.keys.iter().any(|k| {
+            k.log_index.is_none_or(|at| at < declaration_index)
+                && (k.kid == declaration_key.kid || k.same_key(declaration_key))
+        })
     }
 
     /// The key published under `kid`: the last one, as the head's own lookup takes the key set's last match.
@@ -672,7 +675,7 @@ fn is_coordinate(text: &str) -> bool {
 /// Whether a key entry is a key the reader can read (R6.62): an object carrying a string `kid` and the members of one of two keys, an
 /// Ed25519 key (`alg` `EdDSA`, `kty` `OKP`, `crv` `Ed25519`, a coordinate `x`) or an ES256 key (`alg` `ES256`, `kty` `EC`, `crv` `P-256`,
 /// coordinates `x` and `y`). Whether a point lies on its curve is not part of it.
-fn is_readable_key_entry(entry: &crate::json::Value) -> bool {
+pub(crate) fn is_readable_key_entry(entry: &crate::json::Value) -> bool {
     let text = |n: &str| entry_text(entry, n);
     if text("kid").is_none() {
         return false;

@@ -115,7 +115,7 @@ public sealed class EmbedRoleTests
         var searching = new RecordingEmbedder(new HashedNGramEmbedder());
         var index = new InMemoryVectorIndex();
         Require(await new EmbeddingIndexer(new HashedNGramEmbedder(), index).IndexAsync(post, Ct));
-        var search = new HybridSearch(searching, index, RetrievalFloors.Published);
+        var search = new HybridSearch(searching, index, RetrievalFloors.Published, TestVerifier.Empty);
         var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
         Require(await search.SearchAsync(log, RetrievalSurface.RestSearch, new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25), fold, Ct));
         Assert.True(searching.Calls.Count == 1, $"NOT REACHED: the search embedded {searching.Calls.Count} time(s), expected 1");
@@ -146,7 +146,7 @@ public sealed class EmbedRoleTests
         Assert.Equal(DuplicateVerdict.None, assessed.Verdict);
 
         var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
-        var page = Require(await new HybridSearch(none, new InMemoryVectorIndex(), RetrievalFloors.Published)
+        var page = Require(await new HybridSearch(none, new InMemoryVectorIndex(), RetrievalFloors.Published, TestVerifier.Empty)
             .SearchAsync(log, RetrievalSurface.RestSearch, new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25), fold, Ct));
         Assert.NotEmpty(page.Results);
         Assert.All(page.Results, r => Assert.Equal(0, r.VectorRank));

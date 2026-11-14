@@ -1,0 +1,1 @@
+{"rows":[{"log_index":4,"type":"agent.key-retired","verdict":"honoured"},{"log_index":5,"type":"agent.key-compromised","verdict":"honoured"}],"keys":{"conformance-ed25519-minimal":"compromised"},"bound":["conformance-ed25519-minimal"]}

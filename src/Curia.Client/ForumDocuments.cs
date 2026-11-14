@@ -384,11 +384,21 @@ public sealed record ForumJwk(
 /// </param>
 /// <param name="ApprovedKinds">The lifecycle kinds the Forum's build approves, or null when the key set names none.</param>
 /// <param name="EnabledKinds">The lifecycle kinds the Forum enables (<c>curia_lifecycle_kinds</c>), or null when the key set names none.</param>
+/// <param name="Skipped">
+/// The rows of the identity's stream the Forum does not act on (errata G68, R4.41: <c>curia_skipped</c>), in log order; <see langword="null"/> when the key set does not say. Read as strictly as
+/// <c>curia_lifecycle</c> is.
+/// </param>
+/// <param name="SkippedTotal">How many rows the Forum skips in all (<c>curia_skipped_total</c>), or null when the key set does not say.</param>
 public sealed record KeySetDocument(
     ImmutableArray<ForumJwk> Keys,
     ImmutableArray<long>? Lifecycle,
     ImmutableArray<string>? ApprovedKinds,
-    ImmutableArray<string>? EnabledKinds);
+    ImmutableArray<string>? EnabledKinds,
+    ImmutableArray<SkippedRowDocument>? Skipped = null,
+    long? SkippedTotal = null);
+
+/// <summary>One row the Forum does not act on, as the key set names it (R4.41): its log index, its type and the predicate that failed. Never a payload member.</summary>
+public sealed record SkippedRowDocument(long LogIndex, string Type, string Predicate);
 
 /// <summary>§10.7's contract as served, clause by clause.</summary>
 public sealed record ReaderContractClause(int Number, string Force, string Text, bool ClientMustImplement);
@@ -1338,7 +1348,50 @@ internal static class ForumDocuments
             enabled = Strings(kinds, "enabled");
         }
 
-        return Result<KeySetDocument>.Ok(new KeySetDocument(read!, lifecycle, approved, enabled));
+        var skipped = ReadSkipped(o);
+        if (!skipped.TryGetValue(out var listed, out var skippedError)) return Result<KeySetDocument>.Fail(skippedError!);
+
+        return Result<KeySetDocument>.Ok(new KeySetDocument(read!, lifecycle, approved, enabled, listed.Rows, listed.Total));
+    }
+
+    /// <summary>The most rows a key set lists (R4.41): the Forum's cap, held here so a document that lists more is not read as one.</summary>
+    internal const int MaxSkippedListed = 20;
+
+    /// <summary>
+    /// R4.41's two members, read as strictly as <c>curia_lifecycle</c> is. Neither present is a key set that does not say (both null); one without the other, a list that is not an array, an
+    /// entry that is not exactly <c>log_index</c> (a whole, non-negative number), <c>type</c> and <c>predicate</c> (strings), a list of more than 20, a total that is not a whole number or is below the
+    /// list's length, or a list shorter than the smaller of the total and 20, is a malformed response naming <c>curia_skipped</c>. An entry with a payload member is malformed too: the Forum never serves one.
+    /// </summary>
+    private static Result<(ImmutableArray<SkippedRowDocument>? Rows, long? Total)> ReadSkipped(JsonValue.Object o)
+    {
+        var rows = ClientJson.Member(o, "curia_skipped");
+        var total = ClientJson.Member(o, "curia_skipped_total");
+        if (rows is null && total is null) return Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Ok((null, null));
+
+        // One malformed response naming curia_skipped, and the cause after it (Amendment 7, ruling 88): each shape names its own, so a parser that refuses two shapes for one shared reason is told apart.
+        static Result<(ImmutableArray<SkippedRowDocument>? Rows, long? Total)> Malformed(string cause) =>
+            Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Fail(ClientErrors.ResponseMalformed("curia_skipped: " + cause));
+
+        if (rows is not JsonValue.Array array) return Malformed("it is not an array");
+        if (total is not JsonValue.Number { Value: var count } || !double.IsInteger(count) || count < 0 || count > long.MaxValue)
+            return Malformed("curia_skipped_total is not a whole number");
+        if (array.Items.Length > MaxSkippedListed) return Malformed("the list is longer than 20");
+        if (array.Items.Length > count) return Malformed("curia_skipped_total is below the list's length");
+        if (array.Items.Length < Math.Min(count, MaxSkippedListed)) return Malformed("the list is shorter than the total allows");
+
+        var listed = ImmutableArray.CreateBuilder<SkippedRowDocument>(array.Items.Length);
+        foreach (var item in array.Items)
+        {
+            if (item is not JsonValue.Object row) return Malformed("an entry is not an object");
+            if (row.Members.Length < 3) return Malformed("an entry lacks a member");
+            if (row.Members.Length > 3) return Malformed("an entry carries a member beyond log_index, type and predicate");
+            if (ClientJson.WholeNumber(row, "log_index") is not { } index || index < 0) return Malformed("an entry's log_index is not a whole number");
+            if (ClientJson.String(row, "type") is not { } type || ClientJson.String(row, "predicate") is not { } predicate) return Malformed("an entry's type or predicate is not a string");
+
+            listed.Add(new SkippedRowDocument(index, type, predicate));
+        }
+
+        return Result<(ImmutableArray<SkippedRowDocument>?, long?)>.Ok((listed.ToImmutable(), (long)count));
     }
 
     internal static Result<ImmutableArray<ForumJwk>> ReadJwks(JsonValue value)

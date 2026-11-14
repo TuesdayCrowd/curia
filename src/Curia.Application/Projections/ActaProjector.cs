@@ -265,7 +265,7 @@ public sealed class ActaLog
         return Result<SignedHead>.Ok(new SignedHead(logIndex, (long)size.Value, root, timestamp.Value, kid.Value, signature.Value, head));
     }
 
-    private static Result<LogKey> ReadKey(long logIndex, JsonValue payload)
+    internal static Result<LogKey> ReadKey(long logIndex, JsonValue payload)
     {
         if (payload is not JsonValue.Object o
             || Member(o, LogEntries.KidMember) is not JsonValue.String kid
@@ -276,7 +276,7 @@ public sealed class ActaLog
         return Result<LogKey>.Ok(new LogKey(logIndex, kid.Value, jwk, validFrom.Value));
     }
 
-    private static Result<DeclarationKey> ReadDeclarationKey(long logIndex, JsonValue payload)
+    internal static Result<DeclarationKey> ReadDeclarationKey(long logIndex, JsonValue payload)
     {
         if (payload is not JsonValue.Object o
             || Member(o, LogEntries.KidMember) is not JsonValue.String kid

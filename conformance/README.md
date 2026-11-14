@@ -142,6 +142,7 @@ the mistake this section exists to prevent.
 | `merkle-tree` | `MerkleTree` (RFC 9162 §2.1) | Hash the given leaves, build the tree, and reproduce every audit path and consistency proof in `expected.json`; then verify each with the RFC's verification procedures. See "The `merkle/` family" below.
 | `display-literal` | `DisplayLiteral.Of` (C#), `display::literal` (Rust) | The input is a list of Unicode scalar values; the display literal a reader writes for the string they spell must be exactly `expected.display` (R10.64). See "The `display/` family" below.
 | `lifecycle-log` | `LifecycleCheck.Verify` (C#), `lifecycle::verify_lifecycle` (Rust) | A small whole log, a signed head over it and the log's key set: the verdict and predicate a reader that folds the post author's key lifecycle (R6.54 (add.)) must reach, in `expected.json`. See "The `lifecycle/` family" below.
+| `honoured-log` | the Forum's lifecycle verifier (errata G68, R6.64) | A small whole log of events: the verdict (`honoured`, or `skipped` and its predicate) of every lifecycle row of the agent under test, the status of every key an honoured row names, and the kids the honoured prefix binds. See "The `honoured/` family". |
 | `acta-leaf` | `Canonicalize` (pure RFC 8785), then `MerkleTree.LeafHash` | The input is a log entry document (R6.46); it must canonicalize to `expected.canonical` (digest `expected.digest`), and `SHA-256(0x00 ‖ canonical)` must equal `expected.leaf`. **Pure** canonicalization, never the NFC profile: hashing is not signing. See "The `acta/` family" below.
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
@@ -186,6 +187,8 @@ get the count up will look like it is converging. It is not.
   exact bytes a reader prints for it out. See below.
 - `lifecycle/` — the post author's key lifecycle (keys that end, R6.54 (add.)): a
   small whole log in, the verdict a reader must reach out. See below.
+- `honoured/` — which lifecycle rows the Forum acts on (errata G68, R6.64): a
+  small whole log of events in, the verdict of every row of the agent's stream out. See below.
 
 `red-team/` is **not** a vector family — it is the detector corpus behind R10.11's
 measurement (Appendix L), and `index.json` records that with a reason. Neither is
@@ -478,7 +481,7 @@ entry type or a statement version the reader does not fold), `bound-after-post`,
 (errata G67, R6.62). A reader also reaches `declaration-signature-invalid` and a failed
 `compromised-before-post` (a declaration that precedes the post); no case carries either, and the readers' own facts do.
 
-**The compromise cases.** Forty-four cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
+**The compromise cases.** Forty-six cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
 the fixed P-256 test declaration key that `acta/key-compromised-entry` uses (a `/2` statement: `/1` is withdrawn); their `log-jwks.json`
 carries it in a `declaration_keys` member beside `keys` (the head key), with the `log_index` of the `log.declaration-key` entry that
 publishes it. A declaration is held to KF1 to KF4 and to KF3, in this order, the
@@ -531,7 +534,11 @@ declaring key itself: `declaration-signature-invalid`, the point being asked at 
 `kid` that state the same points: a log key by the key as the entry states it) (both `declaration-key-is-log-key`); `disputed`:
 `compromise-other-declaration-key-off-curve` (another declaration key at `log_index` 9), `compromise-log-key-off-curve` (a `keys` entry under another
 `kid`) and `compromise-declaration-kid-twice-at-one-position-same-key` (the declaring key's entry listed again at its own position with `use` `enc` and
-another `valid_from`: one key, so its position holds). Each runner compares the
+another `valid_from`: one key, so its position holds). Amendment 7 (rulings 79 and 82) adds three and regenerates two: `enrolment-names-another-agent` (the author's chain
+starts with an enrolment naming another agent: `failed`, `statement-mismatch`), `compromise-log-key-published-after-it` (the declaration key listed in `keys` at a
+`log_index` above the declaration's own, which does not undo it: `disputed`) and `compromise-log-key-position-not-given` (a `keys` entry for the declaring key with no
+`log_index`, which counts as below the declaration, fail closed: `failed`, `declaration-key-is-log-key`); the two off-curve log-key cases above now list their log key
+below the declaration, verdicts unchanged. Each runner compares the
 predicate as well as the verdict. The ES256 declaration signatures are pinned: `dotnet run --project
 tools/GenerateEnvelopeFixtures -- --compromise` generates a case once and keeps it.
 
@@ -551,3 +558,61 @@ tools/GenerateEnvelopeFixtures -- --lifecycle-cases` regenerates them, determini
 owner's lift record pins their digests. The one exception is `rotation-es256-then-post`, whose P-256
 keys begin with the byte 0x00 and whose ES256 signatures are randomized: it was generated once, and
 a rerun keeps it.
+
+## The `honoured/` family
+
+`lifecycle/` pins what a reader says of a post given the rows the Forum lists. This family pins the step before it: which rows the
+Forum **acts on** (errata G68, R6.64), so that a row that verifies under no published key ends, binds and marks nothing. A case is
+a whole small log, as the Forum reads it from its event store, and the decision the procedure must reach for every lifecycle row of
+one agent's stream. There is no head and no proof: the Forum decides from events and not from proofs.
+
+Its shape is its own (`"shape": "honoured"` in `index.json`, profile `honoured-log`, requirement `R6.64`). A case is a directory
+holding
+
+- `entries/<log_index>.json` -- every entry of the log, in the shape `lifecycle/`'s entries use: `log_index`, `leaf_hash` and `entry`
+  (`actor_id`, `aggregate_id`, `event_id`, `event_type`, `payload`, `server_ts`). The keys a case publishes are its own `log.key` and
+  `log.declaration-key` entries; a case has no key set document;
+- `meta.json` -- `profile`, `requirement`, `note` and `agent`, the identity under test; the identity's stream is the events whose
+  `aggregate_id` is that agent;
+- `expected.json`, written by the generator **from the case's construction and never by running a verifier**:
+
+```json
+{"rows":[{"log_index":2,"type":"agent.key-bound","verdict":"honoured"},
+         {"log_index":3,"type":"agent.key-retired","verdict":"skipped","predicate":"broken-link"}],
+ "keys":{"k0":"active","k1":"active"},
+ "bound":["k0","k1"]}
+```
+
+`rows` lists every row of the agent's stream (R6.64: neither the enrolment and its pair nor a `log.*` entry) in log order, with its
+`verdict` and, for a skipped row, the `predicate` that decided it: `statement-mismatch`, `unknown-lifecycle-kind`, `unknown-reason`,
+`broken-link`, `lifecycle-typ-mismatch`, `rotation-unauthorized`, `declaration-key-unpublished`, `declaration-key-is-log-key`,
+`declaration-key-not-first`, `declaration-signature-invalid`, `kid-not-bound-to-agent` or `declaration-mismatch`. `keys` gives the
+status (`active`, `retired` or `compromised`) of every `kid` an honoured entry names, and `bound` the kids the honoured prefix binds, in
+log order. A case with a second identity whose stream the procedure also decides (`retirement-names-another-agent`,
+`row-in-another-aggregate-is-ignored`) adds an `also` list of `{"agent", "rows", "keys", "bound"}`, and a runner runs the
+procedure for every agent named and compares each.
+
+A skipped row moves nothing, so every `prev` in a case names the last row the procedure honours before it. In
+`forged-rotation-then-rotation-authorized-by-it` the second rotation's `prev` is therefore 1, the last honoured entry, and not the
+forged row's index 2: with 2 it would be `broken-link`, which is a different defect from the one the case names.
+
+The family holds 54 cases. Vectors 45 to 49 (errata G68, Amendment 3) pin what R6.64's text gained: `rotation-authorized-by-compromised-key` and
+`retirement-of-a-compromised-key` (a key an honoured declaration names authorizes nothing from the declaration's index), `declaration-names-a-retired-key`
+(the declaration is honoured and `compromised` outranks `retired`), `declaration-key-is-a-log-key-published-after-it` (R6.62's log-key check reads the log keys
+published below the declaration, so a `log.key` entry after the declaration does not skip it; flipped to honoured by Amendment 7) and `declaration-key-entry-kid-differs-from-its-jwk` (an entry
+is a key only when its `kid` and its `jwk`'s `kid` are both strings and equal, whichever of the two a header names). `rotation-self-authorized` pins KF5
+(`authorized_by` equals `kid`: `statement-mismatch`). Vectors 50 and 51 (errata G68, Amendment 4) pin `enrolment-without-its-pair` (an enrolment with no pair after it is honoured and is the next row's previous entry, but binds no kid and no key, so a declaration of its kid is `kid-not-bound-to-agent` and a retirement `rotation-unauthorized`) and `malformed-key-entry-does-not-list-the-genuine-keys-kid` (an entry that is not a key lists nothing, so it does not displace the genuine key's earliest listing). Vectors 52 and 53 (errata G68, Amendment 7) pin `enrolment-names-another-agent` and `enrolment-payload-not-an-object`: the stream's first `agent.enrolled` is decided by R6.64's steps 1 and 4 as a row is, so one that is not an object or names another agent is skipped `statement-mismatch`, the stream has no root, and the pair after it is `broken-link` and binds nothing. Vector 54 (errata G68, Amendment 9) pins `rotation-authorization-made-by-the-new-key`: an authorization that carries the authorizer's header `kid` and the rotation header `typ` and is signed by the key being bound is `rotation-unauthorized`, so holding a key is not enough to bind it to an identity.
+
+**What these 54 do not pin, on purpose:** each is decided by R6.64's text alone, and a fold that differs is found by reading it and not by a case. They are the
+`statement-mismatch` versus `broken-link` order for a statement-less binding of the right position and wrong members; a declaration whose header carries no
+`kid` (`declaration-key-unpublished`); a log key entry that is not a key under R6.62's closed form (R6.62's own vectors pin the closed form; here only the two
+malformed declaration-key entries); the pair's `agent_id` and `jwk` members (an enrolment with no pair is pinned by `enrolment-without-its-pair`); a row before the stream's first `agent.enrolled` (an empty honoured prefix, so a
+`prev` names no honoured entry); the declaration statement's closed form (`from_index` an integer, `kids` a non-empty array of strings, `reason` a string); a
+`reason` read from a statement with no `typ`; and the cascade's root being `kids[0]`.
+
+A declaration is signed ES256, which is randomized, so the first run of the generator pins each declaration's signature bytes and a
+later run keeps them; every other signature is Ed25519 and deterministic. "Garbage" is the string `FORGED-NO-VALID-SIGNATURE`, which
+is not a JWS; a "bad signature" is a well-formed JWS of the right header whose signature bytes are another key's.
+
+The cases are **proposals**, as `lifecycle/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --honoured-cases`
+regenerates them until the owner's lift record pins their digests.

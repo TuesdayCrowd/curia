@@ -77,7 +77,7 @@ public sealed class DeclarationKeyTests
     }
 
     private static Task<Result<CompromiseRecorded>> DeclareAsync(KeyActHarness harness, InMemoryLifecycleStatementSigner signer) =>
-        new DeclareCompromise(harness.Events, harness.Clock)
+        new DeclareCompromise(harness.Events, TestVerifier.Es256, harness.Clock)
             .DeclareAsync(Typed.Agent(Alice), Typed.Kid("alice-1"), 1, CompromiseReason.OwnerReported, signer, Operator, Ct);
 
     /// <summary>

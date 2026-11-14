@@ -188,7 +188,7 @@ public sealed partial class ResendWordsTests
         var expected = new Dictionary<string, ActContext>(StringComparer.Ordinal)
         {
             ["SubmitAsync"] = ActContext.Post, ["ResendAsync"] = ActContext.Resend, ["FlagAsync"] = ActContext.Flag, ["AcceptAsync"] = ActContext.Resolve,
-            ["AccessTokenAsync"] = ActContext.Other, ["RotateKeyAsync"] = ActContext.Other, ["RetireKeyAsync"] = ActContext.Other, ["InboxAsync"] = ActContext.Other, ["FlagsAsync"] = ActContext.Other, ["BudgetAsync"] = ActContext.Other,
+            ["AccessTokenAsync"] = ActContext.Other, ["RotateKeyAsync"] = ActContext.Other, ["RetireKeyAsync"] = ActContext.Other, ["InboxAsync"] = ActContext.Other, ["FlagsAsync"] = ActContext.Other, ["BudgetAsync"] = ActContext.Other, ["KeysAsync"] = ActContext.Other,
         };
 
         var problems = new List<string>();
@@ -214,6 +214,7 @@ public sealed partial class ResendWordsTests
                 "InboxAsync" => (await kit.Session.InboxAsync(new InboxRequest(), MarkingMode.None, Ct)).Refusal,
                 "FlagsAsync" => (await kit.Session.FlagsAsync(null, Ct)).Refusal,
                 "BudgetAsync" => (await kit.Session.BudgetAsync(Ct)).Refusal,
+                "KeysAsync" => (await kit.Session.KeysAsync(Ct)).Refusal,
                 _ => null,
             };
             if (refusal is null) problems.Add($"{name}: was not refused");

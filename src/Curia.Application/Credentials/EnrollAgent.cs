@@ -82,9 +82,12 @@ public sealed class EnrollAgent
 
     private readonly IEventStore _events;
     private readonly UlidGenerator _ids;
+    private readonly LifecycleVerifier _verifier;
 
-    public EnrollAgent(IEventStore events, TimeProvider clock)
+    public EnrollAgent(IEventStore events, LifecycleVerifier verifier, TimeProvider clock)
     {
+        ArgumentNullException.ThrowIfNull(verifier);
+        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(clock);
 
@@ -125,15 +128,18 @@ public sealed class EnrollAgent
 
         for (var attempt = 0; attempt < Attempts; attempt++)
         {
-            var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
-            if (!read.TryGetValue(out var history, out var readError))
+            // The whole log, because the verifier decides a row by positions in it (R6.47, R6.64); this stream's slice of it is what the standing is folded from.
+            var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!read.TryGetValue(out var log, out var readError))
                 return Result<AgentEnrollment>.Fail(readError!);
+
+            var history = log!.Where(e => e.AggregateId.Value == aggregate.Value).ToList();
 
             // This aggregate's slice carries credential events only -- posts live in their own
             // streams -- so the standing folded here has no question count and no reached-T1
             // instant, and neither is read below. What is read is what this stream is the whole
             // record of: whether an enrollment exists, when it was, and what the owner's standing is.
-            var standing = AgentStandingProjector.Fold(history!)
+            var standing = AgentStandingProjector.Fold(history)
                 .GetValueOrDefault(agentId.Value);
 
             if (standing?.EnrolledAt is { } enrolledAt)
@@ -143,7 +149,7 @@ public sealed class EnrollAgent
                 // second key under an enrolled identity used to be waved through as a success; and
                 // for other bytes under a bound kid, how a lost row's recovery registered whatever it
                 // was sent.
-                if (EnrollmentBinding.Find(history!, agentId)?.For(key) is not { } bound)
+                if (_verifier.OfLog(log).For(agentId).Binding?.For(key) is not { } bound)
                     return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId.Value));
 
                 if (!bound.Holds(key))

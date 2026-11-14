@@ -87,7 +87,7 @@ public sealed class AgentStandingProjectorTests
     private static async Task EnrollVerifiedAsync(
         InMemoryEventStore store, ManualTimeProvider clock, string agent, string kid, CancellationToken ct)
     {
-        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(agent), TestKeys.Es256(kid), ct).ConfigureAwait(false));
+        Require(await new EnrollAgent(store, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(agent), TestKeys.Es256(kid), ct).ConfigureAwait(false));
         Require(await AttestAsync(store, clock, agent, ct).ConfigureAwait(false));
     }
 
@@ -130,7 +130,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var enroll = new EnrollAgent(store, clock);
+        var enroll = new EnrollAgent(store, TestVerifier.Es256, clock);
 
         var recorded = Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
@@ -230,7 +230,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var enroll = new EnrollAgent(store, clock);
+        var enroll = new EnrollAgent(store, TestVerifier.Es256, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
@@ -259,7 +259,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var enroll = new EnrollAgent(store, clock);
+        var enroll = new EnrollAgent(store, TestVerifier.Es256, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
@@ -295,7 +295,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
+        Require(await new EnrollAgent(store, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         Require(await AttestAsync(store, clock, Agent, ct, method: OwnerVerificationMethod.Domain));
 
         var attestation = (await LogAsync(store, ct))[Enrollment.Length];
@@ -321,7 +321,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
+        Require(await new EnrollAgent(store, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         var refused = await AttestAsync(store, clock, Agent, ct, by: Agent);
 
@@ -343,7 +343,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
+        Require(await new EnrollAgent(store, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         var refused = await AttestAsync(store, clock, Agent, ct, by: "operator:   ");
 
@@ -467,7 +467,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var enroll = new EnrollAgent(store, clock);
+        var enroll = new EnrollAgent(store, TestVerifier.Es256, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         Require(await enroll.RecordAsync(Typed.Agent(Other), TestKeys.Es256("other-1"), ct));
@@ -494,7 +494,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var enroll = new EnrollAgent(store, clock);
+        var enroll = new EnrollAgent(store, TestVerifier.Es256, clock);
 
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
 
@@ -534,7 +534,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var enroll = new EnrollAgent(store, clock);
+        var enroll = new EnrollAgent(store, TestVerifier.Es256, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         await AcceptPostAsync(store, Agent, "question", "q-1", ct);
@@ -580,7 +580,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var enroll = new EnrollAgent(store, clock);
+        var enroll = new EnrollAgent(store, TestVerifier.Es256, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
@@ -611,7 +611,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        var enroll = new EnrollAgent(store, clock);
+        var enroll = new EnrollAgent(store, TestVerifier.Es256, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         await AcceptPostAsync(store, Agent, "question", "q-1", ct);

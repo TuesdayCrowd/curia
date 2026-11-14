@@ -119,6 +119,10 @@ pub enum Profile {
     /// and the verdict a reader that folds the author's lifecycle must reach
     /// (R6.54 (add.)). Run by `tests/lifecycle.rs`, not by `tests/vectors.rs`.
     LifecycleLog,
+    /// A small whole log of events and, for each lifecycle row of an agent's stream, the verdict the
+    /// Forum's procedure must reach (errata G68, R6.64). The loader reads what selects the case; the
+    /// documents stay on disk, in the case directory, for whatever folds them.
+    HonouredLog,
 }
 
 impl Profile {
@@ -136,6 +140,7 @@ impl Profile {
             "acta-leaf" => Ok(Profile::ActaLeaf),
             "display-literal" => Ok(Profile::DisplayLiteral),
             "lifecycle-log" => Ok(Profile::LifecycleLog),
+            "honoured-log" => Ok(Profile::HonouredLog),
             other => Err(LoaderError::UnknownProfile {
                 path: path.to_path_buf(),
                 profile: other.to_string(),
@@ -154,6 +159,7 @@ impl Profile {
             Profile::ActaLeaf => "acta-leaf",
             Profile::DisplayLiteral => "display-literal",
             Profile::LifecycleLog => "lifecycle-log",
+            Profile::HonouredLog => "honoured-log",
         }
     }
 }
@@ -261,6 +267,19 @@ pub struct LifecycleVector {
     pub predicate: String,
 }
 
+/// A case from the `honoured/` family: `conformance/README.md`, "The `honoured/` family". The documents
+/// (`entries/<log_index>.json`, `expected.json`) stay on disk, in `dir`; the loader reads what selects
+/// the case.
+#[derive(Debug, Clone)]
+pub struct HonouredVector {
+    pub case: String,
+    pub requirement: String,
+    pub note: Option<String>,
+    pub dir: PathBuf,
+    /// `meta.json`'s `agent`: the identity whose stream the case is decided for.
+    pub agent: String,
+}
+
 /// The whole loaded corpus, one field per top-level `conformance/` directory.
 #[derive(Debug, Clone, Default)]
 pub struct Corpus {
@@ -276,6 +295,7 @@ pub struct Corpus {
     pub acta: Vec<DirectoryVector>,
     pub display: Vec<DisplayVector>,
     pub lifecycle: Vec<LifecycleVector>,
+    pub honoured: Vec<HonouredVector>,
 }
 
 /// Every family name this loader enumerates, in the order [`Corpus::load`]
@@ -300,6 +320,7 @@ pub const LOADED_FAMILIES: &[&str] = &[
     "acta",
     "display",
     "lifecycle",
+    "honoured",
 ];
 
 impl Corpus {
@@ -318,6 +339,7 @@ impl Corpus {
             acta: load_directory_family(root, "acta")?,
             display: load_display_family(root)?,
             lifecycle: load_lifecycle_family(root)?,
+            honoured: load_honoured_family(root)?,
         })
     }
 
@@ -341,6 +363,7 @@ impl Corpus {
             + self.acta.len()
             + self.display.len()
             + self.lifecycle.len()
+            + self.honoured.len()
     }
 
     /// Whether the corpus holds `<family>/<case>` — the shape
@@ -358,6 +381,7 @@ impl Corpus {
             "merkle" => Some(self.merkle.iter().any(|v| v.case == case)),
             "display" => Some(self.display.iter().any(|v| v.case == case)),
             "lifecycle" => Some(self.lifecycle.iter().any(|v| v.case == case)),
+            "honoured" => Some(self.honoured.iter().any(|v| v.case == case)),
             other => self
                 .directory_family(other)
                 .map(|vectors| vectors.iter().any(|v| v.case == case)),
@@ -481,6 +505,11 @@ pub enum LoaderError {
         path: PathBuf,
         problem: String,
     },
+    /// A `honoured/` case's `meta.json` is well-formed JSON with the wrong shape: no `agent`.
+    MalformedHonouredVector {
+        path: PathBuf,
+        problem: String,
+    },
     /// A `conformance/rfc8785/input-<name>.json` has no matching
     /// `output-<name>.json`, or vice versa.
     UnpairedRfc8785Vector {
@@ -532,7 +561,7 @@ impl fmt::Display for LoaderError {
                     f,
                     "{}: unknown profile `{profile}` (expected one of: rfc8785, \
                      canonicalize-with-nfc, admit, admit-accept, envelope, merkle-tree, \
-                     acta-leaf, display-literal, lifecycle-log)",
+                     acta-leaf, display-literal, lifecycle-log, honoured-log)",
                     path.display()
                 )
             }
@@ -560,6 +589,9 @@ impl fmt::Display for LoaderError {
                 write!(f, "{}: {problem}", path.display())
             }
             LoaderError::MalformedLifecycleVector { path, problem } => {
+                write!(f, "{}: {problem}", path.display())
+            }
+            LoaderError::MalformedHonouredVector { path, problem } => {
                 write!(f, "{}: {problem}", path.display())
             }
             LoaderError::UnpairedRfc8785Vector { path, name } => {
@@ -1056,6 +1088,51 @@ fn load_lifecycle_family(root: &Path) -> Result<Vec<LifecycleVector>, LoaderErro
     Ok(vectors)
 }
 
+fn load_honoured_family(root: &Path) -> Result<Vec<HonouredVector>, LoaderError> {
+    let family_dir = root.join("honoured");
+    let mut vectors = Vec::new();
+    for path in list_dir_sorted(&family_dir)? {
+        if !path.is_dir() {
+            continue;
+        }
+        let case = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or(LoaderError::NotUtf8 { path: path.clone() })?
+            .to_string();
+
+        let meta_path = path.join("meta.json");
+        let meta = load_meta(&meta_path)?;
+        match Profile::parse(&meta.profile, &meta_path)? {
+            Profile::HonouredLog => {}
+            _ => {
+                return Err(LoaderError::UnknownProfile {
+                    path: meta_path,
+                    profile: meta.profile,
+                })
+            }
+        }
+        let meta_value = parse_meta_value(&read_file(&meta_path)?, &meta_path)?;
+        let agent = meta_value
+            .get("agent")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| LoaderError::MalformedHonouredVector {
+                path: meta_path.clone(),
+                problem: "missing string `agent`".to_string(),
+            })?;
+
+        vectors.push(HonouredVector {
+            case,
+            requirement: meta.requirement,
+            note: meta.note,
+            dir: path.clone(),
+            agent,
+        });
+    }
+    Ok(vectors)
+}
+
 fn load_display_family(root: &Path) -> Result<Vec<DisplayVector>, LoaderError> {
     let family_dir = root.join("display");
     let mut vectors = Vec::new();
@@ -1370,7 +1447,7 @@ impl Index {
 
         let shape = entry.shape.as_deref().unwrap_or_default();
         let actual = match shape {
-            "directory" | "envelope" | "merkle" | "display" | "lifecycle" => {
+            "directory" | "envelope" | "merkle" | "display" | "lifecycle" | "honoured" => {
                 let cases: Vec<PathBuf> = list_dir_sorted(dir)?
                     .into_iter()
                     .filter(|p| p.is_dir())
@@ -1415,7 +1492,7 @@ impl Index {
             other => {
                 problems.push(format!(
                     "`{name}` declares unknown shape `{other}` (expected one of: \
-                     directory, file-pairs, envelope, merkle, display, lifecycle)"
+                     directory, file-pairs, envelope, merkle, display, lifecycle, honoured)"
                 ));
                 return Ok(());
             }

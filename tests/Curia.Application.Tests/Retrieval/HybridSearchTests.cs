@@ -25,7 +25,7 @@ public sealed class HybridSearchTests
     {
         var embedder = new HashedNGramEmbedder();
         var index = new InMemoryVectorIndex();
-        return new Harness(new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()), new EmbeddingIndexer(embedder, index), new HybridSearch(embedder, index, floors ?? RetrievalFloors.Published));
+        return new Harness(new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()), new EmbeddingIndexer(embedder, index), new HybridSearch(embedder, index, floors ?? RetrievalFloors.Published, TestVerifier.Empty));
     }
 
     private static SearchQuery Query(string? text, int limit = 25, RetrievalCursor? cursor = null, VerificationLevel? floor = null, PostKind? kind = null) =>

@@ -112,7 +112,7 @@ public sealed class FaultedStoreSweepTests(FaultableForumFixture forum) : IClass
 
     /// <summary>
     /// ULG2, whole-log mode. The reader reports a failed <c>Result</c> for the whole-log read and serves a single aggregate: the empty-log fallback of
-    /// <c>ReadEventsAsync</c> turns it into a denial or an empty list. Enrolment reads only the enrolling agent's own stream and stays healthy; everything else
+    /// <c>ReadEventsAsync</c> turns it into a denial or an empty list. Enrolment decides a kid's binding from the honoured rows of the whole log (R5.24, errata G68), so it is <c>503</c> with the rest; everything
     /// that reads the log is <c>503</c>, never <c>403</c> and never <c>200</c>.
     /// </summary>
     [Fact]
@@ -123,7 +123,7 @@ public sealed class FaultedStoreSweepTests(FaultableForumFixture forum) : IClass
 
         Judged(
             swept,
-            s => FaultSweep.ReadsNoStore(s) || FaultSweep.IsEnrolment(s) ? Expect.Healthy : FaultSweep.IsToken(s) ? Expect.TokenUnavailable : Expect.LogUnreadable,
+            s => FaultSweep.ReadsNoStore(s) ? Expect.Healthy : FaultSweep.IsToken(s) ? Expect.TokenUnavailable : Expect.LogUnreadable,
             FaultSweep.TableProblems(forum));
     }
 

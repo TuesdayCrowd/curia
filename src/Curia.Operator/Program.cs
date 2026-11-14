@@ -52,6 +52,11 @@ public static class ExitCode
     /// written. Errata G67 (Amendment 2 ruling 28).
     /// </summary>
     public const int HeadWithheld = 6;
+
+    /// <summary>
+    /// <c>lifecycle-audit</c> found at least one lifecycle row the Forum does not honour (R6.64). Nothing was written; the audit only reads. Errata G68 (ruling 13).
+    /// </summary>
+    public const int LifecycleRowsSkipped = 7;
 }
 
 /// <summary>
@@ -138,12 +143,25 @@ public static class OperatorCommands
               key it holds; a head it cannot verify as its own moves nothing); otherwise it
               publishes no key, signs no head, appends nothing, prints "unchanged" and exits 0, so
               a timer does not grow the log by its own output. It also withholds the head, exit 6
-              and nothing written, when a lifecycle row (a retirement, a compromise declaration or
-              a key binding beyond an enrolment) follows that head: this tool does not check such
-              a row's signature, and a head over a forged row cannot be taken back. A first run
-              after a log-key rotation has no such head and measures from the start of the log. A person reads the rows named on stderr, and
-              signs by hand without --if-grown (which prints "covers" for each row). Run a log-key
-              rotation without --if-grown: it publishes a key on a log that may be quiet.
+              and nothing written, when a lifecycle row the Forum does not honour (R6.64: one that
+              verifies under no published key) follows that head, because a head over such a row
+              cannot be taken back; a row the Forum honours does not stop it. Each withheld row is
+              named on stderr with its log index, its type and the predicate that failed. A first
+              run after a log-key rotation has no such head and measures from the start of the log.
+              A person reads the rows, and signs by hand without --if-grown (which prints "covers"
+              for each row). Run a log-key rotation without --if-grown: it publishes a key on a log
+              that may be quiet.
+
+          curia-operator lifecycle-audit
+
+              Reads the whole log and verifies every identity's lifecycle rows by R6.64, the
+              procedure the Forum decides by. It reads no key and writes nothing. Prints
+              "honoured <h>  skipped <n>"; with n above 0 it prints one line per skipped row,
+              "skipped  log_index=<i>  type=<t>  aggregate=<id>  predicate=<slug>", the first 100
+              and then "and <n> more", never a payload member, and exits 7. Run it before a
+              plain sign-head covers a row, and after a restore. It cannot see a row planted at a
+              position the application role's grant refuses (R11.6 (add.)): that is the start-up
+              check's.
 
           curia-operator compromise --agent <agent-id> --kid <kid> --from-index <n>
                                     --reason owner-reported|operator-observed --operator <role>
@@ -220,8 +238,12 @@ public static class OperatorCommands
           5  the Forum's store could not complete the verb (curia/store/unavailable) -- what it
              appended, if anything, is not known: read the log before running it again; sign-head
              re-reads and re-signs, so it is safe to run again
-          6  sign-head --if-grown withheld the head: a lifecycle row follows the latest head this tool signed --
-             nothing was written; stderr names the log indices and types
+          6  sign-head --if-grown withheld the head: a lifecycle row the Forum does not honour follows the
+             latest head this tool signed -- nothing was written; stderr names the log indices, types
+             and predicates
+          7  lifecycle-audit found a lifecycle row the Forum does not honour -- nothing was written;
+             stdout names the rows; compromise appended a declaration the Forum then skips --
+             the row is in the log, stderr names its index and the predicate, no key is marked
         """;
 
     /// <summary>
@@ -330,6 +352,10 @@ public static class OperatorCommands
 
         if (args[0] == "moderate")
             return await ModerateAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "lifecycle-audit")
+            return await LifecycleAuditAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "flags")
@@ -467,7 +493,7 @@ public static class OperatorCommands
                 // The anchor is the latest head this tool can verify as its own, under the key it holds and no key the log lists; the growth test, the stop and the covers lines read it and
                 // nothing else (Amendment 3 ruling 34). `log.key` is unsigned, so a head by shape is not one.
                 var signer = SignerOf(key);
-                var measured = Measure(acta!, signer);
+                var measured = Measure(acta!, Verifier, signer);
 
                 if (ifGrown)
                 {
@@ -508,7 +534,7 @@ public static class OperatorCommands
 
                     // The race (Amendment 3 ruling 40): a row may have been appended between the two folds, and the head is built from this one, so the stop is applied to what this one
                     // holds. No head was signed; the one log.key just published stays (it is not a head and not growth, and the next run finds it published).
-                    measured = Measure(acta!, signer);
+                    measured = Measure(acta!, Verifier, signer);
                     if (ifGrown && !measured.Tail.IsEmpty)
                         return await WithheldAsync(stderr, measured.Tail).ConfigureAwait(false);
                 }
@@ -547,21 +573,28 @@ public static class OperatorCommands
 
                 // The resume path (Amendment 2 ruling 28 (c)): a head signed by hand over lifecycle rows says which, so that the run leaves a record.
                 foreach (var covered in measured.Tail)
-                    await stdout.WriteLineAsync($"covers  log_index={covered.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(covered.Type.Value)}").ConfigureAwait(false);
+                    await stdout.WriteLineAsync($"covers  log_index={covered.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(covered.Type)}").ConfigureAwait(false);
 
                 return ExitCode.Ok;
             }
         }
     }
 
+    /// <summary>The verifier every lifecycle decision of this tool goes through (errata G68): the same two algorithms the Forum accepts.</summary>
+    private static readonly LifecycleVerifier Verifier = new(new Dictionary<string, IContentVerifier>(StringComparer.Ordinal)
+    {
+        ["EdDSA"] = new Ed25519Adapter(),
+        ["ES256"] = new Es256Adapter(),
+    });
+
     /// <summary>What one fold says about where the signer stands: the anchor, whether the log grew past it, and the lifecycle rows it does not cover (Amendment 3 ruling 40).</summary>
-    private readonly record struct HeadMeasure(SignedHead? Anchor, bool Grown, ImmutableArray<LifecycleRow> Tail);
+    private readonly record struct HeadMeasure(SignedHead? Anchor, bool Grown, ImmutableArray<SkippedRow> Tail);
 
     /// <summary>The three answers from one fold, so that the stop and the head built from that fold cannot disagree about which rows the head covers.</summary>
-    private static HeadMeasure Measure(ActaLog acta, Func<SignedHead, bool> signedByTheSigner)
+    private static HeadMeasure Measure(ActaLog acta, LifecycleVerifier verifier, Func<SignedHead, bool> signedByTheSigner)
     {
         var anchor = acta.LatestHeadWhere(signedByTheSigner);
-        return new HeadMeasure(anchor, acta.GrownPast(anchor), acta.LifecycleRowsPast(anchor));
+        return new HeadMeasure(anchor, acta.GrownPast(anchor), verifier.OfLog(acta.Events).SkippedPast(anchor?.TreeSize ?? 0));
     }
 
     /// <summary>
@@ -590,21 +623,69 @@ public static class OperatorCommands
     /// Errata G67, Amendment 2 ruling 28: <c>sign-head --if-grown</c> found a lifecycle row the latest head does not cover and signed nothing. Stdout is empty;
     /// stderr says why and lists the log indices and types (never a payload member), up to <see cref="WithheldListed"/>, then how many more. Exit 6.
     /// </summary>
-    private static async Task<int> WithheldAsync(TextWriter stderr, ImmutableArray<LifecycleRow> rows)
+    private static async Task<int> WithheldAsync(TextWriter stderr, ImmutableArray<SkippedRow> rows)
     {
         await stderr.WriteLineAsync(
-            $"error: curia/head/withheld: {rows.Length.ToString(CultureInfo.InvariantCulture)} lifecycle row(s) follow the latest head and this tool does not check their signatures, so no head was signed. " +
-            "A head over a forged row cannot be taken back: the log is append-only and clients retain the heads they have seen, so a restore to before the row forks the log for any client that retained a later head. " +
-            "Read the rows, and restore to before them if they are not genuine. " +
-            "If they are genuine, sign by hand with 'sign-head --by <name>' (without --if-grown); that head covers them.")
+            $"error: curia/head/withheld: {rows.Length.ToString(CultureInfo.InvariantCulture)} lifecycle row(s) the Forum does not honour (R6.64) follow the latest head, so no head was signed. " +
+            "A head over a row that verifies under no published key cannot be taken back: the log is append-only and clients retain the heads they have seen, so a restore to before the row forks the log for any client that retained a later head. " +
+            "Read the rows (lifecycle-audit lists every one), and restore to before them if they are not to stay in the log. " +
+            "The Forum acts on none of them; if they may stay, sign by hand with 'sign-head --by <name>' (without --if-grown), and that head covers them.")
             .ConfigureAwait(false);
         foreach (var row in rows.Take(WithheldListed))
-            await stderr.WriteLineAsync($"withheld  log_index={row.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(row.Type.Value)}").ConfigureAwait(false);
+            await stderr.WriteLineAsync($"withheld  log_index={row.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(row.Type)}  predicate={TerminalText.Line(row.Predicate)}").ConfigureAwait(false);
 
         if (rows.Length > WithheldListed)
             await stderr.WriteLineAsync($"and {(rows.Length - WithheldListed).ToString(CultureInfo.InvariantCulture)} more").ConfigureAwait(false);
 
         return ExitCode.HeadWithheld;
+    }
+
+    /// <summary>How many skipped rows <c>lifecycle-audit</c> lists before it says how many more there are.</summary>
+    private const int AuditListed = 100;
+
+    /// <summary>
+    /// Errata G68, ruling 13: <c>lifecycle-audit</c>. Reads the whole log once, verifies it by R6.64 and reports how many lifecycle rows the Forum honours and which it does not. Read-only, and
+    /// reads no key: the verifier holds the public algorithms only. Each skipped row is its log index, its type, its aggregate as a display literal (an identifier is a caller's string) and the
+    /// predicate that failed, never a payload member. Exit 7 when any row is skipped, 5 (through <see cref="RunAsync"/>) when the log cannot be read.
+    /// </summary>
+    private static async Task<int> LifecycleAuditAsync(
+        string[] argv,
+        string connectionString,
+        TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        if (argv.Length != 0)
+        {
+            await stderr.WriteLineAsync($"error: unexpected argument '{argv[0]}'. lifecycle-audit takes no argument.").ConfigureAwait(false);
+            return ExitCode.Usage;
+        }
+
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+        await using (adapters.ConfigureAwait(false))
+        {
+            var read = await adapters.EventStore.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!read.TryGetValue(out var log, out var readError))
+                return await RefuseAsync(stderr, readError!).ConfigureAwait(false);
+
+            var verified = Verifier.OfLog(log!);
+            var skipped = verified.Skipped();
+            await stdout.WriteLineAsync($"honoured {verified.HonouredCount().ToString(CultureInfo.InvariantCulture)}  skipped {skipped.Length.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+
+            foreach (var row in skipped.Take(AuditListed))
+            {
+                await stdout.WriteLineAsync(
+                    $"skipped  log_index={row.LogIndex.ToString(CultureInfo.InvariantCulture)}  type={TerminalText.Line(row.Type)}  aggregate={DisplayLiteral.Of(row.Aggregate)}  predicate={TerminalText.Line(row.Predicate)}")
+                    .ConfigureAwait(false);
+            }
+
+            if (skipped.Length > AuditListed)
+                await stdout.WriteLineAsync($"and {(skipped.Length - AuditListed).ToString(CultureInfo.InvariantCulture)} more").ConfigureAwait(false);
+
+            return skipped.IsEmpty ? ExitCode.Ok : ExitCode.LifecycleRowsSkipped;
+        }
     }
 
     /// <summary>
@@ -778,7 +859,7 @@ public static class OperatorCommands
         var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
         await using (adapters.ConfigureAwait(false))
         {
-            result = await new DeclareCompromise(adapters.EventStore, clock)
+            result = await new DeclareCompromise(adapters.EventStore, Verifier, clock)
                 .DeclareAsync(agent!, kid!, fromIndex, reason, signer!, actor, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1049,7 +1130,9 @@ public static class OperatorCommands
         await stderr.WriteLineAsync(
             $"error: {error.Title} ({error.Type}){(error.Detail is { Length: > 0 } d ? ": " + d : string.Empty)}")
             .ConfigureAwait(false);
-        return ExitCode.Refused;
+
+        // A row the Forum recorded and skips is the audit's finding, not a refusal of the request (errata G68, ruling 81): the same exit code as lifecycle-audit.
+        return string.Equals(error.Type, KeyActErrors.NotHonouredType, StringComparison.Ordinal) ? ExitCode.LifecycleRowsSkipped : ExitCode.Refused;
     }
 
     private sealed record Parsed(

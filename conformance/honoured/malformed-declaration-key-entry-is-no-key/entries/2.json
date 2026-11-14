@@ -1,0 +1,1 @@
+{"log_index":2,"leaf_hash":"sha256:8d57265fcca5f39e59b985bd487359217617b584ec886eb1aab705606e9247d1","entry":{"actor_id":"operator","aggregate_id":"log:declaration-keys","event_id":"01K4CQ4A000000000000000002","event_type":"log.declaration-key","payload":{"kid":"conformance-malformed-declaration-key","valid_from":"2026-09-01T00:00:00Z"},"server_ts":"2026-09-05T10:02:00.000000Z"}}

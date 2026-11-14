@@ -31,6 +31,13 @@ namespace Curia.Infrastructure;
 /// </summary>
 public sealed class PostgresEventStore : IEventStore
 {
+    /// <summary>
+    /// The log is the rows at positions above zero: a position is a leaf index (R6.47), the identity starts at 1, and every whole-log read, proof and head is keyed on <c>seq &gt; cursor</c>.
+    /// A statement that decides or returns an aggregate's events says so here, so that a version, a read by aggregate and a forward read are of one set of rows (errata G68, R6.65).
+    /// A row at <c>seq</c> 0 or below is not in the log; it is not counted, read or honoured (G69 non-property (b) and (c): it is inert, not detected).
+    /// </summary>
+    private const string InTheLog = "seq > 0";
+
     private const string SelectColumns = "seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts";
 
     private readonly NpgsqlDataSource _dataSource;
@@ -199,7 +206,7 @@ public sealed class PostgresEventStore : IEventStore
 
         long actualVersionValue;
         await using (var countCommand = new NpgsqlCommand(
-            $"SELECT count(*) FROM {_qualifiedTable} WHERE aggregate_id = @agg;", connection, transaction))
+            $"SELECT count(*) FROM {_qualifiedTable} WHERE aggregate_id = @agg AND {InTheLog};", connection, transaction))
         {
             countCommand.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
             actualVersionValue = (long)(await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
@@ -220,7 +227,7 @@ public sealed class PostgresEventStore : IEventStore
         {
             long conditionVersionValue;
             await using (var conditionCommand = new NpgsqlCommand(
-                $"SELECT count(*) FROM {_qualifiedTable} WHERE aggregate_id = @agg;", connection, transaction))
+                $"SELECT count(*) FROM {_qualifiedTable} WHERE aggregate_id = @agg AND {InTheLog};", connection, transaction))
             {
                 conditionCommand.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = condition.Aggregate.Value });
                 conditionVersionValue = (long)(await conditionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
@@ -337,7 +344,7 @@ public sealed class PostgresEventStore : IEventStore
         {
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             await using var command = new NpgsqlCommand(
-                $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE aggregate_id = @agg ORDER BY seq;", connection);
+                $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE aggregate_id = @agg AND {InTheLog} ORDER BY seq;", connection);
             command.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
 
             return Result<IReadOnlyList<AppendedEvent>>.Ok(await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false));

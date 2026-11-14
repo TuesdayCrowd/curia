@@ -1370,7 +1370,7 @@ internal static class Program
     {
         if (watch is null || watch.Foreign.Count == 0) return exit;
 
-        Output.Error(ForeignLines(watch.Foreign));
+        Output.Error(KeysReport.ForeignLines(watch.Foreign));
         return ExitCode.Unverified;
     }
 
@@ -1913,78 +1913,26 @@ internal static class Program
     }
 
     /// <summary>
-    /// The report <c>curia keys</c> prints (spec section 4.9): one line per key, the lifecycle's extent, a
-    /// <c>MISSING</c> line for each act this profile recorded that the Forum's lifecycle does not hold and a
-    /// <c>FOREIGN</c> line for each entry it holds that this profile did not make, and the kinds the Forum enables.
-    /// Exit 6 on any <c>MISSING</c> or <c>FOREIGN</c> line.
+    /// The report <c>curia keys</c> prints (spec section 4.9), from <see cref="KeysReport"/>, which <c>curia_keys</c> reads too (errata G68, R11.96): one line per key, the lifecycle's extent, a
+    /// <c>MISSING</c> line for each act this profile recorded that the Forum's lifecycle does not hold, a <c>SKIPPED</c> line for each row it does not act on, a <c>FOREIGN</c> line for each entry it
+    /// holds that this profile did not make, and the kinds the Forum enables. Exit 6 on any of the first three, 8 when no comparison could be made.
     /// </summary>
     internal static async Task<int> ShowKeysAsync(ForumClient client, AgentProfile profile, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(profile);
 
-        var read = await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var keySet, out var refusal)) return Output.Fail(refusal);
+        var read = await KeysReport.ReadAsync(client, profile, ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var reading, out var refusal)) return Output.Fail(refusal);
 
-        var frame = new FrameBuilder();
-        frame.Line("these lines are the Forum's word: its key set as served; only a signed head, checked by curia verify, anchors a key's binding");
-        foreach (var key in keySet.Keys.OrderBy(k => k.LogIndex ?? long.MaxValue).ThenBy(k => k.Kid, StringComparer.Ordinal))
+        Output.Keys(reading);
+        return reading.Verdict switch
         {
-            // The status is the Forum's word: its own four are written as they are, and any other is quoted.
-            if (key.Status is "active" or "retired" or "compromised" or "unbound")
-                frame.Line($"key {key.Kid} {new OwnText(key.Status)}, bound at log index {key.LogIndex}{RetiredAt(key)}");
-            else
-                frame.Line($"key {key.Kid} {key.Status}, bound at log index {key.LogIndex}{RetiredAt(key)}");
-        }
-
-        long? last = keySet.Lifecycle is { IsEmpty: false } lifecycle ? lifecycle.Max() : null;
-        frame.Line($"lifecycle published through log index {last}; {profile.Acts.Length} acts of this profile recorded");
-
-        var findings = LifecycleWatch.Compare(profile, keySet);
-        foreach (var missing in findings.Where(f => !f.Foreign))
-            frame.Line($"MISSING: this profile's {new OwnText(missing.Kind)} at log index {missing.LogIndex} is not in the lifecycle the Forum publishes");
-
-        Output.Frame(frame);
-
-        var foreign = findings.Where(f => f.Foreign).ToList();
-        if (foreign.Count > 0) Output.Frame(ForeignLines(foreign));
-
-        if (keySet.EnabledKinds is { } enabled)
-            Output.Line($"lifecycle kinds this Forum enables: {(enabled.IsEmpty ? new OwnText("none (every lifecycle kind is guarded until the owner lifts the guard, R4.38)") : Literals(enabled))}");
-        else
-            Output.Line("lifecycle kinds this Forum enables: its key set does not say");
-
-        if (!findings.IsEmpty) return ExitCode.Unverified;
-
-        // No finding is a clean comparison only if one could be made: a lifecycle to read and a key naming its binding.
-        if (last is null)
-            return Output.Fail("could not compare: the Forum's key set names no lifecycle", ExitCode.ForumFault);
-
-        if (!keySet.Keys.Any(k => k.LogIndex is not null))
-            return Output.Fail("could not compare: no key names its binding", ExitCode.ForumFault);
-
-        return ExitCode.Ok;
-    }
-
-    private static OwnText RetiredAt(ForumJwk key) =>
-        key.RetiredLogIndex is { } retired
-            ? new OwnText(", retired at " + retired.ToString(CultureInfo.InvariantCulture))
-            : new OwnText(string.Empty);
-
-    /// <summary>
-    /// The lines that report entries in an identity's lifecycle that its profile did not make: one each, and then
-    /// where to go (spec section 4.9; the operator runbook, R12.11, takes the first index as the latest a compromise
-    /// declaration may be made from).
-    /// </summary>
-    private static FrameBuilder ForeignLines(IReadOnlyList<LifecycleFinding> foreign)
-    {
-        var frame = new FrameBuilder();
-        foreach (var entry in foreign.OrderBy(f => f.LogIndex))
-            frame.Line($"FOREIGN: a {new OwnText(entry.Kind)} at log index {entry.LogIndex} that this profile did not make");
-
-        var first = foreign.Min(f => f.LogIndex);
-        frame.Line($"report it to the Forum's operator; a compromise declaration from no later than log index {first} ends the key it bound (R6.57)");
-        return frame;
+            KeysVerdict.Findings => ExitCode.Unverified,
+            KeysVerdict.CouldNotCompare => Output.CouldNotCompare(reading),
+            KeysVerdict.Clean => ExitCode.Ok,
+            _ => ExitCode.Ok,
+        };
     }
 
     /// <summary>The refusals after which a client reads the identity's key set to see whether a stranger has acted (spec section 4.9).</summary>
@@ -2014,10 +1962,15 @@ internal static class Program
         var read = await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false);
         if (!read.TryGetValue(out var keySet, out _)) return code;
 
+        // R11.96 (errata G68): the comparison made after a refusal prints what `curia keys` prints for a stranger's act, the FOREIGN lines, and for a row the Forum does not act on, the SKIPPED lines.
+        // A key set that does not say which rows it skips is not remarked on here: this is a refusal's footnote, and `curia keys` says it.
         var foreign = LifecycleWatch.Compare(profile, keySet).Where(f => f.Foreign).ToList();
-        if (foreign.Count == 0) return code;
+        var frame = new FrameBuilder();
+        var skipped = KeysReport.AppendSkipped(frame, profile, keySet, saySoWhenSilent: false);
+        if (foreign.Count == 0 && !skipped) return code;
 
-        Output.Error(ForeignLines(foreign));
+        if (foreign.Count > 0) KeysReport.AppendForeign(frame, foreign);
+        Output.Error(frame);
         return ExitCode.Unverified;
     }
 
@@ -2297,7 +2250,7 @@ internal static class Program
             .ToList();
         if (foreign.Count > 0)
         {
-            Output.Error(ForeignLines(foreign));
+            Output.Error(KeysReport.ForeignLines(foreign));
             return (ExitCode.Unverified, 0);
         }
 

@@ -44,6 +44,11 @@ if (args.Contains("--lifecycle", StringComparer.Ordinal))
 if (args.Contains("--lifecycle-cases", StringComparer.Ordinal))
     return LifecycleCases.Run(repoRoot);
 
+// `--honoured-cases` writes conformance/honoured/ (errata G68, R6.64): whole small logs, each with the verdict the Forum's procedure must reach for every
+// lifecycle row of an agent's stream. Deterministic but for the declarations' ES256 signatures, which are pinned on first generation and kept.
+if (args.Contains("--honoured-cases", StringComparer.Ordinal))
+    return LifecycleCases.RunHonoured(repoRoot);
+
 Directory.CreateDirectory(outputRoot);
 
 // `--only a,b` regenerates named cases alone. Every case signs with a key drawn fresh at run

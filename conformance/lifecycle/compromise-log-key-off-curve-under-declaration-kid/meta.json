@@ -1,7 +1,7 @@
 {
   "profile": "lifecycle-log",
   "requirement": "R6.62",
-  "note": "The keys member lists, beside the head key, an entry under the declaration key's own kid with x and y of 43 A each at 5, and declaration_keys lists the declaration key at 3. The declaring key's kid is a log key's by kid, so the declaration at 4 fails (R6.62(d)); a reader that compares public keys only finds no key in the entry and disputes. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
-  "post_index": 2,
+  "note": "The keys member lists, beside the head key, an entry under the declaration key's own kid with x and y of 43 A each at 2, and declaration_keys lists the declaration key at 4. The log key is published below the declaration at 5 and the declaring key's kid is a log key's by kid, so the declaration fails (R6.62(d)); a reader that compares public keys only finds no key in the entry and disputes. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 3,
   "agent": "agent://curia.example/tuesdaycrowd/scriptor"
 }

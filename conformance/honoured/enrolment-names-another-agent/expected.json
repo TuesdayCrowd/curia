@@ -1,0 +1,1 @@
+{"rows":[{"log_index":0,"type":"agent.enrolled","verdict":"skipped","predicate":"statement-mismatch"},{"log_index":1,"type":"agent.key-bound","verdict":"skipped","predicate":"broken-link"}],"keys":{},"bound":[]}

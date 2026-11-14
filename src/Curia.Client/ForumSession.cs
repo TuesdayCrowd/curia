@@ -52,6 +52,19 @@ public sealed class ForumSession
     /// </summary>
     public TimeSpan? WriteBound { get; }
 
+    /// <summary>
+    /// Errata G68, R11.96: this identity's key set read and reported against the acts its profile recorded, as <c>curia keys</c> reports it (<see cref="KeysReport"/>, one definition). The profile is read from
+    /// the store at the call and not taken from the identity this session was started with, because an act another process recorded since (a rotation made by <c>curia rotate</c>) is one this report must not
+    /// call foreign. The key-set route is anonymous: no token is used.
+    /// </summary>
+    public async Task<ForumResult<KeysReading>> KeysAsync(CancellationToken ct)
+    {
+        if (!_store.ReadProfile(_agent.Profile.Slug).TryGetValue(out var profile, out var error))
+            return ForumResult<KeysReading>.Local(error!);
+
+        return await KeysReport.ReadAsync(_client, profile!, ct).ConfigureAwait(false);
+    }
+
     public ForumSession(ForumClient client, EnrolledAgent agent, ProfileStore store, TimeProvider clock, TimeSpan? writeBound = null)
     {
         ArgumentNullException.ThrowIfNull(client);

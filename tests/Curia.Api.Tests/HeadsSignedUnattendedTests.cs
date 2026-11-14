@@ -32,7 +32,7 @@ namespace Curia.Api.Tests;
 /// PR H (errata G67: R6.62, R6.63, R11.94, R12.18): a head signed unattended, a declaration key of its own, and the words that say when the latest head was signed. Each test
 /// builds the Forum it needs (a database of its own, a host where it reads a served route), so that one log is not another's: growth is a fact about the whole log.
 /// The oracles are the events table, read by SQL and not through the code under test, and the operator tool's exit codes and words as the verbs print them.
-/// HSU8 to HSU17, HSU26, HSU28, HSU31 and HSU35 to HSU38 live here; HSU36 is a characterisation of D121's Forum half and goes red the day the Forum's fold verifies.
+/// HSU8 to HSU17, HSU26, HSU28, HSU31 and HSU35 to HSU38 live here; HSU36 is D121's Forum half as the Forum now answers it: a forged row is skipped and marks nothing.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -808,10 +808,7 @@ public sealed partial class HeadsSignedUnattendedTests
         }
     }
 
-    // ---------------------------------------------------------------------------------------------------- D121: the Forum honours rows by shape
-
-    private const string D121Landed =
-        "D121's Forum half has landed (the Forum's fold now checks what it folds): update D121, G67's non-property (c) and the beta notes in the same commit, and replace this probe's expectation.";
+    // ---------------------------------------------------------------------------------------------------- D121: the Forum honours a row only if it verifies (errata G68)
 
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
@@ -850,63 +847,48 @@ public sealed partial class HeadsSignedUnattendedTests
     }
 
     /// <summary>
-    /// HSU36, a characterisation (D121's Forum half and G67's non-property (c), held as a probe so that they cannot go stale; Amendment 1 ruling 20). Two agents A and B, a post each and a head covering both. A
-    /// row of type <c>agent.key-compromised</c> is appended by SQL under the app role and through no use case, naming B's real kid, with a zero signature. The Forum marks B's post <c>compromised</c> at the row's
-    /// index, omits it from search and counts it, refuses B's token <c>401 invalid_client</c>; A is unchanged; <c>curia verify</c> of B's post reads the lifecycle verified while no head covers the row and failed after
-    /// <c>sign-head</c> has covered it. Green on the seam and on every commit until the Forum's fold verifies; red on FHSU29 for its own assertion.
+    /// HSU36 (D121's Forum half, as errata G68 closes it; Amendment 1 ruling 20, Amendment 5 ruling 69 item 6). Two agents A and B, a post each and a head covering both. A row of type
+    /// <c>agent.key-compromised</c> is appended by SQL under the app role and through no use case, naming B's real kid, with a zero signature. The Forum skips it: B's post is served
+    /// <c>key_status</c> <c>active</c> with no <c>disputed_by_log_index</c>, is found by search (<c>excluded_disputed</c> 0), and B's token request is <c>200</c>; A is unchanged. The expectation
+    /// replaces the one that pinned the Forum honouring the row by its shape; what <c>curia verify</c> says of B's post before and after a head covers the row is the client's and is Task 5's
+    /// to pin, and D121, G67's non-property (c) and the beta notes are edited by Task 8.
     /// </summary>
     [Fact]
-    public async Task R6_57_HSU36_TheForumHonoursAForgedDeclarationByItsShape()
+    public async Task R6_57_HSU36_TheForumSkipsAForgedDeclaration()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var forum = await NewAsync<ForumFixture>();
-        var home = Directory.CreateTempSubdirectory("curia-hsu36-").FullName;
-        try
-        {
-            var board = "board-" + Suffix();
-            var term = "zforge" + Suffix();
-            var (a, dpopA, tokenA) = await EnrolAsync(forum, "hsu36a", ct);
-            var (b, dpopB, tokenB) = await EnrolAsync(forum, "hsu36b", ct);
-            var postA = await AskAsync(forum, a, dpopA, tokenA, board, $"{Words()} {term}", $"{Words()} {term}", ct);
-            var postB = await AskAsync(forum, b, dpopB, tokenB, board, $"{Words()} {term}", $"{Words()} {term}", ct);
-            var pem = LogSigningKey.GeneratePem();
-            Assert.Equal(0, (await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: Pem(pem))).Exit);
+        var board = "board-" + Suffix();
+        var term = "zforge" + Suffix();
+        var (a, dpopA, tokenA) = await EnrolAsync(forum, "hsu36a", ct);
+        var (b, dpopB, tokenB) = await EnrolAsync(forum, "hsu36b", ct);
+        var postA = await AskAsync(forum, a, dpopA, tokenA, board, $"{Words()} {term}", $"{Words()} {term}", ct);
+        var postB = await AskAsync(forum, b, dpopB, tokenB, board, $"{Words()} {term}", $"{Words()} {term}", ct);
+        var pem = LogSigningKey.GeneratePem();
+        Assert.Equal(0, (await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: Pem(pem))).Exit);
 
-            var log = await ReadLogAsync(forum, ct);
-            var bindingOfB = log.Select((e, i) => (e, i)).First(x => x.e.AggregateId.Value == b.AgentId && x.e.Event.Type.Value == AgentStandingProjector.KeyBoundType).i;
-            var rowIndex = log.Count;
-            await InsertRowAsync(forum, LifecycleAppendGuard.KeyCompromisedType, b.AgentId, ForgedDeclaration(b.AgentId, b.Kid, LastIndexOf(log, b.AgentId), bindingOfB), ct);
+        var log = await ReadLogAsync(forum, ct);
+        var bindingOfB = log.Select((e, i) => (e, i)).First(x => x.e.AggregateId.Value == b.AgentId && x.e.Event.Type.Value == AgentStandingProjector.KeyBoundType).i;
+        await InsertRowAsync(forum, LifecycleAppendGuard.KeyCompromisedType, b.AgentId, ForgedDeclaration(b.AgentId, b.Kid, LastIndexOf(log, b.AgentId), bindingOfB), ct);
 
-            var servedB = (await forum.Client.GetFromJsonAsync<JsonElement>($"/v1/posts/{postB.PostId}", ct)).GetProperty("provenance");
-            var servedA = (await forum.Client.GetFromJsonAsync<JsonElement>($"/v1/posts/{postA.PostId}", ct)).GetProperty("provenance");
-            using var search = JsonDocument.Parse(await forum.Client.GetStringAsync(new Uri($"/v1/search?q={term}&board={board}", UriKind.Relative), ct));
-            var found = search.RootElement.GetProperty("results").EnumerateArray().Select(r => r.GetProperty("post").GetProperty("post_id").GetString()).ToArray();
-            var (tokenStatusB, tokenBodyB) = await dpopB.RequestTokenAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, b.AgentId, ct);
-            var (tokenStatusA, _) = await dpopA.RequestTokenAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, a.AgentId, ct);
+        var servedB = (await forum.Client.GetFromJsonAsync<JsonElement>($"/v1/posts/{postB.PostId}", ct)).GetProperty("provenance");
+        var servedA = (await forum.Client.GetFromJsonAsync<JsonElement>($"/v1/posts/{postA.PostId}", ct)).GetProperty("provenance");
+        using var search = JsonDocument.Parse(await forum.Client.GetStringAsync(new Uri($"/v1/search?q={term}&board={board}", UriKind.Relative), ct));
+        var found = search.RootElement.GetProperty("results").EnumerateArray().Select(r => r.GetProperty("post").GetProperty("post_id").GetString()).ToArray();
+        var (tokenStatusB, _) = await dpopB.RequestTokenAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, b.AgentId, ct);
+        var (tokenStatusA, _) = await dpopA.RequestTokenAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, a.AgentId, ct);
 
-            var problems = new List<string>();
-            void Hold(bool holds, string what) { if (!holds) problems.Add(what + " :: " + D121Landed); }
-            Hold(servedB.GetProperty("key_status").GetString() == "compromised", "B's post is not served key_status compromised");
-            Hold(servedB.TryGetProperty("disputed_by_log_index", out var by) && by.GetInt64() == rowIndex, $"B's post is not served disputed_by_log_index {rowIndex}");
-            Hold(!found.Contains(postB.PostId) && found.Contains(postA.PostId), "search does not omit B's post and keep A's");
-            Hold(search.RootElement.GetProperty("floor").GetProperty("excluded_disputed").GetInt32() == 1, "search does not state excluded_disputed 1");
-            Hold(tokenStatusB == HttpStatusCode.Unauthorized && tokenBodyB.Contains("invalid_client", StringComparison.Ordinal), $"B's token request is not 401 invalid_client ({(int)tokenStatusB})");
-            Hold(servedA.GetProperty("key_status").GetString() == "active" && !servedA.TryGetProperty("disputed_by_log_index", out _), "A's mark changed");
-            Hold(tokenStatusA == HttpStatusCode.OK, $"A's token request is not 200 ({(int)tokenStatusA})");
+        var problems = new List<string>();
+        void Hold(bool holds, string what) { if (!holds) problems.Add(what); }
+        Hold(servedB.GetProperty("key_status").GetString() == "active", "B's post is not served key_status active");
+        Hold(!servedB.TryGetProperty("disputed_by_log_index", out _), "B's post is served a disputed_by_log_index");
+        Hold(found.Contains(postB.PostId) && found.Contains(postA.PostId), "search does not find both posts");
+        Hold(search.RootElement.GetProperty("floor").GetProperty("excluded_disputed").GetInt32() == 0, "search does not state excluded_disputed 0");
+        Hold(tokenStatusB == HttpStatusCode.OK, $"B's token request is not 200 ({(int)tokenStatusB})");
+        Hold(servedA.GetProperty("key_status").GetString() == "active" && !servedA.TryGetProperty("disputed_by_log_index", out _), "A's mark changed");
+        Hold(tokenStatusA == HttpStatusCode.OK, $"A's token request is not 200 ({(int)tokenStatusA})");
 
-            var heads = new HeadStore(home);
-            var beforeHead = await VerifyAsync(forum, postB.PostId, forum.Now, heads, ct);
-            Assert.Equal(0, (await OperatorAsync(forum, ct, ["sign-head", "--by", "ops"], logKey: Pem(pem))).Exit);
-            var afterHead = await VerifyAsync(forum, postB.PostId, forum.Now, heads, ct);
-            Hold(beforeHead.Overall == CheckOutcome.Verified, $"curia verify of B's post is {beforeHead.Overall} while no head covers the row, not Verified (exit 0): inclusion {beforeHead.Inclusion.Detail}");
-            Hold(afterHead.Overall == CheckOutcome.Failed && afterHead.Lifecycle.Outcome == CheckOutcome.Failed, $"curia verify of B's post is {afterHead.Overall} (lifecycle {afterHead.Lifecycle.Outcome}) once a head covers the row, not Failed (exit 6): {afterHead.Lifecycle.Detail}");
-
-            Assert.True(problems.Count == 0, string.Join("\n", problems));
-        }
-        finally
-        {
-            Directory.Delete(home, recursive: true);
-        }
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
     // ------------------------------------------------------------------------------------------------------------------------------------- the stop

@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "The stream's first agent.enrolled at 0 names another agent (agent_id is the other agent's) and the stream's own key K; the standard pair naming the stream's agent and K is at 1. The enrolment fails R6.64's step 4 and is skipped as statement-mismatch, so the stream has no root: the pair is not in the pair's position (step 5, broken-link) and nothing is bound. A later declaration is left out on purpose: with no honoured entry its prev can only be broken-link, which adds a row and no information. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

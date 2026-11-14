@@ -55,7 +55,7 @@ public sealed class DeclareCompromiseTests
 
     private static Task<Result<CompromiseRecorded>> DeclareAsync(
         KeyActHarness harness, ILifecycleStatementSigner signer, string kid, long fromIndex, string agent = Alice) =>
-        new DeclareCompromise(harness.Events, harness.Clock)
+        new DeclareCompromise(harness.Events, TestVerifier.Es256, harness.Clock)
             .DeclareAsync(Typed.Agent(agent), Typed.Kid(kid), fromIndex, CompromiseReason.OwnerReported, signer, Operator, Ct);
 
     private static async Task<Dictionary<string, KeyStatus>> StatusesAsync(KeyActHarness harness, params string[] kids)
@@ -312,6 +312,80 @@ public sealed class DeclareCompromiseTests
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Curia.sln")))
             directory = directory.Parent;
         return Path.Combine([directory?.FullName ?? throw new InvalidOperationException("Curia.sln not found above the test"), .. parts]);
+    }
+
+    private static int _plantedKeys;
+
+    /// <summary>A key entry as the operator's publish-key verbs append it (<c>log.key</c> or <c>log.declaration-key</c>), under <paramref name="kid"/> and a unique event id.</summary>
+    private static async Task PlantKeyAsync(KeyActHarness harness, string type, string aggregate, string kid, JsonValue.Object jwk)
+    {
+        var all = Require(await harness.Events.ReadAllAsync(Ct).ConfigureAwait(false));
+        var held = all.Count(e => e.AggregateId.Value == aggregate);
+        var payload = new JsonValue.Object(
+        [
+            new(LogEntries.KidMember, new JsonValue.String(kid)),
+            new(LogEntries.JwkMember, jwk),
+            new(LogEntries.ValidFromMember, new JsonValue.String(LogLeaf.RenderServerTimestamp(ServerTimestamp.At(harness.Clock.GetUtcNow())))),
+        ]);
+        Require(await harness.Events.AppendAsync(
+            Require(AggregateId.Create(aggregate)),
+            Require(AggregateVersion.From(held)),
+            [new DomainEvent(Require(EventId.Create("01K4CQ1V9P3R5T7W9Y1A3C5" + (900 + Interlocked.Increment(ref _plantedKeys)).ToString(System.Globalization.CultureInfo.InvariantCulture))), Require(EventType.Create(type)), Operator, payload)],
+            Ct).ConfigureAwait(false));
+    }
+
+    /// <summary>The signer's public key stated under <paramref name="kid"/> (the entry's kid and its jwk's kid are one, R6.62's closed form).</summary>
+    private static JsonValue.Object JwkUnder(InMemoryLifecycleStatementSigner signer, string kid) =>
+        new([.. signer.PublicJwk().Members.Select(m => m.Key == "kid" ? new KeyValuePair<string, JsonValue>("kid", new JsonValue.String(kid)) : m)]);
+
+    private static async Task<int> LogSizeAsync(KeyActHarness harness) => Require(await harness.Events.ReadAllAsync(Ct).ConfigureAwait(false)).Count;
+
+    /// <summary>
+    /// LRV42 (a) (errata G68, ruling 81, F-H2): a key's binding is the honoured pair's index, never the enrolment's. alice-1 is enrolled at 0 and bound by its pair at 1, so
+    /// <c>from_index</c> 0 is below its binding: refused <c>before-binding</c> and nothing appended. Red on the tip: the writer took the enrolment's index and recorded a declaration the Forum skips.
+    /// </summary>
+    [Fact]
+    public async Task LRV42_A_AFromIndexAtTheEnrolmentIsBelowTheBindingAndIsRefused()
+    {
+        var (harness, _, signer) = await ChainAsync(1);
+        using var _ = signer;
+        var before = await LogSizeAsync(harness);
+
+        var declared = await DeclareAsync(harness, signer, "alice-1", fromIndex: 0);
+
+        Assert.Equal($"curia/keys/before-binding field=from_index; {before}", $"{Describe(declared)}; {await LogSizeAsync(harness)}");
+    }
+
+    /// <summary>LRV42 (b): the signing key's public key is also a <c>log.key</c> under another kid. The fold compares by kid or by public key; so does the writer. Nothing appended.</summary>
+    [Fact]
+    public async Task LRV42_B_ADeclarationKeyThatIsALogKeyUnderAnotherKidIsRefused()
+    {
+        var (harness, _, signer) = await ChainAsync(1);
+        using var _ = signer;
+        await PlantKeyAsync(harness, LogEntries.KeyType, LogEntries.KeysAggregate, "another-log-kid", JwkUnder(signer, "another-log-kid")).ConfigureAwait(true);
+        var before = await LogSizeAsync(harness);
+
+        var declared = await DeclareAsync(harness, signer, "alice-1", fromIndex: 1);
+
+        Assert.Equal($"curia/keys/declaration-key-is-log-key the key's kid is published as a log key; {before}", $"{Describe(declared)}; {await LogSizeAsync(harness)}");
+    }
+
+    /// <summary>LRV42 (c): two <c>log.declaration-key</c> entries are in the log and the signer is the second. R6.62 lets only the first declare: refused <c>declaration-key-not-first</c>, nothing appended.</summary>
+    [Fact]
+    public async Task LRV42_C_ADeclarationKeyThatIsNotTheFirstPublishedIsRefused()
+    {
+        var harness = new KeyActHarness();
+        await harness.EnrollAsync(Alice, TestIdentity.New("alice-1")).ConfigureAwait(true);
+        using var first = new InMemoryLifecycleStatementSigner("first-declaration-key");
+        using var second = new InMemoryLifecycleStatementSigner("second-declaration-key");
+        await PlantKeyAsync(harness, LogEntries.DeclarationKeyType, LogEntries.DeclarationKeysAggregate, first.Kid, first.PublicJwk()).ConfigureAwait(true);
+        await PlantKeyAsync(harness, LogEntries.DeclarationKeyType, LogEntries.DeclarationKeysAggregate, second.Kid, second.PublicJwk()).ConfigureAwait(true);
+        var before = await LogSizeAsync(harness);
+
+        var declared = await DeclareAsync(harness, second, "alice-1", fromIndex: 1);
+
+        Assert.StartsWith("curia/keys/declaration-key-not-first", Describe(declared), StringComparison.Ordinal);
+        Assert.Equal(before, await LogSizeAsync(harness));
     }
 
     /// <summary>

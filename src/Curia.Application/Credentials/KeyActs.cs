@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
@@ -46,6 +47,15 @@ public static class KeyActErrors
 
     /// <summary>Errata G67, R6.62: a declaration key is already published, and the first publication wins.</summary>
     public const string DeclarationKeyAlreadyPublishedType = "curia/keys/declaration-key-already-published";
+
+    /// <summary>Amendment 7, ruling 81: the signing key is not the first declaration key the log published, and only the first declares (R6.62).</summary>
+    public const string DeclarationKeyNotFirstType = "curia/keys/declaration-key-not-first";
+
+    /// <summary>
+    /// Amendment 7, ruling 81 (F-H2): the row was appended and the Forum skips it. The writer says so and never reports success for it. A fault of the Forum (its writer and its fold disagree), so a route
+    /// answers it 500 and states no detail (R11.33).
+    /// </summary>
+    public const string NotHonouredType = "curia/keys/not-honoured";
 
     /// <summary>The act's <c>prev</c> is not the identity's latest lifecycle index. The detail is that index, an integer.</summary>
     public static Error LifecycleMoved(long latest) => new(
@@ -104,6 +114,19 @@ public static class KeyActErrors
     public static Error DeclarationKeyAlreadyPublished() => new(
         DeclarationKeyAlreadyPublishedType, "A declaration key is already published", "the first declaration key published is the one");
 
+    /// <summary>R6.62: the signing key is a declaration key but not the first the log published. Names neither key nor kid.</summary>
+    public static Error DeclarationKeyNotFirst() => new(
+        DeclarationKeyNotFirstType, "A declaration key is not the first published", "only the first declaration key published declares");
+
+    /// <summary>
+    /// Ruling 81: the entry was appended at <paramref name="index"/> and the Forum skips it, by <paramref name="predicate"/> (R6.64). It is in the log, and ends, binds and marks no key. The detail names
+    /// the index and the predicate and never a payload member.
+    /// </summary>
+    public static Error NotHonoured(long index, string predicate) => new(
+        NotHonouredType,
+        "The Forum does not honour the row it recorded",
+        $"the row was appended at log index {index.ToString(CultureInfo.InvariantCulture)} and the Forum skips it ({predicate}); it ends, binds and marks no key");
+
     /// <summary>R4.38 (add.): the Forum does not enable rotation. A fixed detail, naming the kind and nothing about the caller.</summary>
     public static Error RotationNotEnabled() => new(
         LifecycleNotEnabledType, "Key lifecycle acts are not enabled", "key rotation is not enabled on this Forum");
@@ -114,9 +137,9 @@ public static class KeyActErrors
 }
 
 /// <summary>
-/// The steps rotation and retirement share (spec section 4.4): the stream read for the version, the log
-/// folded for the latest lifecycle index, a signature held to its kind's header and verified, and the
-/// entry appended on the version read first.
+/// The steps rotation and retirement share (spec section 4.4): the whole log read once for the stream's version
+/// and the latest honoured lifecycle index, a signature held to its kind's header and verified, and the
+/// entry appended on the version that read gave.
 /// </summary>
 internal static class KeyActs
 {
@@ -124,45 +147,40 @@ internal static class KeyActs
 
     internal sealed record Stream(AggregateId Aggregate, ActorId Actor, AggregateVersion Version);
 
-    internal sealed record LifecycleRead(KeyLifecycle Lifecycle, ActaLog Log, long? LatestIndex);
-
-    /// <summary>The identity's stream and its version (step 4), read before the log is.</summary>
-    internal static async Task<Result<Stream>> ReadStreamAsync(IEventReader events, AgentId agent, CancellationToken ct)
-    {
-        if (!AggregateId.Create(agent.Value).TryGetValue(out var aggregate, out var aggregateError))
-            return Result<Stream>.Fail(aggregateError!);
-        if (!ActorId.Create(agent.Value).TryGetValue(out var actor, out var actorError))
-            return Result<Stream>.Fail(actorError!);
-
-        var read = await events.ReadByAggregateAsync(aggregate, ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var history, out var readError))
-            return Result<Stream>.Fail(LogBoundKeys.LogUnreadable(readError!));
-        if (!AggregateVersion.From(history!.Count).TryGetValue(out var version, out var versionError))
-            return Result<Stream>.Fail(LogBoundKeys.LogUnreadable(versionError!));
-
-        return Result<Stream>.Ok(new Stream(aggregate, actor, version!));
-    }
+    /// <summary>
+    /// What one read of the whole log says of an identity: its honoured lifecycle, the log folded as an Acta, the index of the latest honoured entry, and the stream
+    /// (the version a conditioned append is made on). The version is counted from the same entries the decision is drawn from, so there is no second instant (R6.56).
+    /// </summary>
+    internal sealed record LifecycleRead(KeyLifecycle Lifecycle, ActaLog Log, long? LatestIndex, Stream Stream, ImmutableArray<SkippedRow> Skipped);
 
     /// <summary>
-    /// The log folded through <see cref="ActaLog"/> (step 5) and the identity's lifecycle read from the
-    /// same entries, with the index of its latest entry. A log that will not fold is
-    /// <see cref="LogBoundKeys.LogUnreadable"/>; a stream the lifecycle fold refuses passes its own refusal.
+    /// The log read once (errata G68, ruling 36: a statement's <c>prev</c> and a declaration's <c>from_index</c> are positions in the whole log, so no decision reads an aggregate by itself),
+    /// folded through <see cref="ActaLog"/> (step 5), and the identity's honoured lifecycle read from the same entries, with the index of its latest honoured entry and the stream's version
+    /// (step 4). A log that will not read or fold is <see cref="LogBoundKeys.LogUnreadable"/>; a row that does not verify is skipped, and moves nothing.
     /// </summary>
-    internal static async Task<Result<LifecycleRead>> ReadLifecycleAsync(IEventReader events, AgentId agent, CancellationToken ct)
+    internal static async Task<Result<LifecycleRead>> ReadLifecycleAsync(IEventReader events, LifecycleVerifier verifier, AgentId agent, CancellationToken ct)
     {
+        if (!AggregateId.Create(agent.Value).TryGetValue(out var aggregate, out var aggregateError))
+            return Result<LifecycleRead>.Fail(aggregateError!);
+        if (!ActorId.Create(agent.Value).TryGetValue(out var actor, out var actorError))
+            return Result<LifecycleRead>.Fail(actorError!);
+
         var all = await events.ReadAllAsync(ct).ConfigureAwait(false);
         if (!all.TryGetValue(out var log, out var readError))
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(readError!));
+        if (!AggregateVersion.From(log!.Count(e => e.AggregateId.Value == aggregate!.Value)).TryGetValue(out var version, out var versionError))
+            return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(versionError!));
         if (!ActaLog.Fold(log!).TryGetValue(out var acta, out var foldError))
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(foldError!));
-        if (!KeyLifecycle.Of(log!, agent).TryGetValue(out var lifecycle, out var lifecycleError))
-            return Result<LifecycleRead>.Fail(lifecycleError!);
 
-        if (lifecycle!.Entries.IsEmpty) return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta!, null));
+        var stream = new Stream(aggregate!, actor!, version!);
+        var verified = verifier.OfLog(log!).For(agent);
+        var lifecycle = verified.Honoured;
+        if (lifecycle.Entries.IsEmpty) return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta!, null, stream, verified.Skipped));
         if (acta!.IndexOf(lifecycle.Entries[^1].EventId) is not { } latest)
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(KeyStatementErrors.Mismatch("entry")));
 
-        return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta, latest));
+        return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta, latest, stream, verified.Skipped));
     }
 
     /// <summary>The canonical bytes of a statement already read as its own canonical form.</summary>
@@ -232,7 +250,7 @@ internal static class KeyActs
     /// lifecycle moving (step 10): it answers <see cref="KeyActErrors.LifecycleMoved"/> with the latest index
     /// the log now holds. On success, the entry's index in the log.
     /// </summary>
-    internal static async Task<Result<long>> AppendAsync(IEventStore events, AgentId agent, Stream stream, DomainEvent entry, CancellationToken ct)
+    internal static async Task<Result<long>> AppendAsync(IEventStore events, LifecycleVerifier verifier, AgentId agent, Stream stream, DomainEvent entry, CancellationToken ct)
     {
         var appended = await events.AppendAsync(stream.Aggregate, stream.Version, [entry], ct).ConfigureAwait(false);
         if (!appended.TryGetValue(out _, out var appendError))
@@ -240,16 +258,21 @@ internal static class KeyActs
             if (!string.Equals(appendError!.Type, DomainErrors.ConcurrencyConflictType, StringComparison.Ordinal))
                 return Result<long>.Fail(appendError);
 
-            var moved = await ReadLifecycleAsync(events, agent, ct).ConfigureAwait(false);
+            var moved = await ReadLifecycleAsync(events, verifier, agent, ct).ConfigureAwait(false);
             if (!moved.TryGetValue(out var now, out var movedError)) return Result<long>.Fail(movedError!);
             return Result<long>.Fail(now!.LatestIndex is { } latest ? KeyActErrors.LifecycleMoved(latest) : appendError);
         }
 
-        var recorded = await ReadLifecycleAsync(events, agent, ct).ConfigureAwait(false);
+        var recorded = await ReadLifecycleAsync(events, verifier, agent, ct).ConfigureAwait(false);
         if (!recorded.TryGetValue(out var after, out var recordedError)) return Result<long>.Fail(recordedError!);
-        return after!.Log.IndexOf(entry.Id.Value) is { } index
-            ? Result<long>.Ok(index)
-            : Result<long>.Fail(LogBoundKeys.LogUnreadable(KeyStatementErrors.Mismatch("entry")));
+        if (after!.Log.IndexOf(entry.Id.Value) is not { } index)
+            return Result<long>.Fail(LogBoundKeys.LogUnreadable(KeyStatementErrors.Mismatch("entry")));
+
+        // Ruling 81: the row is in the log; whether the Forum honours it is the fold's to say. A writer never reports success for a row the fold skips.
+        if (!after.Lifecycle.Entries.Any(e => string.Equals(e.EventId, entry.Id.Value, StringComparison.Ordinal)))
+            return Result<long>.Fail(KeyActErrors.NotHonoured(index, after.Skipped.FirstOrDefault(r => r.LogIndex == index)?.Predicate ?? "unread"));
+
+        return Result<long>.Ok(index);
     }
 
     /// <summary>The refusal a key that does not resolve for an act becomes, or the resolver's own refusal when the log is the problem.</summary>

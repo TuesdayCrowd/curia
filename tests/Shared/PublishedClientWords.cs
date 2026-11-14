@@ -159,7 +159,36 @@ internal static partial class PublishedClientWords
         UnknownLine, StoreSentence, EqualHeadLine, NotStatedLine, PastHeadClosing, AnotherCheckSuffix, TokenSentence, WhoamiExpired,
         SignedSecondsForm, SignedRecentForm, SignedAfterForm, SignedNotStatedForm, ThatHeadSentence,
         .. UnknownClauses(), .. WhenForms(),
+        KeyLineRotationLifecycleFailed, KeyLineRotationLifecycleCouldNot, LifecycleMarkPastHead,
+        SkippedNotMade, SkippedMade, SkippedPastList, SkippedNoMembers,
     ];
+
+    // ----- R11.95 words (errata G68): the key line follows the lifecycle line, and the Forum's mark past the head -----
+
+    /// <summary>The key line for a rotation's binding when the lifecycle line failed, with <c>&lt;i&gt;</c> and <c>&lt;kid&gt;</c> left in (R11.95 words).</summary>
+    internal static string KeyLineRotationLifecycleFailed => One(Group(Labelled("Key line, a rotation's binding, lifecycle failed:"), Paragraph("R11.95 words"), "R11.95's failed key line"));
+
+    /// <summary>The key line for a rotation's binding when the lifecycle line could not be checked, with <c>&lt;i&gt;</c> and <c>&lt;kid&gt;</c> left in (R11.95 words).</summary>
+    internal static string KeyLineRotationLifecycleCouldNot => One(Group(Labelled("Key line, a rotation's binding, lifecycle could not be checked:"), Paragraph("R11.95 words"), "R11.95's could-not-check key line"));
+
+    /// <summary>The lifecycle line for the Forum's mark past the head, with <c>&lt;d&gt;</c> and <c>&lt;n&gt;</c> left in (R11.95 words).</summary>
+    internal static string LifecycleMarkPastHead => One(Group(Labelled("Lifecycle line, the Forum's mark past the head:"), Paragraph("R11.95 words"), "R11.95's mark-past-the-head line"));
+
+    // ----- R11.96 words (errata G68): the SKIPPED lines of curia keys -----
+
+    /// <summary>The <c>SKIPPED</c> line for a row the profile did not make, with <c>&lt;type&gt;</c>, <c>&lt;i&gt;</c> and <c>&lt;predicate&gt;</c> left in (R11.96 words).</summary>
+    internal static string SkippedNotMade => One(Group(Labelled("A row the profile did not make:"), Paragraph("R11.96 words"), "R11.96's not-made line"));
+
+    /// <summary>The <c>SKIPPED</c> line for a row the profile made, with <c>&lt;type&gt;</c>, <c>&lt;i&gt;</c> and <c>&lt;predicate&gt;</c> left in (R11.96 words).</summary>
+    internal static string SkippedMade => One(Group(Labelled("A row the profile made:"), Paragraph("R11.96 words"), "R11.96's made line"));
+
+    /// <summary>The line past the list, with <c>&lt;n&gt;</c> left in (R11.96 words).</summary>
+    internal static string SkippedPastList => One(Group(Labelled("Past the list:"), Paragraph("R11.96 words"), "R11.96's past-the-list line"));
+
+    /// <summary>The line for a key set without the members (R11.96 words).</summary>
+    internal static string SkippedNoMembers => One(Group(Labelled("No members:"), Paragraph("R11.96 words"), "R11.96's no-members line"));
+
+    private static Regex Labelled(string label) => new(@"\*" + Regex.Escape(label) + @"\* `([^`]+)`", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5));
 
     // ----- text helpers -----
 

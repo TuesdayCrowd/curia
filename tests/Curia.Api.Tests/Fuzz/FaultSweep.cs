@@ -40,9 +40,6 @@ internal static class FaultSweep
     internal static bool Appends(SweptReply swept) =>
         swept.Route.StartsWith("POST ", StringComparison.Ordinal) && swept.Route is not TokenRoute and not "POST /v1/posts/batch";
 
-    /// <summary>True for enrolment, the one authenticated-free route that reads only the enrolling agent's own stream.</summary>
-    internal static bool IsEnrolment(SweptReply swept) => swept.Route == "POST /v1/agents";
-
     /// <summary>Sends every exemplar for which <paramref name="include"/> holds, arming before the send and disarming after it.</summary>
     internal static Task<IReadOnlyList<SweptReply>> RunAsync(
         ForumFixture forum, FuzzContext context, Func<ExemplarRow, bool> include, Action arm, Action disarm, CancellationToken ct) =>

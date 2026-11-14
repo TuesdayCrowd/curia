@@ -96,6 +96,8 @@ internal static partial class LifecycleCases
             LogKeyOffCurve(root, k1),
             LogKeyOffCurveUnderDeclarationKid(root, k1),
             DeclarationKeyAndLogKeyOffCurve(root, k1),
+            LogKeyPublishedAfterIt(root, k1),
+            LogKeyPositionNotGiven(root, k1),
             DeclarationKidTwiceAtOnePositionSameKey(root, k1),
         };
 
@@ -118,6 +120,19 @@ internal static partial class LifecycleCases
         var logKeyIndex = PublishDeclarationKey(log, ConformanceLogKeys.Declaration);
         var decl = new Decl(ConformanceLogKeys.Declaration, [k1.Kid], FromIndex: 1, Prev: 1);
         return (log, post, logKeyIndex, adjust is null ? decl : adjust(decl));
+    }
+
+    /// <summary>
+    /// 0 enrolled, 1 binding, 2 a stand-in <c>log.key</c> entry (the position the case's key set gives its log key: a log key a declaration is decided against must be published below it, Amendment 7 ruling 82),
+    /// 3 the post, 4 the declaration key's publication, 5 the declaration (kids [k1], from_index 1, prev 1).
+    /// </summary>
+    private static (Log Log, int Post, int LogKeyIndex, int DeclarationKeyIndex, Decl Decl) PostAfterALogKey(Key k1, string nonce)
+    {
+        var log = EnrolledAndBound(k1);
+        var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
+        var post = AddPost(log, k1, nonce);
+        var declarationKeyIndex = PublishDeclarationKey(log, ConformanceLogKeys.Declaration);
+        return (log, post, logKeyIndex, declarationKeyIndex, new Decl(ConformanceLogKeys.Declaration, [k1.Kid], FromIndex: 1, Prev: 1));
     }
 
     private static Case CompromisedBeforePost(string root, Key k1)
@@ -754,31 +769,60 @@ internal static partial class LifecycleCases
         };
     }
 
-    /// <summary>A log key off the curve under the declaration key's own kid (Amendment 6 ruling 58): <c>keys</c> lists the declaration key's kid with x and y of 43 A at 5.</summary>
+    /// <summary>A log key off the curve under the declaration key's own kid (Amendment 6 ruling 58): <c>keys</c> lists the declaration key's kid with x and y of 43 A at 2, below the declaration at 5 (Amendment 7 ruling 82).</summary>
     private static Case LogKeyOffCurveUnderDeclarationKid(string root, Key k1)
     {
-        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "82");
-        AddDeclaration(log, decl, root, "compromise-log-key-off-curve-under-declaration-kid");
+        var (log, post, logKeyIndex, declarationKeyIndex, decl) = PostAfterALogKey(k1, "82");
+        var declarationIndex = AddDeclaration(log, decl, root, "compromise-log-key-off-curve-under-declaration-kid");
         return new Case("compromise-log-key-off-curve-under-declaration-kid", "R6.62",
-            "The keys member lists, beside the head key, an entry under the declaration key's own kid with x and y of 43 A each at 5, and declaration_keys lists the declaration key at 3. The declaring key's kid is a log key's by kid, so the declaration at 4 fails (R6.62(d)); a reader that compares public keys only finds no key in the entry and disputes.",
-            log, post, [0, 1, 4], "failed", "declaration-key-is-log-key")
+            "The keys member lists, beside the head key, an entry under the declaration key's own kid with x and y of 43 A each at 2, and declaration_keys lists the declaration key at 4. The log key is published below the declaration at 5 and the declaring key's kid is a log key's by kid, so the declaration fails (R6.62(d)); a reader that compares public keys only finds no key in the entry and disputes.",
+            log, post, [0, 1, declarationIndex], "failed", "declaration-key-is-log-key")
         {
-            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, LogIndex: 5, OffCurve: true)],
+            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, LogIndex: logKeyIndex, OffCurve: true)],
             DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex)],
         };
     }
 
-    /// <summary>The declaring key and a log key off the curve at the same points (Amendment 6 ruling 59): both entries state x and y of 43 A, so the declaring key is a log key by the key as stated.</summary>
+    /// <summary>The declaring key and a log key off the curve at the same points (Amendment 6 ruling 59): both entries state x and y of 43 A, so the declaring key is a log key by the key as stated; the log key is at 2, below the declaration at 5 (Amendment 7 ruling 82).</summary>
     private static Case DeclarationKeyAndLogKeyOffCurve(string root, Key k1)
     {
-        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "83");
-        AddDeclaration(log, decl, root, "compromise-declaration-key-and-log-key-off-curve");
+        var (log, post, logKeyIndex, declarationKeyIndex, decl) = PostAfterALogKey(k1, "83");
+        var declarationIndex = AddDeclaration(log, decl, root, "compromise-declaration-key-and-log-key-off-curve");
         return new Case("compromise-declaration-key-and-log-key-off-curve", "R6.62",
-            "The declaration key is listed at 3 with x and y of 43 A each, and the keys member lists, beside the head key, an entry under another kid with the same x and y at 5. A log key by public key is the key as the entry states it (kty, crv, x and y, as written), whether or not the point lies on its curve, and R6.62's order asks it before the signature, so the declaration fails as a log key; a reader that reads an entry with no usable point as no key skips the step and fails at the signature.",
-            log, post, [0, 1, 4], "failed", "declaration-key-is-log-key")
+            "The declaration key is listed at 4 with x and y of 43 A each, and the keys member lists, beside the head key, an entry under another kid with the same x and y at 2, below the declaration at 5. A log key by public key is the key as the entry states it (kty, crv, x and y, as written), whether or not the point lies on its curve, and R6.62's order asks it before the signature, so the declaration fails as a log key; a reader that reads an entry with no usable point as no key skips the step and fails at the signature.",
+            log, post, [0, 1, declarationIndex], "failed", "declaration-key-is-log-key")
         {
-            ExtraLogKeys = [new ExtraLogKey(Renamed(ConformanceLogKeys.Declaration, "another-ec-key"), LogKeyValidFrom, LogIndex: 5, OffCurve: true)],
+            ExtraLogKeys = [new ExtraLogKey(Renamed(ConformanceLogKeys.Declaration, "another-ec-key"), LogKeyValidFrom, LogIndex: logKeyIndex, OffCurve: true)],
             DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex, OffCurve: true)],
+        };
+    }
+
+    /// <summary>A genuine declaration, and then the declaration key published as a <c>log.key</c> after it (Amendment 7 ruling 82): the key is a log key at 5 and the declaration is at 4, so the declaration stands and disputes the post.</summary>
+    private static Case LogKeyPublishedAfterIt(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "85");
+        var declarationIndex = AddDeclaration(log, decl, root, "compromise-log-key-published-after-it");
+        var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Declaration);
+        return new Case("compromise-log-key-published-after-it", "R6.62",
+            "The declaration key is published at 3 as a declaration key and signs the declaration at 4; the keys member lists the same key as a log key at 5. R6.62's log-key check reads the log keys published below the declaration's own index, and this one is published after it, so the declaration stands and disputes the post: a log.key entry appended after a genuine declaration does not undo it.",
+            log, post, [0, 1, declarationIndex], "disputed", "disputed")
+        {
+            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, LogIndex: logKeyIndex)],
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex)],
+        };
+    }
+
+    /// <summary>The declaring key's own entry in <c>keys</c> gives no <c>log_index</c> (Amendment 7 ruling 82): a log key that gives no position cannot be shown to come after the declaration, so it counts as below.</summary>
+    private static Case LogKeyPositionNotGiven(string root, Key k1)
+    {
+        var (log, post, declarationKeyIndex, decl) = PostThenDeclaration(k1, "86");
+        var declarationIndex = AddDeclaration(log, decl, root, "compromise-log-key-position-not-given");
+        return new Case("compromise-log-key-position-not-given", "R6.62",
+            "The declaration key is published at 3 as a declaration key and signs the declaration at 4; the keys member lists the same key as a log key and gives it no log_index. A log key that gives no position cannot be shown to come after the declaration, so it counts as below it (fail closed) and the declaration fails as a log key.",
+            log, post, [0, 1, declarationIndex], "failed", "declaration-key-is-log-key")
+        {
+            ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, LogIndex: null)],
+            DeclarationKeys = [new ExtraLogKey(ConformanceLogKeys.Declaration, LogKeyValidFrom, declarationKeyIndex)],
         };
     }
 

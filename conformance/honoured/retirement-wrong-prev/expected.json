@@ -1,0 +1,1 @@
+{"rows":[{"log_index":2,"type":"agent.key-bound","verdict":"honoured"},{"log_index":3,"type":"agent.key-retired","verdict":"skipped","predicate":"broken-link"}],"keys":{"conformance-ed25519-minimal":"active","conformance-ed25519-second":"active"},"bound":["conformance-ed25519-minimal","conformance-ed25519-second"]}

@@ -64,9 +64,9 @@ public sealed class LogBoundKeysTests
     {
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
-        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), enrolled, CancellationToken.None).ConfigureAwait(false));
+        Require(await new EnrollAgent(events, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Alice), enrolled, CancellationToken.None).ConfigureAwait(false));
         var store = new HeldKeys(held);
-        return (new LogBoundKeys(store, store, events), events);
+        return (new LogBoundKeys(store, store, events, TestVerifier.Es256), events);
     }
 
     private static PublicKeyMaterial Copy(PublicKeyMaterial key) => new(key.Alg, key.Kid, key.Public.ToArray());
@@ -129,7 +129,7 @@ public sealed class LogBoundKeysTests
                 ]))],
             TestContext.Current.CancellationToken));
         var store = new HeldKeys((Alice, new RegisteredKey(TestKeys.Es256("alice-1"), Start, null)), (Alice, new RegisteredKey(TestKeys.Es256("hole-1"), Start, null)));
-        var keys = new LogBoundKeys(store, store, events);
+        var keys = new LogBoundKeys(store, store, events, TestVerifier.Es256);
 
         Assert.Equal(
             "alice-1: resolved; hole-1: curia/keys/not-bound-by-the-log",
@@ -208,29 +208,27 @@ public sealed class LogBoundKeysTests
     }
 
     /// <summary>
-    /// R4.35 (rev.), fail closed: a retirement in the identity's own stream that names no agent is
-    /// refused by the fold, never skipped, so the key it retires is neither honoured nor published. The
-    /// resolvers stop earlier, where the log binds nothing while such an entry is there; the key set
-    /// reaches the fold and answers its refusal.
+    /// R4.40 and R6.64 (errata G68; this fact was R4.35 (rev.)'s "fail closed": a retirement that names no agent made the fold refuse, and so the identity's key neither honoured nor published):
+    /// a retirement in the identity's own stream that names no agent is skipped (<c>statement-mismatch</c>) and inert, so the key it names stays honoured and published, and no request is refused for it.
     /// </summary>
     [Fact]
-    public async Task R4_35_ARetirementThatNamesNoAgentHonoursAndPublishesNothing()
+    public async Task R4_40_ARetirementThatNamesNoAgentIsSkippedAndTheKeyStaysHonoured()
     {
         var key = TestKeys.Es256("alice-1");
         var (keys, events) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)));
         await AppendLifecycleAsync(events, "agent.key-retired", "retirement-without-agent", new JsonValue.Object([new("kid", new JsonValue.String("alice-1")), new("prev", new JsonValue.Number(1))]));
 
         Assert.Equal(
-            "resolve: curia/keys/not-bound-by-the-log; live: curia/keys/not-bound-by-the-log; set: curia/keys/statement-mismatch",
+            "resolve: resolved; live: resolved; set: listed 1",
             await ReadersAnswerAsync(keys));
     }
 
     /// <summary>
-    /// R4.38, fail closed: a second statement-less binding is a broken link the fold refuses, so the
-    /// identity's key, which the log does bind, is neither honoured nor published while it stands.
+    /// R4.38 and R6.64 (errata G68; this fact was "fail closed": a second statement-less binding made the fold refuse, so the identity's key was neither honoured nor published while it stood):
+    /// a second statement-less binding is a <c>broken-link</c> row the verifier skips, so the identity's key stays honoured and published and the second binding binds nothing.
     /// </summary>
     [Fact]
-    public async Task R4_38_ABrokenLinkInTheStreamHonoursAndPublishesNothing()
+    public async Task R4_38_ABrokenLinkInTheStreamIsSkippedAndTheKeyStaysHonoured()
     {
         var key = TestKeys.Es256("alice-1");
         var (keys, events) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)));
@@ -242,20 +240,17 @@ public sealed class LogBoundKeysTests
         ]));
 
         Assert.Equal(
-            "resolve: curia/keys/statement-mismatch; live: curia/keys/statement-mismatch; set: curia/keys/statement-mismatch",
+            "resolve: resolved; live: resolved; set: listed 1",
             await ReadersAnswerAsync(keys));
     }
 
     /// <summary>
-    /// R5.22: a status read whose lifecycle will not fold is the log unreadable, a server fault, never the
-    /// fold's own refusal, which the token path would serve as a 401 telling the agent to mint again. The
-    /// stream is R4.38's broken link (a second statement-less binding), so the log does bind
-    /// <c>alice-1</c> and it is the fold that fails; a kid the log does not bind is still
-    /// <see cref="KeyStatus.Unbound"/>, which the fold never decides. Arranged through the permissive
-    /// lifecycle gate the other facts here use.
+    /// R5.22 and R4.40 (errata G68; this fact was "a status read whose lifecycle will not fold is the log unreadable", <c>curia/log/unreadable detail=curia/keys/statement-mismatch</c>): a row the
+    /// verifier skips never makes a status read unreadable. The stream holds R4.38's broken link (a second statement-less binding); <c>alice-1</c> is still <see cref="KeyStatus.Active"/>, and a kid the
+    /// log does not bind is still <see cref="KeyStatus.Unbound"/>. Arranged through the permissive lifecycle gate the other facts here use.
     /// </summary>
     [Fact]
-    public async Task R5_22_AStatusReadWhoseLifecycleWillNotFoldIsTheLogUnreadable()
+    public async Task R5_22_AStatusReadIsNotRefusedByARowTheVerifierSkips()
     {
         var key = TestKeys.Es256("alice-1");
         var (keys, events) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)));
@@ -271,7 +266,32 @@ public sealed class LogBoundKeysTests
         var unbound = await keys.StatusAsync(Typed.Agent(Alice), Typed.Kid("never-bound"), ct);
 
         Assert.Equal(
-            "curia/log/unreadable detail=curia/keys/statement-mismatch; unbound: Unbound",
+            "Active; unbound: Unbound",
             $"{bound.Match(s => s.ToString(), e => $"{e.Type} detail={e.Detail}")}; unbound: {unbound.Match(s => s.ToString(), e => e.Type)}");
+    }
+    /// <summary>
+    /// LRV46 (errata G68, ruling 83, F-M1): the parity probe. For each algorithm the Forum accepts, an enrolment through <c>EnrollAgent</c> yields a pair the fold honours (no row skipped) and a binding that carries the
+    /// key (<c>Jwk</c> not null). If it were red, the key the enrolment publishes (<c>PublicJwk.Of</c>) and the key the fold reads (<c>ClosedJwk</c>) would disagree, and an honest enrolment's pair would be skipped.
+    /// </summary>
+    [Theory]
+    [InlineData("ES256")]
+    [InlineData("EdDSA")]
+    public async Task LRV46_AnEnrolmentThroughEnrollAgentIsHonouredWithItsKeyForEachAlgorithm(string alg)
+    {
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
+        var key = alg == "ES256"
+            ? TestKeys.Es256("alice-lrv46")
+            : new PublicKeyMaterial("EdDSA", "alice-lrv46", Convert.FromBase64String("HRzJlnTufZYYTZyCDBpyP5ldQ38JlbCeDOQHgIozgg8="));
+        var verifier = ConformanceLog.Verifier();
+        Require(await new EnrollAgent(events, verifier, clock).RecordAsync(Typed.Agent(Alice), key, CancellationToken.None).ConfigureAwait(true));
+
+        var verified = verifier.OfLog(Require(await events.ReadAllAsync(CancellationToken.None).ConfigureAwait(true))).For(Typed.Agent(Alice));
+
+        var skipped = string.Join(", ", verified.Skipped.Select(r => $"{r.LogIndex} {r.Predicate}"));
+        var held = verified.Binding?.For(Typed.Kid("alice-lrv46"));
+        Assert.Equal(
+            $"{alg}: skipped [none]; binding carries the key: True",
+            $"{alg}: skipped [{(skipped.Length == 0 ? "none" : skipped)}]; binding carries the key: {held?.Jwk is not null}");
     }
 }
