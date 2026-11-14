@@ -1,0 +1,183 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+using Curia.Application.Credentials;
+using Curia.Application.Ingest;
+using Curia.Application.Projections;
+using Curia.Application.Tests.Credentials;
+using Curia.Application.Tests.InMemory;
+using Curia.Canon.Json;
+using Curia.Domain;
+using Curia.Domain.Acta;
+using Xunit;
+
+namespace Curia.Application.Tests.OperatorActs;
+
+/// <summary>
+/// PR N2 (errata G70, R4.43, R6.66, R6.67), Task 1: the probes that name types Task 2 and Task 3 build. KEPT AS <c>.cs.pending</c>: a test file naming a type that does not exist breaks this whole assembly's
+/// build, so the file is the builders' starting point and is renamed <c>.cs</c> by the task that makes it compile (OAS11 and OAS19 by Task 2; OAS8, OAS14, OAS15, OAS24, OAS26, OAS38 by Task 3; OAS13 and OAS30 by Task 4).
+/// The names are the plan's (<c>OperatorActFold</c>, <c>OperatorActPredicates.All</c>, <c>VerifiedLog.HonouredEvents</c>, <c>IOperatorActSigner</c>, <c>InMemoryOperatorActSigner</c>, <c>LogEntries.OperatorKeyType</c>,
+/// <c>PublishedKeys.OperatorKeys</c>, <c>PublishOperatorKey</c>) and are not a contract: a signature here is a guess that Tasks 2 to 4 will change.
+/// </summary>
+[SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class OperatorActsFoldProbes
+{
+    private static string Root
+    {
+        get
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Curia.sln"))) dir = dir.Parent;
+            return Path.Combine(dir!.FullName, "conformance", "operator-acts");
+        }
+    }
+
+    /// <summary>The log a case holds, read back from its entries as the Forum reads its own event store.</summary>
+    private static List<AppendedEvent> LogOf(string caseDirectory)
+    {
+        var log = new List<AppendedEvent>();
+        for (var i = 0; File.Exists(Path.Combine(caseDirectory, "entries", $"{i}.json")); i++)
+        {
+            var entry = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(caseDirectory, "entries", $"{i}.json"))).RootElement.GetProperty("entry");
+            log.Add(LogEvents.At(i, entry.GetProperty("aggregate_id").GetString()!, DateTimeOffset.Parse(entry.GetProperty("server_ts").GetString()!, System.Globalization.CultureInfo.InvariantCulture),
+                entry.GetProperty("event_id").GetString()!, entry.GetProperty("event_type").GetString()!, entry.GetProperty("actor_id").GetString()!,
+                JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(entry.GetProperty("payload").GetRawText())).Match(v => v, e => throw new InvalidOperationException(e.Type))));
+        }
+
+        return log;
+    }
+
+    /// <summary>OAS8: the C# fold decides every one of the 38 cases' rows, and states as <c>expected.json</c> says. Red now: <c>OperatorActFold</c> not found (compile).</summary>
+    [Fact]
+    public void OAS8_TheFoldDecidesEveryVectorAsItsExpectedSays()
+    {
+        var failures = new List<string>();
+        foreach (var dir in Directory.EnumerateDirectories(Root).Order(StringComparer.Ordinal))
+        {
+            var meta = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(dir, "meta.json"))).RootElement;
+            var expected = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(dir, "expected.json"))).RootElement;
+            var decision = OperatorActFold.Decide(LogOf(dir), meta.GetProperty("subject").GetString()!);
+            var want = string.Join(";", expected.GetProperty("rows").EnumerateArray().Select(r => $"{r.GetProperty("log_index").GetInt64()} {r.GetProperty("verdict").GetString()} {(r.TryGetProperty("predicate", out var p) ? p.GetString() : "-")}"));
+            var got = string.Join(";", decision.Rows.Select(r => $"{r.LogIndex} {(r.Predicate is null ? "honoured" : "skipped")} {r.Predicate ?? "-"}"));
+            if (want != got) failures.Add($"{Path.GetFileName(dir)}: expected [{want}] actual [{got}]");
+        }
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+    }
+
+    /// <summary>OAS11: a key of one class is never presented as another, and the class is the first publication's.</summary>
+    [Fact]
+    public void OAS11_AKeyOfOneClassIsNeverPresentedAsAnotherAndTheClassIsTheFirstPublications()
+    {
+        var harness = new KeyActHarness();
+        using var logKey = new InMemoryLifecycleStatementSigner("log-1");
+        using var declarationKey = new InMemoryLifecycleStatementSigner("declaration-1");
+        using var operatorKey = new InMemoryLifecycleStatementSigner("operator-1");
+        AppendedEvent Entry(long i, string type, string aggregate, string kid, InMemoryLifecycleStatementSigner key, bool wellFormed = true) =>
+            LogEvents.At(i, aggregate, harness.Clock.GetUtcNow(), $"key-entry-{i}", type, "operator:ops",
+                wellFormed
+                    ? new JsonValue.Object([new("kid", new JsonValue.String(kid)), new("jwk", key.PublicJwk()), new("valid_from", new JsonValue.String("2026-09-01T00:00:00Z"))])
+                    : new JsonValue.Object([new("kid", new JsonValue.String(kid))]));
+        var log = new[]
+        {
+            Entry(0, LogEntries.KeyType, LogEntries.KeysAggregate, "log-1", logKey),
+            Entry(1, LogEntries.DeclarationKeyType, LogEntries.DeclarationKeysAggregate, "declaration-1", declarationKey),
+            Entry(2, LogEntries.OperatorKeyType, LogEntries.OperatorKeysAggregate, "malformed", operatorKey, wellFormed: false),
+            Entry(3, LogEntries.OperatorKeyType, LogEntries.OperatorKeysAggregate, "operator-1", operatorKey),
+            Entry(4, LogEntries.KeyType, LogEntries.KeysAggregate, "operator-1", operatorKey), // the operator key republished as a log key later
+        };
+        var published = PublishedKeys.OfLog(log);
+        Assert.Equal(
+            "log keys [log-1]; declaration keys [declaration-1]; operator keys [operator-1]",
+            $"log keys [{string.Join(", ", published.LogKeys.Select(k => k.Kid))}]; declaration keys [{string.Join(", ", published.DeclarationKeys.Select(k => k.Kid))}]; operator keys [{string.Join(", ", published.OperatorKeys.Select(k => k.Kid))}]");
+    }
+
+    /// <summary>OAS14: a skipped act moves nothing: a forged attestation naming Bob, then the genuine one, owner Alice; a forged row between two genuine ones changes neither's decision.</summary>
+    [Fact]
+    public void OAS14_ASkippedActMovesNothing()
+    {
+        var log = LogOf(Path.Combine(Root, "skipped-row-does-not-move-the-chain"));
+        var decision = OperatorActFold.Decide(log, "agent://curia.example/tuesdaycrowd/scriptor");
+        Assert.Equal("owner:alice", decision.Owner);
+        var moderation = OperatorActFold.Decide(LogOf(Path.Combine(Root, "moderation-forged-row-between-genuine-ones")), "01K4CQ4B0000000000000000P1");
+        Assert.Equal([4L, 6L], moderation.Rows.Where(r => r.Predicate is null).Select(r => r.LogIndex).ToArray());
+    }
+
+    /// <summary>OAS15, the undecidable-delta leg: a delta the verifier cannot decide is a transient refusal, never servable.</summary>
+    [Fact]
+    public void OAS15_ADeltaTheVerifierCannotDecideIsNeverServable()
+    {
+        var facts = LogFacts.Of(VerifiedLog.Of(LogOf(Path.Combine(Root, "moderation-honoured"))));
+        var undecidable = facts.ServableAfter([LogEvents.At(99, "01K4CQ4B0000000000000000P1", DateTimeOffset.UnixEpoch, "x", "moderation.applied", "operator:ops", new JsonValue.String("?"))]);
+        Assert.False(undecidable("01K4CQ4B0000000000000000P1"));
+    }
+
+    /// <summary>OAS19: the publishers refuse each other's keys, in both directions, by kid and by public key.</summary>
+    [Fact]
+    public async Task OAS19_ThePublishersRefuseEachOthersKeys()
+    {
+        var harness = new KeyActHarness();
+        using var key = new InMemoryOperatorActSigner("operator-1");
+        var publish = new PublishOperatorKey(harness.Events, harness.Clock);
+        var first = await publish.PublishAsync(key, "ops", TestContext.Current.CancellationToken);
+        var second = await publish.PublishAsync(new InMemoryOperatorActSigner("operator-2"), "ops", TestContext.Current.CancellationToken);
+        Assert.True(first.IsOk);
+        Assert.False(second.IsOk, "a second operator key is refused");
+    }
+
+    /// <summary>OAS13: the writers' own rows are honoured: the fold, run over the log the writers left, decides every row they wrote honoured. A fold that skipped a genuine row would strip a verified owner silently.</summary>
+    [Fact]
+    public async Task OAS13_TheWritersOwnRowsAreHonoured()
+    {
+        var harness = new KeyActHarness();
+        using var signer = new InMemoryOperatorActSigner("operator-1");
+        await harness.PublishOperatorKeyAsync(signer, TestContext.Current.CancellationToken);
+        var agent = await harness.EnrollAsync("agent://curia.example/tuesdaycrowd/scriptor", TestContext.Current.CancellationToken);
+        await harness.AttestOwnerAsync(agent, "owner:alice", signer, TestContext.Current.CancellationToken);
+        var decision = OperatorActFold.Decide(await harness.ReadLogAsync(TestContext.Current.CancellationToken), agent);
+        Assert.All(decision.Rows, r => Assert.Null(r.Predicate));
+    }
+
+    /// <summary>OAS24: prev survives a moving stream: two operators attest one agent at once, both rows are honoured in the order the log gives them.</summary>
+    [Fact]
+    public async Task OAS24_PrevSurvivesAMovingStream()
+    {
+        var harness = new KeyActHarness();
+        using var signer = new InMemoryOperatorActSigner("operator-1");
+        await harness.PublishOperatorKeyAsync(signer, TestContext.Current.CancellationToken);
+        var agent = await harness.EnrollAsync("agent://curia.example/tuesdaycrowd/scriptor", TestContext.Current.CancellationToken);
+        await Task.WhenAll(
+            harness.AttestOwnerAsync(agent, "owner:alice", signer, TestContext.Current.CancellationToken),
+            harness.AttestOwnerAsync(agent, "owner:alice", signer, TestContext.Current.CancellationToken));
+        var decision = OperatorActFold.Decide(await harness.ReadLogAsync(TestContext.Current.CancellationToken), agent);
+        Assert.All(decision.Rows, r => Assert.Null(r.Predicate));
+    }
+
+    /// <summary>OAS26: a replay does not revive a lapse: the replay of a verification after its lapse is <c>act-broken-link</c>.</summary>
+    [Fact]
+    public void OAS26_AReplayDoesNotReviveALapse()
+    {
+        var decision = OperatorActFold.Decide(LogOf(Path.Combine(Root, "attestation-replayed-after-lapse")), "agent://curia.example/tuesdaycrowd/scriptor");
+        Assert.Equal("act-broken-link", decision.Rows.Single(r => r.LogIndex == 5).Predicate);
+        Assert.False(decision.Verified);
+    }
+
+    /// <summary>OAS38: only <c>human</c> is a moderator: a statement with <c>automated</c> or <c>delegated_agent</c>, correctly signed, is <c>act-statement-mismatch</c>; the same with <c>human</c> is honoured.</summary>
+    [Theory]
+    [InlineData("moderation-moderator-automated-is-not-honoured")]
+    [InlineData("moderation-moderator-delegated-agent-is-not-honoured")]
+    public void OAS38_OnlyHumanIsAModerator(string name)
+    {
+        var decision = OperatorActFold.Decide(LogOf(Path.Combine(Root, name)), "01K4CQ4B0000000000000000P1");
+        Assert.Equal("act-statement-mismatch", decision.Rows.Single().Predicate);
+    }
+
+    /// <summary>OAS30: the cost: the whole-log read plus both folds on 10,000 events with 200 honoured act rows adds under 25 ms at p95 over baseline; 1,000 forged well-structured rows cost under 250 ms over baseline or the number is written into item 278.</summary>
+    [Fact]
+    public void OAS30_TheFoldsCostIsWithinTheRule()
+    {
+        var log = OperatorActsCostLog.Build(events: 10_000, honouredActs: 200);
+        var baseline = OperatorActsCostLog.Time(() => VerifiedLog.Of(log).Events);
+        var folded = OperatorActsCostLog.Time(() => VerifiedLog.Of(log).HonouredEvents);
+        Assert.True(folded - baseline < TimeSpan.FromMilliseconds(25), $"Expected: under 25 ms over baseline  Actual: {(folded - baseline).TotalMilliseconds:F0} ms");
+    }
+}

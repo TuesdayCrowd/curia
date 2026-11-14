@@ -60,6 +60,12 @@ internal enum VectorProfile
     /// must reach (errata G68, R6.64): run by the Forum's lifecycle verifier and by <c>curia-testis</c>, never by <see cref="VectorLoader.Load"/>.
     /// </summary>
     HonouredLog,
+
+    /// <summary>
+    /// <c>operator-acts-log</c> -- a small whole log of events and, for each operator-act row of one stream, the verdict the Forum's procedure must reach, and the state the
+    /// honoured rows decide (errata G70, R6.67): run by the Forum's act fold and by <c>curia-testis</c>, never by <see cref="VectorLoader.Load"/>.
+    /// </summary>
+    OperatorActsLog,
 }
 
 internal sealed record Vector(
@@ -105,6 +111,7 @@ internal static class VectorLoader
         "display-literal" => VectorProfile.DisplayLiteral,
         "lifecycle-log" => VectorProfile.LifecycleLog,
         "honoured-log" => VectorProfile.HonouredLog,
+        "operator-acts-log" => VectorProfile.OperatorActsLog,
         _ => throw new InvalidOperationException(
             $"unrecognized conformance profile \"{value}\" -- R6.44 requires a runner to fail rather than skip"),
     };
@@ -122,6 +129,7 @@ internal static class VectorLoader
         VectorProfile.DisplayLiteral => "display-literal",
         VectorProfile.LifecycleLog => "lifecycle-log",
         VectorProfile.HonouredLog => "honoured-log",
+        VectorProfile.OperatorActsLog => "operator-acts-log",
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "not a conformance profile"),
     };
 

@@ -143,6 +143,7 @@ the mistake this section exists to prevent.
 | `display-literal` | `DisplayLiteral.Of` (C#), `display::literal` (Rust) | The input is a list of Unicode scalar values; the display literal a reader writes for the string they spell must be exactly `expected.display` (R10.64). See "The `display/` family" below.
 | `lifecycle-log` | `LifecycleCheck.Verify` (C#), `lifecycle::verify_lifecycle` (Rust) | A small whole log, a signed head over it and the log's key set: the verdict and predicate a reader that folds the post author's key lifecycle (R6.54 (add.)) must reach, in `expected.json`. See "The `lifecycle/` family" below.
 | `honoured-log` | the Forum's lifecycle verifier (errata G68, R6.64) | A small whole log of events: the verdict (`honoured`, or `skipped` and its predicate) of every lifecycle row of the agent under test, the status of every key an honoured row names, and the kids the honoured prefix binds. See "The `honoured/` family". |
+| `operator-acts-log` | the Forum's operator-act fold (errata G70, R6.67) | A small whole log of events: the verdict (`honoured`, or `skipped` and its predicate) of every operator-act row of the stream under test, and the state the honoured rows decide (an agent's owner and whether it is verified, or whether a post is served). See "The `operator-acts/` family" below. |
 | `acta-leaf` | `Canonicalize` (pure RFC 8785), then `MerkleTree.LeafHash` | The input is a log entry document (R6.46); it must canonicalize to `expected.canonical` (digest `expected.digest`), and `SHA-256(0x00 ‖ canonical)` must equal `expected.leaf`. **Pure** canonicalization, never the NFC profile: hashing is not signing. See "The `acta/` family" below.
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
@@ -616,3 +617,50 @@ is not a JWS; a "bad signature" is a well-formed JWS of the right header whose s
 
 The cases are **proposals**, as `lifecycle/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --honoured-cases`
 regenerates them until the owner's lift record pins their digests.
+
+## The `operator-acts/` family
+
+`honoured/` pins which lifecycle rows the Forum acts on. This family pins the same step for the **operator acts** (errata G70, R4.43, R6.66, R6.67): an
+`agent.owner-attested` row, in an agent's stream, and a `moderation.applied` row, in a post's stream, decide an owner, a tier, a withholding and a demotion
+only when they carry a statement signed by the operator-acts key the log publishes. A case is a whole small log, as the Forum reads it from its event
+store, and the decision the procedure must reach for every act row of one stream. There is no head and no proof: the Forum decides from events.
+
+Its shape is its own (`"shape": "operator-acts"` in `index.json`, profile `operator-acts-log`, requirement `R6.67`). A case is a directory holding
+
+- `entries/<log_index>.json` -- every entry of the log, in the shape `honoured/`'s entries use: `log_index`, `leaf_hash` and `entry`. The keys a case
+  publishes are its own `log.operator-key`, `log.key` and `log.declaration-key` entries; a case has no key set document;
+- `meta.json` -- `profile`, `requirement`, `note`, `stream` (`agent` or `post`) and `subject`, the aggregate under test (the stream is the events whose
+  `aggregate_id` is that value);
+- `expected.json`, written by the generator **from the case's construction and never by running a fold or a verifier**:
+
+```json
+{"rows":[{"log_index":3,"type":"agent.owner-attested","verdict":"honoured"},
+         {"log_index":4,"type":"agent.owner-attested","verdict":"skipped","predicate":"act-broken-link"}],
+ "state":{"owner":"owner:alice","verified":true}}
+```
+
+`rows` lists every act row of the stream (neither the root, nor the enrolment's pair, nor a `log.*` entry) in log order with its `verdict` and, for a
+skipped row, the `predicate` that decided it: `act-unsigned`, `act-statement-mismatch`, `act-unknown-kind`, `act-broken-link`, `act-typ-mismatch`,
+`act-key-unpublished`, `act-key-not-first` or `act-signature-invalid`. `state` is what the honoured rows alone decide: for an agent's stream `owner` (the
+first honoured attestation's owner, or `null`) and `verified` (the last honoured attestation's `owner_verified`, `false` when none); for a post's stream
+`served`, false while the last honoured record is a `withhold` or a `quarantine`.
+
+A skipped row moves nothing, so every `prev` names the last row the procedure honours before it (or the stream's root, the first event of the stream:
+`agent.enrolled` for an agent, `post.accepted` for a post). Statements are the exact output of `CanonicalizeWithNfc`; each signature is detached ES256 under
+header `typ` `curia-operator-act+jws` with the key's RFC 7638 thumbprint as `kid`. The keys are derived from the text of a label (a SHA-256 over it is the P-256
+scalar), so the public keys are reproducible; ES256 signing is randomized, so the generator keeps a signature's bytes from the existing output when the statement,
+the header kid and the signer are the same, and a regeneration over the existing output is byte-identical. "Garbage" is the string `FORGED-NO-VALID-SIGNATURE`,
+which is not a JWS; a "bad signature" is a well-formed JWS of the right header whose signature bytes are another key's.
+
+The family holds 38 cases: vectors 1 to 33 are the plan's table and vectors 34 to 38 are Amendment 1's. Vectors 34 and 35 pin that `curia.moderation/1` honours
+`moderator` `human` only (`automated` and `delegated_agent` are skipped `act-statement-mismatch`: no automated actor holds a key and no delegation exists, item 294);
+vectors 36 and 37 pin a forged unsigned restore after and between genuine rows; vector 38 pins "the stream's root is its first event" for a stream with two
+`agent.enrolled` rows.
+
+**What these 38 do not pin, on purpose:** each is decided by R6.67's text alone and a fold that differs is found by reading it. They are the moderation effects other than
+`withhold` and `restore` (every effect shares the procedure), a flag's `adjudicates` list, which of step 3's clauses decides a row that has two defects, and an authorization
+whose `alg` is not `ES256` (step 5, `act-typ-mismatch`, is pinned by the garbage authorization alone).
+
+The cases are **proposals**, as `honoured/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --operator-acts-cases` regenerates them until the owner's
+lift record pins their digests.
+

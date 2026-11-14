@@ -49,6 +49,11 @@ if (args.Contains("--lifecycle-cases", StringComparer.Ordinal))
 if (args.Contains("--honoured-cases", StringComparer.Ordinal))
     return LifecycleCases.RunHonoured(repoRoot);
 
+// `--operator-acts-cases` writes conformance/operator-acts/ (errata G70, R6.67): whole small logs, each with the verdict the Forum's procedure must reach for every
+// operator-act row. Deterministic but for the ES256 signatures, whose bytes are kept from the existing output when the statement, the header kid and the signer are the same.
+if (args.Contains("--operator-acts-cases", StringComparer.Ordinal))
+    return LifecycleCases.RunOperatorActs(repoRoot);
+
 Directory.CreateDirectory(outputRoot);
 
 // `--only a,b` regenerates named cases alone. Every case signs with a key drawn fresh at run

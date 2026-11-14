@@ -1,0 +1,1 @@
+{"log_index":2,"leaf_hash":"sha256:d55fa673ffc3ebea0dc1543606d15799ceca9c9ca3e809f7b5511b964fadba2e","entry":{"actor_id":"operator","aggregate_id":"log:operator-keys","event_id":"01K4CQ4A000000000000000002","event_type":"log.operator-key","payload":{"kid":"no-key","valid_from":"2026-09-01T00:00:00Z"},"server_ts":"2026-09-05T10:02:00.000000Z"}}

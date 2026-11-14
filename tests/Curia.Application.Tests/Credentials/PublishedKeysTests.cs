@@ -33,7 +33,7 @@ public sealed class PublishedKeysTests
     public void LRV33_TheClassesAreSeparateListsEachWithItsOwnHeaderTyp()
     {
         Assert.Equal(
-            [("log.key", "curia-head+jws"), ("log.declaration-key", "curia-key-compromise+jws")],
+            [("log.key", "curia-head+jws"), ("log.declaration-key", "curia-key-compromise+jws"), ("log.operator-key", "curia-operator-act+jws")],
             PublishedKeys.Classes.ToArray());
     }
 
