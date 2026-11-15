@@ -198,57 +198,72 @@ public sealed class StoreFaultRoleTests(RoleForumFixture forum) : IClassFixture<
     }
 
     /// <summary>
-    /// ULG18. A fault at the read that resolves the key precedes the consumption of the client assertion's and the proof's <c>jti</c> and spends neither (errata G68, R5.23 (rev.), ruling 64: the key read
-    /// is the whole-log read, R5.24, and the validator makes it before it consumes the assertion's <c>jti</c>). (a) A whole-log fault: <c>503</c>, the same assertion sent again while the fault stands is
-    /// <c>503</c> again (not a replay), and once the fault is gone the same assertion is <c>200</c>. (b) <c>SELECT</c> revoked: <c>503</c>, and with the grant restored the same assertion is <c>200</c>.
-    /// The read of the agent's standing follows the consumption and spends both: that half is ULG18 (c), in <c>StoreFaultTokenTests</c>, where the fixture can fail from the second read (this host's
-    /// faults are persistent, so each fails at the first read).
+    /// ULG18 (register item 282, errata G72, R5.25, R5.23 (rev.)). A fault at a read of the log after the assertion verifies follows the consumption of the client assertion's and the proof's <c>jti</c>
+    /// and spends both: the token endpoint verifies under the key the store holds, consumes, and only then reads the log to bind the key. The thrown form of an unreadable log (a real reader over
+    /// real grants; the returned form is <c>StoreFaultTokenTests</c>' ULG18 (d)). For (a) a whole-log fault (the poison policy) and (b) <c>SELECT</c> revoked, in one scene each: the first call is <c>503</c>
+    /// (asserted first: <c>NOT REACHED</c> if the fault did not fire); the same assertion and proof sent again <b>while the fault stands</b> is <c>401</c> <c>invalid_client</c> (a replay), not <c>503</c>;
+    /// with the fault gone the same assertion is <c>401</c>, not <c>200</c>. In a scene of its own (so that the leg before it, a <c>200</c> before the fix, cannot spend the proof for it) a
+    /// <b>fresh assertion with the proof the faulted call used</b> is <c>400</c> <c>invalid_dpop_proof</c>: the fault spent the proof as well. A fresh assertion and a fresh proof is <c>200</c> (the control).
+    /// Before the fix this test asserted the reverse: the fault spent neither <c>jti</c> and the same assertion was <c>200</c> once the fault was gone.
     /// </summary>
     [Fact]
-    public async Task R5_23_ULG18_AFaultAtTheLogReadDoesNotSpendTheJti()
+    public async Task R5_23_ULG18_AFaultAtTheLogReadAfterTheAssertionVerifiesSpendsBothJtis()
     {
         await forum.AssertRestoredAsync(Ct);
         var actor = await AcceptedAnswerScene.EnrolAsync(forum, "jti", Ct);
         var problems = new List<string>();
 
-        // (a) the whole-log fault.
-        var assertionA = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
-        var proofA = actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now);
-        Reply firstA;
-        Reply againA;
-        try
+        foreach (var (label, inject, remove) in new (string, Func<Task>, Func<Task>)[]
         {
-            await forum.CreatePoisonPolicyAsync(Ct);
-            firstA = await TokenAsync(actor, assertionA, proofA);
-            againA = await TokenAsync(actor, assertionA, proofA);
-        }
-        finally
+            ("(a) the whole-log fault", () => forum.CreatePoisonPolicyAsync(Ct), () => forum.DropPoisonPolicyAsync(Ct)),
+            ("(b) a revoked SELECT", () => forum.RevokeSelectOnEventsAsync(Ct), () => forum.GrantSelectOnEventsAsync(Ct)),
+        })
         {
-            await forum.DropPoisonPolicyAsync(Ct);
-        }
+            // Scene 1: the same assertion and proof, three times.
+            var assertion = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
+            var proof = actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now);
+            Reply first;
+            Reply whileItStands;
+            try
+            {
+                await inject();
+                first = await TokenAsync(actor, assertion, proof);
+                whileItStands = await TokenAsync(actor, assertion, proof);
+            }
+            finally
+            {
+                await remove();
+            }
 
-        if (!Unavailable(firstA)) problems.Add($"(a) the first call: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {firstA.Says}");
-        if (!Unavailable(againA)) problems.Add($"(a) the same assertion again while the fault stands: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode} (not a replay), actual {againA.Says}");
-        var sameA = await TokenAsync(actor, assertionA, proofA);
-        if (sameA.Status != 200) problems.Add($"(a) the same assertion once the fault is gone: expected 200 (its jti was not spent), actual {sameA.Says}");
+            Assert.True(Unavailable(first), $"NOT REACHED: {label}: the first call was {first.Says}, expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}");
+            if (whileItStands.Status != 401 || whileItStands.Error != "invalid_client")
+                problems.Add($"{label}: the same assertion and proof again while the fault stands: expected 401 invalid_client (a replay), actual {whileItStands.Says}");
+            var gone = await TokenAsync(actor, assertion, proof);
+            if (gone.Status != 401 || gone.Error != "invalid_client")
+                problems.Add($"{label}: the same assertion once the fault is gone: expected 401 invalid_client (its jti was spent), actual {gone.Says}");
 
-        // (b) a revoked SELECT: the key read is the whole-log read now. A fresh assertion, since (a)'s is spent by its success.
-        var assertionB = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
-        var proofB = actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now);
-        Reply firstB;
-        try
-        {
-            await forum.RevokeSelectOnEventsAsync(Ct);
-            firstB = await TokenAsync(actor, assertionB, proofB);
-        }
-        finally
-        {
-            await forum.GrantSelectOnEventsAsync(Ct);
-        }
+            // Scene 2, its own: the fault, then a fresh assertion with the proof the faulted call used.
+            var proof2 = actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now);
+            Reply first2;
+            try
+            {
+                await inject();
+                first2 = await TokenAsync(actor, actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), proof2);
+            }
+            finally
+            {
+                await remove();
+            }
 
-        if (!Unavailable(firstB)) problems.Add($"(b) the first call: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {firstB.Says}");
-        var restoredB = await TokenAsync(actor, assertionB, proofB);
-        if (restoredB.Status != 200) problems.Add($"(b) the same assertion with the grant restored: expected 200 (its jti was not spent), actual {restoredB.Says}");
+            Assert.True(Unavailable(first2), $"NOT REACHED: {label}, the proof scene: the first call was {first2.Says}, expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}");
+            var sameProof = await TokenAsync(actor, actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), proof2);
+            if (sameProof.Status != 400 || sameProof.Error != "invalid_dpop_proof")
+                problems.Add($"{label}: a fresh assertion with the proof the faulted call used: expected 400 invalid_dpop_proof (the proof's jti was spent), actual {sameProof.Says}");
+
+            // The control: nothing spent, nothing faulted.
+            var control = await TokenAsync(actor, actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
+            if (control.Status != 200) problems.Add($"{label}: a fresh assertion and a fresh proof once the fault is gone: expected 200, actual {control.Says}");
+        }
 
         Assert.True(problems.Count == 0, string.Join('\n', problems));
         await forum.AssertRestoredAsync(Ct);

@@ -248,10 +248,16 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     }
 
     /// <summary>
-    /// R4.35 (errata G16): the same replaced rows under an identity enrolled since G16, whose log entry
-    /// carries its key (R4.34). The row is not the key the log bound, so the token endpoint refuses it
-    /// before any signature is checked, and says why. Before R4.35 the P-384 row was issued a token and
-    /// the raw-bytes row answered as a bad signature.
+    /// R4.35 (errata G16) and VBR10 (register item 282, errata G72, R5.25): the same replaced rows under an
+    /// identity enrolled since G16, whose log entry carries its key (R4.34). The row is not the key the log
+    /// bound and is not a key that can verify the assertion (32 raw bytes; a P-384 key under <c>ES256</c>),
+    /// so the token endpoint, which verifies under the key the store holds before it reads the log, refuses
+    /// it as a bad signature and mints no token: the answer is <c>401</c> and byte for byte the refusal it
+    /// gave when it refused the row as not bound (R5.12), and the log's slug is the signature's
+    /// (<c>curia/authn/signature-invalid</c>, as <c>AuthNErrors.SignatureInvalid</c> and the sibling above
+    /// state it) and no longer <c>curia/keys/not-bound-by-the-log</c>. Before the fix the endpoint read the
+    /// log first and refused the row as not bound, before any signature was checked. Before R4.35 the
+    /// P-384 row was issued a token and the raw-bytes row answered as a bad signature.
     /// </summary>
     [Theory]
     [InlineData("32-raw-bytes")]
@@ -272,7 +278,7 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
 
         Assert.Equal($"401 {NotBoundByTheLog}", $"{(int)status} {body}");
-        Assert.Equal("curia/keys/not-bound-by-the-log", captured.Log.SingleType(mark, 5001));
+        Assert.Equal("curia/authn/signature-invalid", captured.Log.SingleType(mark, 5001));
     }
 
     /// <summary>

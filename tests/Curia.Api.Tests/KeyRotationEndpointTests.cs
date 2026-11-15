@@ -340,6 +340,54 @@ public sealed class KeyRotationEndpointTests(ForumFixture forum) : IClassFixture
         Assert.True(json.RootElement.GetProperty("log_index").GetInt64() > prev);
     }
 
+    /// <summary>
+    /// VBR5b (register item 282, errata G72, R5.25): a retired key requests a token and is refused, with the log's slug as the oracle. A bare <c>401</c> proves nothing (every refusal's body
+    /// is the same, R5.12), so: the second key, rotated in under the first, requests a token and is served (the control: it is a key the Forum honours); it retires itself; its next request is
+    /// <c>401</c> <c>invalid_client</c>, byte for byte the refusal of a bad signature, and the log's one event 5001 for it names <c>curia/keys/retired</c>; the first key, still live, is served. No
+    /// other test requests a token after a retirement, and the reorder moves this refusal after the signature and after both <c>jti</c>s are consumed. The second key requests through
+    /// <c>DpopClient.For(second, ...)</c> and never <c>AuthenticateAsync</c>, which enrols and would write a second <c>agent.enrolled</c> row for the identity (item 299: a genuine agent's token request
+    /// then answers <c>500</c>). It would fail at the <c>curia/keys/retired</c> line, and at the second key's <c>401</c>, if the status switch treated a retired key as active.
+    /// </summary>
+    [Fact]
+    public async Task R5_25_VBR5b_ARetiredKeyRequestsATokenAndIsRefusedAsRetiredWhileTheLiveKeyIsServed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var (first, firstDpop, firstToken) = await EnrolledAsync(client, "retired-token", ct);
+        var second = ForumAgent.Create(first.AgentId, "second-" + Guid.NewGuid().ToString("N")[..8]);
+        var secondPair = new KeyActRequests.KeyPair(second.Kid, second.AssertionKey);
+        using (var rotated = await PostAsync(
+            client, firstDpop, firstToken, KeyActRequests.RotateUrl(first.AgentId),
+            KeyActRequests.RotationBody(first, secondPair, await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct)), forum.Now, ct))
+        {
+            Assert.Equal(HttpStatusCode.Created, rotated.StatusCode);
+        }
+
+        var secondDpop = DpopClient.For(second, second.AssertionKey);
+        var (before, _) = await secondDpop.RequestTokenAsync(captured.Client, KeyActRequests.TokenEndpoint, forum.Now, first.AgentId, ct);
+        Assert.Equal(HttpStatusCode.OK, before);
+
+        using (var retired = await PostAsync(
+            client, firstDpop, firstToken, KeyActRequests.RetireUrl(first.AgentId, second.Kid),
+            KeyActRequests.RetirementBody(first.AgentId, secondPair, await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct)), forum.Now, ct))
+        {
+            Assert.Equal(HttpStatusCode.Created, retired.StatusCode);
+        }
+
+        using var stranger = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var (controlStatus, controlBody) = await DpopClient.For(second, stranger).RequestTokenAsync(captured.Client, KeyActRequests.TokenEndpoint, forum.Now, first.AgentId, ct);
+
+        var mark = captured.Log.Mark();
+        var (status, body) = await secondDpop.RequestTokenAsync(captured.Client, KeyActRequests.TokenEndpoint, forum.Now, first.AgentId, ct);
+        var (liveStatus, _) = await DpopClient.For(first, first.AssertionKey).RequestTokenAsync(captured.Client, KeyActRequests.TokenEndpoint, forum.Now, first.AgentId, ct);
+
+        Assert.Equal($"{(int)HttpStatusCode.Unauthorized} {controlBody}", $"{(int)status} {body}");
+        Assert.Equal(HttpStatusCode.Unauthorized, controlStatus);
+        Assert.Equal("curia/keys/retired", captured.Log.SingleType(mark, 5001));
+        Assert.Equal(HttpStatusCode.OK, liveStatus);
+    }
+
     [Fact]
     public async Task R4_35_TheKeySetPublishesStatusAndLifecycle()
     {

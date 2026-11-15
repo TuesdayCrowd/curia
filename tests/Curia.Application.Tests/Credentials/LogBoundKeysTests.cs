@@ -4,6 +4,8 @@ using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Application.Tests.InMemory;
 using Curia.Canon.Json;
+using Curia.Domain.Acta;
+using Curia.Domain.Keys;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Primitives;
@@ -293,5 +295,106 @@ public sealed class LogBoundKeysTests
         Assert.Equal(
             $"{alg}: skipped [none]; binding carries the key: True",
             $"{alg}: skipped [{(skipped.Length == 0 ? "none" : skipped)}]; binding carries the key: {held?.Jwk is not null}");
+    }
+
+    /// <summary>The reads a resolver makes of the log: every <c>ReadForwardAsync</c> and <c>ReadByAggregateAsync</c>, counted (VBR6).</summary>
+    private sealed class CountingReader(IEventReader inner) : IEventReader
+    {
+        internal int Reads { get; private set; }
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
+        {
+            Reads++;
+            return inner.ReadByAggregateAsync(aggregateId, cancellationToken);
+        }
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
+        {
+            Reads++;
+            return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+        }
+    }
+
+    /// <summary>Alice enrolled with alice-1, alice-2 rotated in and alice-3 rotated in, the log key published; alice-2 is retired and alice-3 declared compromised, so each status is one kid's.</summary>
+    private static async Task<(KeyActHarness Harness, LogBoundKeys Keys, CountingReader Reader, TestIdentity[] Identities)> StatusesAsync()
+    {
+        var harness = new KeyActHarness();
+        var identities = Enumerable.Range(1, 3).Select(i => TestIdentity.New($"alice-{i}")).ToArray();
+        await harness.EnrollAsync(KeyActHarness.Alice, identities[0]).ConfigureAwait(false);
+        Require(await harness.RotateAsync(KeyActHarness.Alice, identities[0], identities[1]).ConfigureAwait(false));
+        var thirdBoundAt = Require(await harness.RotateAsync(KeyActHarness.Alice, identities[0], identities[2]).ConfigureAwait(false)).LogIndex;
+        Require(await harness.RetireAsync(KeyActHarness.Alice, identities[1]).ConfigureAwait(false));
+
+        using var signer = new InMemoryLifecycleStatementSigner();
+        var acta = Require(ActaLog.Fold(Require(await harness.Events.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))));
+        Require(await harness.Events.AppendAsync(
+            Require(AggregateId.Create(LogEntries.DeclarationKeysAggregate)),
+            Require(AggregateVersion.From(acta.DeclarationKeys.Length)),
+            [new DomainEvent(
+                Require(EventId.Create("01K4CQ1V9P3R5T7W9Y1A3C5EKY")),
+                Require(EventType.Create(LogEntries.DeclarationKeyType)),
+                Require(ActorId.Create("operator:ops")),
+                new JsonValue.Object(
+                [
+                    new(LogEntries.KidMember, new JsonValue.String(signer.Kid)),
+                    new(LogEntries.JwkMember, signer.PublicJwk()),
+                    new(LogEntries.ValidFromMember, new JsonValue.String(LogLeaf.RenderServerTimestamp(ServerTimestamp.At(harness.Clock.GetUtcNow())))),
+                ]))],
+            CancellationToken.None).ConfigureAwait(false));
+        Require(await new DeclareCompromise(harness.Events, TestVerifier.Es256, harness.Clock).DeclareAsync(
+            Typed.Agent(KeyActHarness.Alice), Typed.Kid("alice-3"), thirdBoundAt, CompromiseReason.OwnerReported, signer, Require(ActorId.Create("operator:ops")), CancellationToken.None).ConfigureAwait(false));
+
+        var reader = new CountingReader(harness.Events);
+        var keys = new LogBoundKeys(new KeyActHarness.RegistryResolver(harness.Registry), harness.Registry, reader, new LifecycleVerifier(harness.Verifiers));
+        return (harness, keys, reader, identities);
+    }
+
+    private static string Outcome<T>(Result<T> result) => result.Match(_ => "ok", e => e.Type);
+
+    /// <summary>
+    /// VBR6 (register item 282, errata G72, R5.25), the half that makes no read: <see cref="LogBoundKeys.ResolveStoredAsync"/> is the store's lookup and nothing else, so it reads the log <b>0</b> times,
+    /// whether the key it returns is bound, retired, compromised or not held by the log at all. Implemented and quiet until the token endpoint calls it (the fix, FVBR6 and FVBR7).
+    /// </summary>
+    [Fact]
+    public async Task R5_25_VBR6_ResolveStoredMakesNoReadOfTheLog()
+    {
+        var (_, keys, reader, _) = await StatusesAsync().ConfigureAwait(true);
+        var outcomes = new List<string>();
+        foreach (var kid in new[] { "alice-1", "alice-2", "alice-3" })
+        {
+            outcomes.Add($"{kid}: {Outcome(await keys.ResolveStoredAsync(Typed.Agent(KeyActHarness.Alice), Typed.Kid(kid), ServerTimestamp.At(KeyActHarness.Start.AddDays(1)), TestContext.Current.CancellationToken).ConfigureAwait(true))}");
+        }
+
+        Assert.Equal(
+            "alice-1: ok; alice-2: ok; alice-3: ok; reads 0",
+            $"{string.Join("; ", outcomes)}; reads {reader.Reads}");
+    }
+
+    /// <summary>
+    /// VBR6, the half that reads: <see cref="LogBoundKeys.RequireBoundAsync"/> makes exactly <b>one</b> whole-log read and gives the binding, retired and compromised refusals their types and the live key its
+    /// value; a key whose bytes are not the log's is <c>not-bound-by-the-log</c>. <see cref="LogBoundKeys.ResolveLiveAsync"/>, which composes the two, makes one read (R5.24).
+    /// </summary>
+    [Fact]
+    public async Task R5_25_VBR6_RequireBoundMakesOneReadAndRefusesWhatTheLogDoesNotHold()
+    {
+        var (_, keys, reader, identities) = await StatusesAsync().ConfigureAwait(true);
+        var ct = TestContext.Current.CancellationToken;
+        var alice = Typed.Agent(KeyActHarness.Alice);
+        var seen = new List<string>();
+        async Task Record(string label, Func<Task<Result<LiveKey>>> call)
+        {
+            var before = reader.Reads;
+            seen.Add($"{label}: {Outcome(await call().ConfigureAwait(true))} reads {reader.Reads - before}");
+        }
+
+        await Record("bound", () => keys.RequireBoundAsync(alice, Typed.Kid("alice-1"), KeyActHarness.Copy(identities[0].Material), ct)).ConfigureAwait(true);
+        await Record("not bound (other bytes)", () => keys.RequireBoundAsync(alice, Typed.Kid("alice-1"), TestKeys.Es256("alice-1"), ct)).ConfigureAwait(true);
+        await Record("retired", () => keys.RequireBoundAsync(alice, Typed.Kid("alice-2"), KeyActHarness.Copy(identities[1].Material), ct)).ConfigureAwait(true);
+        await Record("compromised", () => keys.RequireBoundAsync(alice, Typed.Kid("alice-3"), KeyActHarness.Copy(identities[2].Material), ct)).ConfigureAwait(true);
+        await Record("resolve live", () => keys.ResolveLiveAsync(alice, Typed.Kid("alice-1"), ServerTimestamp.At(KeyActHarness.Start.AddDays(1)), ct)).ConfigureAwait(true);
+
+        Assert.Equal(
+            "bound: ok reads 1; not bound (other bytes): curia/keys/not-bound-by-the-log reads 1; retired: curia/keys/retired reads 1; compromised: curia/keys/compromised reads 1; resolve live: ok reads 1",
+            string.Join("; ", seen));
     }
 }

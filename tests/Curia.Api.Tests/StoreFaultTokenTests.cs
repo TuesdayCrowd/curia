@@ -109,15 +109,24 @@ public sealed class StoreFaultTokenTests(FaultableForumFixture forum) : IClassFi
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 
+    private async Task<Reply> TokenAsync(SceneActor actor, string assertion, string proof) =>
+        await DpopClient.RequestTokenReplyAsync(forum.Client, actor.Agent.AgentId, assertion, proof, Ct);
+
+    private static void AssertFaultReached(Reply first) =>
+        Assert.True(
+            FaultSweep.IsOAuthError(first, PublishedStoreFaults.TokenStatus, PublishedStoreFaults.TokenCode),
+            $"NOT REACHED: the first call was {first.Says}, expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode} (the fault did not fire, so nothing below it says anything)");
+
     /// <summary>
-    /// ULG18 (d) (Amendment 7, ruling 85): a pin of today's behaviour, so that the lead is a decision and not a drift (the pattern of vector 48). A fault at the first whole-log read, the read that resolves the
-    /// assertion's key, precedes the consumption of the assertion's <c>jti</c> and spends nothing. The same assertion, sent with a <b>new proof from another key</b>, answers <c>200</c>: a token bound to that other
-    /// key, for the identity the assertion names. That is finding F-L1: a party that captured the assertion alone obtains a token for the victim's identity bound to its own key, for as long as the assertion is unspent,
-    /// and a read-1 fault lengthens that window by the fault's duration. Register entry N-F-M3 is the entry that reverses it (the token endpoint verifies the assertion against the store's key, consumes the
-    /// <c>jti</c>, and only then reads the log); when it lands this flips to <c>invalid_client</c> and becomes the probe of the fix.
+    /// ULG18 (d), (i) (register item 282, errata G72, R5.25, R5.23 (rev.)). A fault at the read that binds the key follows the consumption of the assertion's <c>jti</c> (the token endpoint
+    /// verifies under the key the store holds and consumes first, and reads the log after), so the fault spends the assertion. The first call is <c>503</c> <c>temporarily_unavailable</c>
+    /// (asserted first: a fault that did not fire proves nothing); the same assertion sent with a <b>proof from another key</b> is then <c>401</c> <c>invalid_client</c>, not <c>200</c>.
+    /// Before the fix this was the finding F-L1 (N-F-M3): a party that held the assertion alone obtained a token for the victim's identity bound to its own key, and a fault of the read
+    /// lengthened the window by its own duration; this test pinned that <c>200</c> as today's behaviour until the register item that reverses it landed, and now says the reverse.
+    /// The returned form of an unreadable log (the in-process host's <c>Result</c>); the thrown form is <c>StoreFaultRoleTests</c>' ULG18.
     /// </summary>
     [Fact]
-    public async Task R5_23_ULG18d_AnUnspentAssertionAfterAReadOneFaultAnswers200ToAProofFromAnotherKey_Pin()
+    public async Task R5_23_ULG18d_ARequestWhoseBindingReadFaultedIsSpentAndAProofFromAnotherKeyIsRefused()
     {
         var actor = await AcceptedAnswerScene.EnrolAsync(forum, "token-captor", Ct);
         var captor = ForumAgent.Create(actor.Agent.AgentId, "captor-" + Guid.NewGuid().ToString("N")[..8]);
@@ -128,22 +137,120 @@ public sealed class StoreFaultTokenTests(FaultableForumFixture forum) : IClassFi
         forum.Store.Arm(EventStoreFault.ReportAll);
         try
         {
-            first = await DpopClient.RequestTokenReplyAsync(forum.Client, actor.Agent.AgentId, assertion, actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now), Ct);
+            first = await TokenAsync(actor, assertion, actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
         }
         finally
         {
             forum.Store.Disarm();
         }
 
-        var withTheCaptorsProof = await DpopClient.RequestTokenReplyAsync(forum.Client, actor.Agent.AgentId, assertion, captorDpop.Proof("POST", Probe.TokenEndpoint, forum.Now), Ct);
+        AssertFaultReached(first);
+        var withTheCaptorsProof = await TokenAsync(actor, assertion, captorDpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
+
+        Assert.True(
+            withTheCaptorsProof.Status == 401 && withTheCaptorsProof.Error == "invalid_client",
+            $"the same assertion with a proof from another key after the fault: expected 401 invalid_client (the fault spent the assertion), actual {withTheCaptorsProof.Says}");
+        Assert.DoesNotContain("access_token", withTheCaptorsProof.Body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ULG18 (d), (ii) (register item 282, errata G72, R5.25). Its own scene, its own victim, assertion and fault, because the leg is order-contaminated if it follows (i): (i)'s <c>200</c> before the
+    /// fix consumes the assertion, so a later leg would pass for the replay it is meant to catch. The first call is <c>503</c> (asserted first); the same assertion sent with a <b>new proof of
+    /// the victim's own key</b> is then <c>401</c> <c>invalid_client</c>: the fault spent the assertion for its holder as well as for a captor, so no fault of the log leaves a verified assertion reusable.
+    /// </summary>
+    [Fact]
+    public async Task R5_23_ULG18e_TheVictimsOwnNewProofOnAnAssertionWhoseBindingReadFaultedIsRefused()
+    {
+        var actor = await AcceptedAnswerScene.EnrolAsync(forum, "token-victim-proof", Ct);
+        var assertion = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
+
+        Reply first;
+        forum.Store.Arm(EventStoreFault.ReportAll);
+        try
+        {
+            first = await TokenAsync(actor, assertion, actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
+        }
+        finally
+        {
+            forum.Store.Disarm();
+        }
+
+        AssertFaultReached(first);
+        var again = await TokenAsync(actor, assertion, actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
+
+        Assert.True(
+            again.Status == 401 && again.Error == "invalid_client",
+            $"the same assertion with a new proof of the victim's own key after the fault: expected 401 invalid_client (the fault spent the assertion), actual {again.Says}");
+        Assert.DoesNotContain("access_token", again.Body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ULG18 (d), the controls (register item 282), green before and after the fix, so that (i) and (ii) are not an observer that always answers one thing. (S2) With no fault an assertion is used once
+    /// (<c>200</c>) and presented again with a captor's proof (<c>401</c> <c>invalid_client</c>): a spent assertion is refused by the endpoint on both trees. (iii) After the fault, a <b>fresh</b>
+    /// assertion of the victim with the captor's proof is <c>200</c>: the fault spends the one assertion it met and not the victim's ability to ask again, and the captor's proof was never consumed.
+    /// </summary>
+    [Fact]
+    public async Task R5_23_ULG18f_ControlsASpentAssertionIsRefusedWithoutAFaultAndAFreshOneIsServedAfterOne()
+    {
+        var spent = await AcceptedAnswerScene.EnrolAsync(forum, "token-s2", Ct);
+        var spentCaptor = ForumAgent.Create(spent.Agent.AgentId, "captor-" + Guid.NewGuid().ToString("N")[..8]);
+        var spentCaptorDpop = DpopClient.For(spentCaptor, spentCaptor.AssertionKey);
+        var used = spent.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
+        var s2First = await TokenAsync(spent, used, spent.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
+        var s2Captor = await TokenAsync(spent, used, spentCaptorDpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
+
+        var victim = await AcceptedAnswerScene.EnrolAsync(forum, "token-iii", Ct);
+        var captor = ForumAgent.Create(victim.Agent.AgentId, "captor-" + Guid.NewGuid().ToString("N")[..8]);
+        var captorDpop = DpopClient.For(captor, captor.AssertionKey);
+        Reply faulted;
+        forum.Store.Arm(EventStoreFault.ReportAll);
+        try
+        {
+            faulted = await TokenAsync(victim, victim.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), victim.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
+        }
+        finally
+        {
+            forum.Store.Disarm();
+        }
+
+        AssertFaultReached(faulted);
+        var fresh = await TokenAsync(victim, victim.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), captorDpop.Proof("POST", Probe.TokenEndpoint, forum.Now));
 
         var problems = new List<string>();
-        if (!FaultSweep.IsOAuthError(first, PublishedStoreFaults.TokenStatus, PublishedStoreFaults.TokenCode))
-            problems.Add($"the first call: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {first.Says}");
-        if (withTheCaptorsProof.Status != 200)
-            problems.Add($"the same assertion with a proof from another key: expected 200 (today's behaviour, F-L1), actual {withTheCaptorsProof.Says}");
+        if (s2First.Status != 200) problems.Add($"(S2) the first use with no fault: expected 200, actual {s2First.Says}");
+        if (s2Captor.Status != 401 || s2Captor.Error != "invalid_client")
+            problems.Add($"(S2) the spent assertion with a captor's proof, no fault: expected 401 invalid_client, actual {s2Captor.Says}");
+        if (fresh.Status != 200) problems.Add($"(iii) a fresh assertion with the captor's proof after the fault: expected 200, actual {fresh.Says}");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    /// <summary>
+    /// VBR4 (register item 282, errata G72, R5.23 (rev.)), a control green before and after the fix. A fault of the Registrar's key store's own lookup precedes the consumption of both <c>jti</c>s
+    /// and spends neither: the first call is <c>503</c> (asserted first), and with the fault gone the same assertion and proof are <c>200</c>.
+    /// </summary>
+    [Fact]
+    public async Task R5_23_VBR4_AFaultOfTheKeyStoreSpendsNeitherJti()
+    {
+        var actor = await AcceptedAnswerScene.EnrolAsync(forum, "token-keystore", Ct);
+        var assertion = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
+        var proof = actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now);
+
+        Reply first;
+        forum.Keys.Arm();
+        try
+        {
+            first = await TokenAsync(actor, assertion, proof);
+        }
+        finally
+        {
+            forum.Keys.Disarm();
+        }
+
+        AssertFaultReached(first);
+        var same = await TokenAsync(actor, assertion, proof);
+
+        Assert.True(same.Status == 200, $"the same assertion and proof with the key store restored: expected 200 (neither jti was spent), actual {same.Says}");
     }
 
     /// <summary>
