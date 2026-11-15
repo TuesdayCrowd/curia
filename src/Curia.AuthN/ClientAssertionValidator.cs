@@ -23,6 +23,12 @@ namespace Curia.AuthN;
 /// ordering: the algorithm is still pinned, and <c>typ</c> still checked, before either the clock
 /// is read or any signature work happens.
 ///
+/// The key this validator resolves is the key store's and nothing more (R5.25, errata G72): it verifies the
+/// signature under that key, checks the claims, consumes the assertion's <c>jti</c> and returns the key it
+/// verified under in <see cref="ClientAssertionClaims.Key"/>. Whether the event log binds that key (R4.35) is
+/// the token endpoint's question, asked after this method returns and after the proof's <c>jti</c> is consumed
+/// too, so a request whose assertion does not verify makes no read of the log.
+///
 /// Deliberately excludes Phase 4 (DPoP proof of possession) and Phases 5-6: a client assertion
 /// authenticates the token *request*, not a resource-server call, so it carries no DPoP proof
 /// and there is no live agent/owner state or PDP decision at the token endpoint's assertion-
@@ -92,6 +98,9 @@ public static class ClientAssertionValidator
         // some registered key, and only the store knows whose, so a key registered to another agent is
         // refused here exactly as a kid registered to none is. R5.10's principle holds as well: this
         // call passes an agent identifier, the kid and server_ts, never a URL.
+        // R5.25 (errata G72): this resolve is the store's lookup and reads no log. The log's binding of
+        // the key (R4.35) is the token endpoint's, after this method has verified the signature and
+        // consumed the jti.
         var keyResult = await context.AgentKeyResolver.ResolveAsync(expectedSubject!, kid!, serverTimestamp, cancellationToken).ConfigureAwait(false);
         if (!keyResult.TryGetValue(out var key, out var keyError))
             return Result<ClientAssertionClaims>.Fail(keyError!);
@@ -148,7 +157,7 @@ public static class ClientAssertionValidator
             return Result<ClientAssertionClaims>.Fail(insertError!);
 
         return inserted
-            ? Result<ClientAssertionClaims>.Ok(claims with { Kid = kid!.Value })
+            ? Result<ClientAssertionClaims>.Ok(claims with { Kid = kid!.Value, Key = key })
             : Result<ClientAssertionClaims>.Fail(AuthNErrors.Replay());
     }
 }

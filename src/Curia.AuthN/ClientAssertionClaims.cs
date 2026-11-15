@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Curia.AuthN.Jwt;
+using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 
@@ -19,6 +20,13 @@ public sealed record ClientAssertionClaims(
 {
     /// <summary>The assertion header's <c>kid</c>, set by the validator once the key resolved (R5.22 puts it in the token).</summary>
     public string Kid { get; init; } = "";
+
+    /// <summary>
+    /// The key the Registrar's key store holds for the agent and <see cref="Kid"/> and the assertion verified under, set by the
+    /// validator with <see cref="Kid"/>. It is <b>not yet bound by the log</b> (R5.25): the token endpoint binds it afterwards,
+    /// once both <c>jti</c>s are consumed. Null only on a claim set the validator did not make.
+    /// </summary>
+    public PublicKeyMaterial? Key { get; init; }
 
     internal static Result<ClientAssertionClaims> Parse(JsonElement root)
     {

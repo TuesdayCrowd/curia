@@ -138,7 +138,7 @@ public sealed class Program
             sp.GetRequiredService<LifecycleVerifier>()));
         builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
         builder.Services.AddSingleton<ILiveKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
-        builder.Services.AddSingleton<IAgentKeyResolver>(sp => new LogBoundAgentKeyResolver(sp.GetRequiredService<LogBoundKeys>()));
+        builder.Services.AddSingleton<IAgentKeyResolver>(sp => new StoredAgentKeyResolver(sp.GetRequiredService<LogBoundKeys>()));
         builder.Services.AddSingleton<IAgentKeyLiveness>(sp => new LogKeyLiveness(sp.GetRequiredService<LogBoundKeys>()));
 
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventStore);

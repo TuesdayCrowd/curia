@@ -9,8 +9,8 @@ namespace Curia.Api.Tests;
 /// <summary>
 /// ULG19 (errata G52, R5.23): the token endpoint answers a fault of any store it touches <c>503</c> RFC 6749's <c>temporarily_unavailable</c> with the fixed
 /// description and no <c>detail</c>, and mints nothing. Each store the endpoint touches (the replay cache, the Registrar's key store, the log) faults in turn by a
-/// driver fault, and the log also by a reader that reports a failed <c>Result</c> in each of the two reads the endpoint makes (the assertion's key read, the
-/// whole-log read), the legs Postgres never takes but a reporting reader does. On the in-process host with the decorators, not the role host (ruling 13).
+/// driver fault, and the log also by a reader that reports a failed <c>Result</c> in each of the two reads the endpoint makes (the binding read, which follows
+/// the assertion's verification and both <c>jti</c>s, and the standings read), the legs Postgres never takes but a reporting reader does. On the in-process host with the decorators, not the role host (ruling 13).
 /// The plan's control (a posture that will not fold stays <c>server_error</c>) is not built here: a log the posture fold refuses needs a credential history
 /// Table 6 forbids, which neither ingest nor any fixture can write.
 /// </summary>
@@ -72,9 +72,9 @@ public sealed class StoreFaultTokenTests(FaultableForumFixture forum) : IClassFi
 
     /// <summary>
     /// ULG18 (c) (errata G68, R5.23 (rev.), ruling 64). A fault at the second whole-log read of the request, the read of the agent's standing, follows the consumption of the
-    /// assertion's and the proof's <c>jti</c> (the first whole-log read, the key's, precedes it) and so spends both. The first call is <c>503</c>
+    /// assertion's and the proof's <c>jti</c> and the binding read (the first whole-log read, which binds the key after the assertion verified and both <c>jti</c>s were consumed, precedes it) and so spends both. The first call is <c>503</c>
     /// <c>temporarily_unavailable</c> and mints nothing; the same assertion and proof sent again with the fault gone is not <c>200</c> (a replay, which the run names below);
-    /// a fresh pair is <c>200</c>. Falsified by moving the standings read above the validator (Task 7): this goes red and (a) of the role host's ULG18 stays green.
+    /// a fresh pair is <c>200</c>. Falsified by moving the standings read above the validator (Task 7, item 286's order; item 282's order puts the binding read there too): this goes red and (a) of the role host's ULG18 stays green.
     /// </summary>
     [Fact]
     public async Task R5_23_ULG18c_AFaultAtTheStandingsReadFollowsTheConsumptionAndSpendsTheJti()
