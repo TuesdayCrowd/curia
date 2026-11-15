@@ -170,7 +170,7 @@ public sealed class RetrievalQuerySetTests
         var index = new InMemoryVectorIndex();
         var store = new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate());
         var indexer = new EmbeddingIndexer(embedder, index);
-        var search = new HybridSearch(embedder, index, RetrievalFloors.Published, TestVerifier.Empty);
+        var search = new HybridSearch(embedder, index, RetrievalFloors.Published);
 
         foreach (var post in Lines("corpus.jsonl"))
         {
@@ -191,7 +191,7 @@ public sealed class RetrievalQuerySetTests
         foreach (var canary in Lines("canaries.jsonl"))
         {
             var query = new SearchQuery(canary.GetProperty("query").GetString(), null, [], [], null, null, null, 10);
-            var page = Require(await search.SearchAsync(log, RetrievalSurface.RestSearch, query, fold, ct));
+            var page = Require(await SearchOverAsync(search, log, RetrievalSurface.RestSearch, query, fold, ct));
             var ids = page.Results.Select(r => r.Post.PostId).ToList();
             var rank = ids.IndexOf(canary.GetProperty("expected").GetString()!) + 1;
             if (rank is < 1 or > 3)

@@ -68,51 +68,15 @@ public sealed class HybridSearch
     private readonly ITextEmbedder _embedder;
     private readonly IVectorIndex _index;
     private readonly RetrievalFloors _floors;
-    private readonly LifecycleVerifier _verifier;
 
-    public HybridSearch(ITextEmbedder embedder, IVectorIndex index, RetrievalFloors floors, LifecycleVerifier verifier)
+    public HybridSearch(ITextEmbedder embedder, IVectorIndex index, RetrievalFloors floors)
     {
-        ArgumentNullException.ThrowIfNull(verifier);
-        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(embedder);
         ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(floors);
         _embedder = embedder;
         _index = index;
         _floors = floors;
-    }
-
-    /// <summary>Searches <paramref name="log"/>, which this verifies once (errata G70, ruling 76); a route that holds a <see cref="VerifiedLog"/> already calls the overload that takes it.</summary>
-    public Task<Result<SearchPage>> SearchAsync(
-        IReadOnlyList<AppendedEvent> log,
-        RetrievalSurface surface,
-        SearchQuery query,
-        VerificationFold verification,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(log);
-
-        return SearchAsync(_verifier.OfLog(log), surface, query, verification, cancellationToken);
-    }
-
-    /// <summary>
-    /// Searches the log <paramref name="verified"/> was made over: the corpus (its moderation and its owners) and the dispute mark are folded from that one verified log, so each operator act is verified once
-    /// for the request, whoever else in it asked (errata G70, rulings 75 and 76). This is <see cref="PrepareAsync"/> then <see cref="Search"/>, with the log held before the wait; a route that reads the log
-    /// after the wait calls the two itself (errata G71, R9.65).
-    /// </summary>
-    public async Task<Result<SearchPage>> SearchAsync(
-        VerifiedLog verified,
-        RetrievalSurface surface,
-        SearchQuery query,
-        VerificationFold verification,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(verified);
-        ArgumentNullException.ThrowIfNull(query);
-        ArgumentNullException.ThrowIfNull(verification);
-
-        var prepared = await PrepareAsync(surface, query, cancellationToken).ConfigureAwait(false);
-        return prepared.TryGetValue(out var ready, out var error) ? Search(verified, ready!, verification) : Result<SearchPage>.Fail(error!);
     }
 
     /// <summary>

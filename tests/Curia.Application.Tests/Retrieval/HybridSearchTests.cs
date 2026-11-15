@@ -25,7 +25,7 @@ public sealed class HybridSearchTests
     {
         var embedder = new HashedNGramEmbedder();
         var index = new InMemoryVectorIndex();
-        return new Harness(new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()), new EmbeddingIndexer(embedder, index), new HybridSearch(embedder, index, floors ?? RetrievalFloors.Published, TestVerifier.Empty));
+        return new Harness(new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()), new EmbeddingIndexer(embedder, index), new HybridSearch(embedder, index, floors ?? RetrievalFloors.Published));
     }
 
     private static SearchQuery Query(string? text, int limit = 25, RetrievalCursor? cursor = null, VerificationLevel? floor = null, PostKind? kind = null) =>
@@ -35,7 +35,7 @@ public sealed class HybridSearchTests
     {
         var log = await LogAsync(h.Store, ct).ConfigureAwait(false);
         var fold = verification ?? VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
-        return Require(await h.Search.SearchAsync(log, RetrievalSurface.RestSearch, query, fold, ct).ConfigureAwait(false));
+        return Require(await SearchOverAsync(h.Search, log, RetrievalSurface.RestSearch, query, fold, ct).ConfigureAwait(false));
     }
 
     [Fact]

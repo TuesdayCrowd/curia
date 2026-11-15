@@ -9,6 +9,8 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
+using Curia.Domain.Retrieval;
+using Curia.Domain.Search;
 
 namespace Curia.Application.Tests.Retrieval;
 
@@ -92,6 +94,24 @@ internal static class RetrievalTestLog
         var searchable = SearchProjector.TryRead(appended[0]) ?? throw new InvalidOperationException("not searchable");
         Require(await indexer.IndexAsync(searchable, ct).ConfigureAwait(false));
         return digest;
+    }
+
+    /// <summary>A search the way the route makes it (errata G71, R9.65): the waits, then the log verified, then the page cut without waiting.</summary>
+    public static async Task<Result<SearchPage>> SearchOverAsync(
+        HybridSearch search, IReadOnlyList<AppendedEvent> log, RetrievalSurface surface, SearchQuery query, VerificationFold verification, CancellationToken ct)
+    {
+        var prepared = await search.PrepareAsync(surface, query, ct).ConfigureAwait(false);
+        return prepared.TryGetValue(out var ready, out var error)
+            ? search.Search(TestVerifier.Empty.OfLog(log), ready!, verification)
+            : Result<SearchPage>.Fail(error!);
+    }
+
+    /// <summary>The near-duplicate check the way the route makes it (errata G71, R9.65): the waits, then the verdict over the corpus.</summary>
+    public static async Task<Result<DuplicateAssessment>> AssessOverAsync(
+        DuplicateCheck check, ImmutableArray<SearchablePost> corpus, PostEnvelope envelope, CancellationToken ct)
+    {
+        var prepared = await check.PrepareAsync(envelope, ct).ConfigureAwait(false);
+        return prepared.TryGetValue(out var ready, out var error) ? check.Assess(corpus, ready!) : Result<DuplicateAssessment>.Fail(error!);
     }
 
     public static async Task<IReadOnlyList<AppendedEvent>> LogAsync(IEventReader reader, CancellationToken ct) =>

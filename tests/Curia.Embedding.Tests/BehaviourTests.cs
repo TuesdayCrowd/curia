@@ -351,7 +351,9 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
             Req(await indexer.IndexAsync(post, Ct));
 
             var envelope = Req(PostEnvelope.Read((JsonValue.Object)Req(JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(CanonicalQuestion(titleB, bodyB))))));
-            var assessed = Req(await new DuplicateCheck(model.Embedder, index, DuplicateThresholds.Published).AssessAsync(ImmutableArray.Create(post), envelope, Ct));
+            var check = new DuplicateCheck(model.Embedder, index, DuplicateThresholds.Published);
+            var prepared = Req(await check.PrepareAsync(envelope, Ct));
+            var assessed = Req(check.Assess(ImmutableArray.Create(post), prepared));
             verdicts.Add($"{pair.Class,-11} {pair.Id,-26} {assessed.Verdict,-9} cosine {assessed.Cosine:0.000} overlap {assessed.LexicalOverlap:0.000}");
             if (pair.Class is "related" or "distinct" && assessed.Verdict == DuplicateVerdict.Refuse) refused.Add(pair.Id);
         }

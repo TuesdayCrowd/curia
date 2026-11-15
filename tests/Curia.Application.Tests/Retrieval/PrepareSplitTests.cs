@@ -88,7 +88,7 @@ public sealed class PrepareSplitTests
             Indexer = new EmbeddingIndexer(raw, inner);
             Embedder = new RecordingEmbedder(raw, embedderAnswer);
             Index = new RecordingIndex(inner);
-            Search = new HybridSearch(Embedder, Index, RetrievalFloors.Published, TestVerifier.Empty);
+            Search = new HybridSearch(Embedder, Index, RetrievalFloors.Published);
             Check = new DuplicateCheck(Embedder, Index, DuplicateThresholds.Published);
         }
 

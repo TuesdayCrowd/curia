@@ -87,8 +87,8 @@ public sealed class HybridSearchCursorBindingTests
             Indexer = new EmbeddingIndexer(raw, inner);
             Embedder = new CountingEmbedder(raw);
             Index = new CountingIndex(inner);
-            Published = new HybridSearch(Embedder, Index, RetrievalFloors.Published, TestVerifier.Empty);
-            AtV1 = new HybridSearch(Embedder, Index, Require(RetrievalFloors.Parse([new("rest-search", "V1")])), TestVerifier.Empty);
+            Published = new HybridSearch(Embedder, Index, RetrievalFloors.Published);
+            AtV1 = new HybridSearch(Embedder, Index, Require(RetrievalFloors.Parse([new("rest-search", "V1")])));
         }
 
         internal void ResetCounters() => (Embedder.Calls, Index.Nearest) = (0, 0);
@@ -103,7 +103,7 @@ public sealed class HybridSearchCursorBindingTests
     {
         var log = await LogAsync(h.Store, ct).ConfigureAwait(false);
         var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
-        return await search.SearchAsync(log, RetrievalSurface.RestSearch, query, fold, ct).ConfigureAwait(false);
+        return await SearchOverAsync(search, log, RetrievalSurface.RestSearch, query, fold, ct).ConfigureAwait(false);
     }
 
     /// <summary>Four questions by four authors, tagged, so a page of two has a second page.</summary>

@@ -54,18 +54,6 @@ public sealed class DuplicateCheck
     public DuplicateThresholds Thresholds => _thresholds;
 
     /// <summary>
-    /// The assessment over a corpus the caller folded (errata G62, ruling 18): the route folds once and shares the corpus with <c>board_new</c>. There is no overload that takes a log: the corpus is folded from a
-    /// verified log (<c>SearchProjector.FoldHonoured</c>), and a duplicate check that folded its own would read operator acts nobody verified (errata G70, ruling 75). This is
-    /// <see cref="PrepareAsync"/> then <see cref="Assess"/>, with the corpus handed in before the wait; a route that reads the log after the wait calls the two itself (errata G71, R9.65).
-    /// </summary>
-    public async Task<Result<DuplicateAssessment>> AssessAsync(
-        ImmutableArray<SearchablePost> corpus, PostEnvelope envelope, CancellationToken cancellationToken = default)
-    {
-        var prepared = await PrepareAsync(envelope, cancellationToken).ConfigureAwait(false);
-        return prepared.TryGetValue(out var ready, out var error) ? Assess(corpus, ready!) : Result<DuplicateAssessment>.Fail(error!);
-    }
-
-    /// <summary>
     /// Every step of the check at which it can be made to wait (errata G71, R9.65): the text embedded as a passage and the index's neighbours of it. It takes no corpus, so it asks the index
     /// even where the board holds no candidate, and it reads nothing: the caller reads the log after this returns. <c>NoFeatures</c> is a text with nothing to compare, not a failure.
     /// </summary>
