@@ -68,12 +68,9 @@ public sealed class HybridSearch
     private readonly ITextEmbedder _embedder;
     private readonly IVectorIndex _index;
     private readonly RetrievalFloors _floors;
-    private readonly LifecycleVerifier _verifier;
 
-    public HybridSearch(ITextEmbedder embedder, IVectorIndex index, RetrievalFloors floors, LifecycleVerifier verifier)
+    public HybridSearch(ITextEmbedder embedder, IVectorIndex index, RetrievalFloors floors)
     {
-        ArgumentNullException.ThrowIfNull(verifier);
-        _verifier = verifier;
         ArgumentNullException.ThrowIfNull(embedder);
         ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(floors);
@@ -82,47 +79,20 @@ public sealed class HybridSearch
         _floors = floors;
     }
 
-    /// <summary>Searches <paramref name="log"/>, which this verifies once (errata G70, ruling 76); a route that holds a <see cref="VerifiedLog"/> already calls the overload that takes it.</summary>
-    public Task<Result<SearchPage>> SearchAsync(
-        IReadOnlyList<AppendedEvent> log,
-        RetrievalSurface surface,
-        SearchQuery query,
-        VerificationFold verification,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(log);
-
-        return SearchAsync(_verifier.OfLog(log), surface, query, verification, cancellationToken);
-    }
-
     /// <summary>
-    /// Searches the log <paramref name="verified"/> was made over: the corpus (its moderation and its owners) and the dispute mark are folded from that one verified log, so each operator act is verified once
-    /// for the request, whoever else in it asked (errata G70, rulings 75 and 76).
+    /// Every step of a search at which it can be made to wait (errata G71, R9.65): the floor and the clamp, the cursor's binding (a refused request embeds nothing and asks the index nothing, R9.35),
+    /// then, for a query with text, the embedding in the query role (R11.92's gate) and the index's neighbours. It takes no log: the caller reads the log after this returns and hands it to
+    /// <see cref="Search"/>, so what the page is cut from is as new as the wait allows.
     /// </summary>
-    public async Task<Result<SearchPage>> SearchAsync(
-        VerifiedLog verified,
-        RetrievalSurface surface,
-        SearchQuery query,
-        VerificationFold verification,
-        CancellationToken cancellationToken = default)
+    public async Task<Result<PreparedSearch>> PrepareAsync(RetrievalSurface surface, SearchQuery query, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(verified);
         ArgumentNullException.ThrowIfNull(query);
-        ArgumentNullException.ThrowIfNull(verification);
 
-        var log = verified.Log;
-
-        // R9.7: the corpus a page is cut from is the corpus as of the cursor's bound, and a first
-        // page fixes that bound at the newest event it can see. Posts appended afterwards join on
-        // the next fresh query, never mid-page.
-        var bound = query.Cursor?.CorpusBound ?? (log.Count == 0 ? 0 : log[^1].Seq.Value);
-        var offset = query.Cursor?.Offset ?? 0;
         var limit = Math.Clamp(query.Limit, 1, LexicalSearch.MaximumLimit);
 
         var (surfaceFloor, source) = _floors.Resolve(surface);
 
-        // R10.54 (rev.), R9.31: a request may raise the surface's floor and never lower it. A request
-        // below it is served at the floor in force and the page says so; `source` names the request
+        // R10.54 (rev.), R9.31: a request may raise the surface's floor and never lower it. A request below it is served at the floor in force and the page says so; `source` names the request
         // only where the request's level is the one applied.
         var clamped = query.RequestedFloor is { } asked && asked < surfaceFloor;
         var floor = query.RequestedFloor is { } requested && !clamped ? requested : surfaceFloor;
@@ -131,7 +101,37 @@ public sealed class HybridSearch
         // the check follows the floor and precedes both channels: a refused request embeds nothing and asks the index nothing.
         var binding = QueryBinding.Of(query.Text, query.Board?.Value, query.Author?.Value, query.Kinds, query.Tags, query.RequestedFloor, floor, limit);
         if (query.Cursor is { } presented && !string.Equals(presented.Binding, binding, StringComparison.Ordinal))
-            return Result<SearchPage>.Fail(RetrievalCursor.QueryMismatch());
+            return Result<PreparedSearch>.Fail(RetrievalCursor.QueryMismatch());
+
+        var neighbours = await NeighboursAsync(query.Text, cancellationToken).ConfigureAwait(false);
+        return neighbours.TryGetValue(out var matches, out var error)
+            ? Result<PreparedSearch>.Ok(new PreparedSearch(surface, query, floor, query.RequestedFloor is null || clamped ? source : "requested", clamped, binding, limit, matches))
+            : Result<PreparedSearch>.Fail(error!);
+    }
+
+    /// <summary>
+    /// The rest of a search, synchronous (errata G71, R9.65): nothing from the log read to the page can wait. The corpus, its bound and the dispute mark are folded from <paramref name="verified"/>, and
+    /// the prepared neighbours (over the whole index) are kept where the corpus holds them.
+    /// </summary>
+    public Result<SearchPage> Search(VerifiedLog verified, PreparedSearch prepared, VerificationFold verification)
+    {
+        ArgumentNullException.ThrowIfNull(verified);
+        ArgumentNullException.ThrowIfNull(prepared);
+        ArgumentNullException.ThrowIfNull(verification);
+
+        var query = prepared.Query;
+        var surface = prepared.Surface;
+        var floor = prepared.Floor;
+        var limit = prepared.Limit;
+        var binding = prepared.Binding;
+        var clamped = prepared.Clamped;
+        var log = verified.Log;
+
+        // R9.7: the corpus a page is cut from is the corpus as of the cursor's bound, and a first
+        // page fixes that bound at the newest event it can see. Posts appended afterwards join on
+        // the next fresh query, never mid-page.
+        var bound = query.Cursor?.CorpusBound ?? (log.Count == 0 ? 0 : log[^1].Seq.Value);
+        var offset = query.Cursor?.Offset ?? 0;
 
         // R9.47: a digest is one result. A log that holds two posts of one digest (the same bytes stored twice, before R8.78 refused it)
         // is read, not repaired: the digest resolves to the first post in log order, and the second copy is served by its id alone.
@@ -140,9 +140,7 @@ public sealed class HybridSearch
         var lexicalQuery = new LexicalQuery(query.Text, query.Board?.Value, query.Kinds, query.Tags, query.Author?.Value, Cursor: null, Limit: LexicalSearch.MaximumLimit);
         var lexical = LexicalSearch.Rank(corpus, lexicalQuery);
 
-        var vector = await VectorChannelAsync(corpus, lexicalQuery, cancellationToken).ConfigureAwait(false);
-        if (!vector.TryGetValue(out var vectorHits, out var vectorError))
-            return Result<SearchPage>.Fail(vectorError!);
+        var vectorHits = VectorHits(corpus, lexicalQuery, prepared.Neighbours);
 
         var fused = HybridRanking.Rank(lexical, vectorHits, p => verification.LevelOf(p.Digest));
 
@@ -174,7 +172,7 @@ public sealed class HybridSearch
             next,
             surface,
             floor,
-            query.RequestedFloor is null || clamped ? source : "requested",
+            prepared.FloorSource,
             _embedder.Model,
             bound,
             HybridRanking.CandidateDepth,
@@ -188,30 +186,30 @@ public sealed class HybridSearch
     }
 
     /// <summary>
-    /// The vector channel: the query embedded once, the index's nearest neighbours, kept where they
-    /// are in the filtered corpus. A query with no text has no vector channel -- a filter is not a
+    /// The vector channel's waits: the query embedded once and the index's nearest neighbours. A query with no text has no vector channel -- a filter is not a
     /// search -- and a query with no embeddable text has none either.
     /// </summary>
-    private async Task<Result<ImmutableArray<VectorHit>>> VectorChannelAsync(
-        ImmutableArray<SearchablePost> corpus, LexicalQuery filters, CancellationToken cancellationToken)
+    private async Task<Result<ImmutableArray<VectorMatch>>> NeighboursAsync(string? text, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(filters.Text))
-            return Result<ImmutableArray<VectorHit>>.Ok([]);
+        if (string.IsNullOrWhiteSpace(text))
+            return Result<ImmutableArray<VectorMatch>>.Ok([]);
 
         // A search query is embedded in the query role (errata G65, R9.63): a model with an instruction on one side means something different on each. A stored post and a
         // submitted question are passages.
-        var embedded = await _embedder.EmbedAsync(filters.Text, EmbeddingRole.Query, cancellationToken).ConfigureAwait(false);
+        var embedded = await _embedder.EmbedAsync(text, EmbeddingRole.Query, cancellationToken).ConfigureAwait(false);
         if (!embedded.TryGetValue(out var embedding, out var embedError))
         {
             return string.Equals(embedError!.Type, EmbeddingErrors.NoFeatures().Type, StringComparison.Ordinal)
-                ? Result<ImmutableArray<VectorHit>>.Ok([])
-                : Result<ImmutableArray<VectorHit>>.Fail(embedError);
+                ? Result<ImmutableArray<VectorMatch>>.Ok([])
+                : Result<ImmutableArray<VectorMatch>>.Fail(embedError);
         }
 
-        var nearest = await _index.NearestAsync(embedding!, HybridRanking.CandidateDepth, cancellationToken).ConfigureAwait(false);
-        if (!nearest.TryGetValue(out var matches, out var nearestError))
-            return Result<ImmutableArray<VectorHit>>.Fail(nearestError!);
+        return await _index.NearestAsync(embedding!, HybridRanking.CandidateDepth, cancellationToken).ConfigureAwait(false);
+    }
 
+    /// <summary>The neighbours kept where they are in the filtered corpus, at or above the cosine line.</summary>
+    private static ImmutableArray<VectorHit> VectorHits(ImmutableArray<SearchablePost> corpus, LexicalQuery filters, ImmutableArray<VectorMatch> matches)
+    {
         // R9.47: two stored posts of one digest resolve to the first in log order; a repeat never throws.
         var byDigest = new Dictionary<string, SearchablePost>(StringComparer.Ordinal);
         foreach (var post in corpus.Where(p => LexicalSearch.Matches(p, filters)))
@@ -226,6 +224,6 @@ public sealed class HybridSearch
                 hits.Add(new VectorHit(post, cosine));
         }
 
-        return Result<ImmutableArray<VectorHit>>.Ok(hits.ToImmutable());
+        return hits.ToImmutable();
     }
 }

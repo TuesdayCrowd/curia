@@ -54,30 +54,47 @@ public sealed class DuplicateCheck
     public DuplicateThresholds Thresholds => _thresholds;
 
     /// <summary>
-    /// The assessment over a corpus the caller folded (errata G62, ruling 18): the route folds once and shares the corpus with <c>board_new</c>. There is no overload that takes a log: the corpus is folded from a
-    /// verified log (<c>SearchProjector.FoldHonoured</c>), and a duplicate check that folded its own would read operator acts nobody verified (errata G70, ruling 75).
+    /// Every step of the check at which it can be made to wait (errata G71, R9.65): the text embedded as a passage and the index's neighbours of it. It takes no corpus, so it asks the index
+    /// even where the board holds no candidate, and it reads nothing: the caller reads the log after this returns. <c>NoFeatures</c> is a text with nothing to compare, not a failure.
     /// </summary>
-    public async Task<Result<DuplicateAssessment>> AssessAsync(
-        ImmutableArray<SearchablePost> corpus, PostEnvelope envelope, CancellationToken cancellationToken = default)
+    public async Task<Result<PreparedDuplicate>> PrepareAsync(PostEnvelope envelope, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(envelope);
 
         var overridden = envelope.NotDuplicate == true;
         var text = EmbeddedText.Of(envelope);
-        var none = new DuplicateAssessment(DuplicateVerdict.None, null, 0, 0, _thresholds, _embedder.Model, overridden, 0);
 
         var embedded = await _embedder.EmbedAsync(text, EmbeddingRole.Passage, cancellationToken).ConfigureAwait(false);
         if (!embedded.TryGetValue(out var embedding, out var embedError))
         {
             return string.Equals(embedError!.Type, EmbeddingErrors.NoFeatures().Type, StringComparison.Ordinal)
-                ? Result<DuplicateAssessment>.Ok(none)
-                : Result<DuplicateAssessment>.Fail(embedError);
+                ? Result<PreparedDuplicate>.Ok(new PreparedDuplicate(envelope.Kind, envelope.Board, text, overridden, embedded: false, []))
+                : Result<PreparedDuplicate>.Fail(embedError);
         }
+
+        var nearest = await _index.NearestAsync(embedding!, NeighbourDepth, cancellationToken).ConfigureAwait(false);
+        return nearest.TryGetValue(out var matches, out var nearestError)
+            ? Result<PreparedDuplicate>.Ok(new PreparedDuplicate(envelope.Kind, envelope.Board, text, overridden, embedded: true, matches))
+            : Result<PreparedDuplicate>.Fail(nearestError!);
+    }
+
+    /// <summary>
+    /// The rest of the check, synchronous: the candidates of <paramref name="corpus"/> (the same board and kind), the walk of the prepared neighbours that the corpus holds, and the verdict.
+    /// The neighbours are over the whole index, withheld posts included, so the corpus filter after the read is what keeps a withheld post from being offered as canonical (errata G71, R9.65).
+    /// A board with no candidate is answered <c>none</c> here and not before the index is asked.
+    /// </summary>
+    public Result<DuplicateAssessment> Assess(ImmutableArray<SearchablePost> corpus, PreparedDuplicate prepared)
+    {
+        ArgumentNullException.ThrowIfNull(prepared);
+
+        var none = new DuplicateAssessment(DuplicateVerdict.None, null, 0, 0, _thresholds, _embedder.Model, prepared.Overridden, 0);
+        if (!prepared.Embedded)
+            return Result<DuplicateAssessment>.Ok(none);
 
         // R9.47: two stored posts of one digest resolve to the first in log order; a repeat never throws.
         var candidates = new Dictionary<string, SearchablePost>(StringComparer.Ordinal);
         foreach (var post in corpus
-            .Where(p => p.Kind == envelope.Kind && string.Equals(p.Board, envelope.Board, StringComparison.Ordinal)))
+            .Where(p => p.Kind == prepared.Kind && string.Equals(p.Board, prepared.Board, StringComparison.Ordinal)))
         {
             candidates.TryAdd(post.Digest, post);
         }
@@ -85,19 +102,15 @@ public sealed class DuplicateCheck
         if (candidates.Count == 0)
             return Result<DuplicateAssessment>.Ok(none);
 
-        var nearest = await _index.NearestAsync(embedding!, NeighbourDepth, cancellationToken).ConfigureAwait(false);
-        if (!nearest.TryGetValue(out var matches, out var nearestError))
-            return Result<DuplicateAssessment>.Fail(nearestError!);
-
-        foreach (var match in matches!)
+        foreach (var match in prepared.Neighbours)
         {
             if (!candidates.TryGetValue(match.Digest, out var candidate)) continue;
 
             var cosine = 1.0 - match.Distance;
-            var overlap = LexicalOverlap.Jaccard(text, EmbeddedText.Of(candidate));
-            var verdict = DuplicatePolicy.Assess(envelope.Kind, cosine, overlap, overridden, _thresholds);
+            var overlap = LexicalOverlap.Jaccard(prepared.Text, EmbeddedText.Of(candidate));
+            var verdict = DuplicatePolicy.Assess(prepared.Kind, cosine, overlap, prepared.Overridden, _thresholds);
             return Result<DuplicateAssessment>.Ok(new DuplicateAssessment(
-                verdict, candidate, cosine, overlap, _thresholds, _embedder.Model, overridden, candidates.Count));
+                verdict, candidate, cosine, overlap, _thresholds, _embedder.Model, prepared.Overridden, candidates.Count));
         }
 
         return Result<DuplicateAssessment>.Ok(none with { CandidatesConsidered = candidates.Count });

@@ -232,8 +232,7 @@ public sealed class Program
         builder.Services.AddSingleton(sp => new HybridSearch(
             sp.GetRequiredService<ITextEmbedder>(),
             sp.GetRequiredService<IVectorIndex>(),
-            sp.GetRequiredService<RetrievalFloors>(),
-            sp.GetRequiredService<LifecycleVerifier>()));
+            sp.GetRequiredService<RetrievalFloors>()));
         builder.Services.AddSingleton(sp => new DuplicateCheck(
             sp.GetRequiredService<ITextEmbedder>(),
             sp.GetRequiredService<IVectorIndex>(),

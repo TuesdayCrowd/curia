@@ -1125,17 +1125,29 @@ public static class ForumEndpoints
         bool? boardNew = null;
         if (PostKinds.IsDiscussion(v.Envelope.Kind))
         {
+            // R9.65 (errata G71): the waits first, the log after them. The refusals above decided on the log this request began with (the write path does not authorise again after the wait);
+            // the corpus, `board_new` and the refusal's thread come from one fresh read, so a post withheld or published while the embedding waited is judged as it stands when the verdict is made.
+            var prepared = await dedupe.PrepareAsync(v.Envelope, cancellationToken).ConfigureAwait(false);
+            if (!prepared.TryGetValue(out var ready, out var dedupeError))
+                return Problem(StatusCodes.Status503ServiceUnavailable, dedupeError!);
+
+            // Consumed as the revision gate consumes its read: a failed read is this route's own 503, never an empty log.
+            var dedupeRead = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!dedupeRead.TryGetValue(out var dedupeLog, out var dedupeReadError))
+                return Problem(StatusCodes.Status503ServiceUnavailable, dedupeReadError!);
+
+            var dedupeVerified = decided.Verified.ExtendTo(dedupeLog!);
+
             // Errata G62, ruling 18: one fold of the corpus, shared by the near-duplicate check and by R8.88's `board_new`.
-            var corpus = SearchProjector.FoldHonoured(decided.Verified);
+            var corpus = SearchProjector.FoldHonoured(dedupeVerified);
             if (v.Envelope.Kind is PostKind.Question or PostKind.Finding)
                 boardNew = !NamedFilters.BoardHasServedPost(corpus, v.Envelope.Board);
 
-            var assessed = await dedupe.AssessAsync(corpus, v.Envelope, cancellationToken).ConfigureAwait(false);
-            if (!assessed.TryGetValue(out var assessment, out var dedupeError))
-                return Problem(StatusCodes.Status503ServiceUnavailable, dedupeError!);
+            if (!dedupe.Assess(corpus, ready!).TryGetValue(out var assessment, out var assessError))
+                return Problem(StatusCodes.Status503ServiceUnavailable, assessError!);
 
             if (assessment!.Verdict == DuplicateVerdict.Refuse)
-                return DuplicateRefusal(assessment, decided.Verified, http);
+                return DuplicateRefusal(assessment, dedupeVerified, http);
 
             if (assessment.Verdict == DuplicateVerdict.Annotate && assessment.Nearest is { } nearest)
                 annotation = new PossibleDuplicate(nearest.Digest, assessment.Cosine, assessment.Model.Id);
@@ -2581,6 +2593,20 @@ public static class ForumEndpoints
             Cursor: cursor,
             Limit: limit);
 
+        // R9.65 (errata G71): the waits come first and the log is read after them. A refused request embeds nothing: every refusal the request can earn without the log, the marking's included,
+        // is answered above the wait.
+        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
+            return Problem(StatusCodes.Status400BadRequest, markingError!);
+
+        var prepared = await search.PrepareAsync(RetrievalSurface.RestSearch, query, cancellationToken).ConfigureAwait(false);
+        if (!prepared.TryGetValue(out var ready, out var searchError))
+        {
+            // R9.35: a cursor that belongs to another query is the caller's request and not a search failure.
+            var mismatch = string.Equals(searchError!.Type, RetrievalCursor.QueryMismatch().Type, StringComparison.Ordinal);
+            return Problem(mismatch ? StatusCodes.Status400BadRequest : StatusCodes.Status503ServiceUnavailable, searchError);
+        }
+
+        // From here to the answer nothing waits: what the page is cut from is the log as it stands after the embedding and the index have answered.
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var verified = VerifierOf(http).OfLog(log);
         var views = PostProjector.Fold(log);
@@ -2591,18 +2617,11 @@ public static class ForumEndpoints
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
         var acta = ActaOf(log);
-        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
-            return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
         var acceptedByThread = AcceptedAnswerIndex.Fold(log, views, servable);
 
-        var searched = await search.SearchAsync(verified, RetrievalSurface.RestSearch, query, verification, cancellationToken).ConfigureAwait(false);
-        if (!searched.TryGetValue(out var page, out var searchError))
-        {
-            // R9.35: a cursor that belongs to another query is the caller's request and not a search failure.
-            var mismatch = string.Equals(searchError!.Type, RetrievalCursor.QueryMismatch().Type, StringComparison.Ordinal);
-            return Problem(mismatch ? StatusCodes.Status400BadRequest : StatusCodes.Status503ServiceUnavailable, searchError);
-        }
+        if (!search.Search(verified, ready!, verification).TryGetValue(out var page, out var rankError))
+            return Problem(StatusCodes.Status503ServiceUnavailable, rankError!);
 
         // R9.8: "when requested". Off by default because R8.36's purpose is auditing rather than
         // decoration, and a field on every response is one every client learns to ignore.

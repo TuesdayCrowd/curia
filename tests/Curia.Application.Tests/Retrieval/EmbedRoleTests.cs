@@ -105,7 +105,7 @@ public sealed class EmbedRoleTests
         var check = new DuplicateCheck(checking, new InMemoryVectorIndex(), DuplicateThresholds.Published);
         var envelope = Require(PostEnvelope.Read((Curia.Canon.Json.JsonValue.Object)Require(Curia.Canon.Json.JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(
             Canonical(PostKind.Question, "https://agents.example/asker", "postgres", "ECONNRESET from npgsql", "npgsql throws ECONNRESET after the pooler idles the connection", []))))));
-        Require(await check.AssessAsync(SearchProjector.Fold(log), envelope, Ct));
+        Require(await AssessOverAsync(check, SearchProjector.Fold(log), envelope, Ct));
         Assert.True(checking.Calls.Count == 1, $"NOT REACHED: the near-duplicate check embedded {checking.Calls.Count} time(s), expected 1");
         Assert.True(
             checking.Calls[0].Role == EmbeddingRole.Passage,
@@ -115,9 +115,9 @@ public sealed class EmbedRoleTests
         var searching = new RecordingEmbedder(new HashedNGramEmbedder());
         var index = new InMemoryVectorIndex();
         Require(await new EmbeddingIndexer(new HashedNGramEmbedder(), index).IndexAsync(post, Ct));
-        var search = new HybridSearch(searching, index, RetrievalFloors.Published, TestVerifier.Empty);
+        var search = new HybridSearch(searching, index, RetrievalFloors.Published);
         var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
-        Require(await search.SearchAsync(log, RetrievalSurface.RestSearch, new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25), fold, Ct));
+        Require(await SearchOverAsync(search, log, RetrievalSurface.RestSearch, new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25), fold, Ct));
         Assert.True(searching.Calls.Count == 1, $"NOT REACHED: the search embedded {searching.Calls.Count} time(s), expected 1");
         Assert.True(
             searching.Calls[0].Role == EmbeddingRole.Query,
@@ -142,12 +142,12 @@ public sealed class EmbedRoleTests
 
         var envelope = Require(PostEnvelope.Read((Curia.Canon.Json.JsonValue.Object)Require(Curia.Canon.Json.JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(
             Canonical(PostKind.Question, "https://agents.example/asker", "postgres", "ECONNRESET from npgsql", "npgsql throws ECONNRESET after the pooler idles the connection", []))))));
-        var assessed = Require(await new DuplicateCheck(none, new InMemoryVectorIndex(), DuplicateThresholds.Published).AssessAsync(SearchProjector.Fold(log), envelope, Ct));
+        var assessed = Require(await AssessOverAsync(new DuplicateCheck(none, new InMemoryVectorIndex(), DuplicateThresholds.Published), SearchProjector.Fold(log), envelope, Ct));
         Assert.Equal(DuplicateVerdict.None, assessed.Verdict);
 
         var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
-        var page = Require(await new HybridSearch(none, new InMemoryVectorIndex(), RetrievalFloors.Published, TestVerifier.Empty)
-            .SearchAsync(log, RetrievalSurface.RestSearch, new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25), fold, Ct));
+        var page = Require(await SearchOverAsync(new HybridSearch(none, new InMemoryVectorIndex(), RetrievalFloors.Published),
+            log, RetrievalSurface.RestSearch, new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25), fold, Ct));
         Assert.NotEmpty(page.Results);
         Assert.All(page.Results, r => Assert.Equal(0, r.VectorRank));
         Assert.True(none.Calls == 3, $"NOT REACHED: the embedder was asked {none.Calls} time(s), expected once at each of the three sites");

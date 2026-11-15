@@ -39,7 +39,7 @@ public sealed class StoredDuplicateDigestTests
             new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()),
             new EmbeddingIndexer(embedder, index),
             new DuplicateCheck(embedder, index, DuplicateThresholds.Published),
-            new HybridSearch(embedder, index, RetrievalFloors.Published, TestVerifier.Empty));
+            new HybridSearch(embedder, index, RetrievalFloors.Published));
     }
 
     private static async Task<IReadOnlyList<AppendedEvent>> SeedTwoAsync(Harness h, CancellationToken ct)
@@ -62,7 +62,7 @@ public sealed class StoredDuplicateDigestTests
             System.Text.Encoding.UTF8.GetBytes(Canonical(PostKind.Question, "https://agents.example/asker", "postgres", Title, Body, []))));
         var envelope = Require(PostEnvelope.Read(root));
 
-        var assessed = await h.Check.AssessAsync(SearchProjector.Fold(log), envelope, ct);
+        var assessed = await AssessOverAsync(h.Check, SearchProjector.Fold(log), envelope, ct);
 
         var assessment = Require(assessed);
         Assert.Equal(
@@ -79,7 +79,7 @@ public sealed class StoredDuplicateDigestTests
         var verification = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
         var query = new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25);
 
-        var page = Require(await h.Search.SearchAsync(log, RetrievalSurface.RestSearch, query, verification, ct));
+        var page = Require(await SearchOverAsync(h.Search, log, RetrievalSurface.RestSearch, query, verification, ct));
 
         Assert.Equal(
             ["first"],

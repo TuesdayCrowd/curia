@@ -41,7 +41,7 @@ public sealed class DuplicateCheckTests
     }
 
     private static async Task<DuplicateAssessment> AssessAsync(Harness h, PostEnvelope envelope, CancellationToken ct) =>
-        Require(await h.Check.AssessAsync(Curia.Application.Projections.SearchProjector.Fold(await LogAsync(h.Store, ct).ConfigureAwait(false)), envelope, ct).ConfigureAwait(false));
+        Require(await AssessOverAsync(h.Check, Curia.Application.Projections.SearchProjector.Fold(await LogAsync(h.Store, ct).ConfigureAwait(false)), envelope, ct).ConfigureAwait(false));
 
     [Fact]
     public async Task R8_18_TheSameQuestionOnTheSameBoardIsRefusedAndTheCanonicalIsNamed()
