@@ -109,14 +109,28 @@ internal static class OperatorActFold
     /// Decides every operator-act row of <paramref name="log"/>, which is the whole log from its start (R6.47: a log index is a position in it) or a prefix of it, in log order. <paramref name="published"/> is the
     /// keys the same log publishes; <paramref name="verifiers"/> the primitives, by algorithm.
     /// </summary>
-    internal static ImmutableArray<ActDecision> Decide(IReadOnlyList<AppendedEvent> log, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers)
+    internal static ImmutableArray<ActDecision> Decide(IReadOnlyList<AppendedEvent> log, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers) =>
+        DecideFrom(log, 0, [], published, verifiers);
+
+    /// <summary>
+    /// The continuation of <see cref="Decide"/> (register item 286, errata G71): <paramref name="prior"/> is what <see cref="Decide"/> returned over the first <paramref name="start"/> rows of
+    /// <paramref name="log"/>, and the rows from <paramref name="start"/> on are decided now, by the same body. The fold is forward: a row's decision reads the rows before it only, through its stream's
+    /// state (the first event of its aggregate and the last act row honoured of each kind), so the state is rebuilt from the prefix without a signature check and the prior decisions are kept as they stand.
+    /// <paramref name="published"/> is the keys <paramref name="log"/> publishes: a key published at or after <paramref name="start"/> is at a log index above every prior row, and step 6 excludes it for them.
+    /// </summary>
+    internal static ImmutableArray<ActDecision> Extend(ImmutableArray<ActDecision> prior, long start, IReadOnlyList<AppendedEvent> log, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers) =>
+        DecideFrom(log, start, prior, published, verifiers);
+
+    private static ImmutableArray<ActDecision> DecideFrom(IReadOnlyList<AppendedEvent> log, long start, ImmutableArray<ActDecision> prior, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers)
     {
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(verifiers);
 
         var decisions = ImmutableArray.CreateBuilder<ActDecision>();
+        decisions.AddRange(prior);
         var streams = new Dictionary<string, Stream>(StringComparer.Ordinal);
+        var carried = 0;
 
         for (var i = 0; i < log.Count; i++)
         {
@@ -127,6 +141,14 @@ internal static class OperatorActFold
 
             var kind = KindOf(type);
             if (kind is null) continue;
+
+            if (i < start)
+            {
+                // A row of the prefix: its decision is the prior's, and it moves its stream's state as it did (an honoured row is the stream's last of its kind).
+                var decided = prior[carried++];
+                if (decided.Predicate is null) stream.Honour(kind, i);
+                continue;
+            }
 
             var predicate = Decide(i, appended, kind, stream, published, verifiers);
             if (predicate is null) stream.Honour(kind, i);

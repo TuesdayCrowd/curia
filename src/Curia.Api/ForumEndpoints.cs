@@ -1136,7 +1136,7 @@ public static class ForumEndpoints
             if (!dedupeRead.TryGetValue(out var dedupeLog, out var dedupeReadError))
                 return Problem(StatusCodes.Status503ServiceUnavailable, dedupeReadError!);
 
-            var dedupeVerified = VerifierOf(http).OfLog(dedupeLog!);
+            var dedupeVerified = decided.Verified.ExtendTo(dedupeLog!);
 
             // Errata G62, ruling 18: one fold of the corpus, shared by the near-duplicate check and by R8.88's `board_new`.
             var corpus = SearchProjector.FoldHonoured(dedupeVerified);

@@ -94,12 +94,14 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
     }
 
     /// <summary>
-    /// NMN17. No read is added (R8.88: "so that no read is added before the append and none is made after it"): the log reads of a question write equal those of a comment write
-    /// under it, to a bound the measure of the seam fixes (a question's own reads are the comment's less its parent's lookup), and the same question text sent twice reads the same number.
-    /// The figure is the reads a question write makes on the tree before the rule: <c>SeamReads</c>. A control, green on the seam; it holds FNMN19 and FNMN21.
+    /// NMN17. A question write reads the log four times (R9.65, errata G71), the same on a new board and on a known one, and the same question text sent twice reads the same number: R8.88's
+    /// <c>board_new</c> adds no read of its own (it is folded from the read the near-duplicate check already makes). The four, from the stacks of the reads of one write: the access token's key
+    /// status (<c>LogBoundKeys.StatusAsync</c>), the author key's resolution at VERIFY (<c>LogBoundKeys.ResolveLiveAsync</c>), AUTHORIZE's read (<c>SubmitAttemptAsync</c>), and the read after the
+    /// embedding wait that the corpus, <c>board_new</c> and a refusal's thread come from (<c>PersistSubmissionAsync</c>). The first three are the reads the write made before G71; the fourth is
+    /// the rule's, and is one read for a question and for every discussion kind. The figure is <c>SeamReads</c>. It holds FNMN19 and FNMN21.
     /// </summary>
     [Fact]
-    public async Task R8_88_NMN17_AQuestionWriteReadsTheLogAsManyTimesAsItDidBeforeTheMember()
+    public async Task R8_88_NMN17_ADiscussionWriteReadsTheLogFourTimesTheThreeItMadeBeforeAndOneAfterTheWait()
     {
         var counter = new Counter();
         await using var host = forum.NewHost(services =>
@@ -123,8 +125,8 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
         Said($"{SeamReads} reads for a question on a new board and {SeamReads} on a known one", $"{first} reads for a question on a new board and {second} on a known one");
     }
 
-    /// <summary>The log reads a question write makes on the tree before the rule (Task 1 measured it on the seam, which adds none).</summary>
-    private const int SeamReads = 3;
+    /// <summary>The log reads a question write makes: the three it made before errata G71 and the one after the embedding wait (R9.65), named in <see cref="R8_88_NMN17_ADiscussionWriteReadsTheLogFourTimesTheThreeItMadeBeforeAndOneAfterTheWait"/>.</summary>
+    private const int SeamReads = 4;
 
     /// <summary>
     /// NMN18. The confirm path's <c>201</c> carries the member (errata G55: a question whose append commits and then throws is answered <c>201</c> composed from the log), and a

@@ -48,6 +48,12 @@ public sealed class VerifiedLog
     private readonly Dictionary<string, LifecycleFold.Decided> _decided = new(StringComparer.Ordinal);
 
     internal VerifiedLog(LifecycleVerifier verifier, IReadOnlyList<AppendedEvent> log)
+        : this(verifier, log, null)
+    {
+    }
+
+    /// <summary>The log over <paramref name="log"/>, whose act decisions for the rows <paramref name="prior"/> was made over are prior's (nothing of them verified again) and for the rows beyond it are made now.</summary>
+    private VerifiedLog(LifecycleVerifier verifier, IReadOnlyList<AppendedEvent> log, VerifiedLog? prior)
     {
         _verifier = verifier;
         _log = log;
@@ -56,7 +62,9 @@ public sealed class VerifiedLog
         _world = new Lazy<LifecycleFold.KeyWorld>(() => new LifecycleFold.KeyWorld(_published.Value));
 
         // The operator acts (R6.67) are decided once per VerifiedLog, whichever of the three views asks first, under Lazy's own lock: each signature is verified at most once.
-        _acts = new Lazy<ImmutableArray<ActDecision>>(() => OperatorActFold.Decide(log, _published.Value, verifier.Verifiers));
+        _acts = new Lazy<ImmutableArray<ActDecision>>(() => prior is null
+            ? OperatorActFold.Decide(log, _published.Value, verifier.Verifiers)
+            : OperatorActFold.Extend(prior._acts.Value, prior._log.Count, log, _published.Value, verifier.Verifiers));
         _honoured = new Lazy<HonouredEvents>(BuildHonoured);
         _standings = new Lazy<ImmutableDictionary<string, AgentStanding>>(() => AgentStandingProjector.Fold(_honoured.Value.Events));
         _moderation = new Lazy<ImmutableDictionary<string, PostModeration>>(() => FlagProjector.Fold(_honoured.Value.Events));
@@ -67,6 +75,30 @@ public sealed class VerifiedLog
 
     /// <summary>The log this was made over, whole from its start (R6.47: leaf <i>i</i> is the <i>i</i>th event) or a prefix of it.</summary>
     public IReadOnlyList<AppendedEvent> Log => _log;
+
+    /// <summary>
+    /// This log made over <paramref name="longer"/>, a later read of the same log (register item 286, errata G71, R9.65): the act decisions for the rows this log was made over are this log's and nothing of them
+    /// is verified again; the rows <paramref name="longer"/> added are decided now. The operator-act fold is forward (a row's decision reads the rows before it only), so the decisions of a prefix are the prefix of
+    /// the decisions. It returns this log when <paramref name="longer"/> is as long as this log and begins with it, and a whole <see cref="LifecycleVerifier.OfLog"/> of <paramref name="longer"/> when it does not
+    /// begin with this log (it is shorter, or a <c>Seq</c> differs at an index this log holds): a prefix is never trusted without the comparison. The lifecycle decisions (<see cref="For"/>) are not carried over.
+    /// </summary>
+    public VerifiedLog ExtendTo(IReadOnlyList<AppendedEvent> longer)
+    {
+        ArgumentNullException.ThrowIfNull(longer);
+
+        if (longer.Count < _log.Count || !BeginsWithThisLog(longer)) return _verifier.OfLog(longer);
+        if (longer.Count == _log.Count) return this;
+        return new VerifiedLog(_verifier, longer, this);
+    }
+
+    private bool BeginsWithThisLog(IReadOnlyList<AppendedEvent> longer)
+    {
+        if (ReferenceEquals(longer, _log)) return true;
+        for (var i = 0; i < _log.Count; i++)
+            if (longer[i].Seq.Value != _log[i].Seq.Value)
+                return false;
+        return true;
+    }
 
     /// <summary>What the verifier decides of <paramref name="agent"/>'s stream (R6.64). Memoised: asking twice is one decision.</summary>
     public VerifiedLifecycle For(AgentId agent)

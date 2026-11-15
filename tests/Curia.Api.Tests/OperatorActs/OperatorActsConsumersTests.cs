@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Curia.Canon.Jws;
+using Curia.Domain.Search;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -339,5 +340,119 @@ public sealed class OperatorActsRequestCostTests(ForumFixture forum) : IClassFix
         var (grown, grownSaid) = await MeasureAsync();
         Assert.Equal(baselineSaid, grownSaid);
         WholeText.Same("3 more verifications", $"{grown - baseline} more verifications");
+    }
+}
+
+/// <summary>
+/// OAS41c (register item 286, errata G71, Amendment 3 rulings 28 and 31): OAS41's ask with the log growing while the ask waits. OAS41's row measures a log that does not grow during the wait, so it passes for
+/// a seam that merely returned the first <c>VerifiedLog</c> again; this holds the delta. An operator act is appended <b>while the ask's embedding is parked</b> (the park is
+/// <see cref="ParkingEmbedderForumFixture"/>'s, on the ask's own text), under a counting verifier as OAS41's. The ask that waited is counted against the same ask, unparked, over the log as it stands once the act
+/// is in it: the request verifies each act row once, the one appended during its wait included, so the two counts are equal; and it costs exactly one more than the same ask over the log before the act.
+/// The vacuity guards: the park is shown reached (<c>NOT REACHED</c> otherwise), and the appended act is shown honoured by reading back the attested agent's post, which says <c>owner_verified</c> false before and true after.
+/// </summary>
+[Collection("forum")]
+public sealed class OperatorActsRequestCostWhileWaitingTests(ParkingEmbedderForumFixture forum) : IClassFixture<ParkingEmbedderForumFixture>
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private sealed class Counter
+    {
+        private long _calls;
+
+        internal long Calls => Interlocked.Read(ref _calls);
+
+        internal void Add() => Interlocked.Increment(ref _calls);
+    }
+
+    private sealed class CountingVerifier(IContentVerifier inner, Counter counter) : IContentVerifier
+    {
+        public bool Verify(ReadOnlySpan<byte> input, ReadOnlySpan<byte> sig, PublicKeyMaterial key)
+        {
+            counter.Add();
+            return inner.Verify(input, sig, key);
+        }
+    }
+
+    [Fact]
+    public async Task OAS41c_AnAskWhoseLogGrowsWhileItWaitsVerifiesEachActRowOnce()
+    {
+        var counter = new Counter();
+        var real = forum.Services.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>();
+        var counting = real.ToDictionary(p => p.Key, p => (IContentVerifier)new CountingVerifier(p.Value, counter), StringComparer.Ordinal);
+        await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IReadOnlyDictionary<string, IContentVerifier>>();
+            services.AddSingleton<IReadOnlyDictionary<string, IContentVerifier>>(counting);
+        }));
+        using var client = host.CreateClient();
+        var api = new OperatorActsApi(forum, client);
+
+        var board = OperatorActsApi.Board();
+        var attested = await api.GenuineAsync("c41cattested", Ct);
+        var attestedPost = await api.QuestionByAsync(attested, board, Ct);
+        for (var i = 0; i < 2; i++)
+        {
+            var prior = await api.GenuineAsync("c41cprior", Ct);
+            await api.GenuineAttest(prior.Agent.AgentId, Ct, "owner:c41c-" + OperatorActsApi.Suffix());
+        }
+
+        // One ask, as OAS41 makes it: the token is acquired first, outside the count, so that what is counted is the post's own. The marker makes the ask's own text the one the park matches.
+        async Task<(long Calls, string Said)> AskAsync(string marker, Func<Task>? whileWaiting)
+        {
+            // A fresh agent for each ask: a T0 agent's question budget is spent by a few.
+            var actor = await api.GenuineAsync("c41cask", Ct);
+            var (_, tokenBody) = await actor.Dpop.RequestTokenAsync(api.Http(), OperatorActsApi.Token, forum.Now, actor.Agent.AgentId, Ct);
+            var token = JsonDocument.Parse(tokenBody).RootElement.GetProperty("access_token").GetString()!;
+            var wire = actor.Agent.SignQuestion(board, $"{marker} pelican failure modes under load", $"About {marker}", forum.Now);
+
+            var before = counter.Calls;
+            string said;
+            if (whileWaiting is null)
+            {
+                using var response = await actor.Dpop.PostAsync(api.Http(), OperatorActsApi.Posts, token, wire, forum.Now, Ct);
+                said = $"{(int)response.StatusCode}";
+            }
+            else
+            {
+                var park = forum.Embedder.Arm(EmbeddingRole.Passage, text => text.Contains(marker, StringComparison.Ordinal));
+                try
+                {
+                    var posting = actor.Dpop.PostAsync(api.Http(), OperatorActsApi.Posts, token, wire, forum.Now, Ct);
+                    await park.EnteredAsync("the ask's passage");
+                    await whileWaiting();
+                    park.Release();
+                    using var response = await posting;
+                    said = $"{(int)response.StatusCode}";
+                }
+                finally
+                {
+                    park.Release();
+                    forum.Embedder.Disarm();
+                }
+            }
+
+            return (counter.Calls - before, said);
+        }
+
+        async Task<string> ReadBackAsync() => (await api.ProvenanceAsync(attestedPost, Ct)).OwnerVerified switch
+        {
+            true => "owner_verified true",
+            false => "owner_verified false",
+            _ => "owner_verified (none)",
+        };
+
+        _ = await AskAsync("zwarm" + OperatorActsApi.Suffix(), null);
+        var (beforeAct, beforeSaid) = await AskAsync("zbase" + OperatorActsApi.Suffix(), null);
+        WholeText.Same("owner_verified false", await ReadBackAsync());
+
+        var (waited, waitedSaid) = await AskAsync("zwait" + OperatorActsApi.Suffix(), () => api.GenuineAttest(attested.Agent.AgentId, Ct, "owner:c41c-" + OperatorActsApi.Suffix()));
+        WholeText.Same("owner_verified true", await ReadBackAsync());
+
+        var (grown, grownSaid) = await AskAsync("zgrown" + OperatorActsApi.Suffix(), null);
+
+        Assert.Equal(beforeSaid, waitedSaid);
+        Assert.Equal(beforeSaid, grownSaid);
+        WholeText.Same($"{beforeAct + 1} verifications by the ask that waited", $"{waited} verifications by the ask that waited");
+        WholeText.Same($"{grown} verifications by the ask that waited", $"{waited} verifications by the ask that waited");
     }
 }
