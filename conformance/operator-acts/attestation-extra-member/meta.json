@@ -1,0 +1,7 @@
+{
+  "profile": "operator-acts-log",
+  "requirement": "R6.67",
+  "stream": "agent",
+  "subject": "agent://curia.example/tuesdaycrowd/scriptor",
+  "note": "A genuine attestation whose row carries a member note beside the statement's members: a member that is neither statement, authorization nor a statement member. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests."
+}

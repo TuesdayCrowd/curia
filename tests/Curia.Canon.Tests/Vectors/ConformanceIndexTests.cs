@@ -144,7 +144,7 @@ public sealed class ConformanceIndexTests
 
     /// <summary>
     /// Vector names within a family, by the shape the index declares: one subdirectory per
-    /// vector for <c>directory</c>, <c>envelope</c>, <c>merkle</c>, <c>display</c>, <c>lifecycle</c> and <c>honoured</c>, one <c>input-*.json</c>
+    /// vector for <c>directory</c>, <c>envelope</c>, <c>merkle</c>, <c>display</c>, <c>lifecycle</c>, <c>honoured</c> and <c>operator-acts</c>, one <c>input-*.json</c>
     /// per vector for <c>file-pairs</c>. An unrecognized shape fails rather than silently
     /// counting nothing.
     /// </summary>
@@ -153,7 +153,7 @@ public sealed class ConformanceIndexTests
         var dir = Path.Combine(VectorLoader.ConformanceRoot, entry.Name);
         return entry.Shape switch
         {
-            "directory" or "envelope" or "merkle" or "display" or "lifecycle" or "honoured" => [.. Directory.EnumerateDirectories(dir)
+            "directory" or "envelope" or "merkle" or "display" or "lifecycle" or "honoured" or "operator-acts" => [.. Directory.EnumerateDirectories(dir)
                 .Select(d => Path.GetFileName(d))
                 .Order(StringComparer.Ordinal)],
             "file-pairs" => [.. Directory.EnumerateFiles(dir, "input-*.json")

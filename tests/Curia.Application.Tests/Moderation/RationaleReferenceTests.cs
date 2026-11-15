@@ -1,3 +1,4 @@
+using Curia.Application.Tests.OperatorActs;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Ingest;
 using Curia.Application.Moderation;
@@ -92,13 +93,13 @@ public sealed class RationaleReferenceTests
         var operatorId = Require(ActorId.Create("operator:reviewer"));
         var before = await LogLengthAsync(store, ct);
 
-        var value = await new ApplyModeration(store, details, clock).RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.CredentialLeak, Rationale.Parse(Value), operatorId, ct);
+        var value = await SignedActWriters.Moderate(store, details, clock).RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.CredentialLeak, Rationale.Parse(Value), operatorId, ct);
         Assert.False(value.TryGetValue(out _, out var refusal), "the value leg: expected a refusal");
         Assert.Equal("curia/moderation/rationale-rejected", refusal!.Type);
         Assert.DoesNotContain("EXAMPLE-NOT-A-REAL-SECRET", $"{refusal.Title}{refusal.Detail}", StringComparison.Ordinal);
         Assert.Equal(before, await LogLengthAsync(store, ct));
 
-        var reference = await new ApplyModeration(store, details, clock).RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.CredentialLeak, Rationale.Parse(Reference), operatorId, ct);
+        var reference = await SignedActWriters.Moderate(store, details, clock).RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.CredentialLeak, Rationale.Parse(Reference), operatorId, ct);
         Assert.True(reference.TryGetValue(out _, out var error), $"expected accepted, found screening refusal {error?.Type}");
     }
 

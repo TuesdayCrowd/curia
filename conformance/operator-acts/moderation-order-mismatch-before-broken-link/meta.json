@@ -1,0 +1,7 @@
+{
+  "profile": "operator-acts-log",
+  "requirement": "R6.67",
+  "stream": "post",
+  "subject": "01K4CQ4B0000000000000000P1",
+  "note": "A withhold whose statement and row say moderator automated, with prev 0 and a stranger's header and signature, then a genuine withhold at 5: step 3 decides before steps 4 to 7, for moderation. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests."
+}

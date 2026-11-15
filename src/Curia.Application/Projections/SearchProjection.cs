@@ -33,23 +33,40 @@ namespace Curia.Application.Projections;
 public static class SearchProjector
 {
     /// <summary>
+    /// The servable searchable corpus of a verified log (errata G70, R4.43, R6.67), in ascending <c>seq</c> order: the moderation and the owners are those of the operator acts the Forum honours,
+    /// and a skipped act withholds nothing and names no owner. The one entry point production uses; <see cref="Fold"/> is its unfiltered sibling, for the tests (OAS12 bans its production callers).
+    /// </summary>
+    public static ImmutableArray<SearchablePost> FoldHonoured(Credentials.VerifiedLog verified)
+    {
+        ArgumentNullException.ThrowIfNull(verified);
+
+        return FoldWith(verified.Log, verified.Moderation(), verified.Standings());
+    }
+
+    /// <summary>
     /// Folds a seq-ordered event list into the servable searchable corpus, in ascending <c>seq</c>
     /// order — which is the order <see cref="LexicalSearch.Search"/> documents that it wants.
+    /// The list is taken as it stands, every operator-act row read as a genuine one: production folds
+    /// <see cref="FoldHonoured"/> instead.
     /// </summary>
     public static ImmutableArray<SearchablePost> Fold(IReadOnlyList<AppendedEvent> eventsInSeqOrder)
     {
         ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
 
-        var servable = FlagProjector.Fold(eventsInSeqOrder);
+        return FoldWith(eventsInSeqOrder, FlagProjector.Fold(eventsInSeqOrder), AgentStandingProjector.Fold(eventsInSeqOrder));
+    }
 
+    private static ImmutableArray<SearchablePost> FoldWith(
+        IReadOnlyList<AppendedEvent> eventsInSeqOrder,
+        ImmutableDictionary<string, PostModeration> servable,
+        ImmutableDictionary<string, AgentStanding> standings)
+    {
         // R10.7's owner arm. The cap lives in HybridRanking.Diversify, but it can only group what
         // this fold supplies: with the owner unset every post is its own owner and the owner cap
         // degrades silently to the author cap it exists to reinforce -- which an adversary defeats
         // by giving each post its own agent, since attest-owner binds one agent at a time and caps
-        // the agents an owner may hold at nothing. Folded here, once, for the same reason `servable`
+        // the agents an owner may hold at nothing. Folded once, for the same reason `servable`
         // is: it is a property of the whole log rather than of one event, so TryRead cannot see it.
-        var standings = AgentStandingProjector.Fold(eventsInSeqOrder);
-
         var posts = ImmutableArray.CreateBuilder<SearchablePost>();
         var lastSeq = EventSequence.Zero;
 

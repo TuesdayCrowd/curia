@@ -105,7 +105,7 @@ public sealed class EmbedRoleTests
         var check = new DuplicateCheck(checking, new InMemoryVectorIndex(), DuplicateThresholds.Published);
         var envelope = Require(PostEnvelope.Read((Curia.Canon.Json.JsonValue.Object)Require(Curia.Canon.Json.JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(
             Canonical(PostKind.Question, "https://agents.example/asker", "postgres", "ECONNRESET from npgsql", "npgsql throws ECONNRESET after the pooler idles the connection", []))))));
-        Require(await check.AssessAsync(log, envelope, Ct));
+        Require(await check.AssessAsync(SearchProjector.Fold(log), envelope, Ct));
         Assert.True(checking.Calls.Count == 1, $"NOT REACHED: the near-duplicate check embedded {checking.Calls.Count} time(s), expected 1");
         Assert.True(
             checking.Calls[0].Role == EmbeddingRole.Passage,
@@ -142,7 +142,7 @@ public sealed class EmbedRoleTests
 
         var envelope = Require(PostEnvelope.Read((Curia.Canon.Json.JsonValue.Object)Require(Curia.Canon.Json.JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(
             Canonical(PostKind.Question, "https://agents.example/asker", "postgres", "ECONNRESET from npgsql", "npgsql throws ECONNRESET after the pooler idles the connection", []))))));
-        var assessed = Require(await new DuplicateCheck(none, new InMemoryVectorIndex(), DuplicateThresholds.Published).AssessAsync(log, envelope, Ct));
+        var assessed = Require(await new DuplicateCheck(none, new InMemoryVectorIndex(), DuplicateThresholds.Published).AssessAsync(SearchProjector.Fold(log), envelope, Ct));
         Assert.Equal(DuplicateVerdict.None, assessed.Verdict);
 
         var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);

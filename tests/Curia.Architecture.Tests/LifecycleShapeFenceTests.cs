@@ -90,7 +90,6 @@ public sealed class LifecycleShapeFenceTests
     /// </summary>
     private static readonly (string Type, string Reason)[] ByAggregateReaders =
     [
-        ("Curia.Application.Credentials.AttestOwner", "folds one agent's owner standing (agent.owner-attested) to refuse a second owner: owner standing is not a key lifecycle and no key is read or bound by it"),
         ("Curia.Application.Ingest.ParentLookup", "reads a post's own stream for the post.accepted that names it, to find a reply's parent: no lifecycle row is read"),
         ("Curia.Application.Moderation.AcceptAnswer", "reads a thread root's stream for the answer that stands accepted (R8.68, R8.71), conditioning its append on the version it read: a thread, not an identity"),
         ("Curia.Application.Moderation.RaiseFlag", "reads a post's stream for the flags it holds (R10.70, one flag of a type per raiser per post) and the post's own facts: a post, not an identity"),
@@ -100,11 +99,12 @@ public sealed class LifecycleShapeFenceTests
     private static readonly string[] LifecycleDecisions =
     [
         "Curia.Application.Credentials.LogBoundKeys", "Curia.Application.Credentials.KeyActs", "Curia.Application.Credentials.EnrollIdentity", "Curia.Application.Credentials.EnrollAgent",
+        "Curia.Application.Credentials.AttestOwner", "Curia.Application.Moderation.ApplyModeration",
     ];
 
     /// <summary>
     /// Ruling 36, as Amendment 7's ruling 88 states it: the set of types that call <c>ReadByAggregateAsync</c> over all twelve shipped assemblies is the pinned list, so no lifecycle decision reads an aggregate by
-    /// itself and a new caller is a decision read in review; and each of <c>LogBoundKeys</c>, <c>KeyActs</c>, <c>EnrollIdentity</c> and <c>EnrollAgent</c> is found and reads the whole log (<c>ReadAllAsync</c>).
+    /// itself and a new caller is a decision read in review; and each of <c>LogBoundKeys</c>, <c>KeyActs</c>, <c>EnrollIdentity</c>, <c>EnrollAgent</c> and (errata G70, R6.67: an operator act is decided over the whole log, because a log index is a position in it) <c>AttestOwner</c> and <c>ApplyModeration</c> is found and reads the whole log (<c>ReadAllAsync</c>).
     /// </summary>
     [Fact]
     public void LRV11_TheTypesThatReadAnAggregateByItselfAreTheListedOnesAndNoLifecycleDecision()

@@ -200,6 +200,7 @@ public sealed class Program
         builder.Services.AddHostedService<EmbeddingReconcileService>();
         builder.Services.AddHostedService<EmbeddingCatchUpService>();
         builder.Services.AddHostedService<LifecycleEntryScan>();
+        builder.Services.AddHostedService<OperatorActEntryScan>();
 
         // R10.2's floors: the published table with configuration laid over it, and R8.21's dedupe
         // thresholds likewise. A surface or level configuration cannot name stops the host here,
@@ -288,6 +289,7 @@ public sealed class Program
         // resolve it from here, and the operator tool builds the same type over the same store.
         builder.Services.AddSingleton(sp => new AttestOwner(
             sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<LifecycleVerifier>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // R10.35's flag path. Holds IEventStore for the reason EnrollAgent does, and the private
@@ -308,6 +310,7 @@ public sealed class Program
         builder.Services.AddSingleton(sp => new ApplyModeration(
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<IFlagDetailStore>(),
+            sp.GetRequiredService<LifecycleVerifier>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // Table 10's answer/accept. Holds IEventStore for the reason EnrollAgent and RaiseFlag do.

@@ -203,7 +203,17 @@ public static class ActaEndpoints
             declarationKeys.Add(node);
         }
 
-        return Results.Ok(new JsonObject { ["keys"] = keys, ["declaration_keys"] = declarationKeys });
+        // Errata G70, R6.66: the operator keys, a member of their own after the two others, always present (an empty array when none is published), and never in "keys" or "declaration_keys".
+        var operatorKeys = new JsonArray();
+        foreach (var key in acta.OperatorKeys)
+        {
+            var node = ToObject(key.Jwk);
+            node["valid_from"] = key.ValidFrom;
+            node["log_index"] = key.LogIndex;
+            operatorKeys.Add(node);
+        }
+
+        return Results.Ok(new JsonObject { ["keys"] = keys, ["declaration_keys"] = declarationKeys, ["operator_keys"] = operatorKeys });
     }
 
     /// <summary>

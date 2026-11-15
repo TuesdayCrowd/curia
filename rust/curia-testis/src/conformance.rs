@@ -123,6 +123,9 @@ pub enum Profile {
     /// Forum's procedure must reach (errata G68, R6.64). The loader reads what selects the case; the
     /// documents stay on disk, in the case directory, for whatever folds them.
     HonouredLog,
+    /// A small whole log of events and, for each operator-act row of one stream, the verdict R6.67's
+    /// procedure must reach, with the state the honoured rows decide (errata G70).
+    OperatorActsLog,
 }
 
 impl Profile {
@@ -141,6 +144,7 @@ impl Profile {
             "display-literal" => Ok(Profile::DisplayLiteral),
             "lifecycle-log" => Ok(Profile::LifecycleLog),
             "honoured-log" => Ok(Profile::HonouredLog),
+            "operator-acts-log" => Ok(Profile::OperatorActsLog),
             other => Err(LoaderError::UnknownProfile {
                 path: path.to_path_buf(),
                 profile: other.to_string(),
@@ -160,6 +164,7 @@ impl Profile {
             Profile::DisplayLiteral => "display-literal",
             Profile::LifecycleLog => "lifecycle-log",
             Profile::HonouredLog => "honoured-log",
+            Profile::OperatorActsLog => "operator-acts-log",
         }
     }
 }
@@ -280,6 +285,20 @@ pub struct HonouredVector {
     pub agent: String,
 }
 
+/// A case from the `operator-acts/` family: `conformance/README.md`, "The `operator-acts/` family". The
+/// documents (`entries/<log_index>.json`, `expected.json`) stay on disk, in `dir`.
+#[derive(Debug, Clone)]
+pub struct OperatorActsVector {
+    pub case: String,
+    pub requirement: String,
+    pub note: Option<String>,
+    pub dir: PathBuf,
+    /// `meta.json`'s `stream`: `agent` or `post`.
+    pub stream: String,
+    /// `meta.json`'s `subject`: the aggregate whose stream the case is decided for.
+    pub subject: String,
+}
+
 /// The whole loaded corpus, one field per top-level `conformance/` directory.
 #[derive(Debug, Clone, Default)]
 pub struct Corpus {
@@ -296,6 +315,7 @@ pub struct Corpus {
     pub display: Vec<DisplayVector>,
     pub lifecycle: Vec<LifecycleVector>,
     pub honoured: Vec<HonouredVector>,
+    pub operator_acts: Vec<OperatorActsVector>,
 }
 
 /// Every family name this loader enumerates, in the order [`Corpus::load`]
@@ -321,6 +341,7 @@ pub const LOADED_FAMILIES: &[&str] = &[
     "display",
     "lifecycle",
     "honoured",
+    "operator-acts",
 ];
 
 impl Corpus {
@@ -340,6 +361,7 @@ impl Corpus {
             display: load_display_family(root)?,
             lifecycle: load_lifecycle_family(root)?,
             honoured: load_honoured_family(root)?,
+            operator_acts: load_operator_acts_family(root)?,
         })
     }
 
@@ -364,6 +386,7 @@ impl Corpus {
             + self.display.len()
             + self.lifecycle.len()
             + self.honoured.len()
+            + self.operator_acts.len()
     }
 
     /// Whether the corpus holds `<family>/<case>` — the shape
@@ -382,6 +405,7 @@ impl Corpus {
             "display" => Some(self.display.iter().any(|v| v.case == case)),
             "lifecycle" => Some(self.lifecycle.iter().any(|v| v.case == case)),
             "honoured" => Some(self.honoured.iter().any(|v| v.case == case)),
+            "operator-acts" => Some(self.operator_acts.iter().any(|v| v.case == case)),
             other => self
                 .directory_family(other)
                 .map(|vectors| vectors.iter().any(|v| v.case == case)),
@@ -510,6 +534,12 @@ pub enum LoaderError {
         path: PathBuf,
         problem: String,
     },
+    /// An `operator-acts/` case's `meta.json` is well-formed JSON with the wrong shape: no `stream`
+    /// or no `subject`.
+    MalformedOperatorActsVector {
+        path: PathBuf,
+        problem: String,
+    },
     /// A `conformance/rfc8785/input-<name>.json` has no matching
     /// `output-<name>.json`, or vice versa.
     UnpairedRfc8785Vector {
@@ -561,7 +591,8 @@ impl fmt::Display for LoaderError {
                     f,
                     "{}: unknown profile `{profile}` (expected one of: rfc8785, \
                      canonicalize-with-nfc, admit, admit-accept, envelope, merkle-tree, \
-                     acta-leaf, display-literal, lifecycle-log, honoured-log)",
+                     acta-leaf, display-literal, lifecycle-log, honoured-log, \
+                     operator-acts-log)",
                     path.display()
                 )
             }
@@ -592,6 +623,9 @@ impl fmt::Display for LoaderError {
                 write!(f, "{}: {problem}", path.display())
             }
             LoaderError::MalformedHonouredVector { path, problem } => {
+                write!(f, "{}: {problem}", path.display())
+            }
+            LoaderError::MalformedOperatorActsVector { path, problem } => {
                 write!(f, "{}: {problem}", path.display())
             }
             LoaderError::UnpairedRfc8785Vector { path, name } => {
@@ -1133,6 +1167,56 @@ fn load_honoured_family(root: &Path) -> Result<Vec<HonouredVector>, LoaderError>
     Ok(vectors)
 }
 
+fn load_operator_acts_family(root: &Path) -> Result<Vec<OperatorActsVector>, LoaderError> {
+    let family_dir = root.join("operator-acts");
+    let mut vectors = Vec::new();
+    for path in list_dir_sorted(&family_dir)? {
+        if !path.is_dir() {
+            continue;
+        }
+        let case = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or(LoaderError::NotUtf8 { path: path.clone() })?
+            .to_string();
+
+        let meta_path = path.join("meta.json");
+        let meta = load_meta(&meta_path)?;
+        match Profile::parse(&meta.profile, &meta_path)? {
+            Profile::OperatorActsLog => {}
+            _ => {
+                return Err(LoaderError::UnknownProfile {
+                    path: meta_path,
+                    profile: meta.profile,
+                })
+            }
+        }
+        let meta_value = parse_meta_value(&read_file(&meta_path)?, &meta_path)?;
+        let text = |key: &str| {
+            meta_value
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| LoaderError::MalformedOperatorActsVector {
+                    path: meta_path.clone(),
+                    problem: format!("missing string `{key}`"),
+                })
+        };
+        let stream = text("stream")?;
+        let subject = text("subject")?;
+
+        vectors.push(OperatorActsVector {
+            case,
+            requirement: meta.requirement,
+            note: meta.note,
+            dir: path.clone(),
+            stream,
+            subject,
+        });
+    }
+    Ok(vectors)
+}
+
 fn load_display_family(root: &Path) -> Result<Vec<DisplayVector>, LoaderError> {
     let family_dir = root.join("display");
     let mut vectors = Vec::new();
@@ -1447,7 +1531,8 @@ impl Index {
 
         let shape = entry.shape.as_deref().unwrap_or_default();
         let actual = match shape {
-            "directory" | "envelope" | "merkle" | "display" | "lifecycle" | "honoured" => {
+            "directory" | "envelope" | "merkle" | "display" | "lifecycle" | "honoured"
+            | "operator-acts" => {
                 let cases: Vec<PathBuf> = list_dir_sorted(dir)?
                     .into_iter()
                     .filter(|p| p.is_dir())
@@ -1492,7 +1577,7 @@ impl Index {
             other => {
                 problems.push(format!(
                     "`{name}` declares unknown shape `{other}` (expected one of: \
-                     directory, file-pairs, envelope, merkle, display, lifecycle, honoured)"
+                     directory, file-pairs, envelope, merkle, display, lifecycle, honoured, operator-acts)"
                 ));
                 return Ok(());
             }

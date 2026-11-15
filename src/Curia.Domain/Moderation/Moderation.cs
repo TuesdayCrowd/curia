@@ -256,6 +256,7 @@ public static class ModerationPolicy
         new HashSet<(ModeratorKind, ModerationEffect)>
         {
             // Automated: quarantine pending review, and dismiss. Nothing permanent.
+            // Reserved. R6.67 step 3 honours human statements only (errata G70, ruling 20), so no row reaches this fold with this moderator kind from the Forum's log; the cells are R10.61's table and stay until item 294 gives the arm a key.
             (ModeratorKind.Automated, ModerationEffect.Quarantine),
             (ModeratorKind.Automated, ModerationEffect.Dismiss),
 

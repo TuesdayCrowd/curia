@@ -144,7 +144,10 @@ public static class FlagProjector
             if (appended.Event.Type.Value != ModerationAppliedType) continue;
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
 
-            ApplyModeration(state, touched, Members(payload), appended);
+            // R6.67's closing paragraph (ruling 74): the record is read from its statement, which is what the key signed, and from its own members only when it has no statement.
+            if (StatedMembers(payload) is not { } members) continue;
+
+            ApplyModeration(state, touched, members, appended);
         }
 
         return touched.Count == 0
@@ -185,6 +188,21 @@ public static class FlagProjector
 
         builder.Add(new ModerationAction(
             postId, moderator, actorId, effect, category, rationale, appended.ServerTimestamp, adjudicates));
+    }
+
+    /// <summary>
+    /// The members an operator act acts on (errata G70, R6.67's closing paragraph, ruling 74): those of its <c>statement</c>, the canonical JSON text the operator's key signed, parsed once; or, for a row
+    /// that has no <c>statement</c> (the form before N2, which only unit tests and unfiltered replays feed: a feed from the Forum holds honoured rows alone, each of which has a statement that is its
+    /// canonical form), the row's own members. A statement that is not an object reads as no members at all (null): the row acts on nothing.
+    /// </summary>
+    internal static Dictionary<string, JsonValue>? StatedMembers(JsonValue.Object payload)
+    {
+        var row = Members(payload);
+        if (!row.TryGetValue("statement", out var stated) || stated is not JsonValue.String text) return row;
+
+        return JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(text.Value)).TryGetValue(out var parsed, out _) && parsed is JsonValue.Object statement
+            ? Members(statement)
+            : null;
     }
 
     internal static Dictionary<string, JsonValue> Members(JsonValue.Object payload)

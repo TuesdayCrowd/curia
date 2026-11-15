@@ -82,7 +82,8 @@ public sealed class HybridSearch
         _floors = floors;
     }
 
-    public async Task<Result<SearchPage>> SearchAsync(
+    /// <summary>Searches <paramref name="log"/>, which this verifies once (errata G70, ruling 76); a route that holds a <see cref="VerifiedLog"/> already calls the overload that takes it.</summary>
+    public Task<Result<SearchPage>> SearchAsync(
         IReadOnlyList<AppendedEvent> log,
         RetrievalSurface surface,
         SearchQuery query,
@@ -90,8 +91,26 @@ public sealed class HybridSearch
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(log);
+
+        return SearchAsync(_verifier.OfLog(log), surface, query, verification, cancellationToken);
+    }
+
+    /// <summary>
+    /// Searches the log <paramref name="verified"/> was made over: the corpus (its moderation and its owners) and the dispute mark are folded from that one verified log, so each operator act is verified once
+    /// for the request, whoever else in it asked (errata G70, rulings 75 and 76).
+    /// </summary>
+    public async Task<Result<SearchPage>> SearchAsync(
+        VerifiedLog verified,
+        RetrievalSurface surface,
+        SearchQuery query,
+        VerificationFold verification,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(verified);
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(verification);
+
+        var log = verified.Log;
 
         // R9.7: the corpus a page is cut from is the corpus as of the cursor's bound, and a first
         // page fixes that bound at the newest event it can see. Posts appended afterwards join on
@@ -117,7 +136,7 @@ public sealed class HybridSearch
         // R9.47: a digest is one result. A log that holds two posts of one digest (the same bytes stored twice, before R8.78 refused it)
         // is read, not repaired: the digest resolves to the first post in log order, and the second copy is served by its id alone.
         var seenDigests = new HashSet<string>(StringComparer.Ordinal);
-        var corpus = SearchProjector.Fold(log).Where(p => p.Sequence <= bound && seenDigests.Add(p.Digest)).ToImmutableArray();
+        var corpus = SearchProjector.FoldHonoured(verified).Where(p => p.Sequence <= bound && seenDigests.Add(p.Digest)).ToImmutableArray();
         var lexicalQuery = new LexicalQuery(query.Text, query.Board?.Value, query.Kinds, query.Tags, query.Author?.Value, Cursor: null, Limit: LexicalSearch.MaximumLimit);
         var lexical = LexicalSearch.Rank(corpus, lexicalQuery);
 
@@ -139,7 +158,7 @@ public sealed class HybridSearch
         // It counts the disputed posts in the diversified list (those that survive the floor and
         // take a diversification slot), so it is equal on every page of one query and can be 0 while
         // a disputed post below the floor exists. `read` by id still serves a disputed post.
-        var disputed = DisputedPosts.Fold(_verifier.OfLog(log), PostProjector.Fold(log));
+        var disputed = DisputedPosts.Fold(verified, PostProjector.Fold(log));
 
         var admitted = HybridRanking.Admit(fused, floor);
         var excludedByFloor = fused.Length - admitted.Length;   // R9.30: the floor's removals alone, before dispute

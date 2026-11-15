@@ -88,8 +88,8 @@ internal static class ShadowRows
 /// The outcome of each writer, and the number of rows it added to the log (<c>seq &gt; 0</c>, raw SQL), are the same as the control arm's, which plants nothing: a skew the fix
 /// does not touch shows as a difference between arms and not as a bare red. The writer is named by its use case: rotate, retire, declare, attest, accept, moderate, post, enrol.
 ///
-/// <para>Amendment 7, ruling 87: a plant is useful only if a reader that read it would decide differently. The by-aggregate readers (<c>AttestOwner</c>, <c>AcceptAnswer</c>) get a plant each acts on: an owner
-/// attestation by another owner (the attestation is refused as an immutable binding if read), an acceptance of the very answer the arm accepts (the acceptance is a replay, <c>200</c> and no row, if read). The
+/// <para>Amendment 7, ruling 87: a plant is useful only if a reader that read it would decide differently. The by-aggregate readers (<c>AcceptAnswer</c>; <c>AttestOwner</c> was one until errata G70, when an operator act came to be decided over the whole log and
+/// is no longer) get a plant each acts on: an owner attestation by another owner (the attestation is refused as an immutable binding if the plant is read), an acceptance of the very answer the arm accepts (the acceptance is a replay, <c>200</c> and no row, if read). The
 /// <c>enrol</c> arm plants an <c>agent.enrolled</c> and its pair under another key on the unenrolled identity, which the honest enrolment would be refused for if either were read. <c>rotate</c>, <c>retire</c>,
 /// <c>declare</c> and <c>post</c> read the whole log, where a forged lifecycle row is skipped wherever it sits, so for them the plant is the forged row and the probe is that the count and the version are the log's.
 /// <c>moderate</c> reads no aggregate (<c>ApplyModeration</c> appends and reads nothing by aggregate), so no payload could change it: its arm is the count.</para>
@@ -436,7 +436,8 @@ public sealed class ShadowRowWritersTests(ForumFixture forum) : IClassFixture<Fo
         var exit = await OperatorCommands.RunAsync(
             args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
             readLogSigningKeyPem: () => logPem,
-            readDeclarationSigningKeyPem: () => declarationPem);
+            readDeclarationSigningKeyPem: () => declarationPem,
+            readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
         return (exit, stdout.ToString(), stderr.ToString());
     }
 }

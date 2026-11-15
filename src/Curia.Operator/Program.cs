@@ -54,7 +54,8 @@ public static class ExitCode
     public const int HeadWithheld = 6;
 
     /// <summary>
-    /// <c>lifecycle-audit</c> found at least one lifecycle row the Forum does not honour (R6.64). Nothing was written; the audit only reads. Errata G68 (ruling 13).
+    /// <c>lifecycle-audit</c> found at least one lifecycle or operator-act row the Forum does not honour (R6.64, R6.67); or <c>attest-owner</c>, <c>moderate</c> or <c>compromise</c> appended a row
+    /// the Forum then skips (R11.97). Nothing was written by the audit; it only reads. Errata G68 (ruling 13), G70.
     /// </summary>
     public const int LifecycleRowsSkipped = 7;
 }
@@ -116,7 +117,8 @@ public static class Program
                 Console.Error,
                 CancellationToken.None,
                 readLogSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_LOG_SIGNING_KEY_PEM"),
-                readDeclarationSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_DECLARATION_SIGNING_KEY_PEM"))
+                readDeclarationSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_DECLARATION_SIGNING_KEY_PEM"),
+                readOperatorActsSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"))
             .ConfigureAwait(false);
     }
 }
@@ -137,15 +139,18 @@ public static class OperatorCommands
               Signs the Acta's current root with the log key (CURIA_LOG_SIGNING_KEY_PEM) and
               appends it to the log as a log.head entry, publishing the key (log.key) first
               if the log has not seen it. R6.24: run this on a schedule of at most 60 minutes.
-              Refused, exit 3, in an environment that also holds the declaration key (R12.18).
+              Refused, exit 3, in an environment that also holds the declaration key or the
+              operator-acts key (R12.18, R11.97), and, exit 2, a log key that is a published
+              operator key (curia/keys/log-key-is-operator-key).
               --if-grown (R6.63) signs only when an entry other than log.head and log.key
               follows the latest head this tool signed (the latest head that verifies under the
               key it holds; a head it cannot verify as its own moves nothing); otherwise it
               publishes no key, signs no head, appends nothing, prints "unchanged" and exits 0, so
               a timer does not grow the log by its own output. It also withholds the head, exit 6
-              and nothing written, when a lifecycle row the Forum does not honour (R6.64: one that
-              verifies under no published key) follows that head, because a head over such a row
-              cannot be taken back; a row the Forum honours does not stop it. Each withheld row is
+              and nothing written, when a lifecycle row or an operator-act row the Forum does not
+              honour (R6.64, R6.67: one that verifies under no published key) follows that head,
+              because a head over such a row cannot be taken back; a row the Forum honours does
+              not stop it. Each withheld row is
               named on stderr with its log index, its type and the predicate that failed. A first
               run after a log-key rotation has no such head and measures from the start of the log.
               A person reads the rows, and signs by hand without --if-grown (which prints "covers"
@@ -154,9 +159,10 @@ public static class OperatorCommands
 
           curia-operator lifecycle-audit
 
-              Reads the whole log and verifies every identity's lifecycle rows by R6.64, the
-              procedure the Forum decides by. It reads no key and writes nothing. Prints
-              "honoured <h>  skipped <n>"; with n above 0 it prints one line per skipped row,
+              Reads the whole log and verifies every identity's lifecycle rows by R6.64 and every
+              operator-act row (owner attestations and moderation records) by R6.67, the procedures
+              the Forum decides by. It reads no key and writes nothing. Prints
+              "honoured <h>  skipped <n>", over both kinds of row; with n above 0 it prints one line per skipped row,
               "skipped  log_index=<i>  type=<t>  aggregate=<id>  predicate=<slug>", the first 100
               and then "and <n> more", never a payload member, and exits 7. Run it before a
               plain sign-head covers a row, and after a restore. It cannot see a row planted at a
@@ -169,7 +175,7 @@ public static class OperatorCommands
               Declares <kid> of <agent-id> compromised from log index <n> (R6.26, R6.57), signed with
               the declaration key (CURIA_DECLARATION_SIGNING_KEY_PEM, which publish-declaration-key
               must have published first; refused, exit 3, in an environment that also holds the log
-              key, R12.18). The declaration ends <kid> and every key it bound by a rotation at or after <n>, and marks
+              key or the operator-acts key, R12.18). The declaration ends <kid> and every key it bound by a rotation at or after <n>, and marks
               the agent's posts under them from <n> disputed. <role> is a role name, never a person's
               name. Pass --from-index no later than the first index the owner's client reports as
               FOREIGN (their lifecycle_acts are the evidence); a later --from-index leaves live any key
@@ -183,7 +189,16 @@ public static class OperatorCommands
               log.declaration-key entry (R6.62). Run it once, before the hosted instance is
               announced: the first declaration key published is the one, a second is refused, and a
               key that is also a log key is refused. It ends no agent's key, so the lifecycle guard
-              does not govern it. Refused, exit 3, in an environment that also holds the log key.
+              does not govern it. Refused, exit 3, in an environment that also holds the log key
+              or the operator-acts key.
+
+          curia-operator publish-operator-key --by <role>
+
+              Publishes the operator-acts key (CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM) to the log as a
+              log.operator-key entry (R6.66). Run it once, before the hosted instance is announced:
+              the first operator key published is the one, a second is refused, and a key that is
+              also a log key or a declaration key is refused. Refused, exit 3, in an environment
+              that also holds the log key or the declaration key (R12.18).
 
           curia-operator attest-owner --agent <agent-id> --owner <owner-id> --by <operator-name>
                                       [--method domain|email|attestation|manual] [--reason <text>]
@@ -193,6 +208,12 @@ public static class OperatorCommands
               (R4.30), naming which of R4.24's proofs was satisfied (default: manual). --unverified
               records a lapse instead. The agent must already be enrolled; an agent's owner is
               bound once (R4.1), so a later attestation naming a different owner is refused.
+              The statement is signed with the operator-acts key (CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM,
+              which publish-operator-key must have published first: refused, exit 2,
+              curia/keys/operator-key-not-published, and nothing written) and the log is re-read:
+              a row the Forum does not honour is reported with its log index and the predicate,
+              no success line is written, and the exit is 7 (curia/acts/not-honoured). Refused,
+              exit 3, in an environment that also holds the log key or the declaration key.
 
           curia-operator moderate --post <post-id> --category <kind> --effect <effect>
                                   --reason <text> --by <operator-name>
@@ -204,7 +225,10 @@ public static class OperatorCommands
               category that holds nothing is refused, as is a dismissal in one that holds the post.
               The reason lands in a public leaf and is screened like a flag's: credential
               material is refused. A reason repeating a flag's raiser or rationale is refused;
-              neither is ever published (R10.62).
+              neither is ever published (R10.62). Signed, re-read and refused as attest-owner is
+              (the operator-acts key, exit 2 for an unpublished key, exit 7 for a row the Forum
+              does not honour, exit 3 in an environment that also holds the log key or the
+              declaration key).
 
           curia-operator flags [--post <post-id>] [--open] [--raisers]
 
@@ -216,10 +240,15 @@ public static class OperatorCommands
         ENVIRONMENT
           CURIA_EVENTS_POSTGRES      the Forum's events database (required)
           CURIA_LOG_SIGNING_KEY_PEM  the Acta's ES256 signing key (sign-head only; never in the same
-                                     environment as the declaration key)
+                                     environment as the declaration key or the operator-acts key)
           CURIA_DECLARATION_SIGNING_KEY_PEM
                                      the declaration key (publish-declaration-key and compromise
-                                     only; never in the same environment as the log key)
+                                     only; never in the same environment as the log key or the
+                                     operator-acts key)
+          CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM
+                                     the operator-acts key (publish-operator-key, attest-owner and
+                                     moderate only; never in the same environment as the log key
+                                     or the declaration key, R12.18)
           Curia__Lifecycle__Enabled  none, or a comma list over rotation, retirement and compromise
                                      that this build's approval record approves; it is read before
                                      any verb runs, so a kind the record does not approve refuses
@@ -232,18 +261,20 @@ public static class OperatorCommands
           2  refused -- the reason's slug is on stderr; nothing was written
           3  CURIA_EVENTS_POSTGRES is not set, a key is unusable, Curia__Lifecycle__Enabled names a
              kind this build does not approve, or the environment holds the key the verb does not
-             run with (R12.18): the declaration key for sign-head, the log key for
-             publish-declaration-key and compromise
+             run with (R12.18): the declaration key and the operator-acts key for sign-head, the
+             log key and the operator-acts key for publish-declaration-key and compromise, the log
+             key and the declaration key for publish-operator-key, attest-owner and moderate
           4  the lifecycle guard refuses this verb -- nothing was read, signed or written
           5  the Forum's store could not complete the verb (curia/store/unavailable) -- what it
              appended, if anything, is not known: read the log before running it again; sign-head
              re-reads and re-signs, so it is safe to run again
-          6  sign-head --if-grown withheld the head: a lifecycle row the Forum does not honour follows the
+          6  sign-head --if-grown withheld the head: a lifecycle or operator-act row the Forum does not honour follows the
              latest head this tool signed -- nothing was written; stderr names the log indices, types
              and predicates
-          7  lifecycle-audit found a lifecycle row the Forum does not honour -- nothing was written;
-             stdout names the rows; compromise appended a declaration the Forum then skips --
-             the row is in the log, stderr names its index and the predicate, no key is marked
+          7  lifecycle-audit found a lifecycle or operator-act row the Forum does not honour --
+             nothing was written; stdout names the rows; compromise appended a declaration, and
+             attest-owner or moderate appended an act, that the Forum then skips -- the row is in
+             the log, stderr names its index and the predicate, nothing is marked or changed
         """;
 
     /// <summary>
@@ -270,6 +301,11 @@ public static class OperatorCommands
     /// than a value so a verb the guard refuses never calls it, and so the end-to-end suite can hand in a throwaway key; <see cref="Program.Main"/> is the one
     /// place that reads the variable. <c>publish-declaration-key</c> and <c>compromise</c> read it only to refuse an environment that holds it (R12.18).
     /// </param>
+    /// <param name="readOperatorActsSigningKeyPem">
+    /// <c>CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM</c> (errata G70, R4.43, R6.66): the key that signs the operator's acts, needed by <c>publish-operator-key</c>, <c>attest-owner</c> and <c>moderate</c>; the
+    /// verbs that read the log key or the declaration key read it only to refuse an environment that holds it with either (R11.97, R12.18). Read by the same rule as the others, and last and optional
+    /// so that no existing caller changes.
+    /// </param>
     /// <param name="readDeclarationSigningKeyPem">
     /// <c>CURIA_DECLARATION_SIGNING_KEY_PEM</c> (errata G67, R6.62): the key that signs compromise declarations, needed by <c>publish-declaration-key</c> and
     /// <c>compromise</c>. <c>sign-head</c> reads it only to refuse an environment that holds it (R12.18). Read by the same rule as the log key's.
@@ -284,7 +320,8 @@ public static class OperatorCommands
         TextWriter stderr,
         CancellationToken cancellationToken,
         Func<string?>? readLogSigningKeyPem = null,
-        Func<string?>? readDeclarationSigningKeyPem = null)
+        Func<string?>? readDeclarationSigningKeyPem = null,
+        Func<string?>? readOperatorActsSigningKeyPem = null)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(stderr);
@@ -293,7 +330,7 @@ public static class OperatorCommands
         // unhandled exception. The caller's own cancellation is not a fault.
         try
         {
-            return await RunVerbAsync(args, connectionString, clock, lifecycleGate, declarationSigner, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, cancellationToken)
+            return await RunVerbAsync(args, connectionString, clock, lifecycleGate, declarationSigner, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, readOperatorActsSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OperationCanceledException && !cancellationToken.IsCancellationRequested
@@ -323,6 +360,7 @@ public static class OperatorCommands
         TextWriter stderr,
         Func<string?>? readLogSigningKeyPem,
         Func<string?>? readDeclarationSigningKeyPem,
+        Func<string?>? readOperatorActsSigningKeyPem,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -339,19 +377,23 @@ public static class OperatorCommands
         }
 
         if (args[0] == "sign-head")
-            return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, cancellationToken)
+            return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, readOperatorActsSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "publish-declaration-key")
-            return await PublishDeclarationKeyAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, cancellationToken)
+            return await PublishDeclarationKeyAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, readOperatorActsSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "compromise")
-            return await CompromiseAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, declarationSigner, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, cancellationToken)
+            return await CompromiseAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, declarationSigner, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, readOperatorActsSigningKeyPem, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "publish-operator-key")
+            return await PublishOperatorKeyAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, readOperatorActsSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "moderate")
-            return await ModerateAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
+            return await ModerateAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, readDeclarationSigningKeyPem, readOperatorActsSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "lifecycle-audit")
@@ -375,11 +417,19 @@ public static class OperatorCommands
             return ExitCode.Usage;
         }
 
+        // Errata G70, R11.97, R12.18: before the operator-acts key is parsed or used. It is never held with the log key or the declaration key.
+        if (await HeldWithAnotherKeyAsync(stderr, "attest-owner", readLogSigningKeyPem, readDeclarationSigningKeyPem).ConfigureAwait(false) is { } sharedExit)
+            return sharedExit;
+
+        using var actsKey = await LoadOperatorActsKeyAsync(stderr, readOperatorActsSigningKeyPem).ConfigureAwait(false);
+        if (actsKey is null)
+            return ExitCode.Environment;
+
         Result<OwnerAttestation> result;
         var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
         await using (adapters.ConfigureAwait(false))
         {
-            result = await new AttestOwner(adapters.EventStore, clock).RecordAsync(
+            result = await new AttestOwner(adapters.EventStore, Verifier, clock).RecordAsync(
                 // R11.34: the parse outcome, refused by the use case where it refused an unknown agent (spec §4.7).
                 AgentId.Parse(parsed.Agent, "agent"),
                 parsed.Owner,
@@ -387,16 +437,13 @@ public static class OperatorCommands
                 parsed.Method,
                 parsed.Reason!,
                 parsed.By,
+                actsKey,
                 cancellationToken).ConfigureAwait(false);
         }
 
+        // R11.97: a row the Forum then skips is exit 7 with the row's index and predicate, and no success line.
         if (!result.TryGetValue(out var attestation, out var error))
-        {
-            await stderr.WriteLineAsync(
-                $"error: {error!.Title} ({error.Type}){(error.Detail is { Length: > 0 } d ? ": " + d : string.Empty)}")
-                .ConfigureAwait(false);
-            return ExitCode.Refused;
-        }
+            return await RefuseAsync(stderr, error!).ConfigureAwait(false);
 
         await stdout.WriteLineAsync($"attested  {parsed.Agent}").ConfigureAwait(false);
         await stdout.WriteLineAsync(
@@ -430,6 +477,7 @@ public static class OperatorCommands
         TextWriter stderr,
         Func<string?>? readLogSigningKeyPem,
         Func<string?>? readDeclarationSigningKeyPem,
+        Func<string?>? readOperatorActsSigningKeyPem,
         CancellationToken cancellationToken)
     {
         string? byValue = null;
@@ -461,6 +509,8 @@ public static class OperatorCommands
         // Errata G67, R12.18: before either key is parsed or used. The host that signs heads holds the log key and no declaration key.
         if (!string.IsNullOrWhiteSpace(readDeclarationSigningKeyPem?.Invoke()))
             return await SharedEnvironmentAsync(stderr, "sign-head", "CURIA_DECLARATION_SIGNING_KEY_PEM", "the declaration key", DeclarationKeyHeldWhy).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(readOperatorActsSigningKeyPem?.Invoke()))
+            return await SharedEnvironmentAsync(stderr, "sign-head", "CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM", "the operator-acts key", OperatorActsKeyHeldWithLogKeyWhy).ConfigureAwait(false);
 
         var logSigningKeyPem = readLogSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(logSigningKeyPem))
@@ -490,6 +540,10 @@ public static class OperatorCommands
                 if (!folded.TryGetValue(out var acta, out var foldError))
                     return await RefuseAsync(stderr, foldError!).ConfigureAwait(false);
 
+                // R11.97: a log key is never an operator key, by kid or by public key. Before the log.key append and the head: a key that signs heads and acts is one key to whatever holds it.
+                if (string.Equals(PublishedKeys.OfLog(acta!.Events).FirstPublishedClass(key.Kid, key.PublicJwk()), LogEntries.OperatorKeyType, StringComparison.Ordinal))
+                    return await RefuseAsync(stderr, KeyActErrors.LogKeyIsOperatorKey()).ConfigureAwait(false);
+
                 // The anchor is the latest head this tool can verify as its own, under the key it holds and no key the log lists; the growth test, the stop and the covers lines read it and
                 // nothing else (Amendment 3 ruling 34). `log.key` is unsigned, so a head by shape is not one.
                 var signer = SignerOf(key);
@@ -515,7 +569,7 @@ public static class OperatorCommands
                 if (!acta!.Keys.Any(k => string.Equals(k.Kid, key.Kid, StringComparison.Ordinal)))
                 {
                     var published = await AppendAsync(
-                        store, ids, LogEntries.KeysAggregate, acta.Keys.Length, LogEntries.KeyType, actor,
+                        store, ids, LogEntries.KeysAggregate, acta.Events.Count(e => string.Equals(e.AggregateId.Value, LogEntries.KeysAggregate, StringComparison.Ordinal)), LogEntries.KeyType, actor,
                         new JsonValue.Object(
                         [
                             new(LogEntries.KidMember, new JsonValue.String(key.Kid)),
@@ -553,7 +607,7 @@ public static class OperatorCommands
                     return await RefuseAsync(stderr, signError!).ConfigureAwait(false);
 
                 var appended = await AppendAsync(
-                    store, ids, LogEntries.HeadsAggregate, acta.Heads.Length, LogEntries.HeadType, actor,
+                    store, ids, LogEntries.HeadsAggregate, acta.Events.Count(e => string.Equals(e.AggregateId.Value, LogEntries.HeadsAggregate, StringComparison.Ordinal)), LogEntries.HeadType, actor,
                     new JsonValue.Object(
                     [
                         new(LogEntries.HeadMember, head),
@@ -594,7 +648,7 @@ public static class OperatorCommands
     private static HeadMeasure Measure(ActaLog acta, LifecycleVerifier verifier, Func<SignedHead, bool> signedByTheSigner)
     {
         var anchor = acta.LatestHeadWhere(signedByTheSigner);
-        return new HeadMeasure(anchor, acta.GrownPast(anchor), verifier.OfLog(acta.Events).SkippedPast(anchor?.TreeSize ?? 0));
+        return new HeadMeasure(anchor, acta.GrownPast(anchor), verifier.OfLog(acta.Events).AllSkippedPast(anchor?.TreeSize ?? 0));
     }
 
     /// <summary>
@@ -626,7 +680,7 @@ public static class OperatorCommands
     private static async Task<int> WithheldAsync(TextWriter stderr, ImmutableArray<SkippedRow> rows)
     {
         await stderr.WriteLineAsync(
-            $"error: curia/head/withheld: {rows.Length.ToString(CultureInfo.InvariantCulture)} lifecycle row(s) the Forum does not honour (R6.64) follow the latest head, so no head was signed. " +
+            $"error: curia/head/withheld: {rows.Length.ToString(CultureInfo.InvariantCulture)} lifecycle or operator-act row(s) the Forum does not honour (R6.64, R6.67) follow the latest head, so no head was signed. " +
             "A head over a row that verifies under no published key cannot be taken back: the log is append-only and clients retain the heads they have seen, so a restore to before the row forks the log for any client that retained a later head. " +
             "Read the rows (lifecycle-audit lists every one), and restore to before them if they are not to stay in the log. " +
             "The Forum acts on none of them; if they may stay, sign by hand with 'sign-head --by <name>' (without --if-grown), and that head covers them.")
@@ -671,8 +725,8 @@ public static class OperatorCommands
                 return await RefuseAsync(stderr, readError!).ConfigureAwait(false);
 
             var verified = Verifier.OfLog(log!);
-            var skipped = verified.Skipped();
-            await stdout.WriteLineAsync($"honoured {verified.HonouredCount().ToString(CultureInfo.InvariantCulture)}  skipped {skipped.Length.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            var skipped = verified.AllSkipped();
+            await stdout.WriteLineAsync($"honoured {verified.AllHonouredCount().ToString(CultureInfo.InvariantCulture)}  skipped {skipped.Length.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
 
             foreach (var row in skipped.Take(AuditListed))
             {
@@ -702,6 +756,7 @@ public static class OperatorCommands
         TextWriter stderr,
         Func<string?>? readLogSigningKeyPem,
         Func<string?>? readDeclarationSigningKeyPem,
+        Func<string?>? readOperatorActsSigningKeyPem,
         CancellationToken cancellationToken)
     {
         string? byValue = null;
@@ -721,6 +776,8 @@ public static class OperatorCommands
         // Errata G67, R12.18: before either key is parsed or used. A declaration key is never published or used in an environment that holds the log key.
         if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
             return await SharedEnvironmentAsync(stderr, "publish-declaration-key", "CURIA_LOG_SIGNING_KEY_PEM", "the log key", LogKeyHeldWhy).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(readOperatorActsSigningKeyPem?.Invoke()))
+            return await SharedEnvironmentAsync(stderr, "publish-declaration-key", "CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM", "the operator-acts key", OperatorActsKeyHeldWithDeclarationKeyWhy).ConfigureAwait(false);
 
         var pem = readDeclarationSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(pem))
@@ -753,6 +810,96 @@ public static class OperatorCommands
         }
     }
 
+    /// <summary>
+    /// Errata G70, R6.66, R11.97: the operator publishes the key that signs its acts (<c>log.operator-key</c>), out of band, once. Not a lifecycle act, so the verb does not ask the gate. It refuses a key
+    /// that is a log key or a declaration key and a second key (the first published wins), and an environment that also holds the log key or the declaration key (R12.18).
+    /// </summary>
+    private static async Task<int> PublishOperatorKeyAsync(
+        string[] argv,
+        string connectionString,
+        TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
+        TextWriter stdout,
+        TextWriter stderr,
+        Func<string?>? readLogSigningKeyPem,
+        Func<string?>? readDeclarationSigningKeyPem,
+        Func<string?>? readOperatorActsSigningKeyPem,
+        CancellationToken cancellationToken)
+    {
+        string? byValue = null;
+        for (var i = 0; i < argv.Length; i++)
+        {
+            if (argv[i] == "--by" && i + 1 < argv.Length) { byValue = argv[++i]; continue; }
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[i]}'. publish-operator-key takes --by <role>.").ConfigureAwait(false);
+        }
+
+        if (string.IsNullOrWhiteSpace(byValue))
+            return await UsageErrorAsync(stderr, "--by <role> is required.").ConfigureAwait(false);
+
+        var actorValue = byValue.StartsWith(ApplyModeration.OperatorPrefix, StringComparison.Ordinal) ? byValue : ApplyModeration.OperatorPrefix + byValue;
+        if (!ActorId.Create(actorValue).TryGetValue(out var actor, out _))
+            return await UsageErrorAsync(stderr, "--by <role> is required.").ConfigureAwait(false);
+
+        if (await HeldWithAnotherKeyAsync(stderr, "publish-operator-key", readLogSigningKeyPem, readDeclarationSigningKeyPem).ConfigureAwait(false) is { } sharedExit)
+            return sharedExit;
+
+        using var key = await LoadOperatorActsKeyAsync(stderr, readOperatorActsSigningKeyPem).ConfigureAwait(false);
+        if (key is null)
+            return ExitCode.Environment;
+
+        Result<long> result;
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+        await using (adapters.ConfigureAwait(false))
+        {
+            result = await new PublishOperatorKey(adapters.EventStore, clock).PublishAsync(key, actor!, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!result.TryGetValue(out var logIndex, out var error))
+            return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+        await stdout.WriteLineAsync($"published operator key  {key.Kid}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"log_index               {logIndex.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        return ExitCode.Ok;
+    }
+
+    /// <summary>
+    /// Errata G70, R11.97, R12.18: the refusal of an environment that holds the operator-acts key's neighbours. Run before the operator-acts key is parsed or used by every verb that signs or publishes
+    /// with it: it holds neither the log key nor the declaration key. Null when it holds neither.
+    /// </summary>
+    private static async Task<int?> HeldWithAnotherKeyAsync(
+        TextWriter stderr, string verb, Func<string?>? readLogSigningKeyPem, Func<string?>? readDeclarationSigningKeyPem)
+    {
+        if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
+            return await SharedEnvironmentAsync(stderr, verb, "CURIA_LOG_SIGNING_KEY_PEM", "the log key", LogKeyHeldWithOperatorActsKeyWhy).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(readDeclarationSigningKeyPem?.Invoke()))
+            return await SharedEnvironmentAsync(stderr, verb, "CURIA_DECLARATION_SIGNING_KEY_PEM", "the declaration key", DeclarationKeyHeldWithOperatorActsKeyWhy).ConfigureAwait(false);
+
+        return null;
+    }
+
+    /// <summary>The operator-acts key from <c>CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM</c>, or null after saying (exit 3's reason) that it is not set or not usable. Names the variable, never key material.</summary>
+    private static async Task<OperatorActsSigningKey?> LoadOperatorActsKeyAsync(TextWriter stderr, Func<string?>? readOperatorActsSigningKeyPem)
+    {
+        var pem = readOperatorActsSigningKeyPem?.Invoke();
+        if (string.IsNullOrWhiteSpace(pem))
+        {
+            await stderr.WriteLineAsync(
+                "error: CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM is not set. The operator's acts are signed with the operator-acts key, which the Forum does not hold (R4.43); this tool needs it and does not sign without it.")
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        try
+        {
+            return OperatorActsSigningKey.FromPem(pem);
+        }
+        catch (Exception e) when (e is System.Security.Cryptography.CryptographicException or ArgumentException or InvalidOperationException)
+        {
+            await stderr.WriteLineAsync("error: CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM is not a usable P-256 key: " + TerminalText.Line(e.Message)).ConfigureAwait(false);
+            return null;
+        }
+    }
+
     /// <summary>The production <see cref="DeclarationSignerFactory"/>: the PEM loaded as <see cref="DeclarationSigningKey"/>.</summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The key is handed to the caller, which disposes it (CompromiseAsync's using).")]
     public static Result<ILifecycleStatementSigner> LoadDeclarationSigner(string pem)
@@ -779,6 +926,7 @@ public static class OperatorCommands
         TextWriter stderr,
         Func<string?>? readLogSigningKeyPem,
         Func<string?>? readDeclarationSigningKeyPem,
+        Func<string?>? readOperatorActsSigningKeyPem,
         CancellationToken cancellationToken)
     {
         if (argv.Any(a => a is "--help" or "-h"))
@@ -837,6 +985,8 @@ public static class OperatorCommands
         // Errata G67, R12.18: after the gate, before either key is parsed or used.
         if (!string.IsNullOrWhiteSpace(readLogSigningKeyPem?.Invoke()))
             return await SharedEnvironmentAsync(stderr, "compromise", "CURIA_LOG_SIGNING_KEY_PEM", "the log key", LogKeyHeldWhy).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(readOperatorActsSigningKeyPem?.Invoke()))
+            return await SharedEnvironmentAsync(stderr, "compromise", "CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM", "the operator-acts key", OperatorActsKeyHeldWithDeclarationKeyWhy).ConfigureAwait(false);
 
         var pem = readDeclarationSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(pem))
@@ -887,6 +1037,9 @@ public static class OperatorCommands
         ILifecycleAppendGate lifecycleGate,
         TextWriter stdout,
         TextWriter stderr,
+        Func<string?>? readLogSigningKeyPem,
+        Func<string?>? readDeclarationSigningKeyPem,
+        Func<string?>? readOperatorActsSigningKeyPem,
         CancellationToken cancellationToken)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -926,12 +1079,20 @@ public static class OperatorCommands
         // takes, parsed at their first use. Each parse outcome is passed rather than refused here, so
         // the use case answers every refusal where it answered it before the types existed: after the
         // operator checks, which are this path's authorization.
+        // Errata G70, R11.97, R12.18: before the operator-acts key is parsed or used.
+        if (await HeldWithAnotherKeyAsync(stderr, "moderate", readLogSigningKeyPem, readDeclarationSigningKeyPem).ConfigureAwait(false) is { } sharedExit)
+            return sharedExit;
+
+        using var actsKey = await LoadOperatorActsKeyAsync(stderr, readOperatorActsSigningKeyPem).ConfigureAwait(false);
+        if (actsKey is null)
+            return ExitCode.Environment;
+
         Result<ModerationRecorded> result;
         var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
         await using (adapters.ConfigureAwait(false))
         {
-            result = await new ApplyModeration(adapters.EventStore, adapters.FlagDetails, clock)
-                .RecordAsync(PostId.Parse(values["post"], "post_id"), effect, category, Rationale.Parse(values["reason"]), actor, cancellationToken)
+            result = await new ApplyModeration(adapters.EventStore, adapters.FlagDetails, Verifier, clock)
+                .RecordAsync(PostId.Parse(values["post"], "post_id"), effect, category, Rationale.Parse(values["reason"]), actor, actsKey, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -1002,7 +1163,8 @@ public static class OperatorCommands
         }
 
         var directory = FlagDirectory.Join(log, details);
-        var moderation = FlagProjector.Fold(log);
+        // The history that decides a flag's state is that of the moderation records the Forum honours (errata G70, R4.43, R10.61): a record it skips upholds and adjudicates nothing.
+        var moderation = Verifier.OfLog(log).Moderation();
         var rationales = FlagDirectory.RationalesByFlag(log, details);
 
         var listed = 0;
@@ -1056,6 +1218,14 @@ public static class OperatorCommands
     }
 
     private const string DeclarationKeyHeldWhy = "the key that signs heads is held by an unattended process, and the declaration key is held where none can read it.";
+
+    private const string OperatorActsKeyHeldWithLogKeyWhy = "the key that signs heads is held by an unattended process, and the key that signs the operator's acts is held by a person where none can read it.";
+
+    private const string OperatorActsKeyHeldWithDeclarationKeyWhy = "the declaration key and the key that signs the operator's acts are two powers, and a process that reads both holds both.";
+
+    private const string LogKeyHeldWithOperatorActsKeyWhy = "the log key is the one an unattended process holds, and the operator-acts key is held only where none can read it.";
+
+    private const string DeclarationKeyHeldWithOperatorActsKeyWhy = "the declaration key and the operator-acts key are two powers, and a process that reads both holds both.";
 
     private const string LogKeyHeldWhy = "the log key is the one an unattended process holds, and a declaration key is published and used only where none can read it.";
 
@@ -1132,7 +1302,7 @@ public static class OperatorCommands
             .ConfigureAwait(false);
 
         // A row the Forum recorded and skips is the audit's finding, not a refusal of the request (errata G68, ruling 81): the same exit code as lifecycle-audit.
-        return string.Equals(error.Type, KeyActErrors.NotHonouredType, StringComparison.Ordinal) ? ExitCode.LifecycleRowsSkipped : ExitCode.Refused;
+        return error.Type is KeyActErrors.NotHonouredType or ActErrors.NotHonouredType ? ExitCode.LifecycleRowsSkipped : ExitCode.Refused;
     }
 
     private sealed record Parsed(

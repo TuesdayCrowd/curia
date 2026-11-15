@@ -1,3 +1,4 @@
+using Curia.Application.Tests.OperatorActs;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Moderation;
 using Curia.Application.Ports;
@@ -34,7 +35,7 @@ public sealed class ApplyModerationTests
 
     private sealed record World(InMemoryEventStore Store, InMemoryFlagDetailStore Details, ManualTimeProvider Clock)
     {
-        public ApplyModeration Moderate => new(Store, Details, Clock);
+        public SignedActWriters.SignedApplyModeration Moderate => SignedActWriters.Moderate(Store, Details, Clock);
     }
 
     private static async Task<World> WorldWithPostAsync(CancellationToken ct)
@@ -687,7 +688,7 @@ public sealed class ApplyModerationTests
         var (result, before, after) = await WithholdAfterFlagByAsync(raiser, reason, TestContext.Current.CancellationToken);
 
         Assert.True(result.TryGetValue(out _, out var error), error?.Type + " " + error?.Detail);
-        Assert.Equal(before + 1, after);
+        Assert.Equal(before + 2, after);
     }
 
     /// <summary>R10.62's raiser floor is 16 characters: a 16-character raiser is checked, a 15-character one is not.</summary>
@@ -706,7 +707,7 @@ public sealed class ApplyModerationTests
 
         var (uncheckedResult, uncheckedBefore, uncheckedAfter) = await WithholdAfterFlagByAsync(fifteen, "Upheld, as " + fifteen + " reported.", ct);
         Assert.True(uncheckedResult.TryGetValue(out _, out var uncheckedError), uncheckedError?.Type + " " + uncheckedError?.Detail);
-        Assert.Equal(uncheckedBefore + 1, uncheckedAfter);
+        Assert.Equal(uncheckedBefore + 2, uncheckedAfter);
     }
 
     /// <summary>
@@ -723,7 +724,7 @@ public sealed class ApplyModerationTests
             TestContext.Current.CancellationToken);
 
         Assert.True(result.TryGetValue(out _, out var error), error?.Type + " " + error?.Detail);
-        Assert.Equal(before + 1, after);
+        Assert.Equal(before + 2, after);
     }
 
     /// <summary>
@@ -766,7 +767,7 @@ public sealed class ApplyModerationTests
             PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Upheld: see c.io/a/b for the policy."), Operator, ct);
 
         Assert.True(schemeless.TryGetValue(out _, out var schemelessError), schemelessError?.Type + " " + schemelessError?.Detail);
-        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+        Assert.Equal(before + 2, (await LogAsync(world, ct)).Count);
     }
 
     /// <summary>
@@ -780,7 +781,7 @@ public sealed class ApplyModerationTests
             "upheld: advertising", "Upheld: advertising.", TestContext.Current.CancellationToken);
 
         Assert.True(result.TryGetValue(out _, out var error), error?.Type + " " + error?.Detail);
-        Assert.Equal(before + 1, after);
+        Assert.Equal(before + 2, after);
     }
 
     /// <summary>
@@ -808,7 +809,7 @@ public sealed class ApplyModerationTests
         var recorded = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct);
 
         Assert.True(recorded.TryGetValue(out _, out var recordError), recordError?.Type + " " + recordError?.Detail);
-        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+        Assert.Equal(before + 2, (await LogAsync(world, ct)).Count);
     }
 
     /// <summary>
@@ -834,7 +835,7 @@ public sealed class ApplyModerationTests
         var recorded = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct);
 
         Assert.True(recorded.TryGetValue(out _, out var recordError), recordError?.Type + " " + recordError?.Detail);
-        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+        Assert.Equal(before + 2, (await LogAsync(world, ct)).Count);
     }
 
     /// <summary>
@@ -878,7 +879,7 @@ public sealed class ApplyModerationTests
             TestContext.Current.CancellationToken);
 
         Assert.True(result.TryGetValue(out _, out var error), error?.Type + " " + error?.Detail);
-        Assert.Equal(before + 1, after);
+        Assert.Equal(before + 2, after);
     }
 
     /// <summary>
@@ -942,7 +943,7 @@ public sealed class ApplyModerationTests
         var world = await WorldWithPostAsync(ct);
         await FlagAsync(world, FlagKind.Spam, ct);
 
-        var racing = new ApplyModeration(
+        var racing = SignedActWriters.Moderate(
             world.Store,
             new InterleavingDetailStore(
                 world.Details,
@@ -969,7 +970,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
         var events = new CountingEventStore(world.Store);
         var details = new CountingFlagDetailStore(world.Details);
-        var moderate = new ApplyModeration(events, details, world.Clock);
+        var moderate = SignedActWriters.Moderate(events, details, world.Clock);
 
         var refused = await moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(new string('a', 4_097)), Operator, ct);
 

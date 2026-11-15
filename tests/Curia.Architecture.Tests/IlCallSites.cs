@@ -175,6 +175,50 @@ internal static class IlCallSites
         return [.. found];
     }
 
+    /// <summary>
+    /// Every string literal (<c>ldstr</c>) in the method bodies of every type of <paramref name="assemblyPath"/>, as (outermost declaring type, source method, literal): <see cref="StringLiterals"/>
+    /// for the whole assembly, so a fence on a literal need not name the type that holds it (R4.43, OAS12b). A body whose decoding does not end exactly at its length throws.
+    /// </summary>
+    internal static ImmutableArray<(string Type, string Method, string Literal)> StringLiteralsOfAssembly(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var md = pe.GetMetadataReader();
+
+        var found = new List<(string, string, string)>();
+        foreach (var typeHandle in md.TypeDefinitions)
+        {
+            var type = md.GetTypeDefinition(typeHandle);
+            var typeName = DefinitionFullName(md, Outermost(md, typeHandle));
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = md.GetMethodDefinition(methodHandle);
+                if (method.RelativeVirtualAddress == 0)
+                    continue;
+
+                var name = SourceMethodName(md, type, md.GetString(method.Name));
+                var reader = pe.GetMethodBody(method.RelativeVirtualAddress).GetILReader();
+                while (reader.Offset < reader.Length)
+                {
+                    var opCode = ReadOpCode(ref reader);
+                    if (opCode == ILOpCode.Ldstr)
+                    {
+                        found.Add((typeName, name, md.GetUserString(MetadataTokens.UserStringHandle(reader.ReadInt32() & 0x00FFFFFF))));
+                        continue;
+                    }
+
+                    SkipOperand(ref reader, opCode);
+                }
+
+                if (reader.Offset != reader.Length)
+                    throw new InvalidOperationException(
+                        $"{typeName}.{md.GetString(method.Name)}: IL decoding ended at {reader.Offset} of {reader.Length}; the decoder lost its place");
+            }
+        }
+
+        return [.. found];
+    }
+
     /// <summary>Each opcode's operand type, read once from <see cref="System.Reflection.Emit.OpCodes"/>.</summary>
     private static readonly Dictionary<ILOpCode, System.Reflection.Emit.OperandType> OperandTypes =
         typeof(System.Reflection.Emit.OpCodes)

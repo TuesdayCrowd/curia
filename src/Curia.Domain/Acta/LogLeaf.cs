@@ -98,6 +98,13 @@ public static class LogEntries
     /// </summary>
     public const string DeclarationKeyType = "log.declaration-key";
 
+    /// <summary>
+    /// PR N2 (errata G70, R6.66): an operator-acts key's publication. Payload: <c>{ kid, jwk, valid_from }</c>, as <see cref="KeyType"/>'s. The key signs the operator's out-of-band acts
+    /// (owner attestation, moderation) under header <c>typ</c> <c>curia-operator-act+jws</c> and never a head or a declaration. Not a lifecycle act: it ends no agent's key, so the lifecycle
+    /// guard does not classify it (HSU6 lists it with its reason).
+    /// </summary>
+    public const string OperatorKeyType = "log.operator-key";
+
     /// <summary>The one aggregate every head lands in, so concurrent signers conflict rather than interleave.</summary>
     public const string HeadsAggregate = "log:heads";
 
@@ -106,6 +113,9 @@ public static class LogEntries
 
     /// <summary>The one aggregate every declaration key's publication lands in.</summary>
     public const string DeclarationKeysAggregate = "log:declaration-keys";
+
+    /// <summary>The one aggregate every operator-acts key's publication lands in (R6.66).</summary>
+    public const string OperatorKeysAggregate = "log:operator-keys";
 
     public const string HeadMember = "head";
     public const string RootHashMember = "root_hash";

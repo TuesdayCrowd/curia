@@ -31,7 +31,8 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct);
+        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+            readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
         return (exit, stdout.ToString(), stderr.ToString());
     }
 
@@ -278,6 +279,8 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var client = forum.Client;
         var author = await PartyAsync(client, "op-author", ct);
         var (postId, _) = await AskAsync(client, author, ct);
+        // The operator-acts key is published before the log is measured: a first refusal that reaches the writer publishes it (SignedActWriters), so an unseeded test's count depends on which test ran first (errata G70).
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(client, ct);
 
         var (exit, _, stderr) = await RunAsync(Moderate(postId, "withhold", reason: new string('a', 4_097)), ct);
@@ -305,6 +308,9 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
+
+        // Errata G70: the fixture's operator key is published before the log is measured, so that the refused act is measured against a log that already holds it.
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(client, ct);
 
         var reason = ("ghp_" + "A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o").PadRight(5_000, ' ');
@@ -333,6 +339,8 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var client = forum.Client;
         var author = await PartyAsync(client, "op-author", ct);
         var (postId, _) = await AskAsync(client, author, ct);
+        // The operator-acts key is published before the log is measured: a first refusal that reaches the writer publishes it (SignedActWriters), so an unseeded test's count depends on which test ran first (errata G70).
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(client, ct);
 
         var (exit, _, stderr) = await RunAsync(["moderate", "--post", postId, "--effect", "withhold", "--reason", "r", "--by", "x"], ct);
@@ -363,6 +371,8 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var client = forum.Client;
         var author = await PartyAsync(client, "op-author", ct);
         var (postId, _) = await AskAsync(client, author, ct);
+        // The operator-acts key is published before the log is measured: a first refusal that reaches the writer publishes it (SignedActWriters), so an unseeded test's count depends on which test ran first (errata G70).
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(client, ct);
 
         var args = Moderate(postId, "withhold");

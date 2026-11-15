@@ -921,7 +921,10 @@ public static class ForumEndpoints
         // The fold reads no clock (R11.9); the elapsed-time half is the instant handed to
         // TierPolicy.Evaluate below.
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(VerifierOf(http), log, author!);
+
+        // One verified log per request (errata G70, ruling 76): the posture, the checks and the guard decide from the operator acts the Forum honours, each act verified once.
+        var verifiedLog = VerifierOf(http).OfLog(log);
+        var posture = PostureQuery.Of(verifiedLog, author!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -990,7 +993,7 @@ public static class ForumEndpoints
         BudgetEntry BudgetAfter(DateTimeOffset act) => BudgetReadout.After(BudgetKinds.Posting, postLimit, postInstants, act, now);
 
         if (v.Envelope.Kind is not PostKind.Revision || v.Envelope.Prev is not { Length: > 0 } prevDigest)
-            return await PersistSubmissionAsync(v, DecidedLog.Of(log), pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, DecidedLog.Of(verifiedLog), pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
 
         var entered = await revisionGate.TryEnterAsync(prevDigest, cancellationToken).ConfigureAwait(false);
         if (!entered.TryGetValue(out var held, out var gateError))
@@ -1009,7 +1012,7 @@ public static class ForumEndpoints
             if (!read.TryGetValue(out var fresh, out var readError))
                 return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
 
-            var freshLog = DecidedLog.Of(fresh!);
+            var freshLog = DecidedLog.Of(VerifierOf(http).OfLog(fresh!));
             // An original absent from freshLog.Facts is answered 503 here; the guard built from the same facts in PersistSubmissionAsync therefore always has its original (SubmissionGuard.ForRevision, ruling 49(c)).
             if (RevisionRefusal(freshLog.Facts, prevDigest, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } refusal)
                 return refusal;
@@ -1028,17 +1031,20 @@ public static class ForumEndpoints
     /// </summary>
     private sealed class DecidedLog
     {
-        private DecidedLog(IReadOnlyList<AppendedEvent> log, LogFacts facts)
+        private DecidedLog(VerifiedLog verified, LogFacts facts)
         {
-            Log = log;
+            Verified = verified;
             Facts = facts;
         }
 
-        public IReadOnlyList<AppendedEvent> Log { get; }
+        /// <summary>The read, verified once (errata G70, ruling 76): every decision of the request reads its operator acts from this and from nothing folded raw.</summary>
+        public VerifiedLog Verified { get; }
+
+        public IReadOnlyList<AppendedEvent> Log => Verified.Log;
 
         public LogFacts Facts { get; }
 
-        public static DecidedLog Of(IReadOnlyList<AppendedEvent> log) => new(log, LogFacts.Of(log));
+        public static DecidedLog Of(VerifiedLog verified) => new(verified, LogFacts.OfHonoured(verified));
     }
 
     /// <summary>
@@ -1108,7 +1114,7 @@ public static class ForumEndpoints
         // target) is decided in the domain before anything is written. Here rather than in VERIFY
         // because the rules need the log; here rather than after SCREEN because a refused signal
         // should not be screened for content it will never persist.
-        if (PostKinds.RequiresTarget(v.Envelope.Kind) && SignalRefusal(log, facts, v) is { } refused)
+        if (PostKinds.RequiresTarget(v.Envelope.Kind) && SignalRefusal(decided.Verified, facts, v) is { } refused)
             return refused;
 
         // §8.5 (R8.17, R8.18; errata G10): the near-duplicate check, in the same place and for the
@@ -1120,7 +1126,7 @@ public static class ForumEndpoints
         if (PostKinds.IsDiscussion(v.Envelope.Kind))
         {
             // Errata G62, ruling 18: one fold of the corpus, shared by the near-duplicate check and by R8.88's `board_new`.
-            var corpus = SearchProjector.Fold(log);
+            var corpus = SearchProjector.FoldHonoured(decided.Verified);
             if (v.Envelope.Kind is PostKind.Question or PostKind.Finding)
                 boardNew = !NamedFilters.BoardHasServedPost(corpus, v.Envelope.Board);
 
@@ -1129,7 +1135,7 @@ public static class ForumEndpoints
                 return Problem(StatusCodes.Status503ServiceUnavailable, dedupeError!);
 
             if (assessment!.Verdict == DuplicateVerdict.Refuse)
-                return DuplicateRefusal(assessment, log, http);
+                return DuplicateRefusal(assessment, decided.Verified, http);
 
             if (assessment.Verdict == DuplicateVerdict.Annotate && assessment.Nearest is { } nearest)
                 annotation = new PossibleDuplicate(nearest.Digest, assessment.Cosine, assessment.Model.Id);
@@ -1386,7 +1392,8 @@ public static class ForumEndpoints
             if (!PrincipalOf(subject).TryGetValue(out var raiser, out var subjectError))
                 return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
-            var posture = PostureQuery.Of(VerifierOf(http), log, raiser!);
+            var verifiedLog = VerifierOf(http).OfLog(log);
+            var posture = PostureQuery.Of(verifiedLog, raiser!);
 
             if (!posture.TryGetValue(out var facts, out var postureError))
                 return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -1436,7 +1443,7 @@ public static class ForumEndpoints
             // R9.49 (errata G47): whether the post is served, always present, decided from the log read for this flag by the one predicate the single
             // read of a post answers 200 by (ServedPost), so the receipt is true exactly where an anonymous read of the id would be 200 and the two cannot
             // drift. A vote is a post that exists (a flag against it is accepted, R10.35) and no post a reader is served: false.
-            var postServed = ServedPost(PostProjector.Fold(log), Servable(log), flag!.PostId) is not null;
+            var postServed = ServedPost(PostProjector.Fold(log), Servable(verifiedLog), flag!.PostId) is not null;
 
             return Results.Created(
                 $"/v1/posts/{Uri.EscapeDataString(postId)}",
@@ -1770,7 +1777,8 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, unknownName);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var servable = Servable(log);
+        var verified = VerifierOf(http).OfLog(log);
+        var servable = Servable(verified);
         var posts = PostProjector.Fold(log);
         var post = ServedPost(posts, servable, postId);
 
@@ -1800,8 +1808,8 @@ public static class ForumEndpoints
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
 
-        var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), posts);
+        var standings = verified.Standings();
+        var disputed = DisputedPosts.Fold(verified, posts);
         var representation = JsonSerializer.SerializeToUtf8Bytes(
             ToResponse(
                 post, standings, marking, ReaderContractUrl(http),
@@ -1884,15 +1892,16 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, unknownName);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var verified = VerifierOf(http).OfLog(log);
         var posts = PostProjector.Fold(log);
-        var servable = Servable(log);
-        var standings = AgentStandingProjector.Fold(log);
+        var servable = Servable(verified);
+        var standings = verified.Standings();
         var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
 
-        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), posts);
+        var disputed = DisputedPosts.Fold(verified, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
@@ -1924,7 +1933,8 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, unknownName);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var servable = Servable(log);
+        var verified = VerifierOf(http).OfLog(log);
+        var servable = Servable(verified);
 
         // Withheld posts are removed from the thread, not the thread from the corpus: a reply to a
         // withheld post is still the reply its author signed, and withholding a parent must not
@@ -1941,8 +1951,8 @@ public static class ForumEndpoints
             ? ImmutableArray.CreateRange(
                 PostProjector.Thread(posts, root!, corrections).Where(p => servable(p.PostId) && Discussion(p)))
             : [];
-        var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), posts);
+        var standings = verified.Standings();
+        var disputed = DisputedPosts.Fold(verified, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var acta = ActaOf(log);
         var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
@@ -1994,7 +2004,7 @@ public static class ForumEndpoints
         var bound = cursor?.CorpusBound ?? newest;
         var corpus = bound == newest ? log : [.. log.Where(e => e.Seq.Value <= bound)];
 
-        var servable = Servable(corpus);
+        var servable = Servable(VerifierOf(http).OfLog(corpus));
         var served = NamedFilters.ServedBoards(PostProjector.Fold(corpus), servable);
         var listed = boardFilter is null ? served : [.. served.Where(r => string.Equals(r.Board, boardFilter, StringComparison.Ordinal))];
 
@@ -2027,12 +2037,13 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, unknownName);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var standings = AgentStandingProjector.Fold(log);
+        var verified = VerifierOf(http).OfLog(log);
+        var standings = verified.Standings();
 
-        var servable = Servable(log);
+        var servable = Servable(verified);
         var posts = PostProjector.Fold(log);
         var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
-        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), posts);
+        var disputed = DisputedPosts.Fold(verified, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
@@ -2410,13 +2421,14 @@ public static class ForumEndpoints
     /// matched post is echoed: it is another author's content, served to a party who did not ask
     /// for it.
     /// </summary>
-    private static IResult DuplicateRefusal(DuplicateAssessment assessment, IReadOnlyList<AppendedEvent> log, HttpRequest http)
+    private static IResult DuplicateRefusal(DuplicateAssessment assessment, VerifiedLog verified, HttpRequest http)
     {
         var canonical = assessment.Nearest!;
+        var log = verified.Log;
         var views = PostProjector.Fold(log);
-        var servable = Servable(log);
-        var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), views);
+        var servable = Servable(verified);
+        var standings = verified.Standings();
+        var disputed = DisputedPosts.Fold(verified, views);
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
         var accepted = AcceptedAnswerIndex.Fold(log, views, servable);
@@ -2570,11 +2582,12 @@ public static class ForumEndpoints
             Limit: limit);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var verified = VerifierOf(http).OfLog(log);
         var views = PostProjector.Fold(log);
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
-        var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), views);
-        var servable = Servable(log);
+        var standings = verified.Standings();
+        var disputed = DisputedPosts.Fold(verified, views);
+        var servable = Servable(verified);
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
         var acta = ActaOf(log);
@@ -2583,7 +2596,7 @@ public static class ForumEndpoints
         var contract = ReaderContractUrl(http);
         var acceptedByThread = AcceptedAnswerIndex.Fold(log, views, servable);
 
-        var searched = await search.SearchAsync(log, RetrievalSurface.RestSearch, query, verification, cancellationToken).ConfigureAwait(false);
+        var searched = await search.SearchAsync(verified, RetrievalSurface.RestSearch, query, verification, cancellationToken).ConfigureAwait(false);
         if (!searched.TryGetValue(out var page, out var searchError))
         {
             // R9.35: a cursor that belongs to another query is the caller's request and not a search failure.
@@ -2730,7 +2743,8 @@ public static class ForumEndpoints
         if (!PrincipalOf(subject).TryGetValue(out var reader, out var subjectError))
             return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
-        var posture = PostureQuery.Of(VerifierOf(http), log, reader!);
+        var verified = VerifierOf(http).OfLog(log);
+        var posture = PostureQuery.Of(verified, reader!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -2765,7 +2779,7 @@ public static class ForumEndpoints
         if (!SearchCursor.Decode(http.Query["cursor"].ToString()).TryGetValue(out var cursor, out var cursorError))
             return Problem(StatusCodes.Status400BadRequest, cursorError!);
 
-        var inbox = InboxSelector.Select(log, reader!);
+        var inbox = InboxSelector.SelectHonoured(verified, reader!);
 
         var query = new LexicalQuery(
             Board: Nullable(http.Query["board"].ToString()),
@@ -2786,9 +2800,9 @@ public static class ForumEndpoints
         var hits = LexicalSearch.Search(inbox.Open, query);
         var views = PostProjector.Fold(log);
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
-        var standings = AgentStandingProjector.Fold(log);
-        var disputed = DisputedPosts.Fold(VerifierOf(http).OfLog(log), views);
-        var servable = Servable(log);
+        var standings = verified.Standings();
+        var disputed = DisputedPosts.Fold(verified, views);
+        var servable = Servable(verified);
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
         var acta = ActaOf(log);
@@ -2896,12 +2910,12 @@ public static class ForumEndpoints
     /// unattested submitter, not a result, another board -- are <see cref="VerificationPolicy.Refusal"/>'s,
     /// decided in the domain; this only gathers the facts it needs from the log.</para>
     /// </summary>
-    private static IResult? SignalRefusal(IReadOnlyList<AppendedEvent> log, LogFacts facts, VerifiedSubmission v)
+    private static IResult? SignalRefusal(VerifiedLog verified, LogFacts facts, VerifiedSubmission v)
     {
         var target = v.Envelope.Target!;
         var posts = facts.Posts;
         var servable = facts.Servable;
-        var standings = AgentStandingProjector.Fold(log);
+        var standings = verified.Standings();
 
         var targetPost = posts.FirstOrDefault(p =>
             string.Equals(p.Digest, target, StringComparison.Ordinal) && servable(p.PostId) && ServedToReaders(p));
@@ -2940,9 +2954,10 @@ public static class ForumEndpoints
     /// the action reversible, and it is why R10.36 lets automated moderation quarantine but not
     /// withhold.</para>
     /// </summary>
-    private static Func<string, bool> Servable(IReadOnlyList<AppendedEvent> log)
+    private static Func<string, bool> Servable(VerifiedLog verified)
     {
-        var moderation = FlagProjector.Fold(log);
+        // The moderation of the operator acts the Forum honours (errata G70, R4.43, R10.60, R10.61), and no other.
+        var moderation = verified.Moderation();
 
         // A post no moderation event names is servable. Absence is the projection's own answer for
         // "nothing has been decided about this", which is the overwhelmingly common case.
@@ -3628,7 +3643,7 @@ public static class ForumEndpoints
     /// slug; a refusal the table does not list is the Forum's, 500, never a 4xx that tells an agent its
     /// request was at fault. Errata G67: the three declaration-key refusals (<c>declaration-key-not-published</c>, <c>declaration-key-is-log-key</c> and
     /// <c>declaration-key-already-published</c>) are the operator tool's, and no route reaches them; they are listed at 409 because
-    /// <c>R4_18_EveryRefusalTheUseCasesReturnIsMappedByTheRoutes</c> holds every <c>KeyActErrors</c> type to a status other than 500 (Amendment 3 ruling 42). <c>not-honoured</c> (Amendment 7 ruling 81) is the one deliberate 500: a writer that appended a row its own fold skips is a fault of the Forum, and a route states no detail for it (R11.33).
+    /// <c>R4_18_EveryRefusalTheUseCasesReturnIsMappedByTheRoutes</c> holds every <c>KeyActErrors</c> type to a status other than 500 (Amendment 3 ruling 42). <c>operator-key-not-published</c> and <c>log-key-is-operator-key</c> (errata G70, R11.97) are the operator tool's, and no route reaches them; they are listed at 409 for the same reason. <c>curia/acts/not-honoured</c> is not listed: no route raises it, and an unlisted type answers 500. <c>not-honoured</c> (Amendment 7 ruling 81) is the one deliberate 500: a writer that appended a row its own fold skips is a fault of the Forum, and a route states no detail for it (R11.33).
     /// </summary>
     private static int StatusForKeyAct(Error error) => error.Type switch
     {
@@ -3659,7 +3674,13 @@ public static class ForumEndpoints
             or KeyActErrors.DeclarationKeyNotPublishedType
             or KeyActErrors.DeclarationKeyIsLogKeyType
             or KeyActErrors.DeclarationKeyNotFirstType
-            or KeyActErrors.DeclarationKeyAlreadyPublishedType => StatusCodes.Status409Conflict,
+            or KeyActErrors.DeclarationKeyAlreadyPublishedType
+            or KeyActErrors.DeclarationKeyIsOperatorKeyType
+            or KeyActErrors.OperatorKeyIsLogKeyType
+            or KeyActErrors.OperatorKeyIsDeclarationKeyType
+            or KeyActErrors.OperatorKeyAlreadyPublishedType
+            or KeyActErrors.OperatorKeyNotPublishedType
+            or KeyActErrors.LogKeyIsOperatorKeyType => StatusCodes.Status409Conflict,
 
         KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,
         LogBoundKeys.LogUnreadableType or StoreFaults.StoreUnavailableType => StatusCodes.Status503ServiceUnavailable,

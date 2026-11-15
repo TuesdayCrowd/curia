@@ -1,0 +1,1 @@
+{"log_index":3,"leaf_hash":"sha256:5f0cfea05657a21977fa841c7a40fe0db87fb1672fb1810fa2b75f95c26307ed","entry":{"actor_id":"operator:ops","aggregate_id":"agent://curia.example/tuesdaycrowd/scriptor","event_id":"01K4CQ4A000000000000000003","event_type":"agent.owner-attested","payload":"not an object","server_ts":"2026-09-05T10:03:00.000000Z"}}

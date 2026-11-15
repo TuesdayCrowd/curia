@@ -57,14 +57,21 @@ public sealed class AttestOwner
     internal const string NoAgentId = "(agent is no agent id)";
 
     private readonly IEventStore _events;
+    private readonly LifecycleVerifier _verifier;
     private readonly UlidGenerator _ids;
 
-    public AttestOwner(IEventStore events, TimeProvider clock)
+    /// <summary>
+    /// The verifier decides which rows are honoured (R4.43, R6.67): a writer decides what it refuses over the honoured facts, so a forged row never tells an operator "owner binding immutable",
+    /// and it re-reads after its own append to learn whether the row it wrote is one the Forum honours (R11.97).
+    /// </summary>
+    public AttestOwner(IEventStore events, LifecycleVerifier verifier, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(verifier);
         ArgumentNullException.ThrowIfNull(clock);
 
         _events = events;
+        _verifier = verifier;
         _ids = new UlidGenerator(clock);
     }
 
@@ -77,6 +84,7 @@ public sealed class AttestOwner
     /// <param name="method">Which of R4.24's proofs was satisfied, or lapsed.</param>
     /// <param name="reason">R4.21's free-text reason, carried on the event.</param>
     /// <param name="attestedBy">The attesting actor -- an operator, or the owner. Never the agent.</param>
+    /// <param name="signer">The operator-acts key (R6.66), per call: the Forum holds no part of it (R4.43), so the host that runs this passes the key it holds. Must be the first operator key the log publishes.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<OwnerAttestation>> RecordAsync(
         Result<AgentId> agentId,
@@ -85,8 +93,11 @@ public sealed class AttestOwner
         OwnerVerificationMethod method,
         string reason,
         ActorId attestedBy,
+        IOperatorActSigner signer,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(signer);
+
         agentId.TryGetValue(out var agent, out _);
 
         if (agent is not null && string.Equals(attestedBy.Value, agent.Value, StringComparison.Ordinal))
@@ -109,23 +120,34 @@ public sealed class AttestOwner
 
         for (var attempt = 0; attempt < Attempts; attempt++)
         {
-            var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
-            if (!read.TryGetValue(out var history, out var readError))
+            // The whole log: a statement's prev is a position in it (R6.67), and what is honoured is decided over all of it.
+            var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!read.TryGetValue(out var log, out var readError))
                 return Result<OwnerAttestation>.Fail(readError!);
 
-            if (!AggregateVersion.From(history!.Count).TryGetValue(out var version, out var versionError))
-                return Result<OwnerAttestation>.Fail(versionError!);
-
-            var standing = AgentStandingProjector.Fold(history).GetValueOrDefault(agent.Value);
+            var seen = _verifier.OfLog(log!);
+            var standing = seen.Standings().GetValueOrDefault(agent.Value);
 
             if (standing?.EnrolledAt is null)
+                return Result<OwnerAttestation>.Fail(AttestationErrors.NotEnrolled(agent.Value));
+
+            // R6.67: the stream's root is its first event, and an agent's stream begins with its enrolment. Without one no prev exists and every row would be skipped.
+            var chain = OperatorActStatements.ChainOf(seen, agent.Value, AgentStandingProjector.EnrolledType, AgentStandingProjector.OwnerAttestedType);
+            if (chain.Prev is not { } prev)
                 return Result<OwnerAttestation>.Fail(AttestationErrors.NotEnrolled(agent.Value));
 
             if (standing.OwnerId is { } bound && !string.Equals(bound, owner.Value, StringComparison.Ordinal))
                 return Result<OwnerAttestation>.Fail(AttestationErrors.OwnerBindingImmutable(agent.Value, bound, owner.Value));
 
+            // A row signed under any key but the first the log published is skipped, so none is written (R6.67 step 6, R11.97).
+            if (!OperatorActStatements.IsFirstOperatorKey(log!, signer))
+                return Result<OwnerAttestation>.Fail(KeyActErrors.OperatorKeyNotPublished());
+
+            if (!AggregateVersion.From(chain.Version).TryGetValue(out var version, out var versionError))
+                return Result<OwnerAttestation>.Fail(versionError!);
+
             var attempted = await AppendAsync(
-                aggregate, version, agent.Value, owner, verified, method, reason, attestedBy, cancellationToken)
+                aggregate, version, prev, agent.Value, owner, verified, method, reason, attestedBy, signer, cancellationToken)
                 .ConfigureAwait(false);
 
             if (attempted.TryGetValue(out var attestation, out var attemptError))
@@ -141,12 +163,14 @@ public sealed class AttestOwner
     private async Task<Result<OwnerAttestation>> AppendAsync(
         AggregateId aggregate,
         AggregateVersion expectedVersion,
+        long prev,
         string agentId,
         OwnerId owner,
         bool verified,
         OwnerVerificationMethod method,
         string reason,
         ActorId attestedBy,
+        IOperatorActSigner signer,
         CancellationToken cancellationToken)
     {
         if (!_ids.Next().TryGetValue(out var ulid, out var idError))
@@ -158,22 +182,40 @@ public sealed class AttestOwner
         if (!EventType.Create(AgentStandingProjector.OwnerAttestedType).TryGetValue(out var type, out var typeError))
             return Result<OwnerAttestation>.Fail(typeError!);
 
+        if (!OperatorActStatements
+                .SignAttestation(attestedBy.Value, agentId, OwnerVerificationMethods.Wire(method), owner.Value, verified, prev, reason, signer)
+                .TryGetValue(out var signed, out var signError))
+            return Result<OwnerAttestation>.Fail(signError!);
+
         // No server_ts in the payload, for the reason EnrollAgent gives: the store stamps the event,
-        // and a second instant here would be a claim that could disagree with it.
+        // and a second instant here would be a claim that could disagree with it. The row states the
+        // statement's members (R6.67 step 3: each equal to the statement's own) beside the statement
+        // and its authorization; the actor is the event's, and prev and typ are the statement's alone.
         var payload = new JsonValue.Object(
         [
-            new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
-            new(AgentStandingProjector.OwnerIdField, new JsonValue.String(owner.Value)),
-            new(AgentStandingProjector.OwnerVerifiedField, new JsonValue.Bool(verified)),
-            new(AgentStandingProjector.MethodField, new JsonValue.String(OwnerVerificationMethods.Wire(method))),
-            new(AgentStandingProjector.ReasonField, new JsonValue.String(reason)),
+            .. OperatorActStatements.Without(signed!.Members, "actor_id", "prev", "typ"),
+            new(OperatorActStatements.StatementMember, new JsonValue.String(signed.Statement)),
+            new(OperatorActStatements.AuthorizationMember, new JsonValue.String(signed.Authorization)),
         ]);
 
         var appended = await _events
             .AppendAsync(aggregate, expectedVersion, [new DomainEvent(eventId, type, attestedBy, payload)], cancellationToken)
             .ConfigureAwait(false);
+        if (!appended.TryGetValue(out var written, out var appendError))
+            return Result<OwnerAttestation>.Fail(appendError!);
 
-        return appended.Map(events => new OwnerAttestation(events[0].ServerTimestamp.Value, owner, verified, method));
+        // R11.97: the writer cannot see its own row skipped and call it done. The row is in the log either way; whether the Forum honours it is the fold's to say.
+        var again = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!again.TryGetValue(out var after, out var afterError))
+            return Result<OwnerAttestation>.Fail(afterError!);
+
+        var found = OperatorActStatements.Find(_verifier.OfLog(after!), eventId.Value);
+        if (found is not { } row)
+            return Result<OwnerAttestation>.Fail(ActErrors.NotHonoured(-1, "unread"));
+        if (row.Predicate is { } skipped)
+            return Result<OwnerAttestation>.Fail(ActErrors.NotHonoured(row.Index, skipped));
+
+        return Result<OwnerAttestation>.Ok(new OwnerAttestation(written[0].ServerTimestamp.Value, owner, verified, method));
     }
 }
 

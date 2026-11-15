@@ -65,6 +65,15 @@
       "count": 54
     },
     {
+      "name": "operator-acts",
+      "family": true,
+      "shape": "operator-acts",
+      "profiles": [
+        "operator-acts-log"
+      ],
+      "count": 76
+    },
+    {
       "name": "lifecycle",
       "family": true,
       "shape": "lifecycle",

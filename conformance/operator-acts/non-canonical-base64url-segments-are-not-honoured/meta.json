@@ -1,0 +1,8 @@
+{
+  "profile": "operator-acts-log",
+  "requirement": "R6.67",
+  "stream": "agent",
+  "subject": "agent://curia.example/tuesdaycrowd/scriptor",
+  "primitive_calls": 1,
+  "note": "A genuine attestation naming Alice at 3, then two rows signed by the operator key and spelled another way, each with prev 3 (a skipped row moves nothing, so each decides alone), each naming Bob. Row A at 4: the protected-header segment's last character carries non-zero trailing bits (the header JSON has one space after the opening brace, which the ADMIT profile accepts, so that its length is not a multiple of 3; the last character is replaced by the one that differs in the lowest bit; the signature is made over the segment as spelled, so a lenient decoder would honour the row): the segment is not the unpadded base64url spelling of its bytes, act-typ-mismatch (step 5). Row B at 5: a canonical header and a signature segment whose last character (4 trailing bits of its 86) is replaced by the one that differs in the lowest bit, the same signature bytes under a lenient decoder: the signature does not verify, act-signature-invalid (step 7). The state is Alice, verified, which a second honoured owner would also leave (R4.1): the rows are what discriminate, so a fold that honoured both spellings passes the state and fails the rows. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests."
+}

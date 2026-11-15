@@ -48,6 +48,18 @@ public static class KeyActErrors
     /// <summary>Errata G67, R6.62: a declaration key is already published, and the first publication wins.</summary>
     public const string DeclarationKeyAlreadyPublishedType = "curia/keys/declaration-key-already-published";
 
+    /// <summary>R6.66 (errata G70): the operator key is also a published log key, by kid or by public key. A key is published in the class it was first published in.</summary>
+    public const string OperatorKeyIsLogKeyType = "curia/keys/operator-key-is-log-key";
+
+    /// <summary>R6.66 (errata G70): the operator key is also a published declaration key, by kid or by public key.</summary>
+    public const string OperatorKeyIsDeclarationKeyType = "curia/keys/operator-key-is-declaration-key";
+
+    /// <summary>R6.66 (errata G70): an operator key is already published, and the first publication wins.</summary>
+    public const string OperatorKeyAlreadyPublishedType = "curia/keys/operator-key-already-published";
+
+    /// <summary>R6.66 (errata G70): the declaration key is also a published operator key, by kid or by public key.</summary>
+    public const string DeclarationKeyIsOperatorKeyType = "curia/keys/declaration-key-is-operator-key";
+
     /// <summary>Amendment 7, ruling 81: the signing key is not the first declaration key the log published, and only the first declares (R6.62).</summary>
     public const string DeclarationKeyNotFirstType = "curia/keys/declaration-key-not-first";
 
@@ -56,6 +68,12 @@ public static class KeyActErrors
     /// answers it 500 and states no detail (R11.33).
     /// </summary>
     public const string NotHonouredType = "curia/keys/not-honoured";
+
+    /// <summary>R11.97 (errata G70): the operator-acts key the tool would sign with is not the first operator key the log published. Raised by the operator tool's writers, before signing; no route reaches it.</summary>
+    public const string OperatorKeyNotPublishedType = "curia/keys/operator-key-not-published";
+
+    /// <summary>R11.97 (errata G70): the log key the tool would publish is a published operator key, by <c>kid</c> or public key. Raised by <c>sign-head</c>, before anything is appended; no route reaches it.</summary>
+    public const string LogKeyIsOperatorKeyType = "curia/keys/log-key-is-operator-key";
 
     /// <summary>The act's <c>prev</c> is not the identity's latest lifecycle index. The detail is that index, an integer.</summary>
     public static Error LifecycleMoved(long latest) => new(
@@ -113,6 +131,30 @@ public static class KeyActErrors
     /// <summary>R6.62: a declaration key is already published and the first publication wins. Names neither key nor kid.</summary>
     public static Error DeclarationKeyAlreadyPublished() => new(
         DeclarationKeyAlreadyPublishedType, "A declaration key is already published", "the first declaration key published is the one");
+
+    /// <summary>R6.66: the key is also a published log key, which no operator key may be. Names neither the key nor its kid.</summary>
+    public static Error OperatorKeyIsLogKey() => new(
+        OperatorKeyIsLogKeyType, "An operator key is not a log key", "the key is published as a log key");
+
+    /// <summary>R6.66: the key is also a published declaration key, which no operator key may be. Names neither the key nor its kid.</summary>
+    public static Error OperatorKeyIsDeclarationKey() => new(
+        OperatorKeyIsDeclarationKeyType, "An operator key is not a declaration key", "the key is published as a declaration key");
+
+    /// <summary>R6.66: an operator key is already published and the first publication wins. Names neither key nor kid.</summary>
+    public static Error OperatorKeyAlreadyPublished() => new(
+        OperatorKeyAlreadyPublishedType, "An operator key is already published", "the first operator key published is the one");
+
+    /// <summary>R6.66: the key is also a published operator key, which no declaration key may be. Names neither the key nor its kid.</summary>
+    public static Error DeclarationKeyIsOperatorKey() => new(
+        DeclarationKeyIsOperatorKeyType, "A declaration key is not an operator key", "the key is published as an operator key");
+
+    /// <summary>R11.97: the signing key is not the first operator key the log published, so a row signed with it would be skipped. Names neither key nor kid.</summary>
+    public static Error OperatorKeyNotPublished() => new(
+        OperatorKeyNotPublishedType, "The operator-acts key has not been published", "run publish-operator-key with this key first; only the first operator key published signs");
+
+    /// <summary>R11.97: the key is a published operator key, which no log key may be. Names neither key nor kid.</summary>
+    public static Error LogKeyIsOperatorKey() => new(
+        LogKeyIsOperatorKeyType, "A log key is not an operator key", "the key is published as an operator key");
 
     /// <summary>R6.62: the signing key is a declaration key but not the first the log published. Names neither key nor kid.</summary>
     public static Error DeclarationKeyNotFirst() => new(

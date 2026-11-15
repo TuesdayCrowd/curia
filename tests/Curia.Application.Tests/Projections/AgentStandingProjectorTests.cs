@@ -1,3 +1,4 @@
+using Curia.Application.Tests.OperatorActs;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Credentials;
 using Curia.Application.Projections;
@@ -5,6 +6,7 @@ using Curia.Application.Tests.InMemory;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
+using Curia.Domain.Acta;
 using Curia.Domain.Authorization;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
@@ -74,7 +76,7 @@ public sealed class AgentStandingProjectorTests
         string owner = Owner,
         string by = Operator,
         OwnerVerificationMethod method = OwnerVerificationMethod.Manual) =>
-        new AttestOwner(store, clock).RecordAsync(
+        SignedActWriters.Attest(store, clock).RecordAsync(
             Curia.Domain.Primitives.Boundary.AgentId.Parse(agent),
             Require(OwnerId.Create(owner)),
             verified,
@@ -275,7 +277,7 @@ public sealed class AgentStandingProjectorTests
         Assert.Equal(Start, again.EnrolledAt);
 
         var log = await LogAsync(store, ct);
-        Assert.Equal([.. Enrollment, AgentStandingProjector.OwnerAttestedType], Types(log));
+        Assert.Equal([.. Enrollment, LogEntries.OperatorKeyType, AgentStandingProjector.OwnerAttestedType], Types(log));
 
         var standing = AgentStandingProjector.Fold(log)[Agent];
         Assert.Equal(Owner, standing.OwnerId);
@@ -298,7 +300,7 @@ public sealed class AgentStandingProjectorTests
         Require(await new EnrollAgent(store, TestVerifier.Es256, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         Require(await AttestAsync(store, clock, Agent, ct, method: OwnerVerificationMethod.Domain));
 
-        var attestation = (await LogAsync(store, ct))[Enrollment.Length];
+        var attestation = (await LogAsync(store, ct))[Enrollment.Length + 1];
         var payload = Assert.IsType<JsonValue.Object>(attestation.Event.Payload);
         var members = payload.Members.ToDictionary(m => m.Key, m => m.Value, StringComparer.Ordinal);
 
@@ -424,7 +426,7 @@ public sealed class AgentStandingProjectorTests
         Assert.False(standing.OwnerVerified);
         Assert.Equal(Owner, standing.OwnerId);
         Assert.Equal(
-            [.. Enrollment, AgentStandingProjector.OwnerAttestedType, AgentStandingProjector.OwnerAttestedType],
+            [.. Enrollment, LogEntries.OperatorKeyType, AgentStandingProjector.OwnerAttestedType, AgentStandingProjector.OwnerAttestedType],
             Types(await LogAsync(store, ct)));
     }
 

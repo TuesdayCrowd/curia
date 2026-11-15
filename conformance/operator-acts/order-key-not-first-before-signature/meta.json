@@ -1,0 +1,7 @@
+{
+  "profile": "operator-acts-log",
+  "requirement": "R6.67",
+  "stream": "agent",
+  "subject": "agent://curia.example/tuesdaycrowd/scriptor",
+  "note": "A second log.operator-key (O2) at 3 and an attestation at 4 whose header is right with kid O2 and whose signature is a stranger's, then a genuine attestation at 5 signed by O: step 6 (O2 is not the first) decides before step 7. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under curia-operator-act+jws with the key's thumbprint as the header kid; the keys the case publishes are its own log.operator-key, log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests."
+}

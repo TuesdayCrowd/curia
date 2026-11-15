@@ -1,3 +1,4 @@
+using Curia.Application.Tests.OperatorActs;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Curia.Application.Moderation;
@@ -407,7 +408,7 @@ public sealed class RaiseFlagTests
 
         var raise = new RaiseFlag(store, details, clock);
         Require(await raise.RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct));
-        Require(await new ApplyModeration(store, details, clock).RecordAsync(
+        Require(await SignedActWriters.Moderate(store, details, clock).RecordAsync(
             PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse("Reviewed."), Require(ActorId.Create("operator:reviewer")), ct));
         Assert.Contains(await LogAsync(store, ct), e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
 

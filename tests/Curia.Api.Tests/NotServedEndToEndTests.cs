@@ -10,8 +10,8 @@ using Xunit;
 namespace Curia.Api.Tests;
 
 /// <summary>
-/// PR 3 (errata G50, R10.91), Task 0's probe RLW12 against a real Forum on a real socket, over the three ways the Forum stops serving a post: a human withhold, a
-/// human quarantine and an automated quarantine (made as <c>ForumFixture.QuarantineAsAutomatedAsync</c> makes it; the host has no producer of one, M5). For each,
+/// PR 3 (errata G50, R10.91), Task 0's probe RLW12 against a real Forum on a real socket, over the two ways the Forum stops serving a post that a signed act can arrange: a human withhold and a
+/// human quarantine (no automated state exists: R6.67 step 3 honours human statements only, and the characterization of an automated row is OAS2, OAS38 and vectors 34 and 35). For each,
 /// <c>curia_read</c> of the original states R10.91's pointer beside the revision's digest and again beside the same digest in the text-that-stands clause of the
 /// same line; <c>curia_recheck</c> of that digest says <c>withheld</c> (the pointer is true in every state); the thread's <c>posts=</c> is the served members; no
 /// output names the unserved post's id or counts what the thread does not list; and restoring it removes the line.
@@ -55,7 +55,7 @@ public sealed partial class NotServedEndToEndTests(KestrelForumFixture forum) : 
         return n;
     }
 
-    /// <summary>RLW12. A real withhold, end to end, over a human withhold, a human quarantine and an automated quarantine.</summary>
+    /// <summary>RLW12. A real withhold, end to end, over a human withhold and a human quarantine.</summary>
     [Fact]
     public async Task R10_91_RLW12_ARealWithholdIsSaidInTheDefinitionsWordsInEveryState()
     {
@@ -64,17 +64,16 @@ public sealed partial class NotServedEndToEndTests(KestrelForumFixture forum) : 
         var board = "board-" + ReadersLastWordsScene.Suffix();
         var asker = await scene.T1Async("asker", board);
 
-        // The fixture's restore is the human moderator's writer, which refuses to lift a record that is not a human one (no-op), and the host has no producer or
-        // lifter of an automated quarantine (Task 0, M5): the automated state is read withheld and never restored here.
-        var states = new (string Name, Func<RlwPost, Task> Apply, bool Restorable)[]
+        // No automated state is listed: no production path writes an automated moderation record and the act fold skips one (R6.67 step 3; Task 3d, ruling 85). The
+        // characterization of that arm is OAS2, OAS38 and vectors 34 and 35 (moderation-moderator-automated-is-not-honoured).
+        var states = new (string Name, Func<RlwPost, Task> Apply)[]
         {
-            ("a human withhold", p => forum.WithholdAsync(p.Id, Ct), true),
-            ("a human quarantine", p => forum.QuarantineAsync(p.Id, Ct), true),
-            ("an automated quarantine", p => forum.QuarantineAsAutomatedAsync(p.Id, p.Digest, Ct), false),
+            ("a human withhold", p => forum.WithholdAsync(p.Id, Ct)),
+            ("a human quarantine", p => forum.QuarantineAsync(p.Id, Ct)),
         };
 
         var problems = new List<string>();
-        foreach (var (name, apply, restorable) in states)
+        foreach (var (name, apply) in states)
         {
             var word = "finch" + ReadersLastWordsScene.Suffix();
             var chain = await scene.QuestionWithRevisionsAsync(asker, board, word, 1);
@@ -102,7 +101,6 @@ public sealed partial class NotServedEndToEndTests(KestrelForumFixture forum) : 
 
             if (thread.Exit != 0 || !thread.Stdout.Contains(sentence, StringComparison.Ordinal)) problems.Add($"{name}: curia thread: Expected: exit 0 and the pointer Actual: exit {thread.Exit} {thread.Stdout.Trim()}");
 
-            if (!restorable) continue;
             await forum.RestoreAsync(revision.Id, Ct);
             var restored = Block(await asker.Tools.ReadAsync(question.Id, Ct), 0);
             if (restored.Contains("not served", StringComparison.Ordinal) || restored.Contains(sentence, StringComparison.Ordinal)) problems.Add($"{name}: restoring it left the line: {restored}");

@@ -38,7 +38,12 @@ public sealed class VerifiedLog
     private readonly LifecycleVerifier _verifier;
     private readonly IReadOnlyList<AppendedEvent> _log;
     private readonly Lazy<IReadOnlyDictionary<string, List<(long Index, AppendedEvent Event)>>> _streams;
+    private readonly Lazy<PublishedKeys> _published;
     private readonly Lazy<LifecycleFold.KeyWorld> _world;
+    private readonly Lazy<ImmutableArray<ActDecision>> _acts;
+    private readonly Lazy<HonouredEvents> _honoured;
+    private readonly Lazy<ImmutableDictionary<string, AgentStanding>> _standings;
+    private readonly Lazy<ImmutableDictionary<string, PostModeration>> _moderation;
     private readonly Dictionary<string, VerifiedLifecycle> _memo = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LifecycleFold.Decided> _decided = new(StringComparer.Ordinal);
 
@@ -47,7 +52,14 @@ public sealed class VerifiedLog
         _verifier = verifier;
         _log = log;
         _streams = new Lazy<IReadOnlyDictionary<string, List<(long Index, AppendedEvent Event)>>>(Streams);
-        _world = new Lazy<LifecycleFold.KeyWorld>(() => new LifecycleFold.KeyWorld(PublishedKeys.OfLog(log)));
+        _published = new Lazy<PublishedKeys>(() => PublishedKeys.OfLog(log));
+        _world = new Lazy<LifecycleFold.KeyWorld>(() => new LifecycleFold.KeyWorld(_published.Value));
+
+        // The operator acts (R6.67) are decided once per VerifiedLog, whichever of the three views asks first, under Lazy's own lock: each signature is verified at most once.
+        _acts = new Lazy<ImmutableArray<ActDecision>>(() => OperatorActFold.Decide(log, _published.Value, verifier.Verifiers));
+        _honoured = new Lazy<HonouredEvents>(BuildHonoured);
+        _standings = new Lazy<ImmutableDictionary<string, AgentStanding>>(() => AgentStandingProjector.Fold(_honoured.Value.Events));
+        _moderation = new Lazy<ImmutableDictionary<string, PostModeration>>(() => FlagProjector.Fold(_honoured.Value.Events));
     }
 
     /// <summary>The verifier this log was verified by.</summary>
@@ -82,11 +94,55 @@ public sealed class VerifiedLog
     public ImmutableArray<SkippedRow> Skipped() =>
         [.. _streams.Value.Keys.SelectMany(aggregate => Decided(aggregate).Skipped).OrderBy(r => r.LogIndex)];
 
+    /// <summary>
+    /// The log less the operator-act rows the verifier does not honour (R4.43, R6.67), each event with its own <c>Seq</c>: what the raw projectors are fed. Computed once; asking again verifies nothing.
+    /// It is not a log, and <see cref="Skipped()"/> does not list the rows it leaves out (<see cref="ActSkipped"/> does).
+    /// </summary>
+    public HonouredEvents HonouredEvents => _honoured.Value;
+
+    /// <summary>Every agent's standing, folded from the honoured events (R4.43): an attestation the verifier skips binds no owner and sets no flag. Once per log; with <see cref="Moderation"/>, the only callers of the raw folds.</summary>
+    public ImmutableDictionary<string, AgentStanding> Standings() => _standings.Value;
+
+    /// <summary>Every moderated post's history, folded from the honoured events (R10.60, R10.61): a record the verifier skips holds nothing and releases nothing. Once per log.</summary>
+    public ImmutableDictionary<string, PostModeration> Moderation() => _moderation.Value;
+
+    /// <summary>
+    /// One agent's standing, folded from the honoured events of that agent's own stream (R4.43): an attestation the verifier skips binds no owner and sets no flag. Null when that stream holds no honoured event
+    /// that makes a standing. The acts are decided once per log, whichever view asks first, so asking for several agents verifies nothing again. With <see cref="Standings"/> and <see cref="Moderation"/>, the
+    /// only callers of the raw folds (OAS12).
+    /// </summary>
+    public AgentStanding? StandingOf(AgentId agent)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+
+        var own = _honoured.Value.Events.Where(e => string.Equals(e.AggregateId.Value, agent.Value, StringComparison.Ordinal)).ToArray();
+        return AgentStandingProjector.Fold(own).GetValueOrDefault(agent.Value);
+    }
+
+    /// <summary>The operator-act rows the verifier does not honour (R6.67), ascending by log index, each by the predicate that skipped it (never a payload member).</summary>
+    public ImmutableArray<SkippedRow> ActSkipped() =>
+        [.. _acts.Value.Where(d => d.Predicate is not null).Select(d => new SkippedRow(d.LogIndex, d.Type, d.Aggregate, d.Predicate!))];
+
+    /// <summary>Every row the verifier does not honour, lifecycle rows and operator-act rows together, ascending by log index.</summary>
+    public ImmutableArray<SkippedRow> AllSkipped() => [.. Skipped().Concat(ActSkipped()).OrderBy(r => r.LogIndex)];
+
+    private HonouredEvents BuildHonoured()
+    {
+        var skipped = _acts.Value.Where(d => d.Predicate is not null).Select(d => d.LogIndex).ToHashSet();
+        return new HonouredEvents([.. _log.Where((_, i) => !skipped.Contains(i))], _log);
+    }
+
     /// <summary>How many lifecycle rows the verifier honours, over every stream: the audit's first number (errata G68, ruling 13).</summary>
     public long HonouredCount() => _streams.Value.Keys.Sum(aggregate => (long)Decided(aggregate).Honoured.Length);
 
     /// <summary>The rows at or past <paramref name="treeSize"/> that the verifier does not honour: what the head signer's stop withholds on (R6.63).</summary>
     public ImmutableArray<SkippedRow> SkippedPast(long treeSize) => [.. Skipped().Where(r => r.LogIndex >= treeSize)];
+
+    /// <summary>How many rows the verifier honours of both kinds: the lifecycle rows it honours and the operator-act rows it honours (the audit's first number).</summary>
+    public long AllHonouredCount() => HonouredCount() + _acts.Value.Count(d => d.Predicate is null);
+
+    /// <summary>The rows at or past <paramref name="treeSize"/> that the verifier does not honour, lifecycle rows and operator-act rows together: what the head signer's stop reads (R6.63, R11.97).</summary>
+    public ImmutableArray<SkippedRow> AllSkippedPast(long treeSize) => [.. AllSkipped().Where(r => r.LogIndex >= treeSize)];
 
     /// <summary>
     /// The stream's decision, once. The consumer-facing types are read from the honoured events alone, by the two readers of a lifecycle's shape that nothing else calls

@@ -32,7 +32,8 @@ public sealed class OperatorAttestationTests(ForumFixture forum) : IClassFixture
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct);
+        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+            readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
         return (exit, stdout.ToString(), stderr.ToString());
     }
 
@@ -127,6 +128,8 @@ public sealed class OperatorAttestationTests(ForumFixture forum) : IClassFixture
             1 => (overCap, "reviewer", "curia/attest/not-enrolled"),
             _ => (selfNamed, selfNamed, "curia/attest/not-enrolled"),
         };
+        // The operator-acts key is published before the log is measured: a first refusal that reaches the writer publishes it (SignedActWriters), so an unseeded test's count depends on which test ran first (errata G70).
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(http, ct);
 
         var (exit, stdout, stderr) = await RunAsync(
@@ -169,6 +172,8 @@ public sealed class OperatorAttestationTests(ForumFixture forum) : IClassFixture
         var agent = NewAgent();
         using (var enrolled = await agent.EnrollAsync(http, ct))
             Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+        // The operator-acts key is published before the log is measured: a first refusal that reaches the writer publishes it (SignedActWriters), so an unseeded test's count depends on which test ran first (errata G70).
+        await forum.OperatorActsKeyAsync(ct);
         var before = await LogSizeAsync(http, ct);
 
         string[] args =

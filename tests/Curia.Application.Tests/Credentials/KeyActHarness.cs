@@ -9,6 +9,7 @@ using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
+using Curia.Domain.Credentials;
 using Curia.Domain.Keys;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
@@ -159,6 +160,56 @@ internal sealed class KeyActHarness
             Require(StatementText.Parse(text)),
             Sign(text, KeyStatements.RetirementHeaderTyp, (signer ?? victim).Signing),
             TestContext.Current.CancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The verifier the operator-act writers decide with: ES256 under the harness's test crypto.</summary>
+    internal LifecycleVerifier OperatorActVerifier() => new(Verifiers);
+
+    /// <summary>Publishes <paramref name="signer"/> as the operator key through the real use case (errata G70, R6.66).</summary>
+    internal async Task PublishOperatorKeyAsync(IOperatorActSigner signer, CancellationToken ct) =>
+        Require(await new PublishOperatorKey(Events, Clock).PublishAsync(signer, Require(ActorId.Create("operator:ops")), ct).ConfigureAwait(false));
+
+    /// <summary>An attestation through the real, signing writer, over <paramref name="store"/> (the harness's own store unless a test decorates it).</summary>
+    internal Task<Result<OwnerAttestation>> AttestOwnerAsync(
+        string agent, string owner, bool verified, IOperatorActSigner signer, CancellationToken ct, string by = "operator:ops", IEventStore? store = null) =>
+        new AttestOwner(store ?? Events, OperatorActVerifier(), Clock).RecordAsync(
+            AgentId.Parse(agent), Require(OwnerId.Create(owner)), verified, OwnerVerificationMethod.Manual, "attested for a test", Require(ActorId.Create(by)), signer, ct);
+
+    /// <summary>
+    /// A store that corrupts the signature of every operator-act row it appends: the row keeps its statement and a header that passes every step before the last, and carries a signature that does not verify,
+    /// so the Forum skips it <c>act-signature-invalid</c> (R6.67 step 7). The pattern is <c>WritersRoundTripTests.SignatureTamperingStore</c>'s, aimed at the operator acts' <c>authorization</c>.
+    /// </summary>
+    internal sealed class AuthorizationCorruptingStore(IEventStore inner) : IEventStore
+    {
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default) =>
+            inner.ReadByAggregateAsync(aggregateId, cancellationToken);
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
+            inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+
+        private static IReadOnlyList<DomainEvent> Corrupt(IReadOnlyList<DomainEvent> events) =>
+        [
+            .. events.Select(e => e.Payload is JsonValue.Object o && o.Members.Any(m => m.Key == "authorization" && m.Value is JsonValue.String)
+                ? e with
+                {
+                    Payload = new JsonValue.Object(
+                    [
+                        .. o.Members.Select(m => m.Key == "authorization" && m.Value is JsonValue.String jws
+                            ? new KeyValuePair<string, JsonValue>(m.Key, new JsonValue.String(jws.Value[..(jws.Value.IndexOf("..", StringComparison.Ordinal) + 2)] + System.Buffers.Text.Base64Url.EncodeToString(new byte[64].Select(_ => (byte)1).ToArray())))
+                            : m),
+                    ]),
+                }
+                : e),
+        ];
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, CancellationToken cancellationToken = default) =>
+            inner.AppendAsync(aggregateId, expectedVersion, Corrupt(events), cancellationToken);
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition condition, CancellationToken cancellationToken = default) =>
+            inner.AppendAsync(aggregateId, expectedVersion, Corrupt(events), condition, cancellationToken);
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition? condition, AppendGuard guard, CancellationToken cancellationToken = default) =>
+            inner.AppendAsync(aggregateId, expectedVersion, Corrupt(events), condition, guard, cancellationToken);
     }
 
     /// <summary>The store's resolving half over the in-memory registry: the key under the agent and kid, from its <c>NotBefore</c>.</summary>

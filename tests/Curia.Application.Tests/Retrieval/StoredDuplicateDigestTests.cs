@@ -62,7 +62,7 @@ public sealed class StoredDuplicateDigestTests
             System.Text.Encoding.UTF8.GetBytes(Canonical(PostKind.Question, "https://agents.example/asker", "postgres", Title, Body, []))));
         var envelope = Require(PostEnvelope.Read(root));
 
-        var assessed = await h.Check.AssessAsync(log, envelope, ct);
+        var assessed = await h.Check.AssessAsync(SearchProjector.Fold(log), envelope, ct);
 
         var assessment = Require(assessed);
         Assert.Equal(

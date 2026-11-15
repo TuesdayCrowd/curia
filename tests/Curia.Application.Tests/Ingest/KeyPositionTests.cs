@@ -1,3 +1,4 @@
+using Curia.Application.Tests.OperatorActs;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -147,7 +148,7 @@ public sealed class KeyPositionTests
                     async () =>
                     {
                         if (first)
-                            KeyActHarness.Require(await new AttestOwner(harness.Events, harness.Clock).RecordAsync(
+                            KeyActHarness.Require(await SignedActWriters.Attest(harness.Events, harness.Clock).RecordAsync(
                                 Curia.Domain.Primitives.Boundary.AgentId.Parse(KeyActHarness.Alice),
                                 KeyActHarness.Require(OwnerId.Create("owner-1")),
                                 verified: true,
@@ -181,7 +182,7 @@ public sealed class KeyPositionTests
                 return AttemptAsync(
                     pipeline,
                     wire,
-                    async () => KeyActHarness.Require(await new AttestOwner(harness.Events, harness.Clock).RecordAsync(
+                    async () => KeyActHarness.Require(await SignedActWriters.Attest(harness.Events, harness.Clock).RecordAsync(
                         Curia.Domain.Primitives.Boundary.AgentId.Parse(KeyActHarness.Alice),
                         KeyActHarness.Require(OwnerId.Create("owner-1")),
                         verified: true,

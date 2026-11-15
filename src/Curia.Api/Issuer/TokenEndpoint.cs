@@ -57,6 +57,7 @@ public static class TokenEndpoint
         IReplayCache replayCache,
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
         IEventReader events,
+        LifecycleVerifier lifecycle,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -150,7 +151,8 @@ public static class TokenEndpoint
         if (!read.TryGetValue(out var log, out var readError))
             return new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, readError);
 
-        var standings = AgentStandingProjector.Fold(log!);
+        // The owner and the flags that stand are those of the operator acts the Forum honours (errata G70, R4.43, R6.67), from one verified log.
+        var standings = lifecycle.OfLog(log!).Standings();
         if (!standings.ContainsKey(claims!.Sub))
             return new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, null);
 

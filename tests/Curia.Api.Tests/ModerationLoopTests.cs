@@ -77,7 +77,8 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct);
+        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadDeclarationSigner, stdout, stderr, ct,
+            readOperatorActsSigningKeyPem: await forum.OperatorActsKeyForAsync(args, ct));
         Assert.True(exit == ExitCode.Ok, $"curia-operator {string.Join(' ', args)} exited {exit}: {stderr}");
     }
 
@@ -273,19 +274,26 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         var reporterB = await PartyAsync(client, NewAgent("r1039-b"), ct);
         await FlagAsync(client, reporterB, second.PostId, "incorrect", "The premise is wrong.", ct);
 
-        // R10.61's anticipated out-of-rule input, not a stand-in for the writer (trap 16): an automated
-        // record naming B before anyone reviewed it. A fold that counted it would time B's action at
-        // 30 minutes, not 90.
+        // An out-of-rule input, not a stand-in for the writer (trap 16): an automated record naming B before
+        // anyone reviewed it. Both derivations below ignore it under R10.61's reviewing rule (Moderation.cs,
+        // Reviewed: an automated record is no review) whether or not the act fold skips it, so what this test
+        // shows of the act fold is only that the Forum read and skipped the row (R6.67 step 1: act-unsigned),
+        // by the count assertion further down. That the Forum's decisions depend on the skip is OAS2, OAS4,
+        // OAS27 and OAS38, which forge `human` rows.
+        var skippedBefore = await new OperatorActsApi(forum).SkippedRowsAsync(ct);
         forum.Clock.Advance(TimeSpan.FromMinutes(30));
         await AppendAnAutomatedDismissalAsync(second, ct);
 
         forum.Clock.Advance(TimeSpan.FromMinutes(60));
         await OperatorAsync(ct, "moderate", "--post", first.PostId, "--category", "spam", "--effect", "withhold", "--reason", "Reviewed: advertising.", "--by", "reviewer");
 
-        // R10.61's anticipated out-of-rule input again, not a stand-in for the writer (trap 16): an
-        // automated dismissal naming A after a human upheld it. A fold that honoured it would release
-        // A and count no flag upheld.
+        // The same out-of-rule input again, not a stand-in for the writer (trap 16): an automated
+        // dismissal naming A after a human upheld it. R10.61's reviewing rule ignores it whether or not the
+        // act fold skips it (R6.67 step 1), so this too is shown as read and skipped, not as decided by the skip.
         await AppendAnAutomatedDismissalAsync(first, ct);
+        // The vacuity guard (Task 3d, ruling 88): the Forum read both rows and skipped them, so the rows reached
+        // the fold; the figures below ignore them under R10.61's reviewing rule either way (Task 6b, ruling 101).
+        Assert.Equal(skippedBefore + 2, await new OperatorActsApi(forum).SkippedRowsAsync(ct));
         await OperatorAsync(ct, "moderate", "--post", second.PostId, "--category", "incorrect", "--effect", "dismiss", "--reason", "Reviewed: the premise holds.", "--by", "reviewer");
 
         // Only what an anonymous reader can fetch.

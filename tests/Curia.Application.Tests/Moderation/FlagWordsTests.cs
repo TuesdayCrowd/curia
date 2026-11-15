@@ -1,3 +1,4 @@
+using Curia.Application.Tests.OperatorActs;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Moderation;
 using Curia.Application.Ports;
@@ -40,12 +41,12 @@ public sealed class FlagWordsTests
         return error!;
     }
 
-    private static (RaiseFlag Flag, ApplyModeration Moderate) Writers()
+    private static (RaiseFlag Flag, SignedActWriters.SignedApplyModeration Moderate) Writers()
     {
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
-        return (new RaiseFlag(store, details, clock), new ApplyModeration(store, details, clock));
+        return (new RaiseFlag(store, details, clock), SignedActWriters.Moderate(store, details, clock));
     }
 
     private static ActorId Operator => Require(ActorId.Create("operator:reviewer"));
