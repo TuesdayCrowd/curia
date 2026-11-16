@@ -401,7 +401,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         }
     }
 
-    /// <summary>BRB26. The queue bound at the route: A parked, W requests waiting, the (W+1)th is answered agent-in-flight at once while A is still parked.</summary>
+    /// <summary>BRB26. The queue bound at the route: A parked, W requests waiting, the (W+1)th is answered agent-in-flight at once while A is still parked. "At once" is judged by order at the gate (only the holder answered before it, the line held exactly W), never by a clock: a time measured outside the gate includes everything before it.</summary>
     [Fact]
     public async Task R7_27_BRB26_AFullQueueIsRefusedAtOnce()
     {
@@ -412,36 +412,69 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var actor = await AcceptedAnswerScene.T1Async(forum, board, Ct);
         var token = await actor.Dpop.GetTokenAsync(forum.Client, BudgetBursts.TokenEndpoint, forum.Now, Ct);
 
+        // The scene's own posts passed the gate: count from here, so an ordinal is the arrival's place among the burst.
+        forum.Gate.Reset();
+        // The (W+2)th arrival is held at a door after every step before the gate, so the W waiters are in the line, with their waits running, before it reaches the gate.
+        forum.Gate.HoldArrival(waiters + 2);
         forum.Store.ParkNext(PostBy(actor.Agent.AgentId));
         try
         {
             var holder = Task.Run(() => Probe.SendAsync(forum, actor, BudgetBursts.Wire(actor.Agent, PostKind.Comment, board, parent.PostId, forum.Now), token, Ct), Ct);
             await forum.Store.WaitForParkedAsync(1, TimeSpan.FromSeconds(15));
-            var waiting = Enumerable.Range(0, waiters)
+            var sends = Enumerable.Range(0, waiters + 1)
                 .Select(_ => Task.Run(() => Probe.SendAsync(forum, actor, BudgetBursts.Wire(actor.Agent, PostKind.Comment, board, parent.PostId, forum.Now), token, Ct), Ct))
                 .ToArray();
-            await Task.Delay(800, Ct);
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            var overflow = await Probe.SendAsync(forum, actor, BudgetBursts.Wire(actor.Agent, PostKind.Comment, board, parent.PostId, forum.Now), token, Ct);
-            var elapsed = timer.Elapsed;
+
+            var arrived = await Eventually(() => forum.Gate.Joined >= waiters + 1 && forum.Gate.Entered.Count == waiters + 2);
+            forum.Gate.ReleaseDoor();
+
+            // Whichever send was the (W+2)th arrival is the first to be answered: the others wait on the parked holder.
+            Sent? answered = null;
+            try
+            {
+                answered = await await Task.WhenAny(sends).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+            }
+            catch (TimeoutException)
+            {
+                // Nothing was answered while A was parked: the verdict below says so.
+            }
+
             var holderDone = holder.IsCompleted;
+            var answers = forum.Gate.Answers.ToArray();
+            var joined = forum.Gate.Joined;
+            var overflow = answers.FirstOrDefault(x => x.Ordinal == waiters + 2);
+            var kind = answered is null ? "no request answered while A was parked" : BudgetBursts.Kind(answered);
+
             forum.Store.Release();
             _ = await holder;
-            _ = await Task.WhenAll(waiting);
+            _ = await Task.WhenAll(sends);
 
-            // "At once" is judged against the published wait, not a fixed figure: a request that queued would be answered only when R7.27's wait ran out,
-            // so half of it separates the two with room for a loaded runner (CI answered in 2,007 ms once against the old fixed 2 s).
-            var atOnce = PublishedBudgetGate.Wait() / 2;
-            var expected = $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {PublishedBudgetGate.InFlightType()} within {Ms(atOnce)}, half the wait, while A is still parked";
-            var refusedAtOnce = BudgetBursts.Kind(overflow).EndsWith(PublishedBudgetGate.InFlightType(), StringComparison.Ordinal) && elapsed < atOnce && !holderDone;
+            var expected = $"request {waiters + 2} refused {PublishedBudgetGate.InFlightType()} at the gate with only the holder answered before it, while A is still parked, and {waiters + 2} arrivals joined (the holder, the {waiters} waiting and the refused one)";
+            var held = arrived && !holderDone && overflow is { Granted: false, AnsweredBefore: 1 } && joined == waiters + 2
+                && kind.EndsWith(PublishedBudgetGate.InFlightType(), StringComparison.Ordinal);
             Said(
                 expected,
-                refusedAtOnce ? expected : $"request {waiters + 2} (the holder and {waiters} waiting before it) answered {BudgetBursts.Kind(overflow)} after {Ms(elapsed)} while A is {(holderDone ? "no longer parked" : "still parked")}");
+                held
+                    ? expected
+                    : $"request {waiters + 2}: {(overflow is null ? "no answer recorded" : $"granted {overflow.Granted}")}, answered {kind}, {(overflow is null ? "?" : overflow.AnsweredBefore.ToString(System.Globalization.CultureInfo.InvariantCulture))} answered before it, {joined} joined ({(arrived ? "all arrived" : "not all arrived")}), {(overflow is null ? "?" : Ms(overflow.InGate))} in the gate, A {(holderDone ? "no longer parked" : "still parked")}");
         }
         finally
         {
+            forum.Gate.ReleaseDoor();
             forum.Store.Release();
         }
+    }
+
+    private static async Task<bool> Eventually(Func<bool> condition)
+    {
+        var give = Environment.TickCount64 + 30_000;
+        while (!condition())
+        {
+            if (Environment.TickCount64 > give) return false;
+            await Task.Delay(5, Ct);
+        }
+
+        return true;
     }
 
     private async Task<(Sent Post, Sent Accept, long Stored, long Recorded, int Entries)> UnavailableAsync()
