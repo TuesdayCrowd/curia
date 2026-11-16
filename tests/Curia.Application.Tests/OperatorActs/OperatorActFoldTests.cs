@@ -371,7 +371,7 @@ public sealed class OperatorActFoldTests
     }
 }
 
-/// <summary>OAS30m's own collection: a measurement taken while the rest of the suite runs beside it measures the suite, so the collection runs alone.</summary>
+/// <summary>OAS30m's own collection: a measurement taken while the rest of the suite runs beside it measures the suite. The collection is serial inside this assembly only; other test hosts still run beside it, so CI runs the class in a step of its own (ci.yml, register item 320) and the all-but-Api step excludes it.</summary>
 [CollectionDefinition("operator-act-cost", DisableParallelization = true)]
 [SuppressMessage("Design", "CA1515:Consider making public types internal", Justification = "xUnit requires a collection definition to be public.")]
 public sealed class OperatorActCostGroup;
