@@ -482,6 +482,10 @@ entry type or a statement version the reader does not fold), `bound-after-post`,
 (errata G67, R6.62). A reader also reaches `declaration-signature-invalid` and a failed
 `compromised-before-post` (a declaration that precedes the post); no case carries either, and the readers' own facts do.
 
+`forged-rotation` and `rotation-authorization-made-by-the-new-key` are the two cases of an authorization that
+does not verify (`rotation-unauthorized`), made by a stranger's key and by the key being bound; only the second
+fails a reader that also accepts the new key's signature (R6.54 (add.), item 288).
+
 **The compromise cases.** Forty-six cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
 the fixed P-256 test declaration key that `acta/key-compromised-entry` uses (a `/2` statement: `/1` is withdrawn); their `log-jwks.json`
 carries it in a `declaration_keys` member beside `keys` (the head key), with the `log_index` of the `log.declaration-key` entry that

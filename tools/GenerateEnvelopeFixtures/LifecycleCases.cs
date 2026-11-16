@@ -138,6 +138,7 @@ internal static partial class LifecycleCases
             RetirementTypInBoundEntry(k1, k2),
             BindingStatementNotText(k1, k2),
             UnrelatedStatementTypDuplicateMember(k1, k2),
+            RotationAuthorizationMadeByTheNewKey(k1, k2),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -520,6 +521,16 @@ internal static partial class LifecycleCases
         return new Case("unrelated-statement-typ-duplicate-member", "R6.54 (add.)",
             "A rotation entry whose statement text repeats the typ member (first curia.key-rotation/1, last curia.key-prerotation/1): not valid I-JSON, so it has no readable typ and is malformed, not a future version (KF4).",
             log, post, [0, 1, 2], "failed", "statement-mismatch");
+    }
+
+    private static Case RotationAuthorizationMadeByTheNewKey(Key k1, Key k2)
+    {
+        var log = EnrolledAndBound(k1);
+        AddRotation(log, new Rot(k1, k2, Prev: 1) { AuthSigner = k2 });
+        var post = AddPost(log, k2, "38");
+        return new Case("rotation-authorization-made-by-the-new-key", "R6.54",
+            "The rotation's authorization names the enrolled key in its header and carries the rotation header typ, but was made by the key being bound; the possession is genuine. A key does not authorize its own binding by signing under another key's kid.",
+            log, post, [0, 1, 2], "failed", "rotation-unauthorized");
     }
 
     private static Case UnrelatedStatementTypInBound(Key k1, Key k2)
