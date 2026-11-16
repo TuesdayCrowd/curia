@@ -248,7 +248,7 @@ Key encoding idioms — the point of each is to make an invariant a compile erro
 
 ## Build and test
 
-**Before every push, run `python3 tools/preflight/preflight.py`** (about 4 minutes). It runs CI's own steps, read from `ci.yml`, leaving out only the whole Api suite, so a small failure costs minutes and not a CI run of over an hour. `tools/preflight/README.md` says what it cannot catch.
+**Before every push, run `python3 tools/preflight/preflight.py`** (about 4 minutes). It runs CI's own steps, read from `ci.yml`, leaving out the whole Api suite and every fanned-out job (a job with `needs:` or `strategy:`; `--list` names what it runs and what it leaves out), so a small failure costs minutes and not a CI run of over an hour. `tools/preflight/README.md` says what it cannot catch.
 
 ```bash
 dotnet build Curia.sln                      # 0 warnings is the standard, not an aspiration
@@ -263,7 +263,10 @@ cd rust/curia-testis && cargo fmt --check          # CI's Rust job runs all thre
 cd rust/curia-testis && cargo clippy --all-targets --locked -- -D warnings
 cd rust/curia-testis && cargo test --locked        # the independent verifier
 node tools/differential-oracle/compare.mjs --fail-on-divergence   # R14.6; needs both endpoints built
+python3 tools/ci/api-legs.py check          # every Api test runs in exactly one leg (the legs' filters against `--list-tests`)
 ```
+
+CI runs the Api suite in three parallel legs (fuzz, bursts, rest; `tools/ci/api-legs.json`), and a gate job carrying the required check's name, `.NET — build and test`, passes only when every leg and the core job passed and `api-legs.py` accounts for every listed test in the legs' results.
 
 **This list is the one CI runs, and keeping it that way is load-bearing.** It previously stopped
 at `cargo test`, so a branch could pass every gate a developer was told to run and still go red in
