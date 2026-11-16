@@ -124,6 +124,25 @@ public sealed class LifecycleVerifierTests : IDisposable
         Assert.Equal(("failed", "rotation-unauthorized"), (verdict, predicate));
     }
 
+    /// <summary>
+    /// R6.54 (add.): a rotation's authorization is verified under the authorizing key. This one names the enrolled key
+    /// in its header and was made by the key being bound, so a reader that also accepted the new key's signature
+    /// passes <c>forged-rotation</c>, whose authorization a stranger made, and fails this. The other reader's half is
+    /// rust/curia-testis/tests/lifecycle.rs, which holds the same case to the same predicate (register item 288).
+    /// </summary>
+    [Fact]
+    public async Task R6_54_ARotationAuthorizationTheNewKeyMadeFailsInBothReaders()
+    {
+        var (result, _) = await VerifyCaseAsync("rotation-authorization-made-by-the-new-key");
+
+        Assert.Equal(CheckOutcome.Failed, result.Lifecycle.Outcome);
+        Assert.Contains("is not signed by a key that was live there", result.Lifecycle.Detail, StringComparison.Ordinal);
+        Assert.Equal(CheckOutcome.Failed, result.Overall);
+
+        var (verdict, predicate) = LifecycleConformanceTests.Judge("rotation-authorization-made-by-the-new-key");
+        Assert.Equal(("failed", "rotation-unauthorized"), (verdict, predicate));
+    }
+
     [Fact]
     public async Task R6_54_NoLifecycleTheForumListsIsCouldNotBeChecked()
     {

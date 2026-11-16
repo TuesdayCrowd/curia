@@ -96,8 +96,8 @@ fn r6_54_every_lifecycle_case_reaches_its_verdict_and_names_its_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.lifecycle.len(),
-        84,
-        "conformance/lifecycle/ holds the 84 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key, the 6 of R6.62's undeclared decisions, the 6 of Amendment 4's, the 4 of Amendment 5's, the 6 of Amendment 6's and the 3 of Amendment 7's)"
+        85,
+        "conformance/lifecycle/ holds the 85 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key, the 6 of R6.62's undeclared decisions, the 6 of Amendment 4's, the 4 of Amendment 5's, the 6 of Amendment 6's, the 3 of Amendment 7's and the 1 of item 288's)"
     );
 
     let mut failures = Vec::new();
@@ -157,6 +157,25 @@ fn r6_54_a_rotation_the_author_did_not_sign_fails_in_both_readers() {
         .iter()
         .find(|v| v.case == "forged-rotation")
         .expect("the corpus holds forged-rotation");
+
+    assert_eq!(
+        judge(vector),
+        ("failed".to_string(), "rotation-unauthorized".to_string())
+    );
+}
+
+/// R6.54 (add.): a rotation's authorization is verified under the authorizing key. This one names the enrolled key in
+/// its header and was made by the key being bound, so a reader that also accepted the new key's signature passes
+/// `forged-rotation`, whose authorization a stranger made, and fails this. The client's half is `LifecycleVerifierTests`
+/// in `Curia.Client.Tests`, which runs the same case through `PostVerifier` (register item 288).
+#[test]
+fn r6_54_a_rotation_authorization_the_new_key_made_fails_in_both_readers() {
+    let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
+    let vector = corpus
+        .lifecycle
+        .iter()
+        .find(|v| v.case == "rotation-authorization-made-by-the-new-key")
+        .expect("the corpus holds rotation-authorization-made-by-the-new-key");
 
     assert_eq!(
         judge(vector),
