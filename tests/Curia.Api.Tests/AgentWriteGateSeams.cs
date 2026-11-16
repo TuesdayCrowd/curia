@@ -58,6 +58,9 @@ internal sealed class GateSequence
     internal void Clear() => Entries.Clear();
 }
 
+/// <summary>One answer the gate gave: the arrival's 1-based ordinal, whether it was granted, how long it was in the gate, and how many answers were given before it (BRB26).</summary>
+internal sealed record GateAnswer(int Ordinal, bool Granted, TimeSpan InGate, int AnsweredBefore);
+
 /// <summary>
 /// A decorator over the host's <see cref="IAgentWriteGate"/> that records every subject that reached the gate (<see cref="Entered"/>), how long each entry
 /// waited (<see cref="Waits"/>), how many holds are open now (<see cref="HeldCount"/>), and, at each hold's first release, what the table holds for the agent
@@ -70,6 +73,31 @@ internal sealed class ObservingAgentWriteGate(IAgentWriteGate inner, GateSequenc
     private int _held;
     private int _entered;
     private int _released;
+    private int _arrivals;
+    private int _joined;
+    private int _answers;
+    private int _heldOrdinal;
+    private TaskCompletionSource? _door;
+
+    /// <summary>How many requests have joined the line: counted after the inner gate has been called, which joins the queue synchronously, and before it is awaited (BRB26).</summary>
+    internal int Joined => Volatile.Read(ref _joined);
+
+    /// <summary>Every answer the gate gave, in the order given; <see cref="GateAnswer.AnsweredBefore"/> is taken at the instant of the answer (BRB26).</summary>
+    internal ConcurrentQueue<GateAnswer> Answers { get; } = new();
+
+    /// <summary>Holds the arrival with this ordinal at a door, after it is noted and before it calls the inner gate, until <see cref="ReleaseDoor"/>.</summary>
+    internal void HoldArrival(int ordinal)
+    {
+        Volatile.Write(ref _door, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        Volatile.Write(ref _heldOrdinal, ordinal);
+    }
+
+    /// <summary>Lets the held arrival through; harmless when none is held.</summary>
+    internal void ReleaseDoor()
+    {
+        Volatile.Write(ref _heldOrdinal, 0);
+        Volatile.Read(ref _door)?.TrySetResult();
+    }
 
     /// <summary>The subjects that reached the gate, whether or not they entered, in order.</summary>
     internal ConcurrentQueue<string> Entered { get; } = new();
@@ -100,7 +128,12 @@ internal sealed class ObservingAgentWriteGate(IAgentWriteGate inner, GateSequenc
     {
         UsePassThrough = false;
         FailEntries = false;
+        ReleaseDoor();
         Entered.Clear();
+        Answers.Clear();
+        Interlocked.Exchange(ref _arrivals, 0);
+        Interlocked.Exchange(ref _joined, 0);
+        Interlocked.Exchange(ref _answers, 0);
         Waits.Clear();
         Grants.Clear();
         Releases.Clear();
@@ -114,13 +147,20 @@ internal sealed class ObservingAgentWriteGate(IAgentWriteGate inner, GateSequenc
     {
         ArgumentNullException.ThrowIfNull(agent);
         Entered.Enqueue(agent.Value);
+        var ordinal = Interlocked.Increment(ref _arrivals);
         sequence.Note("agent:" + agent.Value);
+
+        if (ordinal == Volatile.Read(ref _heldOrdinal) && Volatile.Read(ref _door) is { } door) await door.Task.ConfigureAwait(false);
 
         if (FailEntries) return Result<IAsyncDisposable>.Fail(BudgetErrors.GateUnavailable());
 
         var timer = Stopwatch.StartNew();
-        var entered = await (UsePassThrough ? _passThrough : inner).EnterAsync(agent, cancellationToken).ConfigureAwait(false);
-        Waits.Enqueue(timer.Elapsed);
+        var pending = (UsePassThrough ? _passThrough : inner).EnterAsync(agent, cancellationToken);
+        Interlocked.Increment(ref _joined);
+        var entered = await pending.ConfigureAwait(false);
+        var inGate = timer.Elapsed;
+        Answers.Enqueue(new GateAnswer(ordinal, entered.TryGetValue(out _, out _), inGate, Interlocked.Increment(ref _answers) - 1));
+        Waits.Enqueue(inGate);
         if (!entered.TryGetValue(out var hold, out _)) return entered;
 
         Interlocked.Increment(ref _held);
