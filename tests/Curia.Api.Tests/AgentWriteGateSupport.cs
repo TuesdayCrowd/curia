@@ -120,51 +120,8 @@ internal static class BudgetBursts
     internal static string Tally(IEnumerable<Sent> sent) =>
         string.Join(", ", sent.GroupBy(Kind).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Count()} x {g.Key}"));
 
-    /// <summary>One response and the time from its send to its answer.</summary>
-    internal sealed record TimedSent(Sent Sent, TimeSpan Elapsed);
-
-    /// <summary>The sends released together from one signal, each answer carrying the time its own send took.</summary>
-    internal static async Task<TimedSent[]> TogetherTimedAsync(IEnumerable<Func<Task<Sent>>> sends)
-    {
-        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var running = sends.Select(send => Task.Run(async () =>
-        {
-            await start.Task;
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            var sent = await send();
-            return new TimedSent(sent, timer.Elapsed);
-        })).ToArray();
-        start.SetResult();
-        return await Task.WhenAll(running);
-    }
-
-    /// <summary><see cref="BurstAsync"/> with each answer timed.</summary>
-    internal static async Task<TimedSent[]> BurstTimedAsync(ForumFixture forum, SceneActor actor, byte[][] wires, HttpClient? client = null, CancellationToken ct = default)
-    {
-        var token = await actor.Dpop.GetTokenAsync(client ?? forum.Client, TokenEndpoint, forum.Now, ct);
-        return await TogetherTimedAsync(wires.Select(w => (Func<Task<Sent>>)(() => Probe.SendViaAsync(forum, client, actor, w, token, ct))));
-    }
-
-    /// <summary>The slack allowed between a request's own clock and the gate's when judging whether an agent-in-flight answer came at the published wait.</summary>
+    /// <summary>The slack allowed between the gate's clock and the queue's when judging whether a refusal waited the published wait: a lower bound, so a slower machine only makes it truer.</summary>
     internal static readonly TimeSpan WaitTolerance = TimeSpan.FromMilliseconds(100);
-
-    /// <summary>
-    /// Whether every response is the one a burst may be answered with: stored, or told the budget, or told agent-in-flight (R7.27). An agent-in-flight answer
-    /// that came at or after the published wait (less <see cref="WaitTolerance"/>) is the bound itself, caused by time: a slower machine meets it with a queue
-    /// of 16 serialized writes and that is not a fault. One that came earlier was caused by the count, and only the tail of a burst wider than the holder
-    /// and the published queue may have one: at most as many as requests beyond them. BRB67 holds the queue's size without a clock.
-    /// </summary>
-    internal static bool OnlyStoredOrBudget(IEnumerable<TimedSent> sent)
-    {
-        var (posting, acceptance) = PublishedBudgetGate.BudgetReasons();
-        var all = sent.ToArray();
-        var inFlight = $"{PublishedBudgetGate.InFlightStatus()} {PublishedBudgetGate.InFlightType()}";
-        var wait = PublishedBudgetGate.Wait();
-        var tail = Math.Max(0, all.Length - (PublishedBudgetGate.Waiters() + 1));
-        var countCaused = all.Count(s => Kind(s.Sent) == inFlight && s.Elapsed < wait - WaitTolerance);
-        return countCaused <= tail
-            && all.All(s => Kind(s.Sent) is "201" or "200" || Kind(s.Sent) == "403 " + posting || Kind(s.Sent) == "403 " + acceptance || Kind(s.Sent) == inFlight);
-    }
 
     /// <summary>An accept of <paramref name="postId"/> by the asker, as the route receives it.</summary>
     internal static async Task<Sent> AcceptAsync(ForumFixture forum, SceneActor asker, string postId, string? token = null, HttpClient? client = null, CancellationToken ct = default)
@@ -244,4 +201,58 @@ internal static class BudgetBursts
     internal static int ReadsOf(IServiceProvider services) => AgentWriteGateForumFixture.StoreOf(services).ForwardReads;
 
     internal static IServiceProvider ServicesOf(ForumFixture forum) => forum.Services;
+}
+
+/// <summary>What <see cref="BurstVerdict.Judge"/> found in one repetition: the clause that failed (null when it held) and the counts the cell prints.</summary>
+internal sealed record BurstJudgement(string? Violation, long NewRows, int Successes, int Door, int Waited, bool ReachedLimit, TimeSpan MinWaited, TimeSpan MaxWaited);
+
+/// <summary>
+/// The verdict on one repetition of BRB18's and BRB19's burst (errata G48, R7.27), pure, no I/O: it judges by the accounting and by what the gate itself said, never
+/// by whether the load fitted the wait. A shortfall (the table below the limit) is held in exactly one shape: at least one request was told agent-in-flight by the
+/// gate's clock (a wait that ran out, read from state and an in-gate time that is only a lower bound), and the accounting closes. Wherever no request waited out the
+/// table must hold the limit exactly. How many writes fit inside the wait is a speed claim and is never asserted; the cell prints how many repetitions reached the limit.
+/// </summary>
+internal static class BurstVerdict
+{
+    /// <summary>
+    /// <paramref name="seeded"/> rows were in the table before the burst, <paramref name="tableCount"/> after it. <paramref name="kinds"/> are the responses' words
+    /// (<see cref="BudgetBursts.Kind"/>) and <paramref name="answers"/> the gate's own answers for the burst; <paramref name="budgetWord"/> is the word of the budget
+    /// refusal of this burst's kind of write.
+    /// </summary>
+    internal static BurstJudgement Judge(long seeded, int limit, long tableCount, IReadOnlyList<string> kinds, IReadOnlyList<GateAnswer> answers, string budgetWord)
+    {
+        ArgumentNullException.ThrowIfNull(kinds);
+        ArgumentNullException.ThrowIfNull(answers);
+        ArgumentNullException.ThrowIfNull(budgetWord);
+
+        var inFlight = $"{PublishedBudgetGate.InFlightStatus()} {PublishedBudgetGate.InFlightType()}";
+        var wait = PublishedBudgetGate.Wait();
+        var newRows = tableCount - seeded;
+        var successes = kinds.Count(k => k is "201" or "200");
+        var budgetRefusals = kinds.Count(k => k == budgetWord);
+        var inFlightAnswers = kinds.Count(k => k == inFlight);
+        var refused = answers.Where(a => !a.Granted).ToArray();
+        var door = refused.Count(a => a.AtTheDoor);
+        var waited = refused.Where(a => !a.AtTheDoor).ToArray();
+        var minWaited = waited.Length == 0 ? TimeSpan.Zero : waited.Min(a => a.InGate);
+        var maxWaited = waited.Length == 0 ? TimeSpan.Zero : waited.Max(a => a.InGate);
+        var tail = Math.Max(0, kinds.Count - (PublishedBudgetGate.Waiters() + 1));
+
+        string? Violation()
+        {
+            if (tableCount > limit) return $"clause 1 (overshoot): {tableCount} stored of limit {limit}";
+            if (newRows != successes) return $"clause 2 (accounting): {newRows} new rows but {successes} answered stored";
+            var stray = kinds.FirstOrDefault(k => k is not ("201" or "200") && k != budgetWord && k != inFlight);
+            if (stray is not null) return $"clause 3 (closed set): an answer {stray}";
+            if (inFlightAnswers != refused.Length) return $"clause 3 (closed set): {inFlightAnswers} answered {inFlight} but the gate refused {refused.Length}";
+            if (budgetRefusals > 0 && tableCount != limit) return $"clause 4 (budget refusal): {budgetRefusals} told the budget is spent with {tableCount} of {limit} stored";
+            if (tableCount < limit && waited.Length == 0) return $"clause 5 (unexcused shortfall): {tableCount} stored of limit {limit} and no request waited out";
+            if (waited.Any(a => a.InGate < wait - BudgetBursts.WaitTolerance)) return $"clause 5 (early refusal): a waited refusal after {minWaited.TotalMilliseconds:0} ms of the published {wait.TotalMilliseconds:0}";
+            if (door > tail) return $"clause 6 (count): {door} refused at the door, the tail allows {tail}";
+            if (newRows < 1) return "clause 7 (vacuous): nothing was stored";
+            return null;
+        }
+
+        return new BurstJudgement(Violation(), newRows, successes, door, waited.Length, tableCount == limit, minWaited, maxWaited);
+    }
 }

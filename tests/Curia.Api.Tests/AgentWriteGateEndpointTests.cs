@@ -185,17 +185,50 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
 
     // ---- the burst grids (BRB18, BRB19) and the control that sees the bug (BRB20) -----------------------------------------------------------------------------
 
-    /// <summary>One cell of BRB18: <paramref name="repetitions"/> bursts of <paramref name="width"/> posts by a fresh agent of <paramref name="tier"/>; the repetitions that did not hold the table at the limit.</summary>
-    private async Task<(List<string> Failures, int Overshoots)> PostCellAsync(string tier, int width, int repetitions, bool passThrough = false)
+    /// <summary>One repetition of a burst cell: the table's count after it, the verdict, the responses, how long the burst took, and the gate's own answers.</summary>
+    private sealed record CellRep(long Table, BurstJudgement Judgement, Sent[] Sent, TimeSpan Burst, GateAnswer[] Answers);
+
+    /// <summary>What a burst cell found: the repetitions the verdict did not hold, the ones that overshot, how many reached the limit, and every repetition.</summary>
+    private sealed record CellResult(List<string> Failures, int Overshoots, int Reached, List<CellRep> Reps);
+
+    /// <summary>
+    /// Judges one repetition by <see cref="BurstVerdict"/> and says why it failed. Nothing here is a verdict on how fast the machine is: the diagnostics (the burst's time,
+    /// the in-gate times of the refusals that waited) are printed and never asserted.
+    /// </summary>
+    private static CellRep Judged(long seeded, int limit, long table, Sent[] sent, TimeSpan burst, GateAnswer[] answers, string budgetWord, int width, out string? failure)
+    {
+        var kinds = sent.Select(BudgetBursts.Kind).ToArray();
+        var judgement = BurstVerdict.Judge(seeded, limit, table, kinds, answers, budgetWord);
+        var unanswered = sent.Length != width || answers.Length != width ? $"{sent.Length} responses and {answers.Length} gate answers for {width} requests; " : string.Empty;
+        var because = judgement.Violation ?? (unanswered.Length > 0 ? "a request has no answer" : null);
+        failure = because is null
+            ? null
+            : $"{unanswered}{because} (table {table} of limit {limit}; {BudgetBursts.Tally(sent)}; door {judgement.Door}; waited-out {judgement.Waited} (in gate {Ms(judgement.MinWaited)} to {Ms(judgement.MaxWaited)}); burst {Ms(burst)})";
+        return new CellRep(table, judgement, sent, burst, answers);
+    }
+
+    private static string Reached(CellResult result, int repetitions)
+    {
+        var bursts = result.Reps.Select(r => r.Burst.TotalMilliseconds).ToArray();
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"reached the limit in {result.Reached} of {repetitions}; burst ms per repetition: {string.Join(' ', bursts.Select(b => b.ToString("0", CultureInfo.InvariantCulture)))}");
+        return $"; reached the limit in {result.Reached} of {repetitions}";
+    }
+
+    /// <summary>One cell of BRB18: <paramref name="repetitions"/> bursts of <paramref name="width"/> posts by a fresh agent of <paramref name="tier"/>, each judged by <see cref="BurstVerdict"/>.</summary>
+    private async Task<CellResult> PostCellAsync(string tier, int width, int repetitions, bool passThrough = false, TimeSpan? appendDelay = null)
     {
         forum.ResetSeams();
         forum.Gate.UsePassThrough = passThrough;
         var limit = BudgetBursts.PostLimit(tier);
         var slots = Math.Min(limit, width / 4);
         var failures = new List<string>();
+        var reps = new List<CellRep>();
         var overshoots = 0;
+        var reached = 0;
         var board = Probe.Board();
         var parent = await BudgetBursts.StoredQuestionAsync(forum, board, Ct);
+        var budgetWord = "403 " + PublishedBudgetGate.BudgetReasons().Posting;
 
         for (var rep = 1; rep <= repetitions; rep++)
         {
@@ -208,21 +241,29 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
                 continue;
             }
 
-            var sent = await BudgetBursts.BurstTimedAsync(forum, actor, BudgetBursts.Wires(actor, tier, board, parent.PostId, width, forum.Now), null, Ct);
+            var wires = BudgetBursts.Wires(actor, tier, board, parent.PostId, width, forum.Now);
+            forum.Gate.Reset();
+            forum.Gate.UsePassThrough = passThrough;
+            if (appendDelay is { } delay) forum.Store.DelayAppends(delay, PostBy(actor.Agent.AgentId));
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            var sent = await BudgetBursts.BurstAsync(forum, actor, wires, null, Ct);
+            var burst = timer.Elapsed;
             var stored = await BudgetOracle.PostsInWindowAsync(forum, actor.Agent.AgentId);
             if (stored > limit) overshoots++;
-            if (stored != limit || !BudgetBursts.OnlyStoredOrBudget(sent))
-                failures.Add($"rep {rep}: {stored} stored of limit {limit} ({BudgetBursts.Tally(sent.Select(t => t.Sent))})");
+            if (stored == limit) reached++;
+            reps.Add(Judged(seeded, limit, stored, sent, burst, forum.Gate.Answers.ToArray(), budgetWord, width, out var failure));
+            if (failure is not null) failures.Add($"rep {rep}: {failure}");
         }
 
-        return (failures, overshoots);
+        return new CellResult(failures, overshoots, reached, reps);
     }
 
     /// <summary>
-    /// BRB18. The burst, posts, over the grid: tier x width, 20 repetitions each, the table holds exactly the limit and every answer is a stored post, the budget,
-    /// or agent-in-flight. An agent-in-flight answer is accepted when it came at the published wait (less 100 ms): that is R7.27's time bound, and how many
-    /// writes fit inside it depends on the machine. One answered earlier was caused by the count and fails, beyond the width-32 tail's allowance of width - 17;
-    /// BRB67 holds the queue's 17 places without a clock.
+    /// BRB18. The burst, posts, over the grid: tier x width, 20 repetitions each, judged by <see cref="BurstVerdict"/>: nothing is stored beyond the limit, every
+    /// stored row was answered 201 and every 201 has a row, every answer is a stored post, the budget (only with the budget spent) or agent-in-flight, and a
+    /// table short of the limit is excused only by a request the gate itself told agent-in-flight at the end of its wait (R7.27's time bound; how many writes fit
+    /// inside it depends on the machine, so the limit being reached is printed and never asserted). Refusals at the door are only the tail beyond the holder and the
+    /// published queue; BRB67 holds the queue's places without a clock, BRB68 the verdict's own cases and BRB69 a slow store that makes the shortfall.
     /// </summary>
     [Theory]
     [InlineData("T0", 4)]
@@ -236,13 +277,15 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
     [InlineData("T2", 32)]
     public async Task R7_27_BRB18_ABurstOfPostsStoresExactlyTheLimit(string tier, int width)
     {
-        var (failures, _) = await PostCellAsync(tier, width, repetitions: 20);
+        var result = await PostCellAsync(tier, width, repetitions: 20);
+        var failures = result.Failures;
 
-        var shown = failures.Count == 0 ? string.Empty : $"{failures.Count} of 20 repetitions: " + string.Join(" | ", failures.Take(3));
-        Said($"{tier}, {width} simultaneous: exactly the limit stored in every one of 20 repetitions, every answer a stored post or the budget", $"{tier}, {width} simultaneous: " + (failures.Count == 0 ? "exactly the limit stored in every one of 20 repetitions, every answer a stored post or the budget" : shown));
+        const string Held = "no overshoot, the accounting closed and every shortfall excused by a wait that ran out, in every one of 20 repetitions";
+        var reached = Reached(result, 20);
+        Said($"{tier}, {width} simultaneous: {Held}{reached}", $"{tier}, {width} simultaneous: " + (failures.Count == 0 ? Held + reached : $"{failures.Count} of 20 repetitions: " + string.Join(" | ", failures.Take(3))));
     }
 
-    private async Task<(List<string> Failures, int Reps)> AcceptCellAsync(string tier, int repetitions)
+    private async Task<CellResult> AcceptCellAsync(string tier, int repetitions)
     {
         forum.ResetSeams();
         var limit = BudgetBursts.AcceptLimit(tier);
@@ -251,6 +294,9 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         var asker = await BudgetBursts.AgentOfAsync(forum, tier, board, Ct);
         var answerer = ForumAgent.Create("https://agents.example/answerer-" + Guid.NewGuid().ToString("N")[..8], "answerer");
         var failures = new List<string>();
+        var reps = new List<CellRep>();
+        var reached = 0;
+        var budgetWord = "403 " + PublishedBudgetGate.BudgetReasons().Acceptance;
 
         for (var rep = 1; rep <= repetitions; rep++)
         {
@@ -267,19 +313,23 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
             for (var i = 0; i < 16; i++) threads.Add(await BudgetBursts.StoredThreadAsync(forum, asker.Agent, answerer, board, Ct));
 
             var token = await asker.Dpop.GetTokenAsync(forum.Client, BudgetBursts.TokenEndpoint, forum.Now, Ct);
-            var sent = await BudgetBursts.TogetherTimedAsync(threads.Select(t => (Func<Task<Sent>>)(() => BudgetBursts.AcceptAsync(forum, asker, t, token, null, Ct))));
+            forum.Gate.Reset();
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            var sent = await Probe.TogetherAsync(threads.Select(t => (Func<Task<Sent>>)(() => BudgetBursts.AcceptAsync(forum, asker, t, token, null, Ct))));
+            var burst = timer.Elapsed;
             var recorded = await BudgetOracle.AcceptsInWindowAsync(forum, asker.Agent.AgentId);
-            if (recorded != limit || !BudgetBursts.OnlyStoredOrBudget(sent))
-                failures.Add($"rep {rep}: {recorded} recorded of limit {limit} ({BudgetBursts.Tally(sent.Select(t => t.Sent))})");
+            if (recorded == limit) reached++;
+            reps.Add(Judged(seeded, limit, recorded, sent, burst, forum.Gate.Answers.ToArray(), budgetWord, threads.Count, out var failure));
+            if (failure is not null) failures.Add($"rep {rep}: {failure}");
         }
 
-        return (failures, repetitions);
+        return new CellResult(failures, 0, reached, reps);
     }
 
     /// <summary>
-    /// BRB19. The burst, acceptances, over the grid: tier x 16 threads, 20 repetitions each, the table holds exactly the limit and every answer is a recorded
-    /// acceptance, the budget, or agent-in-flight answered at the published wait (less 100 ms). That one is R7.27's time bound, which a slower runner reaches
-    /// with 16 serialized accepts; an earlier one was caused by the count and fails. BRB67 holds the queue's size without a clock.
+    /// BRB19. The burst, acceptances, over the grid: tier x 16 threads, 20 repetitions each, judged by the same <see cref="BurstVerdict"/> as BRB18: no overshoot, the
+    /// accounting closed (every recorded acceptance answered 200 and the reverse), and a table short of the limit excused only by a request the gate told
+    /// agent-in-flight at the end of its wait (R7.27's time bound, which a slower runner reaches with 16 serialized accepts). BRB67 holds the queue's size without a clock.
     /// </summary>
     [Theory]
     [InlineData("T0")]
@@ -287,10 +337,12 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
     [InlineData("T2")]
     public async Task R7_27_BRB19_ABurstOfAcceptancesRecordsExactlyTheLimit(string tier)
     {
-        var (failures, _) = await AcceptCellAsync(tier, repetitions: 20);
+        var result = await AcceptCellAsync(tier, repetitions: 20);
+        var failures = result.Failures;
 
-        const string Held = "exactly the limit recorded in every one of 20 repetitions, every answer a recorded acceptance or the budget";
-        Said($"{tier}, 16 simultaneous accepts: {Held}", $"{tier}, 16 simultaneous accepts: " + (failures.Count == 0 ? Held : $"{failures.Count} of 20 repetitions: " + string.Join(" | ", failures.Take(3))));
+        const string Held = "no overshoot, the accounting closed and every shortfall excused by a wait that ran out, in every one of 20 repetitions";
+        var reached = Reached(result, 20);
+        Said($"{tier}, 16 simultaneous accepts: {Held}{reached}", $"{tier}, 16 simultaneous accepts: " + (failures.Count == 0 ? Held + reached : $"{failures.Count} of 20 repetitions: " + string.Join(" | ", failures.Take(3))));
     }
 
     /// <summary>
@@ -306,12 +358,88 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
 
         var posts = await PostInterleaveAsync(passThrough: true);
         var accepts = await AcceptInterleaveAsync(passThrough: true);
-        var (_, overshoots) = await PostCellAsync("T0", 16, repetitions: 20, passThrough: true);
+        var overshoots = (await PostCellAsync("T0", 16, repetitions: 20, passThrough: true)).Overshoots;
 
         var actual = $"posts interleave stores {posts.StoredAfter}; acceptances interleave stores {accepts.StoredAfter}; the T0 width-16 cell overshoots in {(overshoots >= 1 ? "at least one" : "none")} of 20 repetitions";
         Said(
             $"posts interleave stores {postLimit + 1}; acceptances interleave stores {acceptLimit + 1}; the T0 width-16 cell overshoots in at least one of 20 repetitions",
             actual);
+    }
+
+    /// <summary>
+    /// A repetition of 22 or 32 answers as <see cref="BurstVerdict"/> reads it, built from what the errata publish (Table 11's limit, R7.27's wait and queue): <paramref name="successes"/>
+    /// stored, <paramref name="budgetRefusals"/> told the budget, <paramref name="door"/> refused at the door and one refusal per entry of <paramref name="waited"/>, each after that
+    /// time in the gate; the table holds <paramref name="table"/> after <paramref name="seeded"/>.
+    /// </summary>
+    private static BurstJudgement Verdict(long seeded, long table, int successes, int budgetRefusals, int door, params TimeSpan[] waited)
+    {
+        var limit = BudgetBursts.PostLimit("T2");
+        var budget = "403 " + PublishedBudgetGate.BudgetReasons().Posting;
+        var inFlight = $"{PublishedBudgetGate.InFlightStatus()} {PublishedBudgetGate.InFlightType()}";
+        var kinds = new List<string>();
+        var answers = new List<GateAnswer>();
+        for (var i = 0; i < successes; i++) { kinds.Add("201"); answers.Add(new GateAnswer(answers.Count + 1, true, TimeSpan.FromMilliseconds(5), answers.Count, false)); }
+        for (var i = 0; i < budgetRefusals; i++) { kinds.Add(budget); answers.Add(new GateAnswer(answers.Count + 1, true, TimeSpan.FromMilliseconds(5), answers.Count, false)); }
+        for (var i = 0; i < door; i++) { kinds.Add(inFlight); answers.Add(new GateAnswer(answers.Count + 1, false, TimeSpan.Zero, answers.Count, true)); }
+        foreach (var inGate in waited) { kinds.Add(inFlight); answers.Add(new GateAnswer(answers.Count + 1, false, inGate, answers.Count, false)); }
+        return BurstVerdict.Judge(seeded, limit, table, kinds, answers, budget);
+    }
+
+    private static TimeSpan[] Waited(int count, TimeSpan inGate) => [.. Enumerable.Repeat(inGate, count)];
+
+    /// <summary>
+    /// BRB68. The verdict's own falsification, pure and fast: hand-built repetitions at T2's limit with R7.27's wait and queue. The failure CI reported (99 of 100, 7 stored, 15 refused at
+    /// the door and 10 that waited the published wait) is held; each way a repetition can be wrong is rejected with the clause that names it.
+    /// </summary>
+    [Fact]
+    public void R7_27_BRB68_TheVerdictRejectsWhatIsWrongAndHoldsWhatIsSlow()
+    {
+        var limit = BudgetBursts.PostLimit("T2");
+        var seeded = limit - Math.Min(limit, 32 / 4);
+        var wait = PublishedBudgetGate.Wait();
+        var tail = 32 - (PublishedBudgetGate.Waiters() + 1);
+        var slow = Waited(32 - 7 - tail, wait);
+
+        string Of(BurstJudgement j) => j.Violation ?? "held";
+        static string Clause(BurstJudgement j) => j.Violation is null ? "held" : j.Violation[..8];
+
+        var actual = string.Join("; ", new[]
+        {
+            $"(a) {Clause(Verdict(seeded, limit + 1, 9, 0, tail, Waited(8, wait)))}",
+            $"(b) {Of(Verdict(seeded, limit - 1, 7, 0, tail, slow))}",
+            $"(c) {Clause(Verdict(seeded, limit - 1, 7, 0, tail, [.. Waited(9, wait), TimeSpan.FromSeconds(1)]))}",
+            $"(d) {Clause(Verdict(seeded, limit, 8, 0, 24))}",
+            $"(e) {Clause(Verdict(seeded, limit - 1, 8, 0, tail, Waited(9, wait)))}",
+            $"(f) {Clause(Verdict(seeded, limit, 7, 1, tail, Waited(9, wait)))}",
+            $"(g) {Clause(Verdict(seeded, limit - 1, 7, 1, tail, Waited(9, wait)))}",
+            $"(h) {Clause(Verdict(seeded, limit - 1, 7, 0, tail))}",
+            $"(i) {Clause(Verdict(seeded, seeded, 0, 0, tail, Waited(17, wait)))}",
+            $"(j) {Of(Verdict(seeded, limit, 8, 0, tail, Waited(9, wait)))}",
+        });
+        Said(
+            "(a) clause 1; (b) held; (c) clause 5; (d) clause 6; (e) clause 2; (f) clause 2; (g) clause 4; (h) clause 5; (i) clause 7; (j) held",
+            actual);
+    }
+
+    /// <summary>
+    /// BRB69. The shortfall happens and is excused: a T1 agent's burst of 32 against 8 free slots, every one of its appends delayed 800 ms (a slow store made by construction: 8 serialized
+    /// writes take over 6 seconds, more than R7.27's wait, whatever the machine). The table must end short of the limit with at least one request told agent-in-flight at the end of its wait,
+    /// no 5xx, and the verdict held. It is the deterministic reproduction of the CI failure, and red if the excusing branch is dead.
+    /// </summary>
+    [Fact]
+    public async Task R7_27_BRB69_ASlowStoreMakesTheShortfallAndTheVerdictExcusesIt()
+    {
+        var result = await PostCellAsync("T1", 32, repetitions: 1, appendDelay: TimeSpan.FromMilliseconds(800));
+        var rep = result.Reps.SingleOrDefault();
+        var limit = BudgetBursts.PostLimit("T1");
+
+        const string Expected = "the table ends short of the limit, at least one request waited out, none was answered 5xx, and the verdict holds";
+        var actual = rep is null
+            ? "no repetition was judged: " + string.Join(" | ", result.Failures)
+            : $"the table ends {(rep.Table < limit ? "short of" : "at")} the limit, {rep.Judgement.Waited} request(s) waited out, {rep.Sent.Count(s => s.Status >= 500)} answered 5xx, and the verdict {(result.Failures.Count == 0 ? "holds" : "fails: " + string.Join(" | ", result.Failures))}";
+        Said(
+            Expected,
+            rep is { Judgement.Waited: >= 1 } && rep.Table < limit && rep.Sent.All(s => s.Status < 500) && result.Failures.Count == 0 ? Expected : actual);
     }
 
     // ---- independence, the bound and the queue at the route (BRB21, BRB24 to BRB27) ---------------------------------------------------------------------------
