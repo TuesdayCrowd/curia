@@ -100,6 +100,53 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
             $"{published.Exit}; {declared.Exit}; {(int)refused.StatusCode} {problem.Type}; {(int)control.StatusCode}");
     }
 
+    /// <summary>
+    /// VBR5c (register item 282, errata G72, R5.25): a key declared compromised requests a token and is refused, with the log's slug as the oracle. The same scene as VBR5b with the operator's
+    /// declaration (from the index the key was bound at) in place of the retirement: the second key is served before the declaration (the control), then <c>401</c> <c>invalid_client</c>, byte for byte
+    /// the refusal of a bad signature, with the log's one event 5001 naming <c>curia/keys/compromised</c>; the first key, still live, is served. No other test requests a token after a declaration, and
+    /// the reorder moves this refusal after the signature and after both <c>jti</c>s are consumed. The second key requests through <c>DpopClient.For(second, ...)</c> and never
+    /// <c>AuthenticateAsync</c>, which enrols and would write a second <c>agent.enrolled</c> row for the identity (item 299). It would fail at the <c>curia/keys/compromised</c> line, and at the second
+    /// key's <c>401</c>, if the status switch treated a compromised key as active.
+    /// </summary>
+    [Fact]
+    public async Task R5_25_VBR5c_ACompromisedKeyRequestsATokenAndIsRefusedAsCompromisedWhileTheLiveKeyIsServed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var first = ForumAgent.Create(Unique("compromised-token-key"), "first-" + Suffix());
+        var (firstDpop, firstToken) = await first.AuthenticateAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        var second = ForumAgent.Create(first.AgentId, "second-" + Suffix());
+        using (var rotated = await firstDpop.PostAsync(
+            client, KeyActRequests.RotateUrl(first.AgentId), firstToken,
+            KeyActRequests.RotationBody(first, new KeyActRequests.KeyPair(second.Kid, second.AssertionKey), await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct)),
+            forum.Now, ct, contentType: "application/json"))
+        {
+            Assert.Equal(HttpStatusCode.Created, rotated.StatusCode);
+        }
+
+        var secondDpop = DpopClient.For(second, second.AssertionKey);
+        var (before, _) = await secondDpop.RequestTokenAsync(captured.Client, KeyActRequests.TokenEndpoint, forum.Now, first.AgentId, ct);
+        Assert.Equal(HttpStatusCode.OK, before);
+
+        var boundAt = await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct);
+        var published = await SignHeadAsync(LogSigningKey.GeneratePem(), ct);
+        var declared = await CompromiseAsync(first.AgentId, second.Kid, boundAt, ct);
+        Assert.Equal("0; 0", $"{published.Exit}; {declared.Exit}");
+
+        using var stranger = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var (controlStatus, controlBody) = await DpopClient.For(second, stranger).RequestTokenAsync(captured.Client, KeyActRequests.TokenEndpoint, forum.Now, first.AgentId, ct);
+
+        var mark = captured.Log.Mark();
+        var (status, body) = await secondDpop.RequestTokenAsync(captured.Client, KeyActRequests.TokenEndpoint, forum.Now, first.AgentId, ct);
+        var (liveStatus, _) = await DpopClient.For(first, first.AssertionKey).RequestTokenAsync(captured.Client, KeyActRequests.TokenEndpoint, forum.Now, first.AgentId, ct);
+
+        Assert.Equal($"{(int)HttpStatusCode.Unauthorized} {controlBody}", $"{(int)status} {body}");
+        Assert.Equal(HttpStatusCode.Unauthorized, controlStatus);
+        Assert.Equal("curia/keys/compromised", captured.Log.SingleType(mark, 5001));
+        Assert.Equal(HttpStatusCode.OK, liveStatus);
+    }
+
     [Fact]
     public async Task R5_22_ACompromisedKeysTokenIsRefused()
     {

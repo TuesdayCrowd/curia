@@ -36,6 +36,10 @@ namespace Curia.AuthN.Ports;
 /// enrolled identity's token. The client-assertion validator now passes the agent the request names
 /// as its client.
 ///
+/// An implementation answers from the Registrar's key store and <b>never reads the event log</b> (R5.25, errata G72): the key it
+/// returns is one the store holds, not yet one the log binds, and the token endpoint binds it after the assertion verifies and
+/// both <c>jti</c>s are consumed.
+///
 /// The agent is an identifier the store is asked about, never a location, mirroring
 /// <see cref="IJwsKeyResolver"/>'s own "resolve <c>kid</c> only within the configured [...] JWKS,
 /// never fetch a key from a URL found inside the token" shape: the inputs are two strings and an

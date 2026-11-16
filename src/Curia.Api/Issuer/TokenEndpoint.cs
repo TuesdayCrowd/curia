@@ -54,6 +54,7 @@ public static class TokenEndpoint
         HttpRequest http,
         TokenIssuer issuer,
         IAgentKeyResolver agentKeys,
+        LogBoundKeys keys,
         IReplayCache replayCache,
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
         IEventReader events,
@@ -128,19 +129,41 @@ public static class TokenEndpoint
             .ValidateAsync(assertion, context, cancellationToken)
             .ConfigureAwait(false);
 
-        // A log that could not be read decides nothing about the key (R4.35): a fault of a store the
+        // The validator verifies under the key the Registrar's key store holds and reads no log
+        // (R5.25, errata G72), so its failure is an assertion's: a bad signature, a bad claim, a key
+        // the store does not hold, a replayed jti. A fault of the key store is a fault of a store the
         // Forum owns, answered as RFC 6749's temporarily_unavailable (R5.23, errata G52) and never
         // invalid_client. server_error stays the Forum's own fault (below), not a store's.
         if (!validated.TryGetValue(out var claims, out var error))
-        {
-            return string.Equals(error!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
-                ? new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, error)
-                : new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, error);
-        }
+            return RefuseAssertion(error!);
 
         var consumed = await DpopProofValidator.ConsumeAsync(validatedProof!, replayCache, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         if (!consumed.TryGetValue(out _, out var consumeError))
             return new OAuthRefusal("invalid_dpop_proof", OAuthRefusal.ProofNotAccepted, consumeError);
+
+        // Both jtis are spent before the log is read (R5.23 (rev.), R5.25): the assertion has verified,
+        // so its use is the caller's, and a log that then cannot be read costs the caller both
+        // credentials and answers 503. Only now is the key the store holds bound by the log (R4.35):
+        // one whole-log read of the identity's stream, the first the request makes. A log that could not
+        // be read decides nothing about the key, and is answered temporarily_unavailable, not
+        // invalid_client. IssueAsync catches nothing: a thrown store fault is the middleware's 503.
+        // The validator refuses an assertion whose client_id is no AgentId, and one whose sub is not
+        // client_id, so the subject here is the parsed client_id (R11.34, errata G18).
+        if (!expectedSubject.TryGetValue(out var subject, out _))
+            return new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, null);
+
+        // A value the validator already parsed; unreachable as a failure.
+        if (!Kid.Parse(claims!.Kid).TryGetValue(out var kid, out _))
+            return new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, null);
+
+        // The validator sets the key with the kid; a claim set without one is the Forum's own fault,
+        // never a token (unreachable, and no probe reaches it).
+        if (claims.Key is null)
+            return new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, null);
+
+        var bound = await keys.RequireBoundAsync(subject!, kid!, claims.Key, cancellationToken).ConfigureAwait(false);
+        if (!bound.TryGetValue(out _, out var bindError))
+            return RefuseAssertion(bindError!);
 
         // Who is enrolled is a projection of the event log (R4.21), not something this process
         // remembers -- so a host that has just come up knows exactly as much as one that has been
@@ -152,8 +175,9 @@ public static class TokenEndpoint
             return new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, readError);
 
         // The owner and the flags that stand are those of the operator acts the Forum honours (errata G70, R4.43, R6.67), from one verified log.
+        // This is the request's second whole-log read, after the binding read above, and both follow the two jti consumptions (R5.23 (rev.)).
         var standings = lifecycle.OfLog(log!).Standings();
-        if (!standings.ContainsKey(claims!.Sub))
+        if (!standings.ContainsKey(claims.Sub))
             return new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, null);
 
         // The tier is stamped for observability only; R7.7 forbids relying on a token claim, and
@@ -164,11 +188,6 @@ public static class TokenEndpoint
         // the directory this replaced: that one passed cleanQuestions: 0 because it had no view of
         // the post log, so the stamped tier was wrong for every agent above T0. An observability
         // field that is reliably wrong is worse than one that is absent.
-        // The validator refuses an assertion whose client_id is no AgentId, and one whose sub is not
-        // client_id, so the subject here is the parsed client_id (R11.34, errata G18).
-        if (!expectedSubject.TryGetValue(out var subject, out _))
-            return new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, null);
-
         var posture = AgentStandingProjector.PostureOf(standings, subject!);
         if (!posture.TryGetValue(out var facts, out var postureError))
             return new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, postureError);
@@ -191,6 +210,16 @@ public static class TokenEndpoint
             scope = token.Scope,
         });
     }
+
+    /// <summary>
+    /// A refusal of the assertion, whether the validator's or the binding's, written once: a log or key store
+    /// that could not be read is RFC 6749's <c>temporarily_unavailable</c> (R5.23, errata G52), everything else
+    /// <c>invalid_client</c>. The error is the logged detail and reaches no caller.
+    /// </summary>
+    private static OAuthRefusal RefuseAssertion(Error error) =>
+        string.Equals(error.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
+            ? new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, error)
+            : new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, error);
 
     /// <summary>
     /// The absolute token-endpoint URL, which the assertion's <c>aud</c> must match.

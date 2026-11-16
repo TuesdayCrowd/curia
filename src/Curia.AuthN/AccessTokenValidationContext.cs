@@ -32,6 +32,9 @@ public sealed record AccessTokenValidationContext(
 /// see that interface's remarks. There is also no resource-server audience, DPoP context, or
 /// DPoP nonce store at this artifact type at all.
 ///
+/// <see cref="AgentKeyResolver"/> answers from the Registrar's key store and never reads the event log (R5.25, errata G72): the
+/// validator verifies under what the store holds, and the token endpoint binds the key by the log afterwards.
+///
 /// Nothing scopes <see cref="AgentKeyResolver"/> before
 /// <see cref="ClientAssertionValidator.ValidateAsync"/> runs. <see cref="ExpectedSubject"/> is the
 /// agent the request names as its client (the token request's <c>client_id</c>); it is the agent

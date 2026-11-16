@@ -94,31 +94,56 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
 
     /// <summary>
     /// The key <paramref name="kid"/> of <paramref name="agentId"/> as it stands now, for an act decided
-    /// at <paramref name="at"/>: the store's refusals first, unchanged; then the log's binding (R4.35);
-    /// then the log's lifecycle (R4.35 rev.), so a key the identity retired fails with
-    /// <see cref="AuthorKeyErrors.Retired"/> after the refusals above and before nothing else. One read
+    /// at <paramref name="at"/>: the store's refusals first, unchanged (<see cref="ResolveStoredAsync"/>); then the
+    /// log's binding (R4.35) and the log's lifecycle (R4.35 rev.) (<see cref="RequireBoundAsync"/>), so a key the identity
+    /// retired fails with <see cref="AuthorKeyErrors.Retired"/> after the refusals above and before nothing else. One read
     /// of the author's stream yields both the fold and <see cref="LiveKey.AuthorStream"/>; a second read
     /// for the version would be a different instant from the one the decision was made on (R6.56).
     /// </summary>
     public async Task<Result<LiveKey>> ResolveLiveAsync(
         AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
     {
+        var resolved = await ResolveStoredAsync(agentId, kid, at, cancellationToken).ConfigureAwait(false);
+        if (!resolved.TryGetValue(out var key, out var storeError)) return Result<LiveKey>.Fail(storeError!);
+
+        return await RequireBoundAsync(agentId, kid, key!, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The store's lookup and nothing else (R5.25): the key the Registrar's key store holds for <paramref name="agentId"/> and <paramref name="kid"/> at <paramref name="at"/>, or the store's refusal.
+    /// It makes <b>no read of the log</b>, so what it returns is a key the store holds and not yet a key the log binds: <see cref="RequireBoundAsync"/> is the other half.
+    /// </summary>
+    public Task<Result<PublicKeyMaterial>> ResolveStoredAsync(
+        AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(kid);
 
-        var resolved = await _store.ResolveAsync(agentId, kid, at, cancellationToken).ConfigureAwait(false);
-        if (!resolved.TryGetValue(out var key, out var storeError)) return Result<LiveKey>.Fail(storeError!);
+        return _store.ResolveAsync(agentId, kid, at, cancellationToken);
+    }
+
+    /// <summary>
+    /// The other half of <see cref="ResolveLiveAsync"/> (R5.25): one read of the whole log, then whether it binds exactly <paramref name="key"/>'s bytes to <paramref name="agentId"/> under
+    /// <paramref name="kid"/> (R4.35) and whether the key is live (R4.35 rev.): <see cref="AuthorKeyErrors.NotBoundByTheLog"/>, <see cref="AuthorKeyErrors.Compromised"/>, <see cref="AuthorKeyErrors.Retired"/>,
+    /// or <see cref="LogUnreadable"/> when the log cannot be read.
+    /// </summary>
+    public async Task<Result<LiveKey>> RequireBoundAsync(
+        AgentId agentId, Kid kid, PublicKeyMaterial key, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentId);
+        ArgumentNullException.ThrowIfNull(kid);
+        ArgumentNullException.ThrowIfNull(key);
 
         var read = await ReadAsync(agentId, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var stream, out var readError))
             return Result<LiveKey>.Fail(readError!);
 
-        if (stream!.Verified.Binding?.For(kid) is not { } bound || !bound.Holds(key!))
+        if (stream!.Verified.Binding?.For(kid) is not { } bound || !bound.Holds(key))
             return Result<LiveKey>.Fail(AuthorKeyErrors.NotBoundByTheLog(agentId.Value, kid.Value));
 
         return stream.Verified.Honoured.StatusNow(kid.Value) switch
         {
-            KeyStatus.Active => Result<LiveKey>.Ok(new LiveKey(key!, stream.Version)),
+            KeyStatus.Active => Result<LiveKey>.Ok(new LiveKey(key, stream.Version)),
             KeyStatus.Compromised => Result<LiveKey>.Fail(AuthorKeyErrors.Compromised(agentId.Value, kid.Value)),
             KeyStatus.Retired or KeyStatus.Unbound => Result<LiveKey>.Fail(AuthorKeyErrors.Retired(agentId.Value, kid.Value)),
             _ => throw new InvalidOperationException("Not a key status"),

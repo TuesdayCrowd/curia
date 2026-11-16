@@ -32,7 +32,7 @@ internal enum EventStoreFault
 
     /// <summary>
     /// The first whole-log read after arming (a forward read from the start) is healthy and every whole-log read after it returns a failed <see cref="Result{T}"/>; a read of one
-    /// aggregate is healthy. Errata G68, ULG18 (c): a fault that follows the first read of a request and so follows what the request consumed between the two.
+    /// aggregate is healthy. Errata G68, ULG18 (c): a fault that follows the first read of a request (the key's binding, which itself follows the assertion's and the proof's consumption) and so spends both.
     /// </summary>
     ReportWholeLogFromSecondRead,
 
