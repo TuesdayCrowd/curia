@@ -58,8 +58,12 @@ internal sealed class GateSequence
     internal void Clear() => Entries.Clear();
 }
 
-/// <summary>One answer the gate gave: the arrival's 1-based ordinal, whether it was granted, how long it was in the gate, and how many answers were given before it (BRB26).</summary>
-internal sealed record GateAnswer(int Ordinal, bool Granted, TimeSpan InGate, int AnsweredBefore);
+/// <summary>
+/// One answer the gate gave: the arrival's 1-based ordinal, whether it was granted, how long it was in the gate, how many answers were given before it (BRB26), and
+/// whether the inner gate's answer was already complete when it returned (<paramref name="AtTheDoor"/>): a refusal by the count of the line is, a request that
+/// waited is not, so a refusal that is not at the door is a wait that ran out. It is state, not a time.
+/// </summary>
+internal sealed record GateAnswer(int Ordinal, bool Granted, TimeSpan InGate, int AnsweredBefore, bool AtTheDoor);
 
 /// <summary>
 /// A decorator over the host's <see cref="IAgentWriteGate"/> that records every subject that reached the gate (<see cref="Entered"/>), how long each entry
@@ -157,9 +161,10 @@ internal sealed class ObservingAgentWriteGate(IAgentWriteGate inner, GateSequenc
         var timer = Stopwatch.StartNew();
         var pending = (UsePassThrough ? _passThrough : inner).EnterAsync(agent, cancellationToken);
         Interlocked.Increment(ref _joined);
+        var atTheDoor = pending.IsCompleted;
         var entered = await pending.ConfigureAwait(false);
         var inGate = timer.Elapsed;
-        Answers.Enqueue(new GateAnswer(ordinal, entered.TryGetValue(out _, out _), inGate, Interlocked.Increment(ref _answers) - 1));
+        Answers.Enqueue(new GateAnswer(ordinal, entered.TryGetValue(out _, out _), inGate, Interlocked.Increment(ref _answers) - 1, atTheDoor));
         Waits.Enqueue(inGate);
         if (!entered.TryGetValue(out var hold, out _)) return entered;
 
@@ -226,6 +231,8 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     private Func<DomainEvent, bool>? _parkWhen;
     private Func<DomainEvent, bool>? _throwWhen;
     private Func<DomainEvent, bool>? _parkEveryWhen;
+    private Func<DomainEvent, bool>? _delayWhen;
+    private TimeSpan _delay;
     private readonly Queue<TaskCompletionSource> _parkedEvery = new();
     private int _permits;
     private bool _loseNextConditioned;
@@ -300,6 +307,19 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
         }
     }
 
+    /// <summary>
+    /// Every append holding an event <paramref name="matches"/> waits <paramref name="delay"/> (a real delay) before it reaches the store, until <see cref="Reset"/>: a slow store
+    /// made by construction, so that a burst's shortfall (writes that do not fit the gate's wait) can be had on demand. A seam, never a verdict.
+    /// </summary>
+    internal void DelayAppends(TimeSpan delay, Func<DomainEvent, bool> matches)
+    {
+        lock (_gate)
+        {
+            _delay = delay;
+            _delayWhen = matches;
+        }
+    }
+
     /// <summary>Lets exactly one parked append (of <see cref="ParkEvery"/>) go on to the real store.</summary>
     internal void ReleaseOne()
     {
@@ -340,6 +360,7 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
         {
             _throwWhen = null;
             _parkEveryWhen = null;
+            _delayWhen = null;
             _loseNextConditioned = false;
         }
 
@@ -368,8 +389,10 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
     {
         Task? wait = null;
         Task? waitEvery = null;
+        var delay = TimeSpan.Zero;
         lock (_gate)
         {
+            if (_delayWhen is not null && events.Any(_delayWhen)) delay = _delay;
             if (conditioned) Interlocked.Increment(ref _conditionedAppends);
             if (_throwWhen is not null && events.Any(_throwWhen)) throw new InvalidOperationException("the test store failed this append");
 
@@ -398,6 +421,7 @@ internal sealed class ParkingEventStore(IEventStore inner) : IEventStore
             }
         }
 
+        if (delay > TimeSpan.Zero) await Task.Delay(delay, TimeProvider.System, cancellationToken).ConfigureAwait(false);
         if (waitEvery is not null) await waitEvery.WaitAsync(cancellationToken).ConfigureAwait(false);
         if (wait is not null) await wait.WaitAsync(cancellationToken).ConfigureAwait(false);
         return null;
