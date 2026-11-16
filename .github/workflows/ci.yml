@@ -42,9 +42,22 @@ jobs:
       - name: falsify check-spec
         run: python3 tools/spec-checks/falsify-spec-checks.py
 
+      # The same rule for the two scripts that keep the Api legs honest: the leg checker's
+      # judgements (a test in two legs, in none, a leg that lists nothing, a TRX that is missing
+      # or failed) and preflight's reading of a matrix or `needs` job. Both need no toolchain.
+      - name: falsify api-legs
+        run: python3 tools/ci/falsify-api-legs.py
+
+      - name: falsify preflight
+        run: python3 tools/preflight/falsify-preflight.py
+
+  # The core job: everything but the Api suite. The Api suite is no longer a step here; it is
+  # the `api` job below, in legs on their own runners, and `gate` joins the two under the name
+  # the ruleset requires. This job still checks that every Api class is in exactly one leg.
   dotnet:
-    name: .NET — build and test
+    name: .NET — core (build, architecture, all but Api)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     # Curia.Infrastructure.Tests provisions a throwaway database and a restricted role per
     # run, so it needs an admin-capable server rather than a pre-made database. It fails
@@ -114,6 +127,20 @@ jobs:
       - name: Build
         run: dotnet build Curia.sln --no-restore --configuration Release
 
+      # Every Api test class runs in exactly one leg. This lists the whole assembly and each leg's
+      # filter with the test runner's own discovery and compares them, so a leg that selects nothing
+      # or two legs that select the same test fail here, in minutes, and not as a silent gap.
+      - name: "Api legs: every class in exactly one leg"
+        run: python3 tools/ci/api-legs.py check --out "$RUNNER_TEMP/api-partition.json"
+
+      - name: Upload the Api partition
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-partition
+          path: ${{ runner.temp }}/api-partition.json
+          if-no-files-found: error
+
       # R10.69 (A3 Step 5): the screening cost tests alone, so the stop reads the screener and not
       # eleven test hosts on four cores; the timings file comes from this step only.
       - name: Screening cost, alone (R10.69)
@@ -125,6 +152,16 @@ jobs:
           dotnet test tests/Curia.Domain.Tests --no-build --configuration Release --filter "FullyQualifiedName~ScreeningCostTests"
           test "$(wc -l < "$CURIA_SCREEN_TIMINGS")" -eq 28
           test "$(wc -l < "$CURIA_SCREEN_SCALING")" -eq 28
+
+      # Register item 320: OAS30m (the operator-act fold's cost, errata G70) is judged here, alone, never in the
+      # all-but-Api step: its collection is serial inside one assembly, but that step runs every test host at once,
+      # so a wall-clock bound there measures the runner (#160's CI failed it at 25.6 ms against 22.6 ms; every
+      # isolated run passed). A filter that matches nothing exits 0, so the TRX must hold exactly one result.
+      - name: Operator-act fold cost, alone (OAS30m)
+        if: ${{ !cancelled() }}
+        run: |
+          dotnet test tests/Curia.Application.Tests --no-build --configuration Release --filter "FullyQualifiedName~OperatorActCostTests" --logger "trx;LogFileName=oas30m.trx" --results-directory "${{ runner.temp }}/oas30m"
+          test "$(grep -o '<UnitTestResult ' "${{ runner.temp }}/oas30m/oas30m.trx" | wc -l)" -eq 1
 
       # D16, decided as option 1: the architecture rules run in Debug as well. NetArchTest reads IL,
       # and IL differs by configuration: a seven-case string switch in Curia.Domain fails CS-7 in
@@ -147,28 +184,7 @@ jobs:
         # Run 37575114798 read zero-width-space ScreenEnvelope at the cap 309 ms isolated and at least
         # 1,010 ms here, a ratio of 24.8 to 32 KiB. This step's "!~" and the isolated step's "~" over
         # the same name are what make the split exact.
-        run: dotnet test Curia.sln --no-build --configuration Release --filter "FullyQualifiedName!~ScreeningCostTests&FullyQualifiedName!~Curia.Api.Tests"
-
-      # The Api suite runs last and alone because it is over an hour of this job (the closed request
-      # fuzz alone is about half of it). Every cheap step above fails in minutes rather than behind
-      # it: on #147 a pin in the ten-second cost step answered after 75 minutes. Its class names all
-      # begin Curia.Api.Tests, which is what makes the "!~" above and this project exact.
-      - name: Test (Api)
-        env:
-          CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
-          CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
-          # R14.10's closed pass writes the elapsed time of every send, by row and send index, and
-          # the slowest per route, so growth from folding shows as a slope (spec §4.10).
-          CURIA_FUZZ_TIMINGS: ${{ runner.temp }}/fuzz-timings.tsv
-        run: dotnet test tests/Curia.Api.Tests --no-build --configuration Release
-
-      - name: Upload the fuzzer's timings
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuzz-timings
-          path: ${{ runner.temp }}/fuzz-timings.tsv
-          if-no-files-found: warn
+        run: dotnet test Curia.sln --no-build --configuration Release --filter "FullyQualifiedName!~ScreeningCostTests&FullyQualifiedName!~OperatorActCostTests&FullyQualifiedName!~Curia.Api.Tests"
 
       - name: Upload the screening timings
         if: always()
@@ -185,6 +201,138 @@ jobs:
           name: screen-scaling
           path: ${{ runner.temp }}/screen-scaling.tsv
           if-no-files-found: error
+
+  # The Api suite, in legs. A leg is a set of whole test classes, defined once in
+  # tools/ci/api-legs.json; this job asks for its filter by name. `rest` is the complement of the
+  # named legs, so a class renamed out of one runs in `rest` and not in no leg, and the core job's
+  # check proves each class is in exactly one. Each leg rebuilds the Api test project's closure on
+  # its own runner and fetches no embedding model: the suite replaces the embedder through
+  # ForumFixture's one door.
+  api:
+    name: .NET — Api (${{ matrix.leg }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: fuzz
+            timeout: 150
+          - leg: bursts
+            timeout: 90
+          - leg: rest
+            timeout: 90
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Set up Rust (for the independent verifier)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/curia-testis
+
+      - name: Build the independent verifier
+        run: cargo build --locked --bin curia-testis
+        working-directory: rust/curia-testis
+
+      - name: Restore (locked)
+        run: dotnet restore tests/Curia.Api.Tests --locked-mode
+
+      - name: Build
+        run: dotnet build tests/Curia.Api.Tests --no-restore --configuration Release
+
+      - name: Test (Api, ${{ matrix.leg }})
+        env:
+          CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
+          CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
+        run: |
+          mkdir -p "$RUNNER_TEMP/trx"
+          # R14.10's closed pass writes the elapsed time of every send, by row and send index, and
+          # the slowest per route, so growth from folding shows as a slope (spec §4.10). Only the fuzz
+          # leg runs it, and the variable is exported here, not set in env:, because an empty value
+          # is the empty string and the fuzzer's file append rejects it.
+          if [ "${{ matrix.leg }}" = fuzz ]; then export CURIA_FUZZ_TIMINGS="$RUNNER_TEMP/fuzz-timings.tsv"; fi
+          dotnet test tests/Curia.Api.Tests --no-build --configuration Release --filter "$(python3 tools/ci/api-legs.py filter ${{ matrix.leg }})" --logger "trx;LogFileName=$RUNNER_TEMP/trx/${{ matrix.leg }}.trx"
+
+      - name: Upload the TRX
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-trx-${{ matrix.leg }}
+          path: ${{ runner.temp }}/trx/*.trx
+          if-no-files-found: error
+
+      - name: Upload the fuzzer's timings
+        if: always() && matrix.leg == 'fuzz'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-timings
+          path: ${{ runner.temp }}/fuzz-timings.tsv
+          if-no-files-found: warn
+
+  # The required check. The ruleset `protect-main` requires the context named below, and it must
+  # keep that name, so no ruleset edit is needed and a name left alone cannot drift from it.
+  # It is `always()` because a job skipped for a failed `needs` is reported skipped, and a skipped
+  # required check does not block a merge: without it, a red leg could leave this check skipped and
+  # the PR mergeable. With it, this job runs after a failure and fails itself.
+  gate:
+    name: .NET — build and test
+    needs: [dotnet, api]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Core and every Api leg succeeded
+        env:
+          CORE: ${{ needs.dotnet.result }}
+          API: ${{ needs.api.result }}
+        run: |
+          echo "core job: $CORE"
+          echo "api legs: $API"
+          if [ "$CORE" != success ] || [ "$API" != success ]; then exit 1; fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-partition
+          path: ${{ runner.temp }}/accounting/partition
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: api-trx-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/accounting/trx
+
+      # Each leg ran what the partition lists, class by class, and every result passed.
+      - name: Account for every Api test
+        run: python3 tools/ci/api-legs.py account --partition "$RUNNER_TEMP/accounting/partition/api-partition.json" --trx "$RUNNER_TEMP/accounting/trx"
 
   rust:
     name: Rust — curia-testis
