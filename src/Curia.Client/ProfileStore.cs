@@ -65,7 +65,9 @@ public sealed record AgentProfile(
 /// <param name="File">The key file, relative to the profile directory; null when an external signer holds it.</param>
 /// <param name="Signer">The external signer's command; null when <paramref name="File"/> holds the key.</param>
 /// <param name="Retired">Whether the Forum accepted this profile's retirement of the key (R4.39).</param>
-public sealed record RetainedKey(string Kid, string Alg, string? File = null, string? Signer = null, bool Retired = false);
+/// <param name="RotationInForce">Whether the rotation that bound this key is one the Forum acts on; false for a key a rotation the Forum recorded and does not act on generated (R11.98).</param>
+public sealed record RetainedKey(
+    string Kid, string Alg, string? File = null, string? Signer = null, bool Retired = false, bool RotationInForce = true);
 
 /// <summary>
 /// A rotation or a retirement this profile made and the Forum accepted (spec section 4.12):
@@ -74,7 +76,8 @@ public sealed record RetainedKey(string Kid, string Alg, string? File = null, st
 /// <param name="Kind"><see cref="Rotation"/> or <see cref="Retirement"/>.</param>
 /// <param name="Kid">The key the act bound (a rotation) or ended (a retirement).</param>
 /// <param name="LogIndex">The log index the Forum appended the act at, as it answered.</param>
-public sealed record LifecycleAct(string Kind, string Kid, long LogIndex)
+/// <param name="InForce">False for an act the Forum recorded and answered it does not act on (R11.98); true for every act a <c>201</c> answered.</param>
+public sealed record LifecycleAct(string Kind, string Kid, long LogIndex, bool InForce = true)
 {
     /// <summary>The kind of an act that bound a new key.</summary>
     public const string Rotation = "rotation";
@@ -515,7 +518,9 @@ public sealed class ProfileStore
     /// retained key, the new key becomes the one it signs with, the act is recorded, the cached token (issued on the
     /// old key) is deleted. Called only after a 201, so a refused or failed rotation leaves
     /// <c>identity.json</c>, <c>signing-key.pem</c> and <c>keys/</c> as they were, and a key generated for it
-    /// has never reached the disk.
+    /// has never reached the disk, with one exception: a rotation the Forum answered <c>500</c>
+    /// <c>curia/keys/not-honoured</c> says a row exists, and the key generated for it is kept as a retained key whose
+    /// rotation is not in force (R11.98), by a method of its own and never by this one.
     /// </summary>
     /// <param name="profile">The profile as it was loaded, signing with the key that authorized the rotation.</param>
     /// <param name="newSigner">The key the rotation added: the signer that signed its possession.</param>

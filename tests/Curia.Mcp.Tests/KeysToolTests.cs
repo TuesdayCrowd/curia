@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Curia.Client;
 using Curia.Domain.Serving;
 using Curia.Mcp;
@@ -104,6 +105,39 @@ public sealed class KeysToolTests : IDisposable
         WholeText.Same(reading!.Render(), answer.Text.TrimEnd('\n') + "\n");
         Assert.Contains("SKIPPED: the Forum does not act on a agent.key-retired at log index 7 (statement-mismatch)", answer.Text, StringComparison.Ordinal);
         Assert.False(answer.IsError);
+    }
+
+    /// <summary>
+    /// NHR11 (errata G73, R11.96 (add.), register item 290): <c>curia_keys</c> says what <c>curia keys</c> says for an act this host recorded as not in force that the Forum now acts on. The profile
+    /// records a rotation not in force at the index the stub's key set binds its key (the stub binds one key, so the act names that key's kid: the one scene this stub can serve in which the
+    /// lifecycle holds the index and the key set binds the act's own kid there); the tool's text equals <see cref="KeysReport"/>'s, the one definition, and holds the <c>NOW IN FORCE</c> line.
+    /// Red on the tree: <c>Expected: ...it holds a NOW IN FORCE line  Actual: ...it holds no NOW IN FORCE line</c> (the member <c>in_force</c> is read by nothing).
+    /// </summary>
+    [Fact]
+    public async Task R11_96_NHR11_CuriaKeysSaysWhenAnActNotInForceIsNowInForce()
+    {
+        var identity = Path.Combine(_log.Store.DirectoryFor("alice"), "identity.json");
+        var document = JsonNode.Parse(await File.ReadAllTextAsync(identity, TestContext.Current.CancellationToken))!.AsObject();
+        document["lifecycle_acts"] = new JsonArray(new JsonObject
+        {
+            ["kid"] = StubLog.AgentKid,
+            ["kind"] = "rotation",
+            ["log_index"] = _log.KeyIndex,
+            ["in_force"] = false,
+        });
+        await File.WriteAllTextAsync(identity, document.ToJsonString(), TestContext.Current.CancellationToken);
+
+        Assert.True(_log.Store.ReadProfile("alice").TryGetValue(out var profile, out var error), error?.Detail);
+        var reported = await KeysReport.ReadAsync(_log.Client(), profile!, TestContext.Current.CancellationToken);
+        Assert.True(reported.TryGetValue(out var reading, out var refusal), refusal?.Summary);
+
+        await using var session = await StartAsync(withIdentity: true);
+        var answer = await session.CallAsync("curia_keys", []);
+
+        var same = string.Equals(reading!.Render(), answer.Text.TrimEnd('\n') + "\n", StringComparison.Ordinal);
+        WholeText.Same(
+            "the tool's text is what KeysReport renders; it holds a NOW IN FORCE line",
+            $"the tool's text {(same ? "is" : "is not")} what KeysReport renders; it holds {(answer.Text.Contains("NOW IN FORCE:", StringComparison.Ordinal) ? "a" : "no")} NOW IN FORCE line");
     }
 
     /// <summary>One definition: no line of the report is worded anywhere but <c>KeysReport</c>, and the CLI and the tool both read it from there.</summary>

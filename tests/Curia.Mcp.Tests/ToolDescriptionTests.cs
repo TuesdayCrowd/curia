@@ -899,13 +899,15 @@ public sealed class ToolDescriptionTests
     }
 
     /// <summary>
-    /// "R11.96 words (the tool)" as the errata publishes it: the span after <c>*The description:*</c> and the span after <c>*The server instructions' sentence:*</c>, each between doubled
+    /// "R11.96 words (the tool) (rev.)" as the errata publishes it: the span after <c>*The description:*</c> and the span after <c>*The server instructions' sentence:*</c>, each between doubled
     /// backticks, with the paragraph's <c>\n</c> read as the line break it says it is. Each count is asserted.
     /// </summary>
     private static (string Description, string Sentence) PublishedKeysToolWords()
     {
         const string errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
-        const string anchor = "**R11.96 words (the tool).**";
+        // The latest words: G73's (rev.) line, which carries G68's description with one sentence added and G68's instructions' sentence verbatim. G68's own line
+        // ("**R11.96 words (the tool).**") stays as published and is superseded for the description, and is not read here, as Version()'s doc comment says of each re-point.
+        const string anchor = "**R11.96 words (the tool) (rev.)**";
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, errata)))
             dir = dir.Parent;

@@ -1,0 +1,1 @@
+{"agent_id":"https://agents.example/golden","alg":"ES256","enrolled_at":"2026-01-01T00:00:00.0000000+00:00","forum":"https://forum.example/","kid":"g-0000abcd","retained_keys":[{"alg":"ES256","file":"keys/81df1b71c5a5a614d3e9fa2ea1ea0a9a0d7c5373dce392fe34f94787824d9ee2.pem","kid":"g-old-1"}]}
