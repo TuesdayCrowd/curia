@@ -82,6 +82,9 @@ jobs:
           --health-retries 10
 
     steps:
+      - name: FCI6 probe (the core job fails at its first step)
+        run: exit 1
+
       - uses: actions/checkout@v4
 
       - name: Set up .NET
@@ -300,7 +303,6 @@ jobs:
   gate:
     name: .NET — build and test
     needs: [dotnet, api]
-    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
