@@ -277,7 +277,7 @@ jobs:
           dotnet test tests/Curia.Api.Tests --no-build --configuration Release --filter "$(python3 tools/ci/api-legs.py filter ${{ matrix.leg }})" --logger "trx;LogFileName=$RUNNER_TEMP/trx/${{ matrix.leg }}.trx"
 
       - name: Upload the TRX
-        if: always()
+        if: always() && matrix.leg != 'rest'
         uses: actions/upload-artifact@v4
         with:
           name: api-trx-${{ matrix.leg }}
