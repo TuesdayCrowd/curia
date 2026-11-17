@@ -385,6 +385,11 @@ public sealed class KeyActVerbTests
         Assert.Equal(before, rig.Fingerprint());
     }
 
+    /// <summary>
+    /// A refused rotation leaves the profile's record as it was: <c>identity.json</c>, <c>signing-key.pem</c> and <c>keys/</c> (the rig's fingerprint; the cached <c>token.json</c> the verb requested is not part of it).
+    /// This holds for every refusal but one: a <c>500 curia/keys/not-honoured</c> says a row exists, and the verb then records the act as not in force and keeps the key it generated (R11.98, errata G73;
+    /// <c>NotHonouredRotationTests</c>). This fact and the ones beside it are the control for every other refusal.
+    /// </summary>
     [Fact]
     public async Task R4_39_ARefusedRotationLeavesTheProfileByteIdentical()
     {
