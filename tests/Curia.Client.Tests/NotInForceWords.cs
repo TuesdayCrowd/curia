@@ -45,6 +45,9 @@ internal static class NotInForceWords
         return named with { Says = Replace(named.Says, from, to, "the retirement's first line") };
     }
 
+    /// <summary>R11.98 words, the form labelled "A retirement the Forum now acts on": what <c>curia retire</c> prints when it records a retirement the Forum already acts on, with <c>&lt;kid&gt;</c>, <c>&lt;i&gt;</c> and <c>&lt;signing kid&gt;</c> still in it.</summary>
+    internal static string RetirementReconciled() => SpansOf("R11.98 words", "A retirement the Forum now acts on", expected: 1)[0];
+
     /// <summary>R11.96 (add.) words, a rotation, with <c>&lt;the retire command for the new kid&gt;</c> still in it.</summary>
     internal static string NowInForceRotation() => SpansOf("R11.96 (add.) words", "A rotation", expected: 1)[0];
 

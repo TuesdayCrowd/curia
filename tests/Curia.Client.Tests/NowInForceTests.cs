@@ -259,9 +259,13 @@ public sealed class NowInForceTests
         var (controlExit, _, _) = await KeyActRig.CaptureAsync(() => Program.RetireKeyAsync(applies.Client, applies.Session, applies.Store, applies.Profile(), keptKid, Ct));
         var controlMoved = NonGets(applies) - controlBefore;
 
-        var words = $"retired   key {NotHonouredKit.Kid(NotHonouredKit.OwnKid)} at log index {at}; the Forum now acts on this retirement and this profile signs with {NotHonouredKit.Kid(current)}";
+        var words = NotInForceWords.Fill(
+            NotInForceWords.RetirementReconciled(),
+            ("<kid>", NotHonouredKit.Kid(NotHonouredKit.OwnKid)),
+            ("<i>", at.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            ("<signing kid>", NotHonouredKit.Kid(current)));
         var actual = $"before: exit {before}, {Says(beforeOut, RetirementLine(rig, NotHonouredKit.OwnKid, at))}; "
-            + $"retire: exit {exit}, {(stdout.Contains(words, StringComparison.Ordinal) ? "the reconcile words" : "other words: " + stdout.Trim() + stderr.Trim())}, {sent} requests (non-GET), {posted} lifecycle POSTs; "
+            + $"retire: exit {exit}, {(PublishedClientWords.Says(stdout, words) ? "the reconcile words" : "other words: " + stdout.Trim() + stderr.Trim())}, {sent} requests (non-GET), {posted} lifecycle POSTs; "
             + $"identity.json: key {(oldKey["retired"] is { } r ? "retired=" + r.ToJsonString() : "retired absent")}, acts {NotHonouredKit.Acts(identity)}; "
             + $"a second retire: exit {again}; after: exit {after}, {(afterOut.Contains("NOW IN FORCE", StringComparison.Ordinal) ? "a NOW IN FORCE line" : "no NOW IN FORCE line")}; "
             + $"control (a retirement that applies): exit {controlExit}, {(controlMoved > 0 ? "the count moved" : "the count did not move")}";

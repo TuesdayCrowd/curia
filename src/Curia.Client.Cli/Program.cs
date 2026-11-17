@@ -2190,7 +2190,7 @@ internal static class Program
                     ExitCode.Local);
             }
 
-            Output.Line($"retired   key {kid} at log index {overtaken.LogIndex}; the Forum now acts on this retirement and this profile signs with {profile.Kid}");
+            Output.Line($"retired   key {kid} at log index {overtaken.LogIndex}; the Forum now acts on this retirement and this profile signs with {profile.Kid}. curia retire read the Forum's key set, signed and sent nothing, and appended no row; it recorded the retirement in this profile.");
             return ExitCode.Ok;
         }
 

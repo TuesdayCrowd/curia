@@ -79,9 +79,9 @@ public static class KeysReport
         foreach (var act in nowInForce)
         {
             if (act.Kind == LifecycleAct.Rotation)
-                frame.Line($"NOW IN FORCE: this profile's rotation at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is live and this profile holds it; it signs with {profile.Kid}. End it with: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
+                frame.Line($"NOW IN FORCE: this profile's rotation at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is live and this profile holds it, but signs with {profile.Kid}. A live key this profile does not sign with is one more key that can sign as this agent, and curia keys exits 6 until it is ended. To sign with a new key instead, end this one and rotate again. End it with: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
             else
-                frame.Line($"NOW IN FORCE: this profile's retirement at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is ended. Record it with: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
+                frame.Line($"NOW IN FORCE: this profile's retirement at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is ended. This profile has not recorded that, and curia keys exits 6 until it does. Record it with this command, which signs and sends nothing: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
         }
 
         AppendSkipped(frame, profile, keySet, saySoWhenSilent: true);
