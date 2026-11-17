@@ -238,16 +238,14 @@ public sealed class NotHonouredRotationTests
     }
 
     /// <summary>
-    /// NHR6: an answer whose <c>log_index</c> is no whole number of at least 0 records no act and still keeps the key, with the words for a rotation whose index was not named. Theory over the member's JSON:
-    /// absent, <c>-1</c>, <c>1.5</c>, <c>"7"</c>, <c>null</c>, <c>9223372036854775808</c>. Red on the tree.
+    /// NHR6: an answer whose <c>log_index</c> parses and is no whole number of at least 0 records no act and still keeps the key, with the words for a rotation whose index was not named. Theory over the member's JSON:
+    /// absent, <c>-1</c>, <c>"7"</c>, <c>null</c>. A number the profile refuses (<c>1.5</c>, <c>9223372036854775808</c>, <c>1e400</c>) is not read at all and is NHR6b's. Red on the tree.
     /// </summary>
     [Theory]
     [InlineData(null)]
     [InlineData("-1")]
-    [InlineData("1.5")]
     [InlineData("\"7\"")]
     [InlineData("null")]
-    [InlineData("9223372036854775808")]
     public async Task NHR6_AnAnswerWithoutAUsableIndexRecordsNoActAndKeepsTheKey(string? logIndexJson)
     {
         using var rig = KeyActRig.Create();
@@ -262,6 +260,47 @@ public sealed class NotHonouredRotationTests
         var actual = $"exit {exit}; acts {NotHonouredKit.Acts(NotHonouredKit.Identity(rig))}; {NotHonouredKit.KeptKey(rig, received.Kid, received)}; "
             + $"the words for no index: {(NotHonouredKit.SaysInOrder(everything, says, keeps, command, report) ? "said in order" : "not said")}";
         var expected = $"exit {ExitCode.Unverified}; acts []; key {received.Kid} is kept: rotation_in_force=false, file {NotHonouredKit.DerivedFile(received.Kid)}, mode 600, public half is the statement's jwk; the words for no index: said in order";
+
+        WholeText.Same(expected, actual);
+    }
+
+    /// <summary>
+    /// NHR6b (control, green on the tree by design; Amendment 3 ruling 2, R6.33, R6.12): a problem document the profile refuses (a number that is not an integer or is out of range, anywhere in it) is unreadable as a
+    /// whole and is not read for its type, so the refusal is <c>curia/client/unreadable-problem</c>, exit 8, and nothing is recorded or kept. Rows are the numbers the profile refuses, measured (not reasoned):
+    /// <c>1.5</c>, <c>9223372036854775808</c>, <c>1e400</c>. A positive control in the same method (the same scene with <c>log_index</c> 7) shows the fingerprint and the <c>keys/</c> check able to see a change.
+    /// It carries information through FNHR15.
+    /// </summary>
+    [Theory]
+    [InlineData("1.5")]
+    [InlineData("9223372036854775808")]
+    [InlineData("1e400")]
+    public async Task NHR6b_AProblemDocumentTheProfileRefusesKeepsNothing(string logIndexJson)
+    {
+        using (var control = KeyActRig.Create())
+        {
+            control.Double.LifecycleAnswers.Enqueue(NotHonouredKit.Answer(Index));
+            control.Double.KeySet = NotHonouredKit.KeySetAfterRefusedRotation(Index);
+            var controlBefore = control.Fingerprint();
+            await KeyActRig.CaptureAsync(() => Program.RotateKeyAsync(control.Client, control.Session, control.Agent, control.Store, null, Ct));
+            var controlKept = Directory.Exists(Path.Combine(control.Directory, "keys")) ? Directory.GetFiles(Path.Combine(control.Directory, "keys")).Length : 0;
+            var controlSaw = control.Fingerprint() != controlBefore && controlKept == 1 && NotHonouredKit.Acts(NotHonouredKit.Identity(control)) != "[]";
+            Assert.True(controlSaw, "the control (log_index 7) must change the profile: an act recorded, a key under keys/, a different fingerprint");
+        }
+
+        using var rig = KeyActRig.Create();
+        rig.Double.LifecycleAnswers.Enqueue(NotHonouredKit.Answer(logIndexJson));
+        rig.Double.KeySet = NotHonouredKit.KeySetAfterRefusedRotation(Index);
+        var before = rig.Fingerprint();
+
+        var (exit, stdout, stderr) = await KeyActRig.CaptureAsync(() => Program.RotateKeyAsync(rig.Client, rig.Session, rig.Agent, rig.Store, null, Ct));
+
+        var kept = Directory.Exists(Path.Combine(rig.Directory, "keys")) ? Directory.GetFiles(Path.Combine(rig.Directory, "keys")).Length : 0;
+        var everything = NotHonouredKit.Everything(stdout, stderr);
+        var type = everything.Contains("(\"curia/client/unreadable-problem\")", StringComparison.Ordinal) ? "curia/client/unreadable-problem"
+            : everything.Contains("curia/keys/not-honoured", StringComparison.Ordinal) ? "curia/keys/not-honoured" : "another";
+        var actual = $"exit {exit}; type {type}; acts {NotHonouredKit.Acts(NotHonouredKit.Identity(rig))}; "
+            + (rig.Fingerprint() == before ? "the profile's record is as it was" : "the profile's record CHANGED: " + before + " -> " + rig.Fingerprint()) + $"; {kept} files under keys/";
+        var expected = $"exit {ExitCode.ForumFault}; type curia/client/unreadable-problem; acts []; the profile's record is as it was; 0 files under keys/";
 
         WholeText.Same(expected, actual);
     }
