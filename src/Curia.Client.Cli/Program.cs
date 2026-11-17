@@ -2173,6 +2173,27 @@ internal static class Program
             return Output.Fail($"error: {unknown.Title}{Detail(unknown.Detail)}\n       the keys this profile knows: {Hints.Keys(profile.Slug)}", ExitCode.Local);
         }
 
+        // A retirement this profile recorded as not in force that the Forum now acts on is recorded and sent nothing (R11.96 (add.), R11.98). The key set is read once more, and only when the profile holds such an act for
+        // this key: every other retirement reads it as it always did.
+        if (profile.Acts.Any(a => a.Kind == LifecycleAct.Retirement && !a.InForce && string.Equals(a.Kid, kid, StringComparison.Ordinal))
+            && (await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false)).TryGetValue(out var published, out _)
+            && LifecycleWatch.NowInForce(profile, published).FirstOrDefault(a => a.Kind == LifecycleAct.Retirement && string.Equals(a.Kid, kid, StringComparison.Ordinal)) is { } overtaken)
+        {
+            try
+            {
+                store.CompleteReconciledRetirement(FreshProfile(store, profile), kid);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Output.Fail(
+                    $"error: the Forum now acts on the retirement of key {kid} at log index {overtaken.LogIndex}, and this profile could not record it: {ex.Message}",
+                    ExitCode.Local);
+            }
+
+            Output.Line($"retired   key {kid} at log index {overtaken.LogIndex}; the Forum now acts on this retirement and this profile signs with {profile.Kid}");
+            return ExitCode.Ok;
+        }
+
         var (stopped, prev) = await ReadLifecycleAsync(client, profile, after: null, ct).ConfigureAwait(false);
         if (stopped is { } exit) return exit;
 

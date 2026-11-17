@@ -81,7 +81,7 @@ public static class KeysReport
             if (act.Kind == LifecycleAct.Rotation)
                 frame.Line($"NOW IN FORCE: this profile's rotation at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is live and this profile holds it; it signs with {profile.Kid}. End it with: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
             else
-                frame.Line($"NOW IN FORCE: this profile's retirement at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is ended.");
+                frame.Line($"NOW IN FORCE: this profile's retirement at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is ended. Record it with: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
         }
 
         AppendSkipped(frame, profile, keySet, saySoWhenSilent: true);

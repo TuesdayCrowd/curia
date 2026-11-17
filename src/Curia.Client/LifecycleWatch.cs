@@ -80,8 +80,17 @@ public static class LifecycleWatch
         if (keySet.Lifecycle is not { } lifecycle) return [];
 
         var published = lifecycle.ToHashSet();
-        return [.. profile.Acts.Where(a => !a.InForce && published.Contains(a.LogIndex) && Holds(keySet, a)).OrderBy(a => a.LogIndex)];
+        return [.. profile.Acts.Where(a => !a.InForce && published.Contains(a.LogIndex) && Holds(keySet, a) && !Ended(profile, keySet, a)).OrderBy(a => a.LogIndex)];
     }
+
+    /// <summary>
+    /// Whether the act's key is already ended, so its <c>NOW IN FORCE</c> line has nothing left to announce (R11.96 (add.)): the profile holds the act's own kid retired, or, for a rotation, the key set shows that kid
+    /// retired (a key that is retired is not live, whoever retired it; a retirement this profile did not make is reported <c>FOREIGN</c> at its index). Both questions are about the act's own kid.
+    /// </summary>
+    private static bool Ended(AgentProfile profile, KeySetDocument keySet, LifecycleAct act) =>
+        profile.Retained.Any(k => k.Retired && string.Equals(k.Kid, act.Kid, StringComparison.Ordinal))
+        || (act.Kind == LifecycleAct.Rotation
+            && keySet.Keys.Any(k => string.Equals(k.Kid, act.Kid, StringComparison.Ordinal) && k.RetiredLogIndex is not null));
 
     /// <summary>Whether the key set binds (a rotation) or retires (a retirement) the act's own kid at the act's own index.</summary>
     private static bool Holds(KeySetDocument keySet, LifecycleAct act) =>

@@ -579,6 +579,25 @@ public sealed class ProfileStore
     }
 
     /// <summary>
+    /// Records a retirement this profile recorded as not in force that the Forum now acts on (R11.96 (add.), R11.98): the retained key is marked retired and the retirement act the profile holds for it is replaced by the
+    /// same act in force, in one write. No second act is recorded: the row is the one the Forum answered <c>500</c> for, at its own log index.
+    /// </summary>
+    public AgentProfile CompleteReconciledRetirement(AgentProfile profile, string kid)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        var reconciled = profile with
+        {
+            RetainedKeys = [.. profile.Retained.Select(k => string.Equals(k.Kid, kid, StringComparison.Ordinal) ? k with { Retired = true } : k)],
+            LifecycleActs = [.. profile.Acts.Select(a => a.Kind == LifecycleAct.Retirement && string.Equals(a.Kid, kid, StringComparison.Ordinal) && !a.InForce ? a with { InForce = true } : a)],
+        };
+
+        WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(reconciled));
+        return reconciled;
+    }
+
+    /// <summary>
     /// Keeps a rotation the Forum recorded and answered <c>500</c> <c>curia/keys/not-honoured</c> (R11.98): the key the
     /// rotation generated is kept as a retained key whose rotation is not in force (its private half under
     /// <c>keys/</c> at 0600, or the external signer's command), and the act is recorded as not in force when
