@@ -2111,6 +2111,10 @@ internal static class Program
                     continue;
                 }
 
+                // R11.98: the Forum recorded the row and does not act on it. The key this verb generated is kept before the `finally` disposes it.
+                if (NotInForceReport.Answers(refusal))
+                    return await NotHonouredRotationAsync(client, store, profile, next, generated, refusal, ct).ConfigureAwait(false);
+
                 return await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
             }
         }
@@ -2211,6 +2215,9 @@ internal static class Program
                     continue;
                 }
 
+                if (NotInForceReport.Answers(refusal))
+                    return await NotHonouredRetirementAsync(client, store, profile, kid, refusal, ct).ConfigureAwait(false);
+
                 return await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
             }
         }
@@ -2218,6 +2225,61 @@ internal static class Program
         {
             (retiring as IDisposable)?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// A rotation the Forum answered <c>500</c> <c>curia/keys/not-honoured</c> (errata G73, R11.98): the row is in the log and the Forum does not act on it. The profile records the act as made and not in force
+    /// and keeps the key the rotation generated, without moving the key it signs with, and only then reads the key set, so the line at the row's index is R11.96's second form; the
+    /// words follow, and the exit is 6.
+    /// </summary>
+    private static async Task<int> NotHonouredRotationAsync(
+        ForumClient client, ProfileStore store, AgentProfile profile, IAgentSigner next, ECDsa? generated, Refusal refusal, CancellationToken ct)
+    {
+        var index = NotInForceReport.LogIndexOf(refusal);
+        AgentProfile recorded;
+        try
+        {
+            recorded = store.RecordNotInForceRotation(FreshProfile(store, profile), next, generated, index);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Output.Fail(
+                $"error: the Forum recorded this rotation and does not act on it (curia/keys/not-honoured), and this profile could not keep key {next.Kid}: {ex.Message}",
+                ExitCode.Local);
+        }
+
+        return await SayNotInForceAsync(client, recorded, NotInForceReport.Rotation(recorded.Slug, recorded.Kid, next.Kid, index), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>A retirement the Forum answered <c>500</c> <c>curia/keys/not-honoured</c> (R11.98): recorded as made and not in force; the key is not marked retired.</summary>
+    private static async Task<int> NotHonouredRetirementAsync(
+        ForumClient client, ProfileStore store, AgentProfile profile, string kid, Refusal refusal, CancellationToken ct)
+    {
+        var index = NotInForceReport.LogIndexOf(refusal);
+        AgentProfile recorded;
+        try
+        {
+            recorded = store.RecordNotInForceRetirement(FreshProfile(store, profile), kid, index);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Output.Fail(
+                $"error: the Forum recorded the retirement of key {kid} and does not act on it (curia/keys/not-honoured), and this profile could not record it: {ex.Message}",
+                ExitCode.Local);
+        }
+
+        return await SayNotInForceAsync(client, recorded, NotInForceReport.Retirement(kid, index), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The words of R11.98, then the key set's <c>SKIPPED</c> lines as <c>curia keys</c> prints them (R11.96), read after the act was recorded; exit 6.</summary>
+    private static async Task<int> SayNotInForceAsync(ForumClient client, AgentProfile recorded, FrameBuilder words, CancellationToken ct)
+    {
+        var read = await client.GetKeySetAsync(recorded.AgentId, ct).ConfigureAwait(false);
+        if (read.TryGetValue(out var keySet, out _))
+            KeysReport.AppendSkipped(words, recorded, keySet, saySoWhenSilent: false);
+
+        Output.Error(words);
+        return ExitCode.Unverified;
     }
 
     /// <summary>

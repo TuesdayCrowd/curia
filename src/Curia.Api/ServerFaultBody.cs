@@ -1,3 +1,4 @@
+using Curia.Application.Credentials;
 using Curia.Domain.Primitives;
 
 namespace Curia.Api;
@@ -17,11 +18,19 @@ public static class ServerFaultBody
     {
         ArgumentNullException.ThrowIfNull(error);
 
-        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        var members = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["type"] = error.Type,
             ["title"] = error.Title,
             ["detail"] = null,
         };
+
+        // R4.44, R11.33 (add.): the one member, on the one type, and only as a whole number of at least 0.
+        if (error.Type == KeyActErrors.NotHonouredType && error.LogIndex is >= 0 and var index)
+        {
+            members["log_index"] = index;
+        }
+
+        return members;
     }
 }

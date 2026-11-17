@@ -10,7 +10,7 @@ using Xunit;
 namespace Curia.Mcp.Tests;
 
 /// <summary>
-/// LRV24 and LRV28 (errata G68, rulings 17 and 30, R11.95, R11.96): <c>curia-mcp</c> is bumped to 0.12.0 and its catalogue gains <c>curia_keys</c>, a tool with no argument that reads the configured identity's key
+/// LRV24 and LRV28 (errata G68, rulings 17 and 30, R11.95, R11.96): <c>curia-mcp</c> is bumped to 0.12.0 (and to 0.12.1 by errata G73, R11.96 (add.), which the one reader now reads) and its catalogue gains <c>curia_keys</c>, a tool with no argument that reads the configured identity's key
 /// set, read-only and idempotent, absent without an identity, and named by the server instructions. The equality of its result with <c>curia keys</c>' (one definition, <c>ShowKeysAsync</c> moved into
 /// <c>Curia.Client</c>) is Task 5's leg: neither exists to call from this assembly yet, so this probe holds the registration, the bump and the sentence. Red on the seam:
 /// <c>Expected: tool curia_keys registered  Actual: not found</c>.
@@ -72,11 +72,11 @@ public sealed class KeysToolTests : IDisposable
         Assert.True(instructions.Contains("curia_keys", StringComparison.Ordinal), "Expected: the server instructions name curia_keys  Actual: they do not");
     }
 
-    /// <summary>LRV24: <c>ToolCatalogue.Version</c> is the number R11.95 names (the one reader of an errata version, <c>PublishedReadersLastWords.Version()</c>, re-pointed at it): 0.12.0.</summary>
+    /// <summary>LRV24: <c>ToolCatalogue.Version</c> is the number R11.95 names (the one reader of an errata version, <c>PublishedReadersLastWords.Version()</c>, re-pointed at it, and at G73's R11.96 (add.) since 0.12.1): 0.12.1.</summary>
     [Fact]
     public void LRV24_TheCatalogueIsBumpedToWhatR1195Names()
     {
-        WholeText.Same("version 0.12.0; the catalogue reports 0.12.0", $"version {PublishedReadersLastWords.Version()}; the catalogue reports {ToolCatalogue.Version}");
+        WholeText.Same("version 0.12.1; the catalogue reports 0.12.1", $"version {PublishedReadersLastWords.Version()}; the catalogue reports {ToolCatalogue.Version}");
     }
 
     private static string RepoFile(string relative)
@@ -112,6 +112,11 @@ public sealed class KeysToolTests : IDisposable
     /// records a rotation not in force at the index the stub's key set binds its key (the stub binds one key, so the act names that key's kid: the one scene this stub can serve in which the
     /// lifecycle holds the index and the key set binds the act's own kid there); the tool's text equals <see cref="KeysReport"/>'s, the one definition, and holds the <c>NOW IN FORCE</c> line.
     /// Red on the tree: <c>Expected: ...it holds a NOW IN FORCE line  Actual: ...it holds no NOW IN FORCE line</c> (the member <c>in_force</c> is read by nothing).
+    ///
+    /// <para>The scene is degenerate (Amendment 2, ruling 3): a rotation recorded at the enrolment's own index for the enrolment's own kid, which the Forum cannot produce. The stub binds one key, and the
+    /// condition for the line is NHR9's (a hand-written key set with a rotation's key bound after the enrolment, in <c>Curia.Client.Tests</c>); this probe is about the tool's wiring, that its text is
+    /// <see cref="KeysReport"/>'s. The control is in the same method: the same profile with the act's <c>in_force</c> member removed, a second session, whose text equals <see cref="KeysReport"/>'s and holds
+    /// no <c>NOW IN FORCE</c> line, so the tool's line is shown to depend on the member.</para>
     /// </summary>
     [Fact]
     public async Task R11_96_NHR11_CuriaKeysSaysWhenAnActNotInForceIsNowInForce()
@@ -138,6 +143,21 @@ public sealed class KeysToolTests : IDisposable
         WholeText.Same(
             "the tool's text is what KeysReport renders; it holds a NOW IN FORCE line",
             $"the tool's text {(same ? "is" : "is not")} what KeysReport renders; it holds {(answer.Text.Contains("NOW IN FORCE:", StringComparison.Ordinal) ? "a" : "no")} NOW IN FORCE line");
+
+        // Control: the member removed. A tool that printed the line whatever the profile says would pass the check above and fail this one.
+        document["lifecycle_acts"]![0]!.AsObject().Remove("in_force");
+        await File.WriteAllTextAsync(identity, document.ToJsonString(), TestContext.Current.CancellationToken);
+        Assert.True(_log.Store.ReadProfile("alice").TryGetValue(out var controlProfile, out var controlError), controlError?.Detail);
+        var controlReported = await KeysReport.ReadAsync(_log.Client(), controlProfile!, TestContext.Current.CancellationToken);
+        Assert.True(controlReported.TryGetValue(out var controlReading, out var controlRefusal), controlRefusal?.Summary);
+
+        await using var controlSession = await StartAsync(withIdentity: true);
+        var controlAnswer = await controlSession.CallAsync("curia_keys", []);
+
+        var controlSame = string.Equals(controlReading!.Render(), controlAnswer.Text.TrimEnd('\n') + "\n", StringComparison.Ordinal);
+        WholeText.Same(
+            "control, the act's in_force removed: the tool's text is what KeysReport renders; it holds no NOW IN FORCE line",
+            $"control, the act's in_force removed: the tool's text {(controlSame ? "is" : "is not")} what KeysReport renders; it holds {(controlAnswer.Text.Contains("NOW IN FORCE:", StringComparison.Ordinal) ? "a" : "no")} NOW IN FORCE line");
     }
 
     /// <summary>One definition: no line of the report is worded anywhere but <c>KeysReport</c>, and the CLI and the tool both read it from there.</summary>

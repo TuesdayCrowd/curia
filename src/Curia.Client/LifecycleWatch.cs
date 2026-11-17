@@ -40,7 +40,10 @@ public static class LifecycleWatch
         if (keySet.Lifecycle is not { } lifecycle) return [];
 
         var findings = ImmutableArray.CreateBuilder<LifecycleFinding>();
-        var recorded = profile.Acts.Select(a => a.LogIndex).ToHashSet();
+
+        // An act in force is the profile's own at its index, as a 201 answered it. An act recorded as not in force (R11.98) is the profile's own there only where the key set binds (a rotation) or
+        // retires (a retirement) the act's own kid at that index: at an index the lifecycle holds for another kid it is not, and the entry is FOREIGN (R11.96 (add.)).
+        var recorded = profile.Acts.Where(a => a.InForce || Holds(keySet, a)).Select(a => a.LogIndex).ToHashSet();
 
         var bindings = keySet.Keys.Where(k => k.LogIndex is not null).Select(k => k.LogIndex!.Value).ToList();
         if (bindings.Count > 0)
@@ -64,4 +67,25 @@ public static class LifecycleWatch
 
         return findings.ToImmutable();
     }
+
+    /// <summary>
+    /// The acts the profile recorded as not in force (R11.98) that the Forum now acts on (R11.96 (add.)): the published lifecycle holds the act's index and the key set binds (a rotation) or retires (a
+    /// retirement) the act's own kid there. In log order.
+    /// </summary>
+    public static ImmutableArray<LifecycleAct> NowInForce(AgentProfile profile, KeySetDocument keySet)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(keySet);
+
+        if (keySet.Lifecycle is not { } lifecycle) return [];
+
+        var published = lifecycle.ToHashSet();
+        return [.. profile.Acts.Where(a => !a.InForce && published.Contains(a.LogIndex) && Holds(keySet, a)).OrderBy(a => a.LogIndex)];
+    }
+
+    /// <summary>Whether the key set binds (a rotation) or retires (a retirement) the act's own kid at the act's own index.</summary>
+    private static bool Holds(KeySetDocument keySet, LifecycleAct act) =>
+        act.Kind == LifecycleAct.Rotation
+            ? keySet.Keys.Any(k => string.Equals(k.Kid, act.Kid, StringComparison.Ordinal) && k.LogIndex == act.LogIndex)
+            : keySet.Keys.Any(k => string.Equals(k.Kid, act.Kid, StringComparison.Ordinal) && k.RetiredLogIndex == act.LogIndex);
 }

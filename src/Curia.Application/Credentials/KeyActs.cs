@@ -167,7 +167,10 @@ public static class KeyActErrors
     public static Error NotHonoured(long index, string predicate) => new(
         NotHonouredType,
         "The Forum does not honour the row it recorded",
-        $"the row was appended at log index {index.ToString(CultureInfo.InvariantCulture)} and the Forum skips it ({predicate}); it ends, binds and marks no key");
+        $"the row was appended at log index {index.ToString(CultureInfo.InvariantCulture)} and the Forum skips it ({predicate}); it ends, binds and marks no key")
+    {
+        LogIndex = index,
+    };
 
     /// <summary>R4.38 (add.): the Forum does not enable rotation. A fixed detail, naming the kind and nothing about the caller.</summary>
     public static Error RotationNotEnabled() => new(

@@ -74,6 +74,16 @@ public static class KeysReport
         foreach (var missing in findings.Where(f => !f.Foreign && !skippedAt.Contains(f.LogIndex)))
             frame.Line($"MISSING: this profile's {new OwnText(missing.Kind)} at log index {missing.LogIndex} is not in the lifecycle the Forum publishes");
 
+        // An act this profile recorded as not in force that the Forum now acts on (R11.96 (add.)): said, and never changed by this read (R11.98).
+        var nowInForce = LifecycleWatch.NowInForce(profile, keySet);
+        foreach (var act in nowInForce)
+        {
+            if (act.Kind == LifecycleAct.Rotation)
+                frame.Line($"NOW IN FORCE: this profile's rotation at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is live and this profile holds it; it signs with {profile.Kid}. End it with: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
+            else
+                frame.Line($"NOW IN FORCE: this profile's retirement at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is ended.");
+        }
+
         AppendSkipped(frame, profile, keySet, saySoWhenSilent: true);
 
         var foreign = findings.Where(f => f.Foreign).ToList();
@@ -84,7 +94,7 @@ public static class KeysReport
             ? new FrameBuilder().Line($"lifecycle kinds this Forum enables: {(enabled.IsEmpty ? new OwnText("none (every lifecycle kind is guarded until the owner lifts the guard, R4.38)") : Literals(enabled))}")
             : new FrameBuilder().Line("lifecycle kinds this Forum enables: its key set does not say")).ToString());
 
-        var disagreed = findings.Any(f => f.Foreign || !skippedAt.Contains(f.LogIndex)) || (keySet.SkippedTotal ?? 0) > 0;
+        var disagreed = findings.Any(f => f.Foreign || !skippedAt.Contains(f.LogIndex)) || (keySet.SkippedTotal ?? 0) > 0 || !nowInForce.IsEmpty;
         if (disagreed) return new KeysReading(text.ToString(), KeysVerdict.Findings, null);
 
         // No finding is a clean comparison only if one could be made: a lifecycle to read and a key naming its binding.

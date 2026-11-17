@@ -434,7 +434,8 @@ internal static class ToolText
         "It takes no argument and reads one anonymous route; it signs and sends nothing. It lists each key the Forum binds to this agent with its standing, and then, where the Forum's lifecycle and this " +
         "host's record disagree: a FOREIGN line is an entry in this agent's lifecycle that this host did not make, a MISSING line is an act this host recorded that the Forum's lifecycle does not list, and a " +
         "SKIPPED line is a row of this agent's stream that the Forum does not act on (it ends, binds and marks no key); a SKIPPED line at the index of an act this host made means what that act did is not in " +
-        "force. Where the Forum's key set does not say which rows it skips, the report says so. The report is the Forum's word, as its first line says: only a signed head, checked by curia_verify, anchors a " +
+        "force. A NOW IN FORCE line is an act this host recorded as not in force that the Forum now acts on; for a rotation, it names the key that is now live, which this host holds. " +
+        "Where the Forum's key set does not say which rows it skips, the report says so. The report is the Forum's word, as its first line says: only a signed head, checked by curia_verify, anchors a " +
         "key's binding, and curia_verify does not read this list.\n\n" +
         UntrustedDataNotice;
 

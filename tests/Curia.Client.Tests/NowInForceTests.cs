@@ -125,11 +125,13 @@ public sealed class NowInForceTests
     }
 
     /// <summary>
-    /// NHR9b: a recorded index does not hide a stranger. A rotation recorded not in force at 7 for the kept key; the key set binds another key at 7: a FOREIGN line at 7, the act MISSING (R11.96 (add.): "FOREIGN and
-    /// the act MISSING, as for an act in force"), no <c>NOW IN FORCE</c>, exit 6. Red on the tree: the act counts as recorded at 7, so the report is clean.
+    /// NHR9b: a recorded index does not hide a stranger. A rotation recorded not in force at 7 for the kept key; the key set binds another key at 7: a FOREIGN line at 7, no MISSING line for the act, no
+    /// <c>NOW IN FORCE</c>, exit 6. Restated by Amendment 2 (ruling 2): the plan said the act is also MISSING, and MISSING's words ("is not in the lifecycle the Forum publishes") are false at an index the lifecycle holds;
+    /// an act in force at a published index is not MISSING either, so the act is not. Red on the tree: the act counts as recorded at 7, so the report is clean and holds no FOREIGN line. The "no MISSING" half is green on
+    /// the tree and carries information only against a patch that prints MISSING for the act (FNHR14).
     /// </summary>
     [Fact]
-    public async Task NHR9b_ARecordedIndexForAnotherKeyIsForeignAndTheActMissing()
+    public async Task NHR9b_ARecordedIndexForAnotherKeyIsForeignAndTheActIsNotMissing()
     {
         using var rig = KeyActRig.Create();
         Seed(rig, "rotation", 7, notInForce: true);
@@ -139,10 +141,10 @@ public sealed class NowInForceTests
 
         var actual = $"exit {exit}; "
             + (stdout.Contains("FOREIGN: a rotation at log index 7 that this profile did not make", StringComparison.Ordinal) ? "a FOREIGN line at 7" : "no FOREIGN line at 7") + "; "
-            + (stdout.Contains("MISSING: this profile's rotation at log index 7", StringComparison.Ordinal) ? "the act MISSING" : "the act not MISSING") + "; "
+            + (stdout.Contains("MISSING: this profile's rotation at log index 7", StringComparison.Ordinal) ? "a MISSING line for the act" : "no MISSING line for the act") + "; "
             + (stdout.Contains("NOW IN FORCE", StringComparison.Ordinal) ? "a NOW IN FORCE line" : "no NOW IN FORCE line");
 
-        WholeText.Same("exit 6; a FOREIGN line at 7; the act MISSING; no NOW IN FORCE line", actual);
+        WholeText.Same("exit 6; a FOREIGN line at 7; no MISSING line for the act; no NOW IN FORCE line", actual);
     }
 }
 
