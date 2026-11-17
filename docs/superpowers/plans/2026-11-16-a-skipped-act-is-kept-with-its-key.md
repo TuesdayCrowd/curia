@@ -283,3 +283,137 @@ Patch a tracked file in the branch's tree, run the named probes, restore **from 
 7. Non-properties (b) and (c) in plain words (items 322 and 323), so the PR is not read as closing the `503` door or the later-act hazard.
 8. The gate list: build 0 warnings, Release suite, Debug Architecture, spec checks, `cargo`, the differential gate, the closed fuzz, and the files that must not appear in `git diff --stat`.
 9. What remains gated before the guard's lift: items 322 and 323, and the owner's lift itself.
+
+## As run
+
+*(Written by Task 5 from the task reports in `.superpowers/sdd/2026-11-16-a-skipped-act-is-kept-with-its-key/`, the commit messages and the raw files they cite; every figure is copied from the file that holds it, and a figure Task 5 recounted says so. Where the plan or an amendment predicted a number, the prediction stands beside what was seen. The controller's pre-push gates and the PR are not recorded as run here.)*
+
+### As run: the commits (`git log 7e141f61..` on `skipped-act-kept`, 11 commits before Task 5's own, which the controller makes)
+
+| Commit | Task | What |
+|---|---|---|
+| `83e7305d` | plan | the plan for register item 290 (provisional errata G73, R4.44, R11.98) |
+| `acc2355f` | plan | Amendment 1 (rulings 1 to 8, from Task 0): the 5xx body is `{type, title, detail: null}` plus `log_index`; no existing test moves; item 322 and trap 287 replace 318 and 286; `token.json` is left |
+| `b72b04a3` | T1 | errata G73 pasted with its requirement text; seams that change nothing (`Error.LogIndex`, the profile's two members, `ServerFaultBody`); the probes written and seen red |
+| `235a6c88` | plan | Amendment 2 (rulings 1 to 4, from Task 1): seventeen version readers, NHR9b restated, NHR11's scene kept, the index rows are Task 2's |
+| `a618fb28` | T2 | the build: the 500 carries `log_index`; `curia rotate` and `curia retire` keep the act as made and not in force and the key a rotation generated, and exit 6; `curia keys` prints `NOW IN FORCE`; `curia-mcp` 0.12.1; the five index rows |
+| `ee729fab` | plan | Amendment 3 (rulings 1 to 5, from Task 2): NHR6 keeps four rows, NHR6b is the control for a document the profile refuses; FNHR11 restated, FNHR15 added |
+| `ab40f7b1` | T2b, T3 | NHR6 and NHR6b, R11.98's sentence replaced, FNHR2 to FNHR15 run |
+| `2437e80c` | plan | Amendment 4 (rulings 1 to 4, from Task 4): `NOW IN FORCE` ends; `curia retire --kid` reconciles a retirement the Forum now acts on; NHR15 to NHR15d, FNHR16 to FNHR20; two more cold-read pages |
+| `916498aa` | T4b | the fix for Task 4's finding 1: `LifecycleWatch.NowInForce` excludes an ended act, `ProfileStore.CompleteReconciledRetirement`, the reconcile in `RetireKeyAsync`, the retirement line's command |
+| `b26711fb` | plan | Amendment 5 (rulings 1 to 5, from the cold read's round 1): the two lines are reworded; "makes no request" becomes "signs and sends nothing"; FNHR21 to FNHR23; round 2 is Task 4d |
+| `559f62a3` | T4c | the words round 1 asked for; the errata's R11.96 (add.) and R11.98 words; pages 3, 9 and 11 re-captured live |
+
+Tasks 0, 4 and 4d committed nothing (records only: Task 0 measured an export, Task 4 ran exports, Task 4d is the controller's cold read).
+
+### As run: Task 0 (`task-0-report.md`)
+
+Run on `git archive 7e141f61` (the base; `git diff --stat cce6f034 7e141f61 -- src/` empty), no tracked file changed. **Corrections to the plan, five:** (1) a 5xx body is `{type, title, detail: null}`, `log_index` the fourth member (`ServerFault.cs:28`); (2) a refused verb leaves `token.json` (the verb requests a token first; `identity.json`, the keys and `keys/` are byte-identical); (3) `PublishedReadersLastWords.Version()` reads R11.95's paragraph and the plan's edit list had no entry for it; (4) a `(rev.)` block for "R11.96 words (the tool)" is not read by `PublishedKeysToolWords`, which selects one line starting with the exact anchor and compares the description for equality; (5) every cited line number holds, and `main` has no Api legs (#161 is not merged). **R1 (the rotation), run twice:** `500`, members `[detail, title, type]`, the row at the store's position, `curia_skipped` and the 5000 line agree on the index; the client (a real socket): exit 8, the profile unchanged, `token.json` the only addition, `curia keys` exit 6 with the first `SKIPPED` words; control unarmed exit 0. **R2 (the retirement):** the same, `retired` absent. **R3 (the `503` after an append):** exit 8, `curia/store/unavailable`, the row honoured, the generated key held nowhere, `FOREIGN` for the owner's own rotation, the next rotation refused (item 322). **R4:** a member on every 5xx turns four existing whole-body tests red (`ServerFaultTests` 1, `KeyBindingTests.R4_35` 3 rows), so NHR2 is not the first probe of "no other 5xx carries a member", only of the set case. **R5:** an older reader loads the new members and prints nothing for an act once the Forum honours it. **R6 baseline:** Client 1,682; Mcp 986 and 5 skipped; Application `Credentials` 188; Architecture 146 (Release); the Api key classes 92. **R7:** `ServerFault` cannot be built from the test assembly (`internal`, no `InternalsVisibleTo`); `KeyActDouble` already queues a `500` with any body and logs `METHOD path`; the Kestrel sibling built at the first attempt. Not measured: R1 (e) (a live Forum), `AgentWriteGateEndpointTests` under R4's patch (240 s, no verdict; its unpatched run also did not finish in 590 s), the `Fuzz/` classes, the Architecture suite in Debug.
+
+### As run: Task 1 (`task-1-report.md`)
+
+G73 pasted (40 added lines); the seam (`Error.LogIndex`, `RetainedKey.RotationInForce`, `LifecycleAct.InForce`, `ServerFaultBody.Of`); NHR8's two goldens captured from the unmodified renderer (SHA-256 `63f79438...b602` and `867c3fa1...b264e`). **Red by assertion, as predicted:** NHR1 (`Expected: members [detail, log_index, title, type] ... Actual: members [detail, title, type]`, the in-test control green); NHR2's not-honoured row (`Expected: type, title, detail, log_index ...  Actual: type, title, detail; no log_index`); NHR3 and NHR5 (`Expected: exit 6  Actual: exit 8`); NHR4; NHR6 (six rows); NHR8's round trip and six malformed rows; NHR9 (a) and (b) (`Expected: (a) exit 6; the NOW IN FORCE line ...  Actual: (a) exit 0; no NOW IN FORCE line`); NHR9b; NHR10 (`exit 2 ... "This profile holds no live retained key by that kid"`); NHR11; NHR12; NHR13 (absent). **Run green on the unmodified tree, by design:** NHR7 (7 rows), NHR8's goldens and absent row, NHR2's four other rows, NHR14 (LRV43 and its control, 5 tests). **Findings:** the amendment's six version consumers were **seventeen** (Architecture `IndexLagEntryTests.R11_70_PIL32` and sixteen Mcp tests; `NameWordsToolTests` is the sixth named and green until the catalogue moves); `check-spec.py` asked for exactly two index rows (R4.44 and R11.98); NHR9b's MISSING clause was false at a published index; NHR11's stub binds one key. **Counts:** Client 1,712 run, 20 failed (all new probes); Api 4 red of 8 new cases; Mcp 18 failed (NHR11, `R11_96_...`, sixteen version consumers); Architecture 145 of 146 (`PIL32`) in both configurations; 14 new test methods.
+
+### As run: Task 2 (`a618fb28`; the report is the commit message) and Amendment 3
+
+The build: `KeyActErrors.NotHonoured` sets `Error.LogIndex`; `ServerFaultBody` writes `log_index` for `curia/keys/not-honoured` alone; the profile's `in_force` and `rotation_in_force` (rendered only when false); `ProfileStore.RecordNotInForceRotation` and `RecordNotInForceRetirement`; the CLI handlers in `RotateKeyAsync` and `RetireKeyAsync`; `NotInForceReport` (public, holding `Answers`, `LogIndexOf`, `RetireCommand` and the words, read by the probes from the errata); `LifecycleWatch`'s kid comparison; `KeysReport`'s line; the three help clauses; `ToolCatalogue.Version` 0.12.1 (one constant and six literal pins; seventeen readers follow it); the five index rows (so `check-spec.py` passes). Probes green: NHR1 to NHR5, NHR8 to NHR13 and four of NHR6's six rows; whole Api less the fuzz 1,771 of 1,772 (`R10_73_Sighup` only, 3 of 3 alone); early falsification FNHR1, 3, 9, 10 and 14 red. **Left red for the architect, and decided by Amendment 3 (rulings 1 to 5):** NHR6's `1.5` and 2^63 rows. The client's I-JSON reader refuses the whole problem document, so the not-honoured answer is not recognised, and that is correct (R6.12, R6.33): a document the profile refuses is unreadable as a whole and keeps nothing. NHR6 keeps four rows (absent, `-1`, `"7"`, `null`); NHR6b is the control for the rest; R11.98's sentence is replaced; **no `ForumClient` change**. Task 2's other corrections: the `curia_keys` description is `ToolText.KeysTemplate` (`ToolText.cs:432`); `NotInForceReport.RetireCommand` is a second copy of the CLI's `Hints` that NHR9 compares.
+
+### As run: Task 2b and Task 3 (`task-2b-3-report.md`; `keep/t3/`, `raw/task-3/`)
+
+**NHR6b first** (Part A): the candidates `1.5`, `9223372036854775808` and `1e400` are refused (exit 8, `curia/client/unreadable-problem`, no act, no key); `7.0`, `1e1`, `1E1` and `-0` are admitted as whole numbers and recorded at 7, 10, 10 and 0 (I-JSON's rule, not this task's; item 328). NHR6 runs 4 rows (17 methods passed in the class: 16 - 2 + 3); the whole Client suite 1,713. **The two retire-command copies** (COPY-a, a flag appended to the public copy): no probe red, because the probes compare with `Hints.Retire` by a contains match (item 324); COPY-a2 (`--kid` to `--key`) and COPY-b (a suffix on the CLI copy) red. **FNHR15** (a tolerant read of `type` and `log_index` after a failed ADMIT): NHR6b's three rows red.
+
+| Rows (15, runs 16: FNHR5 is two) | Named probes | Outcome |
+|---|---|---|
+| FNHR1, FNHR2 | NHR1, NHR12 | red (FNHR1 early) |
+| FNHR3, FNHR9 (re-run on the Task 2b tree) | NHR3, NHR4 | red; FNHR9's NHR6 is a name Task 3 added, green |
+| FNHR4 | NHR3, NHR9 | NHR3 red, **NHR9 green** (finding: the harm is caught by NHR3, NHR5, NHR12) |
+| FNHR5a, FNHR5b | NHR2; the four whole-body tests | red (5b: `ServerFaultTests` 1 and `KeyBindingTests.R4_35` 3 rows) |
+| FNHR6, FNHR7 | NHR7; NHR3, NHR6, NHR10 | red; **NHR6b red as a control** under both (FNHR6: a second legitimate detector; FNHR7: its own control's reason) |
+| FNHR8 | NHR3, NHR10, NHR12 | red |
+| FNHR10, FNHR14 | NHR9b | red (early) |
+| FNHR11 | NHR6's `-1` row | red, by the words only (the store refuses an index below 0 itself) |
+| FNHR12, FNHR13 | NHR5; NHR9 | red |
+| FNHR15 | NHR6b | red |
+
+Counts from the jsonl (Task 3's script): 15 rows, 16 runs, 21 executions with the two re-runs (FNHR3 and FNHR9) and the three COPY runs, no build failed, unpatched 16 of 16 green; **Final gates (unpatched):** Client 1,713; Mcp 987 and 5 skipped; Credentials 188; Architecture 146 in Release and 146 in Debug; the whole Api suite less the fuzz **1,771 of 1,772** (`R10_73_Sighup`, 3 of 3 alone).
+
+### As run: Task 4, the live run (`task-4-report.md`, `item290-live.txt`)
+
+`c` (`main` at `7e141f61`), `t` (the tip), `cf` and `tf` (each with FLRV20's patch at `LifecycleFold.cs:233` and `:264`), and `cfr` and `tfr` (the patch at `:264` only), each from `git archive` with the approval record lifted **in the export only**; four projects built per export, not `Curia.sln`, all 0 warnings. **Every leg beside its control.**
+
+| Leg | Control | Tip | Oracle |
+|---|---|---|---|
+| LV1, the act | `cf`: exit 8, nothing recorded, no key file, `curia keys` first `SKIPPED` words, exit 6 | `tf`: exit 6, the act `{rotation, 2, in_force false}`, the kept key, the signing key unchanged | `curia-operator lifecycle-audit`: `skipped log_index=2 ... broken-link`; the row's `jwk` from `events` equals the kept key's public half |
+| LV2, the fix arrives | `c` over `cf`'s database: the key set binds a kid no file holds; `FOREIGN: a rotation at log index 2 that this profile did not make`, exit 6; `curia retire --kid` exit 2 | `t` over `tf`'s: `NOW IN FORCE`, exit 6; `curia retire --kid` exit 0 at index 3, signed by the kept key | the retirement row's authorization verifies under the statement's `jwk` and not under the profile's original key; the key set shows the kept key retired |
+| LV3, a retirement | `cfr`: exit 8, nothing recorded, key still `active`; after the switch `FOREIGN: a retirement at log index 3 ...` | `tfr`: exit 6, the act not in force, the key not retired; then `t`: `NOW IN FORCE` (retirement), exit 6 | the audit lists the skipped row at 3 |
+| LV4, `curia-mcp` | `c`: 0.12.0, `curia_keys` equals `curia keys` and holds the `FOREIGN` line | `t`: 0.12.1, equal byte for byte, holds `NOW IN FORCE` | |
+| LV5, an honest act | `c` and `t`: rotate, retire, `identity.json` and the three `201` bodies equal member for member | the same | an edited body differs |
+| LV6, the wire | `cf`: three members | `tf`: four, `log_index` 2 equal to the audit's; two `503` bodies (`curia/log/unreadable`, `curia/store/unavailable`) have exactly `type`, `title`, null `detail` | |
+
+**Findings.** (1) **LV2 failed on the tip:** after the kept key was retired, `curia keys` still printed `NOW IN FORCE ... is live and this profile holds it ... End it with: curia retire ...` and exited 6, for as long as the profile existed (`LifecycleWatch.NowInForce` asked only `!InForce && published && Holds`; `CompleteRetirement` never touches the rotation's act and the key set still lists the retired key). By reading, a retirement's line had no command at all; Task 4b measured it. (2) LV3 could not run on the brief's patch (the honest rotation is skipped too, the Forum does not know the profile's new key, and the retire is answered `401 invalid_client`), so it ran on `cfr` and `tfr`. (3) A store fault on this build answers `503`, never `500`, for `budget`, `rotate` and `ask`. (4) The "harness's own client" is a pass-through. (5) `curia help rotate` and `curia help retire` print the whole 244-line help. (6) With no index the trailing `SKIPPED:` line is the first form. Nine pages were written for the cold read. Every `curia_item290_*` database was dropped.
+
+### As run: Task 4b and Task 4c (Amendments 4 and 5; `task-4b-report.md`, `task-4c-report.md`)
+
+**4b.** NHR15, NHR15b, NHR15c red first (NHR15d not reachable: `tests/Shared/StubLog.cs` serves only `active` and `compromised`); the fix (`NowInForce` excludes an act whose kid the profile holds retired and, for a rotation, whose kid the key set shows retired; `CompleteReconciledRetirement`; the reconcile's one extra `GetKeySetAsync`, taken only in that case); FNHR16 to FNHR20: red, with **NHR15b green under FNHR16** (the reconcile flips the act in force, so its after-state never needs the exclusion; the prediction was wrong) and FNHR20 void twice (CA2211, then CA1849) and red on its third build. Live re-check: LV2-after `curia keys` exit 0, no `NOW IN FORCE`; LV3-after `curia retire --kid` exit 0, the Forum's `events` count 4 to 4, only `GET /v1/jwks` seen. **4c.** The errata's words first; NHR9, NHR15 and NHR15b red on unchanged code (4 of 5; NHR15c (a) red too, which the brief had predicted green); then `KeysReport` and `Program.cs`; FNHR21 to FNHR23 and FNHR19's re-run red; pages 3, 9 and 11 re-captured live (events 4 to 4, `GET /v1/jwks` only; pages 1, 2, 4 to 8 and 10 byte-identical). **Counts after 4c:** Client 1,716; Mcp 987 and 5 skipped; Architecture 146 and 146; Credentials 188; Api classes 79 (`NotHonoured*`, `ServerFaultBodyTests`, `ClientKeyActTests`, `KeyRotationEndpointTests`, `KeyRouteIdentityTests`).
+
+**Falsification, counted from the jsonl records of Tasks 2, 3, 4b and 4c (Task 5's count):** 23 rows (FNHR1 to FNHR23); 25 patch runs (FNHR5 and FNHR17 two each); 3 re-runs (FNHR3, FNHR9, FNHR19); 3 COPY runs; 2 void builds (FNHR20); the plan's 25 and Task 4b's 26 differ by how FNHR17 and the re-runs are counted; 20 rows red at every named probe, 3 red with a named probe not red (FNHR4's NHR9; FNHR16's NHR15b, and NHR15d not reachable; FNHR22's NHR15d not reachable); none masked, none green at row level.
+
+### As run: the cold read (`cold-read-results-290.md`; Task 4d is the controller's)
+
+**Round 1** (2026-11-16; 29 fresh readers r01 to r29, each given one page): CR-a 3/3, CR-b 3/3, CR-c 3/3, CR-d 3/3, CR-e 3/3, CR-f 3/3, CR-g 3/3: **21 of 21 gated readers passed every listed clause**, and two findings. **F2:** all three CR-g readers said the page does not say whether `curia retire` sent anything (Amendment 4's own condition: the words are rewritten and the readers replaced). **F1:** every CR-c reader and the R reader named the printed command and none would run it ("could discard the key the rotation brought in", "may not be reversible", "the page does not justify that") and all four said the page does not explain why `curia keys` exits 6; the gate was too loose. Controls (not gated): X1 (the base's rotate page): none would rotate again; X2 (the base's `curia keys` after the fold honours the row): all three read their own rotation as FOREIGN, one as "a possible compromise or an unauthorized rotation"; X3: could not tell whether the key was retired. No tip-page reader inferred an attack; no reader would delete a key or edit the profile; eleven would run `curia verify` with guessed arguments (item 327). **Round 2** (9 fresh readers s01 to s09, after Amendment 5's words and tightened gates): CR-c 3/3, CR-g 3/3, R 3/3, **9 of 9**; with round 1's five sets whose words did not change (15 of 15), every gated set passes. Recorded, not gated: three readers note the page prints no `curia rotate` flags for "rotate again" and one that no verb adopts the new key (item 326).
+
+### As run: the help clauses, exactly (NHR13 compares the phrase; this is the copy of the text)
+
+`curia help rotate`, its last clause:
+
+```
+    Exit 6 also means the Forum recorded the rotation and does not act on it (curia/keys/not-honoured): the act is not in force,
+    this profile keeps the key it generated and still signs with the old one; report it to the operator before you rotate or retire again.
+```
+
+`curia help retire`, its last clause:
+
+```
+    Exit 6 also means the Forum recorded the retirement and does not act on it (curia/keys/not-honoured): the act is not in force
+    and the key is not marked retired; report it to the operator before you rotate or retire again.
+```
+
+The exit-6 paragraph of the usage text, its added lines:
+
+```
+                 Also from rotate and retire, when the Forum recorded the act and does not act on it: the act is not in force
+                 (R11.98), the profile keeps it, and for a rotation the key it generated.
+```
+
+### As run: Task 5 (this record)
+
+Written by Task 5: errata G73's Status line (one line, nothing else); `IMPLEMENTATION_PLAN.md` (the header, the "Current work" block, the "Next stage" block, item 290 closed in place, item 291 amended, items 322 to 328 and an "Amended" paragraph, traps 287 to 289); `CLAUDE.md` (one clause, and `curia-mcp` 0.12.1); `README.md` (one sentence); this section; the PR body draft. **Numbers**, re-grepped over `origin/main` (`7e141f61`), `origin/api-suite-in-legs` (#161) and every other `origin/*` ref immediately before writing (highest item 317 on `main`, 321 on #161; highest trap 285 and 286): items 322 to 328, traps 287 to 289; the plan allocated 322, 323 and 287 and Amendments 4 and 5 proposed two more traps and the leads; the first free are D125, item 329, trap 290, G74, R4.45 and R11.99. No ref held a number allocated here.
+
+### As run: deviations from the plan, one line each
+
+- A 5xx body is `{type, title, detail: null}` plus `log_index` (Amendment 1); `ServerFaultBody` is public and pure so NHR2 needs no `InternalsVisibleTo`.
+- The version consumers are seventeen, not six, and a refused verb leaves `token.json` (Amendments 1 and 2).
+- NHR9b is `FOREIGN` and never `MISSING` at a published index (Amendment 2).
+- NHR6's `1.5` and 2^63 rows are NHR6b's: the profile refuses the whole document (Amendment 3).
+- LV3 ran on `cfr` and `tfr`, and the exports were built per project, not by `Curia.sln` (Task 4).
+- A store fault answered `503`, so LV6's "5xx of another kind" is two `503`s (Task 4).
+- `NOW IN FORCE` had no ending; the fix, the reconcile and two cold-read pages were added (Amendment 4); NHR15d is not reachable.
+- The cold read's round 1 failed CR-g's own condition and CR-c's intent; the words were rewritten and round 2 added (Amendment 5; "makes no request" became "signs and sends nothing").
+- FNHR4's NHR9, FNHR16's NHR15b stayed green against the plan's prediction, and FNHR20 needed three builds.
+- Task 4c's first typed `Contains` for NHR15b was red for whitespace folding alone and was changed before the code step.
+
+### As run: what this plan did not read or verify, now answered or still open
+
+- `ServerFault` from `Curia.Api.Tests`: **answered** (Task 0 R7.1: cannot be built; `ServerFaultBody` is the public seam).
+- `KeyActRig` and `KeyActDouble`: **answered** (R7.2: a queue of `(status, body)`; `Requests` logs `METHOD path` in order; no change needed).
+- `PublishedKeysToolWords`: **answered** (correction 4; Amendment 1 ruling 7).
+- The full `ExitCode.For` mapping beyond `ForumFault = 8`: **still unread**; the exits observed in the run were 0, 2, 3, 6 and 8.
+- `LifecycleFold.cs` beyond `:233`, `:264` and `:292`: lines 233 and 264 hold (Task 0); **finding 9 itself is still `[read, not run]`** (item 323).
+- The `t8a-harness` approval-record lift: **answered** (Task 4: lifted in exports only, digests of the three `conformance/acta` vectors).
+- Whether the closed fuzz reaches a key route's `not-honoured` arm: **still unanswered as run**; `[read]` by Task 0 R7.4 (it can only on a defect, and its oracle fails any 5xx); the closed fuzz is the controller's.
+- `README.md` beyond one grep: **answered** (Task 5: no `0.12.0` remains; the two `not-honoured` hits left are the operator's `curia/acts/not-honoured`).
+- `ci.yml`: **answered** (Task 0 R6: only `:126-127` pin counts; nothing here moves them; #161 is unmerged).
+
+### As run: not run, and left open
+
+Not run by any task: the closed fuzz, `python3 tools/preflight/preflight.py`, the three `cargo` commands and the differential gate (the wire to `curia-testis` is unchanged; the controller's before the push), `Curia.sln`'s whole test run. Left open: items 322 and 323 (gated before the guard's lift) and 324 to 328; non-properties (d), (e) and (g) of G73; the guard is not lifted.
