@@ -45,14 +45,27 @@ namespace Curia.Client;
 /// </param>
 public sealed record AgentProfile(
     string Slug, string AgentId, string Kid, string Alg, Uri Forum, string? EnrolledAt = null, string? Signer = null,
-    ImmutableArray<RetainedKey> RetainedKeys = default, ImmutableArray<LifecycleAct> LifecycleActs = default)
+    ImmutableArray<RetainedKey> RetainedKeys = default, ImmutableArray<LifecycleAct> LifecycleActs = default,
+    ImmutableArray<PendingKeyAct> PendingKeyActs = default)
 {
     /// <summary>The retained keys; empty, never a default array.</summary>
     public ImmutableArray<RetainedKey> Retained => RetainedKeys.IsDefault ? [] : RetainedKeys;
 
     /// <summary>The acts this profile made; empty, never a default array.</summary>
     public ImmutableArray<LifecycleAct> Acts => LifecycleActs.IsDefault ? [] : LifecycleActs;
+
+    /// <summary>The acts this profile sent and did not hear an answer to (errata G74, R11.99); empty, never a default array.</summary>
+    public ImmutableArray<PendingKeyAct> Pending => PendingKeyActs.IsDefault ? [] : PendingKeyActs;
 }
+
+/// <summary>
+/// A rotation or a retirement this profile sent and does not know the outcome of (errata G74, R11.99): <c>pending_acts</c> in <c>identity.json</c>, absent from the file when empty. The key a rotation generated
+/// is the retained key of the same <paramref name="Kid"/>. <b>Seam only (register item 322, Task 1):</b> nothing writes or reads this member yet.
+/// </summary>
+/// <param name="Kind"><see cref="LifecycleAct.Rotation"/> or <see cref="LifecycleAct.Retirement"/>.</param>
+/// <param name="Kid">The key the act bound (a rotation) or ends (a retirement).</param>
+/// <param name="SentAt">The time the act was sent, as the client's own clock gave it.</param>
+public sealed record PendingKeyAct(string Kind, string Kid, DateTimeOffset SentAt);
 
 /// <summary>
 /// A key this identity no longer signs with (spec section 4.12): <c>retained_keys</c> in <c>identity.json</c>.
@@ -502,6 +515,26 @@ public sealed class ProfileStore
         {
             RetainedKeys = [.. profile.Retained, new RetainedKey(profile.Kid, profile.Alg, RetainedKeysDirectory + "/" + name)],
         };
+    }
+
+    /// <summary>The acts <paramref name="profile"/> sent and did not hear an answer to (errata G74, R11.99). <b>Seam:</b> the body is the identity until the member is read.</summary>
+    public static ImmutableArray<PendingKeyAct> PendingActs(AgentProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        return profile.Pending;
+    }
+
+    /// <summary>
+    /// Records an act sent and not heard from (errata G74, R11.99) and returns the profile with it. <b>Seam:</b> the writer does not yet render <c>pending_acts</c>, so nothing reaches the disk and no verb calls this.
+    /// </summary>
+    public AgentProfile RecordPendingAct(AgentProfile profile, PendingKeyAct act)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(act);
+
+        var recorded = profile with { PendingKeyActs = [.. profile.Pending, act] };
+        WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(recorded));
+        return recorded;
     }
 
     /// <summary>Adds an act the Forum accepted to the profile's record of them (spec section 4.12); the profile is returned, not written.</summary>

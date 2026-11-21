@@ -306,8 +306,9 @@ public sealed class NotHonouredRotationTests
     }
 
     /// <summary>
-    /// NHR7 (control, green on the tree by design): every other refusal of <c>curia rotate</c> keeps nothing. The rig's fingerprint (<c>identity.json</c>, <c>signing-key.pem</c>, the listing of <c>keys/</c>) is
-    /// equal before and after, and there is no file under <c>keys/</c>. A <c>503</c> and a request not heard from are not rows: the register holds them (item 322). It carries information through FNHR6.
+    /// NHR7 (control, green on the tree by design): every other refusal of <c>curia rotate</c> that the Forum answered below 500 keeps nothing. The rig's fingerprint (<c>identity.json</c>, <c>signing-key.pem</c>, the listing of <c>keys/</c>) is
+    /// equal before and after, and there is no file under <c>keys/</c>. Its rows are the answers below 500: a <c>5xx</c> and a request not heard from keep the act as not yet known (errata G74, R11.99), and
+    /// their rows are <c>UKA1</c>'s (the <c>500 curia/internal-error</c> row moved there, register item 322). It carries information through FNHR6.
     /// </summary>
     [Theory]
     [InlineData(400, "curia/keys/statement-unreadable", 1)]
@@ -316,7 +317,6 @@ public sealed class NotHonouredRotationTests
     [InlineData(409, "curia/keys/too-many-live-keys", 1)]
     [InlineData(409, "curia/keys/lifecycle-moved", 2)]
     [InlineData(429, "curia/keys/rotation-budget-exhausted", 1)]
-    [InlineData(500, "curia/internal-error", 1)]
     public async Task NHR7_EveryOtherRefusalOfARotationKeepsNothing_Control(int status, string type, int answers)
     {
         using var rig = KeyActRig.Create();
