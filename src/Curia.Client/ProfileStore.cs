@@ -65,7 +65,9 @@ public sealed record AgentProfile(
 /// <param name="File">The key file, relative to the profile directory; null when an external signer holds it.</param>
 /// <param name="Signer">The external signer's command; null when <paramref name="File"/> holds the key.</param>
 /// <param name="Retired">Whether the Forum accepted this profile's retirement of the key (R4.39).</param>
-public sealed record RetainedKey(string Kid, string Alg, string? File = null, string? Signer = null, bool Retired = false);
+/// <param name="RotationInForce">Whether the rotation that bound this key is one the Forum acts on; false for a key a rotation the Forum recorded and does not act on generated (R11.98).</param>
+public sealed record RetainedKey(
+    string Kid, string Alg, string? File = null, string? Signer = null, bool Retired = false, bool RotationInForce = true);
 
 /// <summary>
 /// A rotation or a retirement this profile made and the Forum accepted (spec section 4.12):
@@ -74,7 +76,8 @@ public sealed record RetainedKey(string Kid, string Alg, string? File = null, st
 /// <param name="Kind"><see cref="Rotation"/> or <see cref="Retirement"/>.</param>
 /// <param name="Kid">The key the act bound (a rotation) or ended (a retirement).</param>
 /// <param name="LogIndex">The log index the Forum appended the act at, as it answered.</param>
-public sealed record LifecycleAct(string Kind, string Kid, long LogIndex)
+/// <param name="InForce">False for an act the Forum recorded and answered it does not act on (R11.98); true for every act a <c>201</c> answered.</param>
+public sealed record LifecycleAct(string Kind, string Kid, long LogIndex, bool InForce = true)
 {
     /// <summary>The kind of an act that bound a new key.</summary>
     public const string Rotation = "rotation";
@@ -515,7 +518,9 @@ public sealed class ProfileStore
     /// retained key, the new key becomes the one it signs with, the act is recorded, the cached token (issued on the
     /// old key) is deleted. Called only after a 201, so a refused or failed rotation leaves
     /// <c>identity.json</c>, <c>signing-key.pem</c> and <c>keys/</c> as they were, and a key generated for it
-    /// has never reached the disk.
+    /// has never reached the disk, with one exception: a rotation the Forum answered <c>500</c>
+    /// <c>curia/keys/not-honoured</c> says a row exists, and the key generated for it is kept as a retained key whose
+    /// rotation is not in force (R11.98), by a method of its own and never by this one.
     /// </summary>
     /// <param name="profile">The profile as it was loaded, signing with the key that authorized the rotation.</param>
     /// <param name="newSigner">The key the rotation added: the signer that signed its possession.</param>
@@ -571,6 +576,89 @@ public sealed class ProfileStore
 
         WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(retired));
         return retired;
+    }
+
+    /// <summary>
+    /// Records a retirement this profile recorded as not in force that the Forum now acts on (R11.96 (add.), R11.98): the retained key is marked retired and the retirement act the profile holds for it is replaced by the
+    /// same act in force, in one write. No second act is recorded: the row is the one the Forum answered <c>500</c> for, at its own log index.
+    /// </summary>
+    public AgentProfile CompleteReconciledRetirement(AgentProfile profile, string kid)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        var reconciled = profile with
+        {
+            RetainedKeys = [.. profile.Retained.Select(k => string.Equals(k.Kid, kid, StringComparison.Ordinal) ? k with { Retired = true } : k)],
+            LifecycleActs = [.. profile.Acts.Select(a => a.Kind == LifecycleAct.Retirement && string.Equals(a.Kid, kid, StringComparison.Ordinal) && !a.InForce ? a with { InForce = true } : a)],
+        };
+
+        WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(reconciled));
+        return reconciled;
+    }
+
+    /// <summary>
+    /// Keeps a rotation the Forum recorded and answered <c>500</c> <c>curia/keys/not-honoured</c> (R11.98): the key the
+    /// rotation generated is kept as a retained key whose rotation is not in force (its private half under
+    /// <c>keys/</c> at 0600, or the external signer's command), and the act is recorded as not in force when
+    /// <paramref name="logIndex"/> is a whole number of at least 0. The profile does not sign with the new key:
+    /// <c>kid</c>, <c>alg</c>, <c>signer</c>, <c>signing-key.pem</c>, <c>dpop-key.pem</c> and the cached token are
+    /// not touched, because the Forum does not bind the key.
+    /// </summary>
+    /// <param name="profile">The profile as it was loaded.</param>
+    /// <param name="newSigner">The key the rotation added.</param>
+    /// <param name="newPrivateKey">Its private half when this process holds it; null for an external signer, whose command is recorded.</param>
+    /// <param name="logIndex">The answer's <c>log_index</c>, or null when it named none the client can use.</param>
+    /// <returns>The profile as written.</returns>
+    public AgentProfile RecordNotInForceRotation(
+        AgentProfile profile, IAgentSigner newSigner, ECDsa? newPrivateKey, long? logIndex)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(newSigner);
+
+        var directory = DirectoryFor(profile.Slug);
+        RetainedKey kept;
+        if ((newSigner as ExternalSigner)?.Command is { Length: > 0 } command)
+        {
+            kept = new RetainedKey(newSigner.Kid, newSigner.Alg, Signer: command, RotationInForce: false);
+        }
+        else
+        {
+            ArgumentNullException.ThrowIfNull(newPrivateKey);
+            CreatePrivateDirectory(Path.Combine(directory, RetainedKeysDirectory));
+            var name = RetainedKeyName(newSigner.Kid);
+            WritePrivate(Path.Combine(directory, RetainedKeysDirectory, name), newPrivateKey.ExportPkcs8PrivateKeyPem());
+            kept = new RetainedKey(newSigner.Kid, newSigner.Alg, RetainedKeysDirectory + "/" + name, RotationInForce: false);
+        }
+
+        var recorded = profile with { RetainedKeys = [.. profile.Retained, kept] };
+        if (logIndex is >= 0 and var index)
+            recorded = RecordAct(recorded, new LifecycleAct(LifecycleAct.Rotation, newSigner.Kid, index, InForce: false));
+
+        WritePrivate(Path.Combine(directory, IdentityFile), RenderIdentity(recorded));
+        return recorded;
+    }
+
+    /// <summary>
+    /// Records a retirement the Forum recorded and answered <c>500</c> <c>curia/keys/not-honoured</c> as made and not in
+    /// force (R11.98), when <paramref name="logIndex"/> is a whole number of at least 0. The retained key is not
+    /// marked retired: the Forum does not act on the row.
+    /// </summary>
+    /// <param name="profile">The profile as it was loaded.</param>
+    /// <param name="kid">The key the retirement ends.</param>
+    /// <param name="logIndex">The answer's <c>log_index</c>, or null when it named none the client can use.</param>
+    /// <returns>The profile as written.</returns>
+    public AgentProfile RecordNotInForceRetirement(AgentProfile profile, string kid, long? logIndex)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        if (logIndex is not (>= 0 and var index))
+            return profile;
+
+        var recorded = RecordAct(profile, new LifecycleAct(LifecycleAct.Retirement, kid, index, InForce: false));
+        WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(recorded));
+        return recorded;
     }
 
     /// <summary>
@@ -647,15 +735,33 @@ public sealed class ProfileStore
         if (key.File is { Length: > 0 } file) members.Add(new("file", new JsonValue.String(file)));
         if (key.Signer is { Length: > 0 } signer) members.Add(new("signer", new JsonValue.String(signer)));
         if (key.Retired) members.Add(new("retired", new JsonValue.Bool(true)));
+        if (!key.RotationInForce) members.Add(new("rotation_in_force", new JsonValue.Bool(false)));
         return new JsonValue.Object([.. members]);
     }
 
-    private static JsonValue RenderAct(LifecycleAct act) => new JsonValue.Object(
-    [
-        new("kid", new JsonValue.String(act.Kid)),
-        new("kind", new JsonValue.String(act.Kind)),
-        new("log_index", new JsonValue.Number(act.LogIndex)),
-    ]);
+    private static JsonValue RenderAct(LifecycleAct act)
+    {
+        var members = new List<KeyValuePair<string, JsonValue>>
+        {
+            new("kid", new JsonValue.String(act.Kid)),
+            new("kind", new JsonValue.String(act.Kind)),
+            new("log_index", new JsonValue.Number(act.LogIndex)),
+        };
+
+        if (!act.InForce) members.Add(new("in_force", new JsonValue.Bool(false)));
+        return new JsonValue.Object([.. members]);
+    }
+
+    /// <summary>
+    /// A boolean member that is absent (true), true or false; anything else is not a profile this client wrote
+    /// (R11.98): <see langword="null"/> names the member as malformed.
+    /// </summary>
+    private static bool? ReadFlag(JsonValue.Object o, string name) => ClientJson.Member(o, name) switch
+    {
+        null => true,
+        JsonValue.Bool b => b.Value,
+        _ => null,
+    };
 
     private static Result<ImmutableArray<RetainedKey>> ReadRetained(JsonValue.Object o)
     {
@@ -676,7 +782,10 @@ public sealed class ProfileStore
                 || (file is not null && !string.Equals(file, RetainedKeysDirectory + "/" + RetainedKeyName(kid), StringComparison.Ordinal)))
                 return Result<ImmutableArray<RetainedKey>>.Fail(ClientErrors.MalformedProfile("a retained key is held by its derived file or by a signer"));
 
-            read.Add(new RetainedKey(kid, alg, file, signer, ClientJson.Member(k, "retired") is JsonValue.Bool { Value: true }));
+            if (ReadFlag(k, "rotation_in_force") is not { } rotationInForce)
+                return Result<ImmutableArray<RetainedKey>>.Fail(ClientErrors.MalformedProfile("a retained key's rotation_in_force is a boolean"));
+
+            read.Add(new RetainedKey(kid, alg, file, signer, ClientJson.Member(k, "retired") is JsonValue.Bool { Value: true }, rotationInForce));
         }
 
         return Result<ImmutableArray<RetainedKey>>.Ok(read.ToImmutable());
@@ -693,7 +802,10 @@ public sealed class ProfileStore
                 || ClientJson.WholeNumber(a, "log_index") is not (>= 0 and { } index))
                 return Result<ImmutableArray<LifecycleAct>>.Fail(ClientErrors.MalformedProfile("a lifecycle act needs a kind, a kid and a log index"));
 
-            read.Add(new LifecycleAct(kind, kid, index));
+            if (ReadFlag(a, "in_force") is not { } inForce)
+                return Result<ImmutableArray<LifecycleAct>>.Fail(ClientErrors.MalformedProfile("a lifecycle act's in_force is a boolean"));
+
+            read.Add(new LifecycleAct(kind, kid, index, inForce));
         }
 
         return Result<ImmutableArray<LifecycleAct>>.Ok(read.ToImmutable());

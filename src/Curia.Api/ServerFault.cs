@@ -25,7 +25,7 @@ internal sealed partial class ServerFault(int status, Error error) : IResult
         var logger = httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger<ServerFault>();
         Withheld(logger, status, error.Type, error.Detail ?? "(none)");
 
-        await Results.Json(new Problem(error.Type, error.Title, null), statusCode: status)
+        await Results.Json(ServerFaultBody.Of(error), statusCode: status)
             .ExecuteAsync(httpContext)
             .ConfigureAwait(false);
     }
