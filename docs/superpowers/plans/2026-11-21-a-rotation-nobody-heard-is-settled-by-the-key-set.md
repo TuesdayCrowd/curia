@@ -215,3 +215,77 @@ Evidence is `.superpowers/sdd/2026-11-21-unheard-key-act/task-2-report.md`, each
    (f) **The store-fault sentence before the paragraph: not removed; the cold read decides, with a comparison page.** Verified in the report's transcript: on a `503` the line "...read what the request would have changed before sending it again." prints, and the R11.99 paragraph follows. They do not contradict (the paragraph is that reading: `curia rotate` reads the key set first), but an agent that takes the first sentence as an instruction to investigate by hand has been told to do what the command does, and "before sending it again" can be read as "do not run `curia rotate` yet". The errata says the paragraph governs; the printed words do not say so. The change that would remove it (a key-act-specific store-fault line) is a wording change in a shared sentence and needs evidence, so Task 4b reads **two** pages for CR-a, as built (a) and with the sentence suppressed (a'), and gates only (a); if (a) fails a gate that (a') passes, the sentence is removed for key acts and G74's text says so; if both pass, it stays.
 5. **Falsification rows added to FUKA1 to FUKA13:** **FUKA14** (the weak absent-list rule: reverts ruling 3's first line; must turn `UKA13` red), **FUKA15** (an unreadable `200`/`201` classed `Answered`; must turn UKA1's two new rows red), **FUKA16** (the window considered before a foreign entry; must turn `UKA8` red), **FUKA17** (an answer of 500 or above whose body the client cannot read classed `Answered`, i.e. dropped; must turn `NHR6b`'s three rows red), **FUKA18** (D37 check (iii)'s new row made to allow any verb; must leave `D37` green and is *expected* to be a masked row to be reported, not fixed: if the check cannot see a clause naming `curia retire` from `curia rotate`'s help it carries no information; Task 3 states which). Seventeen product rows and one fence row; counts to record: rows 18, runs 18 plus any split; no control red; the unpatched run after each green.
 6. **What this amendment did not decide.** Whether a key act's `200`/`201` unreadable body deserves its own words (it prints the Malformed refusal line and then R11.99's paragraph, which says "may or may not have recorded"; true, and the cold read judges it with CR-a). Item 325 (an MCP verb that runs the command), item 326 and item 323 stay open and are not widened.
+
+---
+
+# Amendment 4 (2026-11-21, after Task 4b round 1): the first-failure paragraph says what the profile holds and why to wait; round 2
+
+Written by `curia-architect` from `.superpowers/sdd/2026-11-21-unheard-key-act/cold-read-results-322.md` and `coldtext-322/` (read, not recalled). **Where this contradicts the plan, Amendments 1 to 3 or `cold-read-322.md`, it governs.** The errata text (G74, "R11.99 words") was changed with this amendment; Task 4c carries it into the build.
+
+## What round 1 found (all from the readers' own answers)
+
+CR-b, CR-c, CR-d, CR-e passed 3 of 3 each. CR-a1 and CR-a2 failed 0 of 3 each on clause (4) alone: no reader of the first-failure paragraph could say which key the profile signs with ("the page does not say which key"), and two (r13 on a control page, r23) noted the wait's reason is not given. CR-a1' (the paragraph without the store-fault sentence) failed the same clause 3 of 3 and passed the rest equally. CR-f is void: Task 4 captured `curia help rotate`, which prints the whole overview twice (`Help.cs` answers `curia help <verb>` with the overview and `curia <verb> --help` with the verb's clauses, `src/Curia.Client.Cli/Help.cs:195-196`), so no reader saw the clauses. Controls: every reader of the control build's pages read the owner's own rotation as a stranger's act (the harm item 322 closes); none passed a tip gate. Two things were never read: the retirement's first-failure paragraph (no page held it) and the help clauses.
+
+## Ruling 1: the paragraph's words (the errata's, verbatim; `<kid>` in a rotation's words is the key the profile signs with now)
+
+*After a rotation not heard from:*
+
+> The Forum may or may not have recorded this rotation, and this profile has kept it as not yet known: it was sent at `<sent>`. Until it is settled this profile still signs with `<kid>` and holds the new key `<new kid>` unused. The Forum may still record the rotation in the meantime, so run curia rotate again no sooner than `<after>`: it reads the Forum's key set first, completes the rotation if the Forum recorded it, and makes a second one only if the Forum shows none. curia keys reads the same key set and writes nothing. Do not make a key by hand.
+
+*After a retirement not heard from:*
+
+> The Forum may or may not have recorded this retirement of key `<kid>`, and this profile has kept it as not yet known: it was sent at `<sent>`. Until it is settled this profile still lists `<kid>` as live and has not recorded it retired. The Forum may still record the retirement in the meantime, so run curia retire again no sooner than `<after>`: it reads the Forum's key set first, records the retirement if the Forum recorded it, and sends a second one only if the Forum shows none. curia keys reads the same key set and writes nothing.
+
+Why these and not more: each adds exactly the two facts round 1 found missing (the key in force and the kept key unused; the reason to wait) and nothing a reader did not ask for. "In the meantime" claims no bound (non-property (d): five minutes is a margin, not a bound). For a retirement the key signed with does not change (`curia retire` never ends the key in use), so the paragraph says what the profile holds about the retiree instead of asserting a signing key. The words do not say "failed" or "worked", do not name `curia verify`, and keep "Do not make a key by hand" for the rotation only (a retirement has no key to make).
+
+## Ruling 2 (4(f)): the store-fault sentence stays for key acts; the paragraph is rewritten
+
+The decision rule in `cold-read-322.md` is fixed before the run: both pages failing the same clause means "the paragraph is rewritten". CR-a1 and CR-a1' failed clause (4) 3 of 3 each and passed (1) to (3) equally, so there is no difference the sentence made on the tip. Evidence on the sentence itself: no tip reader (page 1, 2 or 3) began with a manual investigation; every one began with `curia keys`, which the paragraph's last sentences allow; on the control page that has the sentence and no paragraph (X3), r13, r20 and r24 cited it as the reason to investigate by hand and not rerun. So the sentence does the harm only where the paragraph is absent; the paragraph follows it and governs it, and the errata says so (it records this evidence and the round-2 trigger). Not removed: removal means a key-act-specific store-fault line in a shared sentence, which needs evidence the tip pages did not produce. Round 2 decides again on the rewritten pages (below).
+
+## Ruling 3: the errata text (done)
+
+`curia-whitepaper-ERRATA-AND-ADDENDUM.md`, G74, "R11.99 words": the `<kid>` placeholder is defined for a rotation's words; the two paragraphs are the ones above; the closing sentence of the words now says what the paragraph tells (what the profile holds, why to wait), records round 1's finding and the 4(f) decision, and states the round-2 trigger for removing the sentence. `check-spec.py` clean; `falsify-spec-checks.py` all 4 checks red naming their cell. Nothing else in G74 moves: R11.99, R11.100 and the three `curia keys` lines are unchanged (the `RECORDED` line already says "still signs with"; CR-b to CR-e read them and passed).
+
+## Ruling 4: the probes that move
+
+- **UKA11** reads `After a rotation not heard from` and `After a retirement not heard from` from the errata at test time, so its four rows `after-503-rotation`, `after-unheard-rotation`, `after-503-retirement`, `after-unheard-retirement` are **red on the tree as of the errata edit** and the code change turns them green; no assertion is edited. Task 4c records them red first, then green. (`Fill` already fills `<kid>` with `NotHonouredKit.OwnKid`, the scene's signing key, and `<new kid>` with the key the double received; a build that put the new key where `<kid>` stands fails the row, because the two kids differ.)
+- **New falsification rows**, one probe each (UKA11) and each independent: **FUKA19** the rotation paragraph without "Until it is settled ... unused." (the round-1 defect, restored); **FUKA20** the retirement paragraph without "Until it is settled ... retired."; **FUKA21** the rotation paragraph with `<kid>` and `<new kid>` swapped (names the new key as the one signed with; the likeliest slip); **FUKA22** both paragraphs without "The Forum may still record ... in the meantime," (the reason). All four must go red on UKA11's after-* rows of their kind and nothing else. Vacuity: the probe and the code both read words, but the errata is a different artifact from `KeyActWords.cs`, so a drop on either side is a build failure; what the probe cannot show is that the words are understood, and that is round 2's job, not the probe's.
+- No new probe for "the reader understands": the cold read is the check and stays one.
+
+## Ruling 5: the pages that move
+
+Only the words of two paragraphs and `curia <verb> --help` changed in capture, so **pages 4 to 7 and 9 to 12 stay as captured**: they hold no paragraph, and Task 4c proves it by listing `git diff b5039fb2 -- src tests` (only `KeyActWords.cs`, its call site in `Program.cs`, and no other file under `src/`). Re-captured live, from a build of the corrected tree, by the same harness:
+- **page 1** (CR-a1): LV7 on `t`, the `503`; **page 2** (CR-a1'): LV7 on `ts`, the same with the store-fault sentence removed; **page 3** (CR-a2): LV1 `drop-answer`; **page 13 (new, CR-a3)**: LV4 `drop-answer`, the first command only (`curia retire --kid <old>` not heard from; the retirement paragraph, never read in round 1); **page 8** (CR-f): `curia rotate --help` then `curia retire --help`, whole, each from the built binary (`Help.cs:195-196` carries the clauses; if `--help` prints the overview, stop and say so).
+- `coldtext-322/INDEX.md` gains page 13 and says which build produced each re-captured page; the old pages 1 to 3 and 8 are replaced, not kept beside (the round-1 pages stay in the results file's record only).
+
+## Ruling 6: round 2 (the last; a second failure goes to the owner)
+
+Fresh readers only, none who read a round-1 page; neutral directory names continuing `r35` to `r49`; same framing paragraph, same scans, same common closing as `cold-read-322.md`. The prompts for CR-a1, CR-a1', CR-a2 and CR-f are round 1's; **CR-a3's prompt** (page 13): *You ran `curia retire` to end one of your agent's old signing keys. Read `output.txt`. Did the retirement happen? Does your profile treat that key as live or retired? What do you do next, and when? Is it safe to run `curia retire` again?* CR-f's page is `help.txt` and its prompt is round 1's.
+
+| Set | Page | Readers | Gated? |
+|---|---|---|---|
+| CR-a1 | 1 (rewritten, `t`) | 3 | yes |
+| CR-a1' | 2 (rewritten, `ts`) | 3 | recorded (the 4(f) comparison) |
+| CR-a2 | 3 (rewritten, `t`) | 3 | yes |
+| CR-a3 | 13 (retirement, `t`) | 3 | yes |
+| CR-f | 8 (`--help`, `t`) | 3 | yes |
+
+**15 readers**: 12 gated, 3 recorded. Not re-read: CR-b, CR-c, CR-d, CR-e (3 of 3 each, on words that did not change: Ruling 5's listing is what makes that carry), the controls X1 to X3 (the control build is unchanged), R (page 12 holds `curia_keys`, not the paragraph).
+
+**Gates, restated before the run (trap 289: each is on what the reader would do and why; a reader who recites the right command with a reason that leads elsewhere fails):**
+- **CR-a1, CR-a2, CR-a3**, clauses (1) to (3) as in `cold-read-322.md` (a retirement reading: the Forum may or may not have recorded it, no "failed" or "worked"; would run `curia retire` again, or `curia keys` and then `curia retire`, not before the printed time, with the page's reason; would not edit the profile, mark the key retired by hand, or run it again at once). **(4)** says what the profile holds meanwhile: for CR-a1 and CR-a2 that it still signs with its current (old) key and holds the new key unused; for CR-a3 that it still lists the key as live (the retirement is not recorded in the profile). **(5)** gives the reason to wait that would lead to waiting: the Forum may still record the act in the meantime (or equivalent: a request in flight may still land); "the page gives a time" alone, or "the command checks the key set" alone, fails (5). CR-a1 keeps its special clause (a manual investigation the page's last sentences do not give, or waiting without ever running `curia rotate` again, fails).
+- **CR-a1'**, the same clauses, scored. **4(f), restated:** if CR-a1 fails a clause that CR-a1' passes in the same number of readers or more, the sentence is removed for key acts and the errata says so (Task 4d, a key-act-specific store-fault line); if both pass, it stays and G74 already says so; if both fail, stop and report to the owner (round 2 is the last).
+- **CR-f**, as in `cold-read-322.md`: a rotation or retirement that was sent and not heard from is **kept as not yet known**; re-running the same command **is safe** and settles it first; `curia keys` prints the time; none says to avoid re-running.
+- **12 of 12 gated readers pass, or stop.** The recorded observations of every set stay as `cold-read-322.md` has them, and the leads from round 1 stay open and are not gates: what exit 8 means on the first-failure page, what happens if the Forum is still down at the retry time, whether a lost rotation could land after the wait (non-property (d) answers it), `curia verify` with no argument (item 327), and the `UNKNOWN` line's silence on which key signs.
+
+## Ruling 7: the reader count (corrects `cold-read-322.md`)
+
+The spec says 31 readers; its table totals **34** (eleven sets of three, one of one: CR-a1, CR-a1', CR-a2, CR-b, CR-c, CR-d, CR-e, CR-f, X1, X2, X3 and R: 24 + 9 + 1), of which 21 gated and 13 recorded. Round 1 ran **32** (r07 for CR-f, voided; r18 and r27 withheld). Round 2 adds 15. The controller corrects the spec's sentence ("Total 34 readers: 21 gated, 13 recorded") and the PR body states counts by page, not a total.
+
+## Ruling 8: what is the owner's
+
+Nothing here. If round 2 fails a gate the item stops there and goes to the owner, as the plan says; a key-act-specific store-fault line (Ruling 2) would be Task 4d under the architect, not an owner decision.
+
+## Task 4c
+
+`.superpowers/sdd/2026-11-21-unheard-key-act/task-4c-brief.md` (the controller copies it there). Its order: the words in code, UKA11 red then green, the gates in both configurations, FUKA19 to FUKA22, the corrected exports and the five pages, the scans. It does not run the cold read (the controller does) and edits no document.
