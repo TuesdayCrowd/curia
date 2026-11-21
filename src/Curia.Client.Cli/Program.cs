@@ -2154,7 +2154,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// The end of a key act the Forum refused, otherwise (errata G74, R11.99): an answer of 500 or above and a send whose answer was not read keep the act, as not yet known, and print what to do after the refusal's
+    /// The end of a key act the Forum refused, otherwise (errata G74, R11.99): an answer of 500 or above and a send whose answer was not read keep the act, as not yet known, and print what this profile holds meanwhile (a rotation: it still signs with the key it signed with before, read from the profile as it stands) and what to do, after the refusal's
     /// own lines, on standard error, the exit staying the refusal's; any other refusal, an answer below 500 or a request that provably did not leave, removes what was kept and is written as every refusal is.
     /// </summary>
     private static async Task<int> RefusedKeyActAsync(
@@ -2167,8 +2167,9 @@ internal static class Program
         }
 
         var code = await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
-        if (FreshProfile(store, profile).Pending.FirstOrDefault(p => p.Kind == kind && string.Equals(p.Kid, kid, StringComparison.Ordinal)) is { } kept)
-            Output.Error(KeyActWords.AfterNotHeard(kept, kept.SentAt));
+        var fresh = FreshProfile(store, profile);
+        if (fresh.Pending.FirstOrDefault(p => p.Kind == kind && string.Equals(p.Kid, kid, StringComparison.Ordinal)) is { } kept)
+            Output.Error(KeyActWords.AfterNotHeard(kept, kept.SentAt, fresh.Kid));
 
         return code;
     }

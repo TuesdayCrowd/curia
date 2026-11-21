@@ -12,20 +12,26 @@ public static class KeyActWords
     /// <summary>A UTC instant to the second, as the errata writes one (<c>2026-11-21T10:00:00Z</c>).</summary>
     public static OwnText Instant(DateTimeOffset at) => new(at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture));
 
-    /// <summary>R11.99 words, after a rotation or a retirement not heard from: printed after the line the failure already prints.</summary>
-    public static FrameBuilder AfterNotHeard(PendingKeyAct act, DateTimeOffset sent)
+    /// <summary>
+    /// R11.99 words, after a rotation or a retirement not heard from: printed after the line the failure already prints. Besides when the act was sent and when to ask again, the sentence says what this profile holds until the
+    /// act is settled (a rotation: it still signs with <paramref name="signingKid"/> and holds the new key unused; a retirement: it still lists the key as live and has not recorded it retired) and why to wait (the Forum may still
+    /// record the act). <paramref name="signingKid"/> is the key the profile signs with now; a retirement's sentence does not use it.
+    /// </summary>
+    public static FrameBuilder AfterNotHeard(PendingKeyAct act, DateTimeOffset sent, string signingKid)
     {
+        ArgumentNullException.ThrowIfNull(signingKid);
         ArgumentNullException.ThrowIfNull(act);
 
         var frame = new FrameBuilder();
         if (act.Kind == LifecycleAct.Rotation)
         {
-            frame.Line($"The Forum may or may not have recorded this rotation, and this profile has kept it as not yet known: it was sent at {Instant(sent)}. Run curia rotate again no sooner than {Instant(sent + KeyActSettling.Window)}: it reads the Forum's key set first, completes the rotation if the Forum recorded it, and makes a second one only if the Forum shows none. curia keys reads the same key set and writes nothing. Do not make a key by hand.");
+            var newKid = act.Kid;
+            frame.Line($"The Forum may or may not have recorded this rotation, and this profile has kept it as not yet known: it was sent at {Instant(sent)}. Until it is settled this profile still signs with {signingKid} and holds the new key {newKid} unused. The Forum may still record the rotation in the meantime, so run curia rotate again no sooner than {Instant(sent + KeyActSettling.Window)}: it reads the Forum's key set first, completes the rotation if the Forum recorded it, and makes a second one only if the Forum shows none. curia keys reads the same key set and writes nothing. Do not make a key by hand.");
         }
         else
         {
             var kid = act.Kid;
-            frame.Line($"The Forum may or may not have recorded this retirement of key {kid}, and this profile has kept it as not yet known: it was sent at {Instant(sent)}. Run curia retire again no sooner than {Instant(sent + KeyActSettling.Window)}: it reads the Forum's key set first, records the retirement if the Forum recorded it, and sends a second one only if the Forum shows none. curia keys reads the same key set and writes nothing.");
+            frame.Line($"The Forum may or may not have recorded this retirement of key {kid}, and this profile has kept it as not yet known: it was sent at {Instant(sent)}. Until it is settled this profile still lists {kid} as live and has not recorded it retired. The Forum may still record the retirement in the meantime, so run curia retire again no sooner than {Instant(sent + KeyActSettling.Window)}: it reads the Forum's key set first, records the retirement if the Forum recorded it, and sends a second one only if the Forum shows none. curia keys reads the same key set and writes nothing.");
         }
 
         return frame;
