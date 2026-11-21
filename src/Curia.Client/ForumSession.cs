@@ -328,12 +328,16 @@ public sealed class ForumSession
     /// <summary>
     /// Errata G74, R11.99: a refusal of a key act says what the send was to the keeping of the act, as R11.80's stop rule reads a send (<see cref="KeptActs.ClassOf"/>): <see cref="SendClass.Unanswered"/> for a send whose answer
     /// was not read (the challenge hop included) and for an answer of 500 or above, <see cref="SendClass.Answered"/> for a response below 500, <see cref="SendClass.Neither"/> for a request that provably did not leave. The caller's own
-    /// cancellation is not a refusal: it ends the call by its exception and the act stays kept.
+    /// cancellation is not a refusal: it ends the call by its exception and the act stays kept. A <c>200</c> or <c>201</c> whose body the client cannot read (<see cref="RefusalKind.Malformed"/>) is
+    /// not an answer read either: the act may be recorded and the receipt is lost, so it is <see cref="SendClass.Unanswered"/> (Amendment 3 ruling 4(e)).
     /// </summary>
-    private static ForumResult<KeyActReceipt> ClassifiedSend(ForumResult<KeyActReceipt> result, SendTrace trace) =>
-        result.TryGetValue(out _, out var refusal)
-            ? result
-            : ForumResult<KeyActReceipt>.Refused(refusal! with { KeptSend = KeptActs.ClassOf(AnswerOf(refusal!, trace.Sent)) });
+    private static ForumResult<KeyActReceipt> ClassifiedSend(ForumResult<KeyActReceipt> result, SendTrace trace)
+    {
+        if (result.TryGetValue(out _, out var refusal)) return result;
+        if (refusal!.Kind == RefusalKind.Malformed && refusal.Status is 200 or 201)
+            return ForumResult<KeyActReceipt>.Refused(refusal with { KeptSend = SendClass.Unanswered });
+        return ForumResult<KeyActReceipt>.Refused(refusal with { KeptSend = KeptActs.ClassOf(AnswerOf(refusal, trace.Sent)) });
+    }
 
     /// <summary>
     /// R4.39: <c>POST /v1/agents/{id}/keys/{kid}/retire</c>, a retirement built by

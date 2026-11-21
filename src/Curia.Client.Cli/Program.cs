@@ -1916,7 +1916,7 @@ internal static class Program
     /// The report <c>curia keys</c> prints (spec section 4.9), from <see cref="KeysReport"/>, which <c>curia_keys</c> reads too (errata G68, R11.96): one line per key, the lifecycle's extent, a
     /// <c>MISSING</c> line for each act this profile recorded that the Forum's lifecycle does not hold, a <c>SKIPPED</c> line for each row it does not act on, a <c>FOREIGN</c> line for each entry it
     /// holds that this profile did not make, and the kinds the Forum enables. Exit 6 on any of the first three, 8 when no comparison could be made. For each act this profile sent and did not hear an answer to, one
-    /// line the key set decides: <c>RECORDED</c> (exit 6), <c>UNKNOWN</c> (exit 8) or <c>NOT RECORDED</c> (exit 0, no finding) (errata G74, R11.100); the report writes nothing. <paramref name="time"/> is the clock the window is judged on.
+    /// line the key set decides: <c>RECORDED</c> (exit 6), <c>UNKNOWN</c> (exit 8) or <c>NOT RECORDED</c> (exit 0, no finding) (errata G74, R11.100); the report writes nothing. The clock is the composition root's: this form judges the window on the system clock.
     /// </summary>
     internal static Task<int> ShowKeysAsync(ForumClient client, AgentProfile profile, CancellationToken ct) =>
         ShowKeysAsync(client, profile, TimeProvider.System, ct);
@@ -2192,7 +2192,7 @@ internal static class Program
     /// <summary>
     /// Settles each act of <paramref name="kind"/> this profile sent and did not hear an answer to (for a retirement, of the key <paramref name="kid"/>) before anything is signed, by the key set and never by a resend
     /// (errata G74, R11.99 (settling)). The key set is read once, and only when the profile holds such an act. A recorded act is completed (a rotation as a <c>201</c> would have, a retirement marked) with nothing signed or
-    /// sent, and the verb ends, exit 0. A foreign entry ends the verb as the foreign check does, exit 6. Otherwise, inside the window the verb is refused, exit 8, and keeps everything; past it an act that could be a row the
+    /// sent, and the verb ends, exit 0. A foreign entry ends the verb as the foreign check does, exit 6. Decided in this order: recorded, foreign, inside the window, held, drop. Otherwise, inside the window the verb is refused, exit 8, and keeps everything; past it an act that could be a row the
     /// Forum skips is released (the key kept, no act recorded) and the verb goes on, and any other is dropped (its key removed) and the verb goes on to make the act it was asked for, once.
     /// </summary>
     private static async Task<(int? Exit, AgentProfile Profile)> SettleAsync(

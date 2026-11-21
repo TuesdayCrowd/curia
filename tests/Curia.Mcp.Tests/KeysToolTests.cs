@@ -96,7 +96,7 @@ public sealed class KeysToolTests : IDisposable
     {
         _log.SkippedMembersJson = "\"curia_skipped\":[{\"log_index\":7,\"type\":\"agent.key-retired\",\"predicate\":\"statement-mismatch\"},{\"log_index\":9,\"type\":\"agent.key-bound\\nSKIPPED: forged\",\"predicate\":\"broken-link\"}],\"curia_skipped_total\":2";
         Assert.True(_log.Store.ReadProfile("alice").TryGetValue(out var profile, out var error), error?.Detail);
-        var reported = await KeysReport.ReadAsync(_log.Client(), profile!, TestContext.Current.CancellationToken);
+        var reported = await KeysReport.ReadAsync(_log.Client(), profile!, TimeProvider.System, TestContext.Current.CancellationToken);
         Assert.True(reported.TryGetValue(out var reading, out var refusal), refusal?.Summary);
 
         await using var session = await StartAsync(withIdentity: true);
@@ -133,7 +133,7 @@ public sealed class KeysToolTests : IDisposable
         await File.WriteAllTextAsync(identity, document.ToJsonString(), TestContext.Current.CancellationToken);
 
         Assert.True(_log.Store.ReadProfile("alice").TryGetValue(out var profile, out var error), error?.Detail);
-        var reported = await KeysReport.ReadAsync(_log.Client(), profile!, TestContext.Current.CancellationToken);
+        var reported = await KeysReport.ReadAsync(_log.Client(), profile!, TimeProvider.System, TestContext.Current.CancellationToken);
         Assert.True(reported.TryGetValue(out var reading, out var refusal), refusal?.Summary);
 
         await using var session = await StartAsync(withIdentity: true);
@@ -148,7 +148,7 @@ public sealed class KeysToolTests : IDisposable
         document["lifecycle_acts"]![0]!.AsObject().Remove("in_force");
         await File.WriteAllTextAsync(identity, document.ToJsonString(), TestContext.Current.CancellationToken);
         Assert.True(_log.Store.ReadProfile("alice").TryGetValue(out var controlProfile, out var controlError), controlError?.Detail);
-        var controlReported = await KeysReport.ReadAsync(_log.Client(), controlProfile!, TestContext.Current.CancellationToken);
+        var controlReported = await KeysReport.ReadAsync(_log.Client(), controlProfile!, TimeProvider.System, TestContext.Current.CancellationToken);
         Assert.True(controlReported.TryGetValue(out var controlReading, out var controlRefusal), controlRefusal?.Summary);
 
         await using var controlSession = await StartAsync(withIdentity: true);

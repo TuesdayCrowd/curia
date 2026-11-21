@@ -86,6 +86,7 @@ internal sealed class UnheardScene : IDisposable
         Rig = rig;
         Clock = clock;
         SigningKid = signingKid;
+        rig.Double.SkippedMembers = "\"curia_skipped\":[],\"curia_skipped_total\":0";
     }
 
     internal KeyActRig Rig { get; }
@@ -229,7 +230,7 @@ public sealed class UnheardKeyActTests
     {
         var rows = new TheoryData<string, string>();
         foreach (var act in new[] { "rotate", "retire" })
-            foreach (var row in new[] { "503", "500-internal-error", "502", "504", "unheard-after-the-request-is-read", "cancelled-send", "unheard-on-the-challenge-hop" })
+            foreach (var row in new[] { "503", "500-internal-error", "502", "504", "unheard-after-the-request-is-read", "cancelled-send", "unheard-on-the-challenge-hop", "201-unreadable-body", "200-empty-object" })
                 rows.Add(act, row);
 
         return rows;
@@ -257,6 +258,12 @@ public sealed class UnheardKeyActTests
             case "cancelled-send":
                 forum.LifecycleFaults.Enqueue(Fault.WaitForCancel);
                 forum.OnLifecycleRequest = _ => cancel.Cancel();
+                break;
+            case "201-unreadable-body":
+                forum.LifecycleAnswers.Enqueue((HttpStatusCode.Created, "not json"));
+                break;
+            case "200-empty-object":
+                forum.LifecycleAnswers.Enqueue((HttpStatusCode.OK, "{}"));
                 break;
             case "unheard-on-the-challenge-hop":
                 forum.Challenge = true;
@@ -575,21 +582,38 @@ public sealed class UnheardKeyActTests
     }
 
     /// <summary>
-    /// UKA13 (errata G74, R11.99 (settling), the cell that cannot be told from a stranger's): past the window, a key set that says neither which rows it skips nor its lifecycle (the Forum's log would not fold: no
+    /// UKA13c (errata G74, R11.99 (settling), the cell that cannot be told from a stranger's): past the window, a key set that says neither which rows it skips nor its lifecycle (the Forum's log would not fold: no
     /// <c>curia_skipped</c> member and no <c>curia_lifecycle</c>) is read as holding a skipped row, because an absence of a list is not a list of none. The kept key is not removed, the record is, and no act is
     /// recorded; the verb goes on and then stops at its own check that the key set names no lifecycle (exit 8, nothing sent). <b>Narrower than the plan's wording:</b> <see cref="KeyActDouble"/> serves no
     /// <c>curia_skipped</c> member in <i>any</i> key set, UKA5, UKA7 and UKA11's "clean" ones included, and those probes expect the drop; a key set that gives its lifecycle and no list is read as skipping none.
     /// The guard it holds is <c>KeyActSettling.CouldBeSkipped</c>'s first line: reverted to <c>false</c> this probe goes red (<c>the kept key was removed</c>).
     /// </summary>
     [Fact]
-    public async Task UKA13_AKeySetThatSaysNeitherItsSkippedRowsNorItsLifecycleHoldsTheKey()
+    public async Task UKA13c_AKeySetThatSaysNeitherItsSkippedRowsNorItsLifecycleHoldsTheKey()
     {
         using var scene = UnheardScene.PendingRotation(Sent + UnheardWords.Window);
+        scene.Rig.Double.SkippedMembers = null;
         scene.Rig.Double.KeySet = KeyActDouble.KeySetJson([new KeyActDouble.Key(NotHonouredKit.OwnKid, 1)], lifecycle: null);
 
         var (exit, _, _) = await scene.RotateAsync(Ct);
 
         WholeText.Same("exit 8; 0 lifecycle POST; the kept key is present; the kept key is held as a key whose rotation is not in force; no act recorded at an index: yes; pending []", HeldActual(scene, exit));
+    }
+
+    /// <summary>
+    /// UKA13 (errata G74, R11.99 (settling), Amendment 3 ruling 3): past the window, a key set that gives its lifecycle and no <c>curia_skipped</c> is held: an absent list is not a list of none. Exit 0, one rotation,
+    /// the key kept as a key whose rotation is not in force. The guard is <c>KeyActSettling.CouldBeSkipped</c>'s first line.
+    /// </summary>
+    [Fact]
+    public async Task UKA13_AKeySetWithALifecycleAndNoSkippedListHoldsTheKey()
+    {
+        using var scene = UnheardScene.PendingRotation(Sent + UnheardWords.Window);
+        scene.Rig.Double.SkippedMembers = null;
+        scene.Rig.Double.KeySet = KeyActDouble.KeySetJson([new KeyActDouble.Key(NotHonouredKit.OwnKid, 1)], [0, 1]);
+
+        var (exit, _, _) = await scene.RotateAsync(Ct);
+
+        WholeText.Same("exit 0; 1 lifecycle POST; the kept key is present; the kept key is held as a key whose rotation is not in force; no act recorded at an index: yes; pending []", HeldActual(scene, exit));
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Serving;
 using Curia.Mcp;
@@ -138,8 +139,8 @@ public sealed class UnheardKeysToolTests : IDisposable
         var words = template
             .Replace("<the rotate command>", "curia rotate --agent alice", StringComparison.Ordinal)
             .Replace("<the retire command for <kid>>", $"curia retire --agent alice --kid {kid}", StringComparison.Ordinal)
-            .Replace("<new kid>", kid, StringComparison.Ordinal)
-            .Replace("<kid>", rotation ? StubLog.AgentKid : kid, StringComparison.Ordinal)
+            .Replace("<new kid>", DisplayLiteral.Of(kid), StringComparison.Ordinal)
+            .Replace("<kid>", DisplayLiteral.Of(rotation ? StubLog.AgentKid : kid), StringComparison.Ordinal)
             .Replace("<sent>", Instant(Sent), StringComparison.Ordinal)
             .Replace("<after>", Instant(Sent + TimeSpan.FromMinutes(5)), StringComparison.Ordinal)
             .Replace("<i>", _log.KeyIndex.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
@@ -149,7 +150,8 @@ public sealed class UnheardKeysToolTests : IDisposable
         var says = PublishedClientWords.Says(answer.Text, words);
         WholeText.Same(
             $"the tool's text is what KeysReport renders; it holds the errata's words: {words}",
-            $"the tool's text {(same ? "is" : "is not")} what KeysReport renders; it {(says ? "holds" : "does not hold")} the errata's words: {words}\n--- the tool's text ---\n{answer.Text}");
+            $"the tool's text {(same ? "is" : "is not")} what KeysReport renders; it {(says ? "holds" : "does not hold")} the errata's words: {words}"
+            + (same && says ? string.Empty : $"\n--- the tool's text ---\n{answer.Text}"));
     }
 
     /// <summary>UKA12, the version: <c>curia-mcp</c> reports the version R11.100's paragraph names, read by the one reader (<c>PublishedReadersLastWords.Version()</c>, re-pointed at R11.100's paragraph by errata G74's build). Red on the tree: <c>Expected: 0.12.2  Actual: 0.12.1</c>.</summary>

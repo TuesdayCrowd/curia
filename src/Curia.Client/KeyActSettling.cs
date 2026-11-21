@@ -70,13 +70,12 @@ public static class KeyActSettling
 
     /// <summary>
     /// Whether a row the key set says the Forum skips could be this act's: a skipped row of the act's kind (<c>agent.key-bound</c> for a rotation, <c>agent.key-retired</c> for a retirement) at an index the profile
-    /// recorded no act at; or a total larger than the rows listed when none listed is of the kind (the list is capped, so the rows past it are unseen); or a key set that does not say which rows it skips because it
-    /// does not say its lifecycle either (the Forum's log would not fold: an absence of a list is not a list of none). A key set that gives its lifecycle and no skipped list, as a Forum of before errata G68 did, is
-    /// read as skipping none.
+    /// recorded no act at; or a total larger than the rows listed when none listed is of the kind (the list is capped, so the rows past it are unseen); or a key set that does not say which rows it skips (the Forum's log would not fold). A key set with no skipped list is held whatever else it says: an absent list is not a list of none, and R4.41 has a deciding Forum publish
+    /// it, empty when nothing is skipped.
     /// </summary>
     private static bool CouldBeSkipped(AgentProfile profile, PendingKeyAct act, KeySetDocument keySet)
     {
-        if (keySet.Skipped is not { } rows) return keySet.Lifecycle is null;
+        if (keySet.Skipped is not { } rows) return true;
 
         var type = act.Kind == LifecycleAct.Rotation ? BoundType : RetiredType;
         var made = profile.Acts.Select(a => a.LogIndex).ToHashSet();

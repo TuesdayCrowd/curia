@@ -85,6 +85,9 @@ internal sealed class KeyActDouble : HttpMessageHandler
     /// <summary>Key sets served, one per read, before <see cref="KeySet"/> is.</summary>
     internal Queue<string> KeySetSequence { get; } = [];
 
+    /// <summary>Members appended to a served key set that carries no <c>curia_skipped</c> (what a deciding Forum publishes); null serves the document as it is.</summary>
+    internal string? SkippedMembers { get; set; }
+
     /// <summary>Answers to the lifecycle POSTs, one each, before the default (a 201 for the statement sent).</summary>
     internal Queue<(HttpStatusCode Status, string Body)> LifecycleAnswers { get; } = [];
 
@@ -198,7 +201,9 @@ internal sealed class KeyActDouble : HttpMessageHandler
         if (method == HttpMethod.Get && path == "/v1/jwks")
         {
             KeySetReads++;
-            return (HttpStatusCode.OK, KeySetSequence.Count > 0 ? KeySetSequence.Dequeue() : KeySet);
+            var served = KeySetSequence.Count > 0 ? KeySetSequence.Dequeue() : KeySet;
+            if (SkippedMembers is { } skipped && !served.Contains("curia_skipped", StringComparison.Ordinal)) served = served[..^1] + "," + skipped + "}";
+            return (HttpStatusCode.OK, served);
         }
 
         if (IsLifecyclePost(line))

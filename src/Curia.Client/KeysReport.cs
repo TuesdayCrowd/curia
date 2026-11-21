@@ -42,9 +42,6 @@ public sealed record KeysReading(string Text, KeysVerdict Verdict, string? Could
 /// </summary>
 public static class KeysReport
 {
-    /// <summary><see cref="ReadAsync(ForumClient, AgentProfile, TimeProvider, CancellationToken)"/> on the system clock: for a caller that holds no clock of its own and no act whose window it judges.</summary>
-    public static Task<ForumResult<KeysReading>> ReadAsync(ForumClient client, AgentProfile profile, CancellationToken ct) =>
-        ReadAsync(client, profile, TimeProvider.System, ct);
 
     /// <summary>
     /// Reads the identity's key set and reports it against <paramref name="profile"/>, as of the time <paramref name="time"/> gives once (an act this profile sent and did not hear an answer to is judged against the window,
