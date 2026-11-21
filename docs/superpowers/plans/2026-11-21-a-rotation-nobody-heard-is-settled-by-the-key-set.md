@@ -289,3 +289,159 @@ Nothing here. If round 2 fails a gate the item stops there and goes to the owner
 ## Task 4c
 
 `.superpowers/sdd/2026-11-21-unheard-key-act/task-4c-brief.md` (the controller copies it there). Its order: the words in code, UKA11 red then green, the gates in both configurations, FUKA19 to FUKA22, the corrected exports and the five pages, the scans. It does not run the cold read (the controller does) and edits no document.
+
+---
+
+## As run
+
+*(Written by Task 5 from the task reports in `.superpowers/sdd/2026-11-21-unheard-key-act/` (`task-0-report.md` to `task-4c-report.md`, `task-3.jsonl`, `task-3-fuka18b.jsonl`, `task-4c.jsonl`, `item322-live.txt`, `cold-read-results-322.md`), the commit messages and the files they cite; every figure is copied from the file that holds it, and a figure Task 5 recounted says so. Where the plan or an amendment predicted a number, the prediction stands beside what was seen. The controller's pre-push gates and the PR are not recorded as run here.)*
+
+### As run: the commits (`git log origin/main..unheard-key-act`, nine commits before Task 5's own, which the controller makes)
+
+| Commit | Task | What |
+|---|---|---|
+| `a2fbfbc4` | plan | the plan for register item 322 (provisional errata G74, R11.99, R11.100) |
+| `8a3f1ae6` | plan | Amendment 1 (rulings 1 to 11, from Task 0): the key set serves flat JWKs, so settling compares the kid with `kty`, `crv`, `x` and `y`; `KeyActDouble` keys gain `x` and `y`; `RawStubForum` serves the lifecycle POSTs |
+| `0f1b0ff5` | T1 | errata G74 pasted (R11.99, R11.100, four index rows); a seam that changes nothing (`PendingKeyAct`, `ProfileStore.PendingActs` and `RecordPendingAct`); `UKA1` to `UKA12` written and seen red |
+| `e8838d7f` | plan | Amendment 2 (rulings 1 to 10, from Task 1): the held cell is 290's NHR6 state; the clock seam; the pending wire shape; settling is of the verb's own kind |
+| `d55a97b2` | T2 | the build: write-ahead, keep on a 5xx or an unread answer, settle by the key set, `curia keys` lines, help clauses, `curia-mcp` 0.12.2 |
+| `a824048b` | plan | Amendment 3 (rulings 1 to 6, from Task 2): `NHR6b` restated, `UKA12` corrected, the strong absent-list rule, the foreign-before-window order ratified, an unreadable `200` or `201` is unheard, `FUKA14` to `FUKA18` |
+| `b5039fb2` | T2b, T3 | Amendment 3's corrections; `FUKA1` to `FUKA18` run |
+| `1ae8152e` | plan | Amendment 4 (rulings 1 to 8, from the cold read's round 1): the first-failure paragraph says what the profile holds and why to wait; `FUKA19` to `FUKA22`; round 2 |
+| `b0b11748` | T4c | the paragraph's words in `KeyActWords.cs`; `FUKA19` to `FUKA22` run; pages 1, 2, 3, 8 and 13 re-captured live |
+
+Tasks 0, 4 and 4b committed nothing (records only: Task 0 measured an export, Task 4 ran exports, Task 4b is the controller's cold read).
+
+### As run: Task 0 (`task-0-report.md`)
+
+Run on an export of `origin/main` at `5d79936a` (the base; `git rev-parse` agrees with the plan), Release, no tracked file changed. **Corrections to the plan, three that bear on the build:** (1) **M4: there is no `jwk` member in the key set.** Each `keys[]` element is the JWK (flat `kty`, `crv`, `alg`, `kid`, `x`, `y`) with `curia_*` annotations beside it, so the comparison is on `x` and `y` (Amendment 1 ruling 1). (2) **M2: confirmed** (an identical resend answers `409 curia/keys/lifecycle-moved`), with a correction to what the answer says: its `detail` is the latest honoured index, which equals the first send's index only while nothing later was recorded, so it is not a statement that the first send was recorded; a statement rebuilt over the same new key with a fresh `prev` answers `409 curia/keys/kid-taken`; a retirement rebuilt answers `not-live`. (3) **M3's margin:** in the process under test the cancel reaches the backend (four scenarios: no row landed after an abort or after the 30-second command timeout), and the only landing measured is the errata's own lost-cancel stall, at most 70.1 seconds after the request began for a 100-second stall; no code bound exists, so the 5 minutes is a margin over a measurement (Amendment 1 ruling 7). **M1:** R3 reproduces exactly (exit 8, the row appended and honoured, no `keys/`, `curia keys` `FOREIGN` at index 5 for the owner's own rotation, the next `curia rotate` refused at its foreign check); and **the likelier door loses the key as the `503` does**: a handler that forwards the POST and drops the answer (a reset or a timeout) gives exit 8, stderr only `No answer was read from the Forum`, one row appended, `FOREIGN` afterwards. For a key act the unheard path printed no act line and no "may or may not have been recorded" advice (`ForumSession.RotateKeyAsync` passed no trace; plan finding 5, Amendment 1 ruling 8). **M5 to M8:** the readers of `LifecycleAct.LogIndex`, `Retained` and `Acts` (five edits for a nullable index, hence a separate record, ruling 9); `KeyActDouble` wrote 32 zero bytes for every key's `x` and `y` and `RawStubForum` answered `POST /v1/posts` only (both extended); `NotHonouredActTests.NHR7` carried a `500 curia/internal-error` row that the pending state overturns (moved to `UKA1`, ruling 5); `preflight.py --list`, `tools/ci/api-legs.*` and the Api legs are on `origin/api-suite-in-legs` (#161) only, so nothing here assumes them (ruling 4). **Baseline:** Client 1,716; Mcp 987 passed and 5 skipped; Application `Credentials` 188; Architecture 146 (Release). **No stop rule fired.**
+
+### As run: Task 1 (`task-1-report.md`)
+
+G74 pasted with four index rows (`check-spec.py` demanded `R11.99` and `R11.100`; `R11.99 (settling)` and `R11.98 (rev.)` were added in the same form); the seam (`PendingKeyAct(Kind, Kid, SentAt)`, `AgentProfile.PendingKeyActs`, `ProfileStore.PendingActs` and `RecordPendingAct`, no verb calling any of it); the doubles extended. **Counts:** `Curia.Client.Tests` 1,793 = 1,716 base + 78 new - 1 (the `NHR7` row moved): 1,732 passed and **61 red, every red a `UKA`**; with `UKA3` (Api, 1) and `UKA12` (Mcp, 7) **69 red in all**; 17 green controls (`UKA2` control 12, `UKA5`'s read half, `UKA6`'s same-kind row, `UKA8` 2, `UKA10`'s 290-profile half). **Red by assertion, as predicted:** `UKA1` 14 of 14 (`Expected: exit 8; pending [rotation a-2635169d ...]  Actual: exit 8; pending []`); `UKA2` at-request 12 of 12 (`Expected: kept at each of the 1 requests  Actual: absent at 1 of 1 requests`); `UKA3` (the base prints `FOREIGN: a rotation at log index 5 that this profile did not make`); `UKA4` 4 of 4 (a second rotation posted); `UKA9`; `UKA10`'s seven; `UKA11` 16 of 16; `UKA12` 7 of 7. **Deviations from the plan's predictions:** `UKA4b` and `UKA7` (recorded) were `FOREIGN` on the base (exit 6, no POST), not "a second rotation posted"; `UKA6`'s other-kind row is the red one (the drop is new behaviour) and the same-kind row the green control, the reverse of the brief; `UKA6`'s second clause ("when the kid is later bound `NOW IN FORCE` fires") cannot hold as written, because `NowInForce` reads an act at an index and the held cell has none (Amendment 2 ruling 1 drops it). `RLW40` forced the Mcp version reader to be pattern-free in `UKA12`, and `ULG33` caught a published store-fault title typed into a double (both recorded, both fixed in Task 1).
+
+### As run: Task 2 (`d55a97b2`; `task-2-report.md`) and Amendment 3
+
+The build, in `Curia.Client`: `ProfileStore` renders `pending_acts` (absent when empty; element members `kid`, `kind`, `sent_at`) and reads it strictly, and gains `BeginRotation`, `BeginRetirement`, `ResendPending`, `DropPending`, `ReleasePending` and `SettleRotation`; `KeyActSettling` (the window, 5 minutes strictly, and the decision); `KeyActWords` (every R11.99 and R11.100 sentence, generated from the errata's spans); `LifecycleWatch.Compare` counts a pending act as the profile's own at the index the key set names, by kid and public half; `KeysReport` (`RECORDED` exit 6, `UNKNOWN` exit 8, `NOT RECORDED` clean) over a `TimeProvider`; `ForumSession` passes a `SendTrace` on both key-act sends; `Program.SettleAsync` and the write-ahead in both verbs; `Help.cs` two clauses; `ToolCatalogue.Version` 0.12.2 and the `curia_keys` description sentence; `README.md`'s two version sentences. Probes green after it: `UKA1` to `UKA11`, `UKA3`, `UKA12`'s version and description rows, and the new `UKA13` and `UKA13b`. **Eight tests red, three stops, none fixable without editing a probe:** (1) **`NHR6b`, 3 rows** (an unreadable `500`): G74 keeps the act on any 5xx and `NHR6b` expected nothing kept; (2) **`UKA12`'s five line rows**: two defects in the probe (the `actual` string always ended with the tool's text and the `expected` never did; the kids were filled raw where `curia keys` writes a display literal); (3) **`UKA13` as worded**: "no `curia_skipped` member is the held cell" turned `UKA5`, `UKA7` and `UKA11` red because `KeyActDouble` served no `curia_skipped` in any key set. Task 2 implemented only the safe half of (3) and stopped. **Amendment 3's answers:** (1) `NHR6b`: G74 wins, the expectation is restated (a pending act and its key kept, no act recorded, signing identity unchanged; an unreadable 5xx is not special-cased, because a proxy's 502 has the same shape and dropping the key on an answer the client could not read is G73's loss through a third door); (2) `UKA12` corrected, both defects; (3) the strong rule (a key set with no `curia_skipped` is read as skipping one; `Jwks.ForAgent` writes both members together or neither, so a conforming Forum cannot tell the two readings apart, and `KeyActDouble` now serves `SkippedMembers`), with `UKA13` restated and the old text kept as `UKA13c`; (4) the deviations (the library's 3-argument `KeysReport.ReadAsync` removed; `Help.WrappedAround` removed for a reasoned `D37` row; foreign before the window ratified; the `curia_keys` sentence in `ToolCatalogue`; an unreadable `200` or `201` is unheard, fixed here, with four `UKA1` rows; the store-fault sentence's fate left to the cold read); (5) `FUKA14` to `FUKA18`; (6) what is left to the cold read. **Counts at Task 2:** Client 1,795 (3 failed, `NHR6b`); Mcp 999 (989 passed, 5 skipped, 5 failed, `UKA12`); Credentials 188; Architecture 146 in Release and 146 in Debug.
+
+### As run: Task 2b and Task 3 (`task-2b-3-report.md`, `task-3.jsonl`, `task-3-fuka18b.jsonl`)
+
+**Part A** (Amendment 3's corrections), each green: the strong rule (`KeyActSettling.CouldBeSkipped` returns true on an absent list; `UKA13` restated, `UKA13c` kept, `UKA13b` unchanged; `UKA5`, `UKA7` and `UKA11` green unedited), `NHR6b` restated, `UKA12`'s five rows (kids as display literals, the suffix only on disagreement), `ClassifiedSend` (a `Malformed` answer at status 200 or 201 is `Unanswered`; `UKA1` 18), the library's overload removed, `D37`'s one reasoned row. Shown adequate: `UKA12` red with the kid raw and red with the suffix kept; the four new `UKA1` rows red with the `ClassifiedSend` edit disabled. **Counts:** Client 1,800 passed; Mcp 994 passed and 5 skipped; Credentials 188; Architecture 146 and 146.
+
+**Part B**, `FUKA1` to `FUKA18` (driver `fuka.py`; each patch applied with an asserted unique match, restored by plain copy, touched, rebuilt `--no-incremental`, the unpatched run green after each: 18 of 18 and 1 of 1 for `FUKA18b`). Cell: failed of run.
+
+| Row | Patch | Probe, outcome |
+|---|---|---|
+| `FUKA1` | the record written after the answer where the act is kept (no write-ahead) | `UKA9` red 1 of 1; `UKA1` masked 0 of 18 by design |
+| `FUKA2` | the first refusal branch does not drop the pending act | `UKA2` red 10 of 24 |
+| `FUKA3` | an unheard send classed provably-not-sent | `UKA1` red 4 of 18 |
+| `FUKA4` | settling compares the kid only | `UKA8` red 1 of 2 |
+| `FUKA5` | `rotate` settles and then also makes a rotation | `UKA4b` red 1 of 1; `UKA3` red 1 of 1 |
+| `FUKA6` | the window ignored | `UKA4` red 4 of 4; `UKA4b` masked 0 of 1 |
+| `FUKA7` | the drop ignores a skipped row | `UKA6` red 1 of 2 |
+| `FUKA8` | `curia keys` drops a not-recorded act (a write) | `UKA5` red 1 of 3 |
+| `FUKA9` | `Compare` counts any pending index as the profile's own | `UKA8` red 1 of 2 |
+| `FUKA10` | `SettleAsync` returns at once | `UKA4` red 2 of 4; `UKA3` red 1 of 1 |
+| `FUKA11` | a retirement settle falls through to send | `UKA7` red 1 of 3 |
+| `FUKA12` | `KeysReading.Render` alters a word for the tool only | `UKA12` red 5 of 5 |
+| `FUKA13` | `UNKNOWN` exits 0 | `UKA4` red 2 of 4 |
+| `FUKA14` | the weak absent-list rule | `UKA13` red 1 of 1 |
+| `FUKA15` | an unreadable `200` or `201` classed answered | `UKA1` red 4 of 18 |
+| `FUKA16` | the window refusal before the foreign check | `UKA8` red 2 of 2 |
+| `FUKA17` | an unreadable 5xx classed answered | `NHR6b` red 3 of 3 |
+| `FUKA18` | `D37` check (iii)'s row allows any verb (a test row patched) | `D37` masked 0 of 1 |
+| `FUKA18b` | `Help.cs`: rotate's help names `curia retire` (test unpatched) | `D37` red 1 of 1 |
+
+**Counts from the jsonl:** 18 rows and the second form of `FUKA18`; over `FUKA1` to `FUKA18` 19 named probes red and 3 masked; every named probe red except `FUKA6`'s `UKA4b` (masked: it runs at exactly 5:00 with the key set already recording the act, and recorded is decided before the window, so `UKA4` carries the row), `FUKA1`'s `UKA1` (masked by design: the brief wants it green) and `FUKA18` (a check that allows everything carries nothing; the fence is shown to bite by `FUKA18b`). No row red for another reason, none masked by speed. **Two things Task 3 found:** `FUKA1`'s patch form "only on a 5xx" left `UKA1`'s unheard rows red, so the patch writes the record after the answer wherever the act is kept (and, on a cancellation, by catch and rethrow), and the first driver run missed `UKA9` because it sits in `UnheardKeyActProcessTests` (reran); `FUKA8`'s first form (a static to carry the store root to `curia keys`) failed to build (CA2211), was recorded as a build failure and not a result, and was rerun in a property form. Collateral reds (in the jsonl, not stops): `UKA11` word rows under `FUKA3`, `FUKA6` and `FUKA10`; `UKA13b` under `FUKA7`; `UKA8` under `FUKA6`.
+
+### As run: Task 4, the live run (`task-4-report.md`, `item322-live.txt`) and Task 4c
+
+`c` (`origin/main` at `5d79936a`) and `t` (the tip), each built `dotnet build Curia.sln -c Release`, 0 warnings, the approval record lifted **in the exports only**; a proxy forwards a request and drops the answer, or drops the request, or replays a captured `503` over the answer of a request the Forum committed, with **no patched Forum**; throwaway databases `curia_item322_*`, all dropped. **Every leg beside its control.**
+
+| Leg | Control `c` | Tip `t` | Oracle |
+|---|---|---|---|
+| LV1, drop-answer | exit 8, only `No answer was read from the Forum`, `identity.json` byte-identical, no `keys/`, `curia keys` `FOREIGN: a rotation at log index 2 ...` (exit 6), the second `curia rotate` refused (exit 6), events unchanged | exit 8, one pending act (no index), one `keys/*.pem` at 0600, signing and DPoP keys byte-identical, first-failure paragraph on stderr; `curia keys` at once `RECORDED` (exit 6, wrote nothing) | `psql` over `events`: the `agent.key-bound` row's kid equals the pending act's, its statement's `x` and `y` equal `openssl pkey -pubout` of the kept key, its index equals the key set's `curia_log_index` |
+| LV2, settle | the same command is refused (exit 6) | `curia rotate` exit 0 with the settle words, 2 `agent.key-bound` rows before and after, only `GET /v1/jwks` in the proxy log, `pending_acts` gone, the profile signs with the kept key, `token.json` gone; a post then verifies under the new kid (`curia verify` exits 8 for the unsigned head only, never 6) | the row count; the proxy log |
+| LV3, drop-request | exit 8, profile unchanged, no new row; a later `curia rotate` makes one rotation (+1 row) | exit 8, pending act and kept key; `UNKNOWN` (exit 8, wrote nothing); `curia rotate` at once refused (exit 8, profile byte-identical, events unchanged); after 5 minutes 5 seconds `NOT RECORDED` (exit 0, `identity.json` and `keys/` byte-identical) and `curia rotate` prints `dropped` and makes one rotation (+1 event) | the events count; the proxy log |
+| LV4, retirement, drop-answer | the key set shows the old key retired at index 3, `FOREIGN: a retirement at log index 3` (exit 6), the next `curia retire` refused | pending retirement kept; `RECORDED` (exit 6); `curia retire --kid` settles, exit 0, no POST, events +0 | the key set; the proxy log |
+| LV5, an honest act | rotate, retire, `curia keys` and both `201` bodies equal member for member to the tip's | equal; a control with one body edited differs in `bodies` only; the write-ahead seen from outside (a send held 8 seconds: `pending_acts` and the key file present during it, absent after) | the two builds' bodies |
+| LV6, `curia-mcp` | 0.12.1, the `FOREIGN` line | `curia_keys` text equals `curia keys` stdout byte for byte; `initialize` 0.12.2; the description carries the errata's sentence | the errata's own span |
+| LV7, the Forum's `503` | exit 8, only the store-fault line, `FOREIGN` afterwards, the row exists | the store-fault line then the first-failure paragraph, act and key kept, the key set binds the kid; `curia rotate` after the window settles, no second row, no POST | `psql`; the real `503` captured by revoking `INSERT` on `agent_keys` for one request |
+
+**The three differences from the brief that Task 4 recorded:** (1) `token.json` is not byte-identical across a key act on `c` or on `t` (the 401 nonce hop rewrites its cached DPoP `nonce` member; compared apart from that member it is identical); (2) the refused `curia rotate` inside the window makes one anonymous `GET /v1/jwks` (the read the verb is specified to make) and no POST and no token request, so "the proxy log shows no request" holds only for a request that sends; (3) `curia help rotate` and `curia help retire` each print the whole 244-line help, byte-identical (`Help.cs` answers `curia help <verb>` with the overview and `curia <verb> --help` with the verb's clauses), which voided CR-f's first page. One harness note: LV2's first `curia verify` was run with `--agent`, which `curia verify` does not take (exit 1), and was rerun; LV4's first oracle printed index 0 from a harness query fault and was repeated.
+
+**Task 4c** (after Amendment 4): `KeyActWords.AfterNotHeard(act, sent, signingKid)`; `UKA11` red first (4 of 14: the four first-failure rows) and then 14 of 14; Client 1,800, Mcp 994 and 5 skipped, Architecture 146 and 146; `git diff 1ae8152e --stat -- src` names `KeyActWords.cs` and `Program.cs` only, which is what carries pages 4 to 7 and 9 to 12 unchanged (they print no first-failure paragraph; the md5 of those eight pages was identical before and after). `FUKA19` to `FUKA22` run (`task-4c.jsonl`): `FUKA19` (the rotation paragraph without "Until it is settled this profile still signs ... unused.") red on the two rotation rows; `FUKA20` (the retirement paragraph without its counterpart) red on the two retirement rows; `FUKA21` (the signing kid and the new kid swapped) red on the two rotation rows; `FUKA22` (both paragraphs without "The Forum may still record ... in the meantime,") red on all four; **10 named rows red, none masked, the six unnamed rows green as they should be**, the unpatched run green after each (14 of 14). Pages 1, 2, 3, 8 and 13 re-captured live from the corrected build (a step 0 honest rotation through the proxy, then the `lv3`, `lv7ts`, `lv12` and `lv4page` legs; every `CHECK` line held, `DOES NOT HOLD` count 0): page 8 is `curia rotate --help` then `curia retire --help`, each from the built binary (exit 0, its first line the verb's usage line); page 13 (new) is LV4's first `curia retire` only.
+
+### As run: Task 4b, the cold read (`cold-read-results-322.md`; the controller's)
+
+Fresh Sonnet readers, none told what is tested, each given one page; the gates are on what the reader would do and why, not on what it can recite (trap 289). The spec's "31 readers" was 34 by its own table (Amendment 4 ruling 7); round 1 ran **32** (r07 for CR-f, voided; r18 and r27 withheld) and round 2 **15** (r35 to r49).
+
+| Set | Page | Round 1 | Round 2 |
+|---|---|---|---|
+| CR-a1 (first failure, the `503`, `t`) | 1 | 0 of 3: clauses (1) to (3) pass, **(4) fails**: no reader could say which key the profile signs with | **3 of 3** (all five clauses; "still signs with ... holds ... unused"; "the Forum may still record the rotation before then") |
+| CR-a1' (the same, store-fault sentence removed, `ts`) | 2 | 0 of 3, recorded: the same clause fails the same way | 3 of 3, recorded |
+| CR-a2 (first failure, answer dropped) | 3 | 0 of 3: (4) alone; r23: the reason to wait is not given | **3 of 3** |
+| CR-a3 (a retirement's first failure) | 13 | not read (no page held the paragraph) | **3 of 3** ("still lists ... as live and has not recorded it retired"; "the Forum may still record the retirement") |
+| CR-b (`UNKNOWN`, then the refusal) | 4 | **3 of 3** (wait until the printed time; the Forum may still record it; none reads exit 8 as the Forum down) | not re-read (words unchanged) |
+| CR-c (`RECORDED`, the settle) | 5 | **3 of 3** (settled, nothing sent, signs with the new key; no attack reading) | not re-read |
+| CR-d (`NOT RECORDED`, the drop) | 6 | **3 of 3** (nothing is owed; the rotate drops the kept key and makes one) | not re-read |
+| CR-e (a retirement, `RECORDED` and the settle) | 7 | **3 of 3** (sent nothing, appended no row, the key retired in the profile) | not re-read |
+| CR-f (`curia rotate --help`, `curia retire --help`) | 8 | **void**: the page held `curia help rotate`, the overview twice | **3 of 3** (kept as not yet known; running it again is safe and settles first; `curia keys` prints the time; none says to avoid rerunning) |
+| R (`curia_keys` through `curia-mcp`) | 12 | 1 reader, recorded: would run `curia rotate` from a shell and says the tool signs and sends nothing | not re-read |
+| X1, X2, X3 (controls on `c`'s pages) | 9, 10, 11 | 9 readers: **every one read the owner's own rotation as a stranger's `FOREIGN` act and would report it to the operator**; some would stop signing with the key they held; three cited the store-fault sentence ("read what the request would have changed before sending it again") as the reason to investigate by hand and not rerun | not re-read (the control build is unchanged) |
+
+**Gated, round 2:** 12 of 12 (CR-a1, CR-a2, CR-a3, CR-f); with round 1's CR-b to CR-e (12 of 12, words unchanged) every gated set passes. **Findings:** round 1's clause (4) failure was the same on the page with the store-fault sentence and on the page without it (3 of 3 each, the rest equal), so the decision rule in `cold-read-322.md` read "both fail" and the paragraph, not the sentence, was rewritten (Amendment 4 ruling 1: what the profile holds meanwhile, and why to wait). **The 4(f) decision, round 2:** CR-a1 and CR-a1' both pass every clause, so the store-fault sentence stays for key acts; on the tip's pages no reader began with a manual investigation (all began with `curia keys`, which the paragraph allows), and it did its harm only on the control page, where no paragraph followed it. Recorded: no tip reader inferred compromise, would delete the kept key or would edit `identity.json`; no control reader passed a tip gate (the controls show the harm item 322 closes, and that the gates are not too loose). **Leads (none a gate):** every first-failure reader said the page does not say what exit 8 means or what happens if the Forum is still unreachable at the retry time; readers asked again for `curia verify`'s argument form (CR-c and CR-e readers in round 1; item 327); readers guessed `curia keys --agent` (the flag form is not printed); CR-f readers noted the help says the old key keeps signing only for the not-honoured case and not for the not-heard one; one CR-c reader would restart `curia-mcp` after a settle (a reader's guess, not checked); one CR-d reader wondered whether a lost rotation could land after the wait (non-property (d) answers it).
+
+### As run: the help clauses, exactly (`curia rotate --help` and `curia retire --help` as built; the text below was compared with the built binary's output by `diff`)
+
+`curia rotate --help`, its last clause:
+
+```
+    A rotation that was sent and not heard from is kept as not yet known: run curia rotate again, no
+    sooner than the time curia keys prints, and it settles that rotation from the Forum's key set before
+    it makes another.
+```
+
+`curia retire --help`, its last clause:
+
+```
+    A retirement that was sent and not heard from is kept as not yet known: run curia retire again, no
+    sooner than the time curia keys prints, and it settles that retirement from the Forum's key set
+    before it sends another.
+```
+
+### As run: deviations from the plan, one line each
+
+- The key set has no `jwk` member: the comparison is on the flat `kty`, `crv`, `x`, `y` (Amendment 1 ruling 1).
+- The pending state is a separate record, `PendingKeyAct(Kind, Kid, SentAt)`, with the kept key derived at read time and never written (ruling 9), not a nullable index.
+- A key act's challenge hop is a send: any send whose answer was not read keeps the act (ruling 10).
+- `NHR7`'s `500 curia/internal-error` row moved to `UKA1` (ruling 5); the version reader re-pointed at R11.100's paragraph, and R11.96 (add.)'s "is 0.12.1" now reads "was 0.12.1 when this was built" (ruling 6).
+- `UKA6`'s second clause is dropped and the held cell is 290's `NHR6` state: the key kept, the pending record removed, no act, the verb proceeds (Amendment 2 ruling 1).
+- Settling is of the verb's own kind, in the order recorded, foreign, inside the window, held, not recorded (Amendment 2 ruling 7, Amendment 3 ruling 4(c)).
+- A key set that does not say which rows it skips is read as skipping one (the strong rule, Amendment 3 ruling 3), and `KeyActDouble` serves the members a real Forum serves.
+- An unreadable 5xx keeps the act (`NHR6b` restated, Amendment 3 ruling 1); an unreadable `200` or `201` is unheard, with its own `UKA1` rows (ruling 4(e)).
+- The library's 3-argument `KeysReport.ReadAsync` is removed, and `Help.WrappedAround` gives way to a reasoned `D37` row (ruling 4(a) and 4(b)).
+- Falsification ran 22 rows, not the plan's 13: `FUKA14` to `FUKA18` by Amendment 3, `FUKA19` to `FUKA22` by Amendment 4.
+- The first-failure paragraph was rewritten after round 1 (Amendment 4), and the store-fault sentence stays (4(f)).
+- The cold read's first page for CR-f was the overview, not the verb's help; it was void and recaptured by `--help`.
+
+### As run: what this plan did not read or verify, now answered or still open
+
+- `ProfileStore.cs`, `LifecycleWatch.cs`, `KeysReport.cs`: **answered** (Task 0 M5 listed every reader of the act records; Tasks 1 and 2 edited them).
+- `KeyActDouble`'s body and `RawStubForum`: **answered** (M7: no key material in the double, `RawStubForum` answered `POST /v1/posts` only; both extended in Task 1).
+- The key set's serialization: **answered** (M4: flat JWKs, `curia_log_index`, `curia_retired_log_index`, `curia_skipped` and `curia_skipped_total`).
+- `EventStoreFault`'s API: **answered** (M1 and `UKA3` use `FailReadsAfterFirstAppend`).
+- The Kestrel limits: **answered** (M3: none configured, Npgsql's default 30-second command timeout applies; no row landed after an abort or the timeout in four scenarios).
+- `ResendWording`'s derivation beyond one line: **still unread** (no report opened it; nothing in the build depended on it).
+- Not run: **answered as run** for the build, the suites and the probes; **still not run by any task:** the whole Api suite, `Curia.Infrastructure.Tests`, `tools/preflight/preflight.py`, the three `cargo` commands, the differential gate and the closed fuzz (the controller's before the push).
+- Not decided: an owner-driven end for an unexplained skipped row (G74 non-property (c)): **still open**; an MCP verb that runs the command (item 325) and adopting a kept key after `NOW IN FORCE` (item 326): **still open and not widened**; an act made after a not-in-force act (item 323): **still open, gated before the guard's lift**.
+- Whether a row can land after the window: **not measured here**; the 5 minutes is a margin over the errata's 70.1-second lost-cancel measurement, no code bound, and a landing after a drop is reported `FOREIGN` in G73's words, not silent (G74 non-property (d)).
+- Not checked by any task: a cancelled send or a killed process run live (`UKA9` covers the killed process in process), `--signer` (an external signer) through the pending path end to end, two concurrent `curia rotate` over one profile, a `curia-mcp` write tool, and Windows and Linux.
+
+### As run: Task 5 (this record)
+
+Written by Task 5: errata G74's Status line (one line, nothing else); this section; `README.md` (one sentence); `CLAUDE.md` (one clause; `curia-mcp` is 0.12.2 in G68's clause; and G73's clause's open-items sentence, which item 322's close made stale, now says item 322 is closed by G74); `impl-plan-322.md` (the text for `IMPLEMENTATION_PLAN.md`, applied by the controller after #161 merges and item 290's register text has landed); the PR body is the controller's. **Numbers**, re-grepped over `main`, `origin/main` (`5d79936a`), `origin/api-suite-in-legs` (#161) and every other `origin/*` ref, and the one open PR (#161), immediately before and again after the writes: the highest register item is 317 on `main` and 321 on #161 (328 in the held 290 text, which no ref holds yet); the highest trap is 285 on `main` and 286 on #161 (289 in the held text); the highest `## G` is 73 and the highest `R11.` definition is 98 on every ref; no ref other than this branch holds G74, R11.99 or R11.100, and none holds item 329, trap 290, G75 or R11.101. First free: errata G75, R11.101, register item 329 and trap 290, **item 329 and trap 290 allocated by `impl-plan-322.md`**.
+
+### As run: not run, and left open
+
+Not run by any task: the whole Api suite, `Curia.Infrastructure.Tests`, `python3 tools/preflight/preflight.py`, the three `cargo` commands, the differential gate and the closed fuzz (the wire to `curia-testis` is unchanged; the controller's before the push). Left open: item 323 (gated before the guard's lift) and items 324 to 329; non-properties (c) to (g) of G74; the guard is not lifted.
