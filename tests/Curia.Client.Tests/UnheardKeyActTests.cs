@@ -183,12 +183,9 @@ internal sealed class UnheardScene : IDisposable
     internal Task<(int Exit, string Stdout, string Stderr)> RetireAsync(CancellationToken ct) =>
         KeyActRig.CaptureAsync(() => Program.RetireKeyAsync(Rig.Client, Rig.Session, Rig.Store, Rig.Profile(), NotHonouredKit.OwnKid, ct));
 
-    /// <summary>
-    /// <c>curia keys</c> over the double. <b>The clock seam:</b> <c>ShowKeysAsync</c> takes no clock on the tree this probe was written against, so <see cref="Clock"/> is not passed; the fix gives the verb its clock
-    /// and this is the one line that then passes it.
-    /// </summary>
+    /// <summary><c>curia keys</c> over the double, on the scene's clock: the verb's own clock is <see cref="TimeProvider.System"/>, and a probe passes the one it sets (errata G74, plan Amendment 2 ruling 4).</summary>
     internal Task<(int Exit, string Stdout, string Stderr)> KeysAsync(CancellationToken ct) =>
-        KeyActRig.CaptureAsync(() => Program.ShowKeysAsync(Rig.Client, Rig.Profile(), ct));
+        KeyActRig.CaptureAsync(() => Program.ShowKeysAsync(Rig.Client, Rig.Profile(), Clock, ct));
 
     /// <summary>Every file of the profile directory but the cached token, by path and sha256, in order: what a read must leave alone.</summary>
     internal string Snapshot() =>
@@ -567,6 +564,50 @@ public sealed class UnheardKeyActTests
         WholeText.Same(
             "exit 0; the kept key is gone",
             $"exit {exit}; the kept key {(scene.KeyFileHeld(UnheardScene.KeptKid) || scene.Rig.Profile().Retained.Any(k => k.Kid == UnheardScene.KeptKid) ? "is present" : "is gone")}");
+    }
+
+    private static string HeldActual(UnheardScene scene, int exit)
+    {
+        var profile = scene.Rig.Profile();
+        return $"exit {exit}; {scene.Rig.Double.LifecyclePosts} lifecycle POST; the kept key {(scene.KeyFileHeld(UnheardScene.KeptKid) ? "is present" : "was removed")}; "
+            + $"the kept key {(profile.Retained.Any(k => k.Kid == UnheardScene.KeptKid && !k.RotationInForce) ? "is held as a key whose rotation is not in force" : "is not held so")}; "
+            + $"no act recorded at an index: {(profile.Acts.All(a => a.Kid != UnheardScene.KeptKid) ? "yes" : "no")}; pending {scene.Pending()}";
+    }
+
+    /// <summary>
+    /// UKA13 (errata G74, R11.99 (settling), the cell that cannot be told from a stranger's): past the window, a key set that says neither which rows it skips nor its lifecycle (the Forum's log would not fold: no
+    /// <c>curia_skipped</c> member and no <c>curia_lifecycle</c>) is read as holding a skipped row, because an absence of a list is not a list of none. The kept key is not removed, the record is, and no act is
+    /// recorded; the verb goes on and then stops at its own check that the key set names no lifecycle (exit 8, nothing sent). <b>Narrower than the plan's wording:</b> <see cref="KeyActDouble"/> serves no
+    /// <c>curia_skipped</c> member in <i>any</i> key set, UKA5, UKA7 and UKA11's "clean" ones included, and those probes expect the drop; a key set that gives its lifecycle and no list is read as skipping none.
+    /// The guard it holds is <c>KeyActSettling.CouldBeSkipped</c>'s first line: reverted to <c>false</c> this probe goes red (<c>the kept key was removed</c>).
+    /// </summary>
+    [Fact]
+    public async Task UKA13_AKeySetThatSaysNeitherItsSkippedRowsNorItsLifecycleHoldsTheKey()
+    {
+        using var scene = UnheardScene.PendingRotation(Sent + UnheardWords.Window);
+        scene.Rig.Double.KeySet = KeyActDouble.KeySetJson([new KeyActDouble.Key(NotHonouredKit.OwnKid, 1)], lifecycle: null);
+
+        var (exit, _, _) = await scene.RotateAsync(Ct);
+
+        WholeText.Same("exit 8; 0 lifecycle POST; the kept key is present; the kept key is held as a key whose rotation is not in force; no act recorded at an index: yes; pending []", HeldActual(scene, exit));
+    }
+
+    /// <summary>
+    /// UKA13b (errata G74, R11.99 (settling)): past the window, a key set whose <c>curia_skipped_total</c> is larger than the rows it lists (the list holds at most 20) and lists none of the act's kind could be hiding
+    /// the act's row past the list, so the kept key is held as UKA6's is: exit 0 and one rotation, the key kept as a key whose rotation is not in force, no act recorded, no record pending. The guard it holds is the
+    /// last line of <c>KeyActSettling.CouldBeSkipped</c>: reverted to <c>false</c> this probe goes red.
+    /// </summary>
+    [Fact]
+    public async Task UKA13b_ATotalLargerThanTheListedRowsWithNoneOfTheKindHoldsTheKey()
+    {
+        using var scene = UnheardScene.PendingRotation(Sent + UnheardWords.Window);
+        var rows = string.Join(",", Enumerable.Range(10, 20).Select(i => $"{{\"log_index\":{i},\"type\":\"agent.key-retired\",\"predicate\":\"broken-link\"}}"));
+        var keySet = KeyActDouble.KeySetJson([new KeyActDouble.Key(NotHonouredKit.OwnKid, 1)], [0, 1]);
+        scene.Rig.Double.KeySet = keySet[..^1] + $",\"curia_skipped\":[{rows}],\"curia_skipped_total\":25}}";
+
+        var (exit, _, _) = await scene.RotateAsync(Ct);
+
+        WholeText.Same("exit 0; 1 lifecycle POST; the kept key is present; the kept key is held as a key whose rotation is not in force; no act recorded at an index: yes; pending []", HeldActual(scene, exit));
     }
 
     // ------------------------------------------------------------------------------------------------ UKA7

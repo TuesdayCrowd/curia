@@ -60,12 +60,22 @@ public sealed record AgentProfile(
 
 /// <summary>
 /// A rotation or a retirement this profile sent and does not know the outcome of (errata G74, R11.99): <c>pending_acts</c> in <c>identity.json</c>, absent from the file when empty. The key a rotation generated
-/// is the retained key of the same <paramref name="Kid"/>. <b>Seam only (register item 322, Task 1):</b> nothing writes or reads this member yet.
+/// is the retained key of the same <paramref name="Kid"/>, whose rotation is not in force.
 /// </summary>
 /// <param name="Kind"><see cref="LifecycleAct.Rotation"/> or <see cref="LifecycleAct.Retirement"/>.</param>
 /// <param name="Kid">The key the act bound (a rotation) or ends (a retirement).</param>
 /// <param name="SentAt">The time the act was sent, as the client's own clock gave it.</param>
-public sealed record PendingKeyAct(string Kind, string Kid, DateTimeOffset SentAt);
+/// <param name="Kept">
+/// A pending rotation's kept key as the key set would serve its public members (R11.100): derived when the profile is read from the retained key's file or its external signer, and never written to <c>identity.json</c>;
+/// null for a retirement and for a key that could not be read.
+/// </param>
+public sealed record PendingKeyAct(string Kind, string Kid, DateTimeOffset SentAt, KeptKeyHalf? Kept = null);
+
+/// <summary>
+/// The public half of a key as a JWK carries it: <c>kty</c>, <c>crv</c>, <c>x</c> and, for a type that has one, <c>y</c> (errata G74, R11.99 (settling)). What a pending rotation's kept key is compared with in the key set,
+/// the key set's own members being the other side of the comparison.
+/// </summary>
+public sealed record KeptKeyHalf(string Kty, string? Crv, string X, string? Y);
 
 /// <summary>
 /// A key this identity no longer signs with (spec section 4.12): <c>retained_keys</c> in <c>identity.json</c>.
@@ -517,7 +527,7 @@ public sealed class ProfileStore
         };
     }
 
-    /// <summary>The acts <paramref name="profile"/> sent and did not hear an answer to (errata G74, R11.99). <b>Seam:</b> the body is the identity until the member is read.</summary>
+    /// <summary>The acts <paramref name="profile"/> sent and did not hear an answer to (errata G74, R11.99).</summary>
     public static ImmutableArray<PendingKeyAct> PendingActs(AgentProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -525,16 +535,175 @@ public sealed class ProfileStore
     }
 
     /// <summary>
-    /// Records an act sent and not heard from (errata G74, R11.99) and returns the profile with it. <b>Seam:</b> the writer does not yet render <c>pending_acts</c>, so nothing reaches the disk and no verb calls this.
+    /// Records an act sent and not heard from (errata G74, R11.99) and returns the profile with it, written to <c>identity.json</c>. An act of the same kind and kid already pending is replaced, so a record is one.
+    /// A rotation's key is kept by <see cref="BeginRotation"/>, which writes it first.
     /// </summary>
     public AgentProfile RecordPendingAct(AgentProfile profile, PendingKeyAct act)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(act);
 
-        var recorded = profile with { PendingKeyActs = [.. profile.Pending, act] };
+        var recorded = profile with { PendingKeyActs = [.. WithoutPending(profile, act.Kind, act.Kid), act] };
         WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(recorded));
         return recorded;
+    }
+
+    private static IEnumerable<PendingKeyAct> WithoutPending(AgentProfile profile, string kind, string kid) =>
+        profile.Pending.Where(p => !(p.Kind == kind && string.Equals(p.Kid, kid, StringComparison.Ordinal)));
+
+    /// <summary>
+    /// Keeps a rotation before it is sent (errata G74, R11.99): the key it generated is written under <c>keys/</c> at 0600 (or recorded as the external signer's command) and then, in one write of <c>identity.json</c>, kept
+    /// as a retained key whose rotation is not in force beside the pending act, with the time it was sent and no log index. The key file is on disk before the record names it, so a process that ends between the two
+    /// leaves a file no record names and never a record whose key is gone. The key the profile signs with, <c>signing-key.pem</c>, <c>dpop-key.pem</c> and the cached token are not touched.
+    /// </summary>
+    public AgentProfile BeginRotation(AgentProfile profile, IAgentSigner next, ECDsa? generated, DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(next);
+
+        var kept = KeepKey(profile, next, generated);
+        var recorded = profile with
+        {
+            RetainedKeys = [.. profile.Retained.Where(k => !string.Equals(k.Kid, next.Kid, StringComparison.Ordinal)), kept],
+            PendingKeyActs = [.. WithoutPending(profile, LifecycleAct.Rotation, next.Kid), new PendingKeyAct(LifecycleAct.Rotation, next.Kid, sentAt, HalfOf(next))],
+        };
+
+        WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(recorded));
+        return recorded;
+    }
+
+    /// <summary>Keeps a retirement before it is sent (errata G74, R11.99): the pending act, with the time it was sent. Nothing else is written: the key it ends is already a retained key.</summary>
+    public AgentProfile BeginRetirement(AgentProfile profile, string kid, DateTimeOffset sentAt) =>
+        RecordPendingAct(profile, new PendingKeyAct(LifecycleAct.Retirement, kid, sentAt));
+
+    /// <summary>The act is sent again after <c>lifecycle-moved</c>: the record's time becomes the retry's, because the window is measured from the last request (R11.99 (settling)).</summary>
+    public AgentProfile ResendPending(AgentProfile profile, string kind, string kid, DateTimeOffset sentAt)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        var held = profile.Pending.FirstOrDefault(p => p.Kind == kind && string.Equals(p.Kid, kid, StringComparison.Ordinal));
+        return held is null ? profile : RecordPendingAct(profile, held with { SentAt = sentAt });
+    }
+
+    /// <summary>
+    /// Ends the record of an act that is not owed (errata G74, R11.99): the Forum answered below 500, the send provably did not leave, or the act was not recorded after the window. One write of <c>identity.json</c> removes
+    /// the record and a rotation's retained key, then the key file is deleted, then <c>keys/</c> if nothing is left in it, so a crash between the steps leaves an orphan file and never a record whose key is gone. The
+    /// profile as it was before the act began is what is left, down to a directory a first rotation made.
+    /// </summary>
+    public AgentProfile DropPending(AgentProfile profile, PendingKeyAct act)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(act);
+
+        var (stripped, entry) = Strip(profile, act);
+        WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(stripped));
+
+        if (entry?.File is { Length: > 0 } file)
+        {
+            var directory = DirectoryFor(profile.Slug);
+            var path = Path.Combine(directory, file);
+            if (File.Exists(path)) File.Delete(path);
+
+            var keys = Path.Combine(directory, RetainedKeysDirectory);
+            if (Directory.Exists(keys) && !Directory.EnumerateFileSystemEntries(keys).Any()) Directory.Delete(keys);
+        }
+
+        return stripped;
+    }
+
+    /// <summary>
+    /// Ends the record of an act that could be a row the Forum skipped (errata G74, R11.99 (settling), the cell that cannot be told from a stranger's): the record is removed and a rotation's key is kept, as a retained
+    /// key whose rotation is not in force with no act recorded (R11.98's state when the Forum names no usable index). Nothing is deleted.
+    /// </summary>
+    public AgentProfile ReleasePending(AgentProfile profile, PendingKeyAct act)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(act);
+
+        var released = profile with { PendingKeyActs = [.. WithoutPending(profile, act.Kind, act.Kid)] };
+        WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(released));
+        return released;
+    }
+
+    /// <summary>The profile without <paramref name="act"/>'s record and, for a rotation, without the retained key it generated, and that key's entry.</summary>
+    private static (AgentProfile Profile, RetainedKey? Entry) Strip(AgentProfile profile, PendingKeyAct act)
+    {
+        var pending = profile with { PendingKeyActs = [.. WithoutPending(profile, act.Kind, act.Kid)] };
+        if (act.Kind != LifecycleAct.Rotation) return (pending, null);
+
+        // A key whose rotation the profile has an act for is not this record's to remove.
+        var hasAct = profile.Acts.Any(a => a.Kind == LifecycleAct.Rotation && string.Equals(a.Kid, act.Kid, StringComparison.Ordinal));
+        var entry = hasAct ? null : profile.Retained.FirstOrDefault(k => string.Equals(k.Kid, act.Kid, StringComparison.Ordinal) && !k.RotationInForce);
+        if (entry is null) return (pending, null);
+
+        return (pending with { RetainedKeys = [.. pending.Retained.Where(k => !ReferenceEquals(k, entry))] }, entry);
+    }
+
+    /// <summary>
+    /// Completes a rotation the Forum recorded that this profile did not hear the answer to (errata G74, R11.99 (settling)): the kept key becomes the one this profile signs with, as a <c>201</c> would have made it, the
+    /// act is recorded at <paramref name="logIndex"/> and the record is removed, in one write; and the cached token is deleted. A refusal when the kept key cannot be read, with nothing changed.
+    /// </summary>
+    public Result<AgentProfile> SettleRotation(AgentProfile profile, PendingKeyAct act, long logIndex)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(act);
+
+        var entry = profile.Retained.FirstOrDefault(k => string.Equals(k.Kid, act.Kid, StringComparison.Ordinal));
+        if (entry is null) return Result<AgentProfile>.Fail(ClientErrors.KeyUnreadable($"this profile holds no kept key {act.Kid}"));
+
+        var receipt = new KeyActReceipt(profile.AgentId, act.Kid, logIndex, profile.Kid);
+        if (entry.Signer is { Length: > 0 } command)
+        {
+            if (!ExternalSigner.Describe(command).TryGetValue(out var signer, out var signerError)) return Result<AgentProfile>.Fail(signerError!);
+
+            return string.Equals(signer!.Kid, entry.Kid, StringComparison.Ordinal) && string.Equals(signer.Alg, entry.Alg, StringComparison.Ordinal)
+                ? Result<AgentProfile>.Ok(CompleteRotation(profile, signer, null, receipt))
+                : Result<AgentProfile>.Fail(ClientErrors.SignerUnusable(command, "it no longer describes the key this profile kept"));
+        }
+
+        if (!LoadKey(RetainedKeyFile(profile.Slug, entry.Kid)).TryGetValue(out var key, out var keyError)) return Result<AgentProfile>.Fail(keyError!);
+
+        using var inProcess = new InProcessSigner(key!, entry.Kid);
+        return Result<AgentProfile>.Ok(CompleteRotation(profile, inProcess, key, receipt));
+    }
+
+    /// <summary>The public half of a signer's key as the key set would serve it, or null when it is not a key this client can render.</summary>
+    private static KeptKeyHalf? HalfOf(IAgentSigner signer)
+    {
+        if (!PublicJwk.Of(new PublicKeyMaterial(signer.Alg, signer.Kid, signer.PublicKey)).TryGetValue(out var jwk, out _)) return null;
+
+        return ClientJson.String(jwk!, "kty") is { } kty && ClientJson.String(jwk!, "x") is { } x
+            ? new KeptKeyHalf(kty, ClientJson.String(jwk!, "crv"), x, ClientJson.String(jwk!, "y"))
+            : null;
+    }
+
+    /// <summary>A retained key's public half, from its file (read under the mode check) or its external signer; null when it cannot be read.</summary>
+    private static KeptKeyHalf? HalfOf(string directory, RetainedKey entry)
+    {
+        if (entry.Signer is { Length: > 0 } command)
+            return ExternalSigner.Describe(command).TryGetValue(out var signer, out _) && string.Equals(signer!.Kid, entry.Kid, StringComparison.Ordinal) ? HalfOf(signer) : null;
+
+        if (entry.File is not { Length: > 0 } file || !LoadKey(Path.Combine(directory, file)).TryGetValue(out var key, out _)) return null;
+
+        using var inProcess = new InProcessSigner(key!, entry.Kid);
+        return HalfOf(inProcess);
+    }
+
+    /// <summary>
+    /// Writes the private half of <paramref name="next"/> as a retained key whose rotation is not in force, and returns the entry that names it: <c>keys/&lt;sha256-hex of kid&gt;.pem</c> at 0600, or the external signer's
+    /// command when it holds the key.
+    /// </summary>
+    private RetainedKey KeepKey(AgentProfile profile, IAgentSigner next, ECDsa? generated)
+    {
+        if ((next as ExternalSigner)?.Command is { Length: > 0 } command)
+            return new RetainedKey(next.Kid, next.Alg, Signer: command, RotationInForce: false);
+
+        ArgumentNullException.ThrowIfNull(generated);
+        var directory = DirectoryFor(profile.Slug);
+        CreatePrivateDirectory(Path.Combine(directory, RetainedKeysDirectory));
+        var name = RetainedKeyName(next.Kid);
+        WritePrivate(Path.Combine(directory, RetainedKeysDirectory, name), generated.ExportPkcs8PrivateKeyPem());
+        return new RetainedKey(next.Kid, next.Alg, RetainedKeysDirectory + "/" + name, RotationInForce: false);
     }
 
     /// <summary>Adds an act the Forum accepted to the profile's record of them (spec section 4.12); the profile is returned, not written.</summary>
@@ -571,7 +740,10 @@ public sealed class ProfileStore
         ArgumentNullException.ThrowIfNull(receipt);
 
         var directory = DirectoryFor(profile.Slug);
-        var kept = MoveCurrentToRetained(profile);
+
+        // A rotation is kept before it is sent (errata G74, R11.99): its record and the key it generated, held as a retained key, end here, in the write that makes the key the one this profile signs with.
+        var (stripped, keptEntry) = Strip(profile, new PendingKeyAct(LifecycleAct.Rotation, newSigner.Kid, default));
+        var kept = MoveCurrentToRetained(stripped);
 
         string? command = (newSigner as ExternalSigner)?.Command;
         if (newPrivateKey is not null)
@@ -585,6 +757,11 @@ public sealed class ProfileStore
 
         WritePrivate(Path.Combine(directory, IdentityFile), RenderIdentity(rotated));
         DeleteToken(profile.Slug);
+
+        // The kept copy of the new key is now signing-key.pem (or the signer's): the file is removed after the record that no longer names it.
+        if (keptEntry?.File is { Length: > 0 } keptFile && File.Exists(Path.Combine(directory, keptFile)))
+            File.Delete(Path.Combine(directory, keptFile));
+
         return rotated;
     }
 
@@ -604,6 +781,7 @@ public sealed class ProfileStore
                 [
                     .. profile.Retained.Select(k => string.Equals(k.Kid, receipt.Kid, StringComparison.Ordinal) ? k with { Retired = true } : k),
                 ],
+                PendingKeyActs = [.. WithoutPending(profile, LifecycleAct.Retirement, receipt.Kid)],
             },
             new LifecycleAct(LifecycleAct.Retirement, receipt.Kid, receipt.LogIndex));
 
@@ -650,21 +828,14 @@ public sealed class ProfileStore
         ArgumentNullException.ThrowIfNull(newSigner);
 
         var directory = DirectoryFor(profile.Slug);
-        RetainedKey kept;
-        if ((newSigner as ExternalSigner)?.Command is { Length: > 0 } command)
-        {
-            kept = new RetainedKey(newSigner.Kid, newSigner.Alg, Signer: command, RotationInForce: false);
-        }
-        else
-        {
-            ArgumentNullException.ThrowIfNull(newPrivateKey);
-            CreatePrivateDirectory(Path.Combine(directory, RetainedKeysDirectory));
-            var name = RetainedKeyName(newSigner.Kid);
-            WritePrivate(Path.Combine(directory, RetainedKeysDirectory, name), newPrivateKey.ExportPkcs8PrivateKeyPem());
-            kept = new RetainedKey(newSigner.Kid, newSigner.Alg, RetainedKeysDirectory + "/" + name, RotationInForce: false);
-        }
+        var kept = KeepKey(profile, newSigner, newPrivateKey);
 
-        var recorded = profile with { RetainedKeys = [.. profile.Retained, kept] };
+        // The key was kept before the rotation was sent (R11.99): its pending record and its entry are replaced by this one, so the key is held once.
+        var recorded = profile with
+        {
+            RetainedKeys = [.. profile.Retained.Where(k => !string.Equals(k.Kid, newSigner.Kid, StringComparison.Ordinal)), kept],
+            PendingKeyActs = [.. WithoutPending(profile, LifecycleAct.Rotation, newSigner.Kid)],
+        };
         if (logIndex is >= 0 and var index)
             recorded = RecordAct(recorded, new LifecycleAct(LifecycleAct.Rotation, newSigner.Kid, index, InForce: false));
 
@@ -686,10 +857,13 @@ public sealed class ProfileStore
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(kid);
 
-        if (logIndex is not (>= 0 and var index))
+        // The retirement was kept before it was sent (R11.99): its pending record ends here, whether or not the answer named an index to record an act at.
+        var recorded = profile with { PendingKeyActs = [.. WithoutPending(profile, LifecycleAct.Retirement, kid)] };
+        if (logIndex is >= 0 and var index)
+            recorded = RecordAct(recorded, new LifecycleAct(LifecycleAct.Retirement, kid, index, InForce: false));
+        else if (recorded.Pending.Length == profile.Pending.Length)
             return profile;
 
-        var recorded = RecordAct(profile, new LifecycleAct(LifecycleAct.Retirement, kid, index, InForce: false));
         WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(recorded));
         return recorded;
     }
@@ -754,6 +928,9 @@ public sealed class ProfileStore
         if (!profile.Acts.IsEmpty)
             members.Add(new("lifecycle_acts", new JsonValue.Array([.. profile.Acts.Select(RenderAct)])));
 
+        if (!profile.Pending.IsEmpty)
+            members.Add(new("pending_acts", new JsonValue.Array([.. profile.Pending.Select(RenderPending)])));
+
         return ClientJson.Render(members);
     }
 
@@ -771,6 +948,14 @@ public sealed class ProfileStore
         if (!key.RotationInForce) members.Add(new("rotation_in_force", new JsonValue.Bool(false)));
         return new JsonValue.Object([.. members]);
     }
+
+    private static JsonValue RenderPending(PendingKeyAct act) =>
+        new JsonValue.Object(
+        [
+            new("kid", new JsonValue.String(act.Kid)),
+            new("kind", new JsonValue.String(act.Kind)),
+            new("sent_at", new JsonValue.String(act.SentAt.ToString("o", CultureInfo.InvariantCulture))),
+        ]);
 
     private static JsonValue RenderAct(LifecycleAct act)
     {
@@ -844,6 +1029,38 @@ public sealed class ProfileStore
         return Result<ImmutableArray<LifecycleAct>>.Ok(read.ToImmutable());
     }
 
+    /// <summary>
+    /// <c>pending_acts</c>, read as strictly as the acts are (errata G74, R11.99): absent is none; a member that is not an array, an act whose kind is neither <c>rotation</c> nor <c>retirement</c>, whose kid is empty or whose
+    /// <c>sent_at</c> is not an instant is a profile this client did not write. A rotation's kept key is read to give its public half (<see cref="PendingKeyAct.Kept"/>).
+    /// </summary>
+    private static Result<ImmutableArray<PendingKeyAct>> ReadPending(JsonValue.Object o, ImmutableArray<RetainedKey> retained, string directory)
+    {
+        static Result<ImmutableArray<PendingKeyAct>> Malformed(string cause) =>
+            Result<ImmutableArray<PendingKeyAct>>.Fail(ClientErrors.MalformedProfile(cause));
+
+        var member = ClientJson.Member(o, "pending_acts");
+        if (member is null) return Result<ImmutableArray<PendingKeyAct>>.Ok([]);
+        if (member is not JsonValue.Array items) return Malformed("pending_acts is an array");
+
+        var read = ImmutableArray.CreateBuilder<PendingKeyAct>();
+        foreach (var item in items.Items)
+        {
+            if (item is not JsonValue.Object a
+                || ClientJson.String(a, "kind") is not ({ } kind and (LifecycleAct.Rotation or LifecycleAct.Retirement))
+                || ClientJson.String(a, "kid") is not { Length: > 0 } kid
+                || ClientJson.String(a, "sent_at") is not { } sentAt
+                || !DateTimeOffset.TryParse(sentAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at))
+                return Malformed("a pending act needs a kind, a kid and the time it was sent");
+
+            var kept = kind == LifecycleAct.Rotation && retained.FirstOrDefault(k => string.Equals(k.Kid, kid, StringComparison.Ordinal)) is { } entry
+                ? HalfOf(directory, entry)
+                : null;
+            read.Add(new PendingKeyAct(kind, kid, at, kept));
+        }
+
+        return Result<ImmutableArray<PendingKeyAct>>.Ok(read.ToImmutable());
+    }
+
     private static Result<AgentProfile> ReadIdentity(string slug, string path)
     {
         var parsed = JsonReader.Parse(File.ReadAllBytes(path), ClientJson.Limits);
@@ -871,9 +1088,12 @@ public sealed class ProfileStore
         if (!ReadActs(o).TryGetValue(out var acts, out var actsError))
             return Result<AgentProfile>.Fail(actsError!);
 
+        if (!ReadPending(o, retained, Path.GetDirectoryName(path) ?? ".").TryGetValue(out var pending, out var pendingError))
+            return Result<AgentProfile>.Fail(pendingError!);
+
         return Result<AgentProfile>.Ok(new AgentProfile(
             slug, agentId, kid, alg, forumUri, ClientJson.String(o, "enrolled_at"), ClientJson.String(o, "signer"),
-            retained, acts));
+            retained, acts, pending));
     }
 
     [SuppressMessage(

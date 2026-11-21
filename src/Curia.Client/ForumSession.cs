@@ -62,7 +62,7 @@ public sealed class ForumSession
         if (!_store.ReadProfile(_agent.Profile.Slug).TryGetValue(out var profile, out var error))
             return ForumResult<KeysReading>.Local(error!);
 
-        return await KeysReport.ReadAsync(_client, profile!, ct).ConfigureAwait(false);
+        return await KeysReport.ReadAsync(_client, profile!, _clock, ct).ConfigureAwait(false);
     }
 
     public ForumSession(ForumClient client, EnrolledAgent agent, ProfileStore store, TimeProvider clock, TimeSpan? writeBound = null)
@@ -83,6 +83,9 @@ public sealed class ForumSession
 
     /// <summary>The acts this agent has kept on this host (R11.79).</summary>
     public KeptActs Acts { get; }
+
+    /// <summary>The clock this session was built over: the time a key act is recorded as sent (errata G74, R11.99) and the time a pending one is judged against.</summary>
+    public TimeProvider Clock => _clock;
 
     public Uri TokenEndpoint => _client.UrlFor("/oauth/token");
 
@@ -303,41 +306,59 @@ public sealed class ForumSession
     /// path form the host reads (<see cref="KeyActUrls.ProofTarget"/>), which is not the sent URL whenever
     /// an escape is in it.
     /// </summary>
-    public Task<ForumResult<KeyActReceipt>> RotateKeyAsync(string agentId, RotationRequest request, CancellationToken ct)
+    public async Task<ForumResult<KeyActReceipt>> RotateKeyAsync(string agentId, RotationRequest request, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentNullException.ThrowIfNull(request);
-        if (ForumClient.RefuseUnstorable<KeyActReceipt>(agentId, nameof(agentId)) is { } unstorable) return Task.FromResult(unstorable);
+        if (ForumClient.RefuseUnstorable<KeyActReceipt>(agentId, nameof(agentId)) is { } unstorable) return unstorable;
 
         var path = KeyActUrls.RotatePath(agentId);
-        return WriteAsync(
+        var trace = new SendTrace();
+        var result = await WriteAsync(
             path,
             System.Text.Encoding.UTF8.GetBytes(request.Body()),
             ForumDocuments.ReadKeyActReceipt,
             ct,
-            proofTarget: KeyActUrls.ProofTarget(_client.UrlFor(path)));
+            proofTarget: KeyActUrls.ProofTarget(_client.UrlFor(path)),
+            trace: trace).ConfigureAwait(false);
+
+        return ClassifiedSend(result, trace);
     }
+
+    /// <summary>
+    /// Errata G74, R11.99: a refusal of a key act says what the send was to the keeping of the act, as R11.80's stop rule reads a send (<see cref="KeptActs.ClassOf"/>): <see cref="SendClass.Unanswered"/> for a send whose answer
+    /// was not read (the challenge hop included) and for an answer of 500 or above, <see cref="SendClass.Answered"/> for a response below 500, <see cref="SendClass.Neither"/> for a request that provably did not leave. The caller's own
+    /// cancellation is not a refusal: it ends the call by its exception and the act stays kept.
+    /// </summary>
+    private static ForumResult<KeyActReceipt> ClassifiedSend(ForumResult<KeyActReceipt> result, SendTrace trace) =>
+        result.TryGetValue(out _, out var refusal)
+            ? result
+            : ForumResult<KeyActReceipt>.Refused(refusal! with { KeptSend = KeptActs.ClassOf(AnswerOf(refusal!, trace.Sent)) });
 
     /// <summary>
     /// R4.39: <c>POST /v1/agents/{id}/keys/{kid}/retire</c>, a retirement built by
     /// <see cref="KeyActs.BuildRetirement"/>. Escaped and proved as <see cref="RotateKeyAsync"/> is.
     /// </summary>
-    public Task<ForumResult<KeyActReceipt>> RetireKeyAsync(
+    public async Task<ForumResult<KeyActReceipt>> RetireKeyAsync(
         string agentId, string kid, RetirementRequest request, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(kid);
         ArgumentNullException.ThrowIfNull(request);
-        if (ForumClient.RefuseUnstorable<KeyActReceipt>(agentId, nameof(agentId)) is { } badAgent) return Task.FromResult(badAgent);
-        if (ForumClient.RefuseUnstorable<KeyActReceipt>(kid, nameof(kid)) is { } badKid) return Task.FromResult(badKid);
+        if (ForumClient.RefuseUnstorable<KeyActReceipt>(agentId, nameof(agentId)) is { } badAgent) return badAgent;
+        if (ForumClient.RefuseUnstorable<KeyActReceipt>(kid, nameof(kid)) is { } badKid) return badKid;
 
         var path = KeyActUrls.RetirePath(agentId, kid);
-        return WriteAsync(
+        var trace = new SendTrace();
+        var result = await WriteAsync(
             path,
             System.Text.Encoding.UTF8.GetBytes(request.Body()),
             ForumDocuments.ReadKeyActReceipt,
             ct,
-            proofTarget: KeyActUrls.ProofTarget(_client.UrlFor(path)));
+            proofTarget: KeyActUrls.ProofTarget(_client.UrlFor(path)),
+            trace: trace).ConfigureAwait(false);
+
+        return ClassifiedSend(result, trace);
     }
 
     /// <summary>

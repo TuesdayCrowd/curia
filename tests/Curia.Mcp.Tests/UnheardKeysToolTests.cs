@@ -92,11 +92,11 @@ public sealed class UnheardKeysToolTests : IDisposable
         return key.ExportPkcs8PrivateKeyPem();
     }
 
-    /// <summary>The report <c>curia keys</c> prints for the profile as it is on disk now. <b>The clock seam:</b> <see cref="KeysReport.ReadAsync"/> takes no clock on the tree these probes were written against; the fix gives it one and this is the line that passes it.</summary>
-    private async Task<string> ReferenceAsync()
+    /// <summary>The report <c>curia keys</c> prints for the profile as it is on disk now, as of <paramref name="clock"/> (errata G74, plan Amendment 2 ruling 4: the report is judged against the window on the clock it is given).</summary>
+    private async Task<string> ReferenceAsync(TimeProvider clock)
     {
         Assert.True(_log.Store.ReadProfile("alice").TryGetValue(out var profile, out var error), error?.Detail);
-        var reported = await KeysReport.ReadAsync(_log.Client(), profile!, TestContext.Current.CancellationToken);
+        var reported = await KeysReport.ReadAsync(_log.Client(), profile!, clock, TestContext.Current.CancellationToken);
         Assert.True(reported.TryGetValue(out var reading, out var refusal), refusal?.Summary);
         return reading!.Render();
     }
@@ -129,7 +129,7 @@ public sealed class UnheardKeysToolTests : IDisposable
         Seed(rotation ? "rotation" : "retirement", kid, which == "recorded" ? signing : NewPem());
 
         var clock = new SetClock(now);
-        var reference = await ReferenceAsync();
+        var reference = await ReferenceAsync(clock);
         await using var session = await StartAsync(clock);
         var answer = await session.CallAsync("curia_keys", []);
 
@@ -152,16 +152,11 @@ public sealed class UnheardKeysToolTests : IDisposable
             $"the tool's text {(same ? "is" : "is not")} what KeysReport renders; it {(says ? "holds" : "does not hold")} the errata's words: {words}\n--- the tool's text ---\n{answer.Text}");
     }
 
-    /// <summary>UKA12, the version: <c>curia-mcp</c> reports the version R11.100's paragraph names (read here by this task's own reader; the one reader, <c>PublishedReadersLastWords.Version()</c>, is re-pointed by the fix). Red on the tree: <c>Expected: 0.12.2  Actual: 0.12.1</c>.</summary>
+    /// <summary>UKA12, the version: <c>curia-mcp</c> reports the version R11.100's paragraph names, read by the one reader (<c>PublishedReadersLastWords.Version()</c>, re-pointed at R11.100's paragraph by errata G74's build). Red on the tree: <c>Expected: 0.12.2  Actual: 0.12.1</c>.</summary>
     [Fact]
     public async Task UKA12_CuriaMcpReportsTheVersionR11100Names()
     {
-        // Read without a pattern: RLW40 fences a second regex that reads a curia-mcp version out of the errata, and this probe's reader is the one the fix replaces with PublishedReadersLastWords.Version().
-        var paragraph = PublishedAcceptBudget.Paragraph("**R11.100**");
-        const string marker = "`curia-mcp` is ";
-        var at = paragraph.IndexOf(marker, StringComparison.Ordinal);
-        Assert.True(at >= 0 && paragraph.IndexOf(marker, at + 1, StringComparison.Ordinal) < 0, "R11.100's paragraph must name the version exactly once");
-        var published = new string([.. paragraph[(at + marker.Length)..].TakeWhile(c => char.IsAsciiDigit(c) || c == '.')]).TrimEnd('.');
+        var published = PublishedReadersLastWords.Version();
 
         Assert.True(_log.Store.Load("alice").TryGetValue(out var agent, out var error), error?.Detail);
         using (agent)
