@@ -60,8 +60,8 @@ public sealed class SigningKeyNotLiveToolTests : IDisposable
     /// <summary>The version R11.101's paragraph names: <c>`curia-mcp` is x.y.z</c>, read from the paragraph that begins <c>**R11.101**</c>, and nothing else.</summary>
     private static string PublishedVersion()
     {
-        var matches = Regex.Matches(PublishedAcceptBudget.Paragraph("**R11.102**"), @"`curia-mcp` is (\d+\.\d+\.\d+)", RegexOptions.CultureInvariant);
-        return matches.Count == 1 ? matches[0].Groups[1].Value : throw new InvalidOperationException($"R11.102 yields {matches.Count} readings of the curia-mcp version");
+        var matches = Regex.Matches(PublishedAcceptBudget.Paragraph("**R11.103**"), @"`curia-mcp` is (\d+\.\d+\.\d+)", RegexOptions.CultureInvariant);
+        return matches.Count == 1 ? matches[0].Groups[1].Value : throw new InvalidOperationException($"R11.103 yields {matches.Count} readings of the curia-mcp version");
     }
 
     private async Task<McpProtocolSession> StartAsync()

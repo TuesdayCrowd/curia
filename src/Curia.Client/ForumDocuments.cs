@@ -130,9 +130,18 @@ public sealed record WhyRanked(
     bool DeferredByDiversification,
     ImmutableDictionary<string, string> NotComputed);
 
-/// <summary>One search result: the post in its provenance envelope, and why it ranked.</summary>
-/// <summary>One result: the post in its provenance envelope, its fused score in millionths, and why it ranked when asked.</summary>
-public sealed record SearchHitDocument(ProvenancePost Post, long ScoreMicro, WhyRanked? Why);
+/// <summary>
+/// One result: the post in its provenance envelope, its fused score in millionths, and why it ranked when asked.
+/// <c>MatchedBy</c> (R9.67) is the Forum's word for the channel or channels that chose it, exactly as served (<c>words</c>, <c>meaning</c> or <c>words_and_meaning</c>); null is a Forum
+/// that served none (an older Forum, or a query with no term) and is not a word of its own.
+/// </summary>
+public sealed record SearchHitDocument(ProvenancePost Post, long ScoreMicro, WhyRanked? Why, string? MatchedBy = null);
+
+/// <summary>
+/// R9.67's <c>by_channel</c>: how many of the served results each channel chose. Each count is null when the Forum did not state it (an older Forum, or a partial object): not stated is
+/// not zero.
+/// </summary>
+public sealed record ChannelCounts(int? Words, int? Meaning, int? WordsAndMeaning);
 
 /// <summary>
 /// A page of results and R9.7's opaque cursor for the next one.
@@ -169,7 +178,9 @@ public sealed record SearchPage(
     int? VectorPending = null,
     StatedInstant? VectorCheckedAt = null,
     StatedInstant? VectorCheckDueAt = null,
-    ImmutableArray<string>? UnmatchedFilters = null);
+    ImmutableArray<string>? UnmatchedFilters = null,
+    ChannelCounts? ByChannel = null,
+    int? Diversified = null);
 
 /// <summary>How a Forum stated one of R9.53's instants: not at all (an older Forum), as JSON <c>null</c> (no check is owed; the due member only), or as an instant.</summary>
 public enum StatedKind
@@ -608,7 +619,8 @@ internal static class ForumDocuments
             hits.Add(new SearchHitDocument(
                 document!,
                 (long)(ClientJson.Number(hit, "score_micro") ?? 0),
-                ClientJson.Object(hit, "why_ranked") is { } why ? ReadWhy(why) : null));
+                ClientJson.Object(hit, "why_ranked") is { } why ? ReadWhy(why) : null,
+                ClientJson.String(hit, "matched_by")));
         }
 
         if (ClientJson.Object(o, "floor") is not { } floor)
@@ -639,6 +651,11 @@ internal static class ForumDocuments
         if (!ReadUnmatchedFilters(o, "search page").TryGetValue(out var unmatched, out var unmatchedError))
             return Result<SearchPage>.Fail(unmatchedError!);
 
+        if (!ReadByChannel(o).TryGetValue(out var byChannel, out var byChannelError))
+            return Result<SearchPage>.Fail(byChannelError!);
+        if (!PageCount(o, "diversified").TryGetValue(out var diversified, out var diversifiedError))
+            return Result<SearchPage>.Fail(diversifiedError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -659,7 +676,40 @@ internal static class ForumDocuments
             pending,
             checkedAt,
             checkDueAt,
-            unmatched));
+            unmatched,
+            byChannel,
+            diversified));
+    }
+
+    /// <summary>
+    /// R9.67: <c>by_channel</c> is absent (null: not stated), or an object whose members are each absent (not stated) or a non-negative whole number that fits an int. A <c>by_channel</c> that is
+    /// not an object, or a count that is present and not a count, is a malformed response and is not coerced to 0.
+    /// </summary>
+    private static Result<ChannelCounts?> ReadByChannel(JsonValue.Object page)
+    {
+        if (ClientJson.Member(page, "by_channel") is null)
+            return Result<ChannelCounts?>.Ok(null);
+
+        if (ClientJson.Object(page, "by_channel") is not { } counts)
+            return Result<ChannelCounts?>.Fail(ClientErrors.ResponseMalformed("search page states by_channel as something that is not an object (R9.67)"));
+
+        if (!FloorCount(counts, "words").TryGetValue(out var words, out var error)
+            || !FloorCount(counts, "meaning").TryGetValue(out var meaning, out error)
+            || !FloorCount(counts, "words_and_meaning").TryGetValue(out var both, out error))
+            return Result<ChannelCounts?>.Fail(ClientErrors.ResponseMalformed("search page states a by_channel count that is not a count (R9.67)"));
+
+        return Result<ChannelCounts?>.Ok(new ChannelCounts(words, meaning, both));
+    }
+
+    /// <summary>R9.68: a count of the page itself, absent (null: not stated) or a non-negative whole number that fits an int; anything else present is malformed.</summary>
+    private static Result<int?> PageCount(JsonValue.Object page, string name)
+    {
+        if (ClientJson.Member(page, name) is null)
+            return Result<int?>.Ok(null);
+
+        return ClientJson.WholeNumber(page, name) is >= 0 and <= int.MaxValue and var count
+            ? Result<int?>.Ok((int)count)
+            : Result<int?>.Fail(ClientErrors.ResponseMalformed($"search page states {name} as something that is not a count (R9.68)"));
     }
 
     /// <summary>

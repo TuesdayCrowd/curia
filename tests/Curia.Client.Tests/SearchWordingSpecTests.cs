@@ -52,7 +52,10 @@ internal static partial class G64Words
     internal static string NotACosine() => Phrase(R1099(), "not a cosine");
 
     /// <summary>R10.99's word for the count of posts moved to a later page.</summary>
-    internal static string Diversified() => Span(R1099(), "diversified");
+    /// R10.99 names it twice as a code span (the served count, and the unserved form's words), so the first is read; it still throws when there is none.
+    internal static string Diversified() =>
+        Spans(R1099()).FirstOrDefault(s => string.Equals(s, "diversified", StringComparison.Ordinal))
+        ?? throw new InvalidOperationException($"the paragraph holds no code span `diversified`: {R1099()}");
 
     [GeneratedRegex("`([^`]+)`", RegexOptions.CultureInvariant)]
     private static partial Regex CodeSpan();

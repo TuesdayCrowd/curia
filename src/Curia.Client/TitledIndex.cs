@@ -54,7 +54,9 @@ public static class TitledIndex
 
         var post = passage.Post;
 
-        frame.Line($"#{number} post {post.PostId}  {post.Kind}  {post.ServerTs}  signature {SignatureWord(passage)}");
+        // R10.99: a search hit's mark ends the first line, so it sits with the post id it is about (SearchWording.Mark quotes a word this client does not know).
+        var mark = score is not null && SearchWording.Mark(score.MatchedBy) is { } marked ? new OwnText("  matched by " + marked) : new OwnText(string.Empty);
+        frame.Line($"#{number} post {post.PostId}  {post.Kind}  {post.ServerTs}  signature {SignatureWord(passage)}{mark}");
         // R10.79: directly beneath the first line, the row states an acceptance the Forum serves, as the line form's
         // frame does; a screen's list rows are the exception (IndexRow writes the first line only) and its header
         // states it (R10.74).

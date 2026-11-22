@@ -183,7 +183,8 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
         var unasked = await session.CallAsync("curia_search", new() { ["criteria"] = new Dictionary<string, object?> { ["query"] = term, ["board"] = board } });
         Assert.False(unasked.IsError, unasked.Text);
         Assert.DoesNotContain("why_ranked", unasked.Text, StringComparison.Ordinal);
-        Assert.DoesNotContain("cosine", unasked.Blocks[0], StringComparison.Ordinal);
+        // R10.99 (errata G64) has the first block say that the score is "not a cosine", so the word is no longer absent; what an unasked page must not carry is a why_ranked row's measure, "cosine N bp".
+        Assert.DoesNotMatch(@"cosine \d+ bp", unasked.Blocks[0]);
     }
 
     // ---- P21: a floor set through the record (R11.37) ----------------------------------------------------------------
