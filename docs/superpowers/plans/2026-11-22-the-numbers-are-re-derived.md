@@ -227,3 +227,15 @@ Each ruling relies on the committed rule and brief as read on 2026-11-22: `confo
 - `test_overlap`: the paraphrase and near-copy assertions stay; add a case where every `bn` side pair has disjoint words and `overlap-near-miss` fails (and `overlap-median` does not).
 - `test_good_file_passes`: may fail until `good_records()` gives at least 12 near-miss pairs Jaccard at least 0.25; adjust the fixture, not the bound.
 - `test_output_leaks_nothing` is unchanged and must still hold: the new line prints only a count.
+
+---
+
+## Amendment 3 (2026-11-22, `curia-architect`, after Task 2; rulings on the pair count, read from the committed file's ids and the legacy file's classes alone, before any cosine, overlap or score was read)
+
+Each ruling relies on `conformance/retrieval/blind-pairs.jsonl` (114 lines) and `dedupe-pairs.jsonl` (16 lines) as committed, counted by class and by the first byte of the SHA-256 of each id. Where this amendment and the body disagree, this governs.
+
+1. **The blind file holds 90 pairs, not 108.** It is 36 paraphrase, 36 near-miss and 18 near-copy pairs (the brief asked for exactly these) and 12 off-topic and 12 made-up queries. The figure 108 in the specification was an arithmetic slip; no probe, parameter or rule sentence depends on it. NDT1's "36/36/18 and 12/12 as briefed" stands.
+
+2. **Open risk 2's arithmetic is corrected.** The non-duplicates are the 36 near-miss pairs and the 7 legacy `related` and `distinct` pairs: **43**, not 81, and not "about 40 in each half". By id the split is **Derivation 23, Check 20**. The repeats are the 18 near-copy pairs and the 5 legacy `literal` pairs: 23, Derivation 9, Check 14. The paraphrases are 36 blind and 4 legacy: 40, Derivation 24, Check 16. The noise queries are 24: Derivation 8, Check 16. Consequences, stated and not tuned against: Annotating cosine A is set by `floor(0.05 x 23) = 1`, one non-duplicate's cosine; the Check ceiling `ceil(0.10 x 20) = 2` annotated non-duplicates; the paraphrase recall on Derivation has 24 pairs and on Check 16, so one pair is 4 to 6 percentage points of either. The rule is unchanged. A threshold set by one extreme pair is what Open risk 2 already warned of, now with the true size; Task 4 records the split sizes beside the figures and says in the PR body that the Derivation ceiling is one pair.
+
+3. **Task 4's recorded sizes use these counts as the check**: if the runner's split sizes differ from the ones above, the runner is wrong (the split is a function of ids alone) and Task 4 stops.
