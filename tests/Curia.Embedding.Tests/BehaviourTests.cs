@@ -179,15 +179,15 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
     }
 
     /// <summary>
-    /// SEM59 (the fact behind <c>ModelWording</c>'s clause that a long list is no evidence, Amendment 4 ruling 60; the clause is SEM60's). Under this model the vector channel's floor removes nothing: each of four queries
-    /// in the query role (three of made-up words and one on a topic the corpus does not hold) is at or above <c>HybridRanking.MinimumCosine</c> to every post of the ten-post corpus of
-    /// <c>conformance/retrieval/corpus.jsonl</c>, so the nearest posts come back however far they are and a page does not run short. This derives from the model and from the floor's constant, and not from the sentence
-    /// that says it, so a floor that D10b raises turns the sentence false and this red. The least cosine of each query is written to a file and printed. Predicted red on FSEM55 (the floor raised to 0.6):
-    /// <c>is below the floor</c>.
+    /// SEM59 (the fact behind <c>ModelWording</c>'s floor sentence, errata G66, R11.93 (rev.); the sentence is SEM60's). Under this model the vector channel's floor removes: each of four queries in the query role
+    /// (three of made-up words and one on a topic the corpus does not hold) is below the floor of the model's row (<c>RetrievalRows.Bge</c>, 6400 bp) to every post of the ten-post corpus of
+    /// <c>conformance/retrieval/corpus.jsonl</c>, so no neighbour of it is a candidate. It derives from the model and from the table's floor, and not from the sentence that says so. The greatest cosine of each
+    /// query is written to a file and printed. It replaces the assertion that the floor removed nothing (the hashed-era floor of 0.2 did, under this model).
     /// </summary>
     [Fact]
-    public async Task R11_93_SEM59_NoPostOfTheCorpusIsBelowTheFloorForAQueryOfMadeUpWords()
+    public async Task R11_93_SEM59_EveryPostOfTheCorpusIsBelowTheFloorForAQueryOfMadeUpWords()
     {
+        var floor = RetrievalRows.Bge.Floor;
         var corpus = (await File.ReadAllLinesAsync(Path.Combine(ModelDirectory.RepositoryRoot(), "conformance", "retrieval", "corpus.jsonl"), Ct)).Where(l => l.Length > 0).Select(l =>
         {
             using var json = JsonDocument.Parse(l);
@@ -203,9 +203,9 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
         foreach (var query in new[] { "zorblax quimpt vrenkelflap", "xyzzyqwerty nonsense", "frumious bandersnatch gyre", "sourdough starter hydration discard" })
         {
             var vector = await EmbedAsync(query, EmbeddingRole.Query);
-            var least = posts.Min(p => Probe.Cosine(vector, p));
-            lines.Add($"{query,-40} least cosine {least:0.000} (floor {HybridRanking.MinimumCosine:0.000})");
-            Assert.True(least >= HybridRanking.MinimumCosine, $"'{query}': its least cosine over the corpus, {least:0.000}, is below the floor {HybridRanking.MinimumCosine:0.000}, so the channel no longer returns the nearest posts however far they are and ModelWording's sentence for this model says what is no longer true");
+            var greatest = posts.Max(p => Probe.Cosine(vector, p));
+            lines.Add($"{query,-40} greatest cosine {greatest:0.000} (floor {floor:0.000})");
+            Assert.True(greatest < floor, $"'{query}': its greatest cosine over the corpus, {greatest:0.000}, is not below the floor {floor:0.000}, so the channel does not remove every neighbour of a made-up query and ModelWording's sentence for this model says what is no longer true");
         }
 
         Record("sem59-floor.txt", lines);
@@ -351,7 +351,7 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
             Req(await indexer.IndexAsync(post, Ct));
 
             var envelope = Req(PostEnvelope.Read((JsonValue.Object)Req(JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(CanonicalQuestion(titleB, bodyB))))));
-            var check = new DuplicateCheck(model.Embedder, index, DuplicateThresholds.Published);
+            var check = new DuplicateCheck(model.Embedder, index, RetrievalRows.Bge.Thresholds);
             var prepared = Req(await check.PrepareAsync(envelope, Ct));
             var assessed = Req(check.Assess(ImmutableArray.Create(post), prepared));
             verdicts.Add($"{pair.Class,-11} {pair.Id,-26} {assessed.Verdict,-9} cosine {assessed.Cosine:0.000} overlap {assessed.LexicalOverlap:0.000}");

@@ -87,8 +87,8 @@ public sealed class HybridSearchCursorBindingTests
             Indexer = new EmbeddingIndexer(raw, inner);
             Embedder = new CountingEmbedder(raw);
             Index = new CountingIndex(inner);
-            Published = new HybridSearch(Embedder, Index, RetrievalFloors.Published);
-            AtV1 = new HybridSearch(Embedder, Index, Require(RetrievalFloors.Parse([new("rest-search", "V1")])));
+            Published = new HybridSearch(Embedder, Index, RetrievalFloors.Published, RetrievalRows.Hashed);
+            AtV1 = new HybridSearch(Embedder, Index, Require(RetrievalFloors.Parse([new("rest-search", "V1")])), RetrievalRows.Hashed);
         }
 
         internal void ResetCounters() => (Embedder.Calls, Index.Nearest) = (0, 0);

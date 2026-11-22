@@ -68,8 +68,16 @@ public sealed class HybridSearch
     private readonly ITextEmbedder _embedder;
     private readonly IVectorIndex _index;
     private readonly RetrievalFloors _floors;
+    private readonly double _minimumCosine;
 
-    public HybridSearch(ITextEmbedder embedder, IVectorIndex index, RetrievalFloors floors)
+    /// <summary>The floor of a model with no row: every cosine is at least this, so no neighbour is removed (errata G66, R11.102).</summary>
+    private const double NoFloor = -1.0;
+
+    /// <summary>
+    /// <paramref name="row"/> is the served model's row of <see cref="RetrievalRows"/>: its floor is the vector channel's published minimum cosine (R9.22), read here and at the page's
+    /// construction. <see langword="null"/> is a model with no row, which removes nothing. It has no default, so a forgotten argument does not compile into a floor of nothing.
+    /// </summary>
+    public HybridSearch(ITextEmbedder embedder, IVectorIndex index, RetrievalFloors floors, RetrievalRow? row)
     {
         ArgumentNullException.ThrowIfNull(embedder);
         ArgumentNullException.ThrowIfNull(index);
@@ -77,6 +85,7 @@ public sealed class HybridSearch
         _embedder = embedder;
         _index = index;
         _floors = floors;
+        _minimumCosine = row?.Floor ?? NoFloor;
     }
 
     /// <summary>
@@ -177,7 +186,7 @@ public sealed class HybridSearch
             bound,
             HybridRanking.CandidateDepth,
             RankFusion.DefaultK,
-            HybridRanking.MinimumCosine,
+            _minimumCosine,
             excludedByFloor,
             excludedDisputed,
             RetrievalFloorPolicy.PublishedFloor(surface),
@@ -208,7 +217,7 @@ public sealed class HybridSearch
     }
 
     /// <summary>The neighbours kept where they are in the filtered corpus, at or above the cosine line.</summary>
-    private static ImmutableArray<VectorHit> VectorHits(ImmutableArray<SearchablePost> corpus, LexicalQuery filters, ImmutableArray<VectorMatch> matches)
+    private ImmutableArray<VectorHit> VectorHits(ImmutableArray<SearchablePost> corpus, LexicalQuery filters, ImmutableArray<VectorMatch> matches)
     {
         // R9.47: two stored posts of one digest resolve to the first in log order; a repeat never throws.
         var byDigest = new Dictionary<string, SearchablePost>(StringComparer.Ordinal);
@@ -219,7 +228,7 @@ public sealed class HybridSearch
         foreach (var match in matches)
         {
             var cosine = 1.0 - match.Distance;
-            if (cosine < HybridRanking.MinimumCosine) break;   // nearest first: nothing after this is closer
+            if (cosine < _minimumCosine) break;   // nearest first: nothing after this is closer
             if (byDigest.TryGetValue(match.Digest, out var post))
                 hits.Add(new VectorHit(post, cosine));
         }

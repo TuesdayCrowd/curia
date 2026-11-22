@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Curia.Application.Retrieval;
 using Curia.Domain.Search;
 using Xunit;
 using static Curia.Embedding.Tests.RetrievalRule;
@@ -33,6 +34,30 @@ internal static partial class ResultsSection
 
     [GeneratedRegex(@"^\s*-\s*(?<k>[a-z_0-9]+):\s*(?<v>\S.*?)\s*$", RegexOptions.Multiline)]
     private static partial Regex Statement();
+
+    /// <summary>
+    /// NDT6's threshold half (Amendment 4 ruling 3), a biconditional: the section says <c>thresholds_ship: true</c> exactly when the code's row has <paramref name="rowDerived"/>. When it ships, the section's three
+    /// numbers are the runner's and the row's (the original assertion, kept); when it does not, the section carries no threshold number.
+    /// </summary>
+    internal static void AssertThresholds(string section, Derived derived, bool rowDerived, (int Refuse, int Overlap, int Annotate) row)
+    {
+        var ships = Value(section, "thresholds_ship");
+        Assert.True(ships is "true" or "false", "Expected: RESULTS.md's bge section states thresholds_ship: true or false  Actual: " + (ships ?? "none"));
+        Assert.True(rowDerived == (ships == "true"), $"Expected: the section says thresholds_ship: {(rowDerived ? "true" : "false")} exactly when the code's row has ThresholdsDerived == {rowDerived}  Actual: thresholds_ship: {ships}");
+
+        if (ships == "true")
+        {
+            Assert.Equal(derived.OverlapBp.ToString(CultureInfo.InvariantCulture), Value(section, "overlap_floor_bp"));
+            Assert.Equal(derived.RefuseBp.ToString(CultureInfo.InvariantCulture), Value(section, "refuse_cosine_bp"));
+            Assert.Equal(derived.AnnotateBp.ToString(CultureInfo.InvariantCulture), Value(section, "annotate_cosine_bp"));
+            Assert.Equal((derived.RefuseBp, derived.OverlapBp, derived.AnnotateBp), row);
+        }
+        else
+        {
+            foreach (var key in new[] { "overlap_floor_bp", "refuse_cosine_bp", "annotate_cosine_bp" })
+                Assert.True(Value(section, key) is null, $"Expected: a section that ships no threshold carries no {key}  Actual: {Value(section, key)}");
+        }
+    }
 
     /// <summary>The value of a <c>- key: value</c> statement in the section, or null.</summary>
     internal static string? Value(string section, string key) =>
@@ -357,6 +382,35 @@ public sealed class RetrievalRuleTests
         if (ships == "false") Assert.Contains("no number ships", section, StringComparison.Ordinal);
     }
 
+    // ------------------------------------------------------------------------------------------------ NDT6's parser
+
+    private const string ShippedSection = "- thresholds_ship: true\n- overlap_floor_bp: 5000\n- refuse_cosine_bp: 9400\n- annotate_cosine_bp: 8800\n- floor_bp: 6400\n";
+    private const string UnshippedSection = "- thresholds_ship: false\n- floor_bp: 6400\n";
+
+    /// <summary>NDT6's shipped branch over a literal section (the branch is not dead while the real section ships no threshold): green when the row is derived and equals the section, red on a flag, a number or a missing member.</summary>
+    [Fact]
+    public void R8_89_NDT6_TheShippedBranchAcceptsASectionThatAgreesWithTheRowAndRefusesOneThatDoesNot()
+    {
+        var derived = new Derived(5000, 9400, 8800);
+        ResultsSection.AssertThresholds(ShippedSection, derived, rowDerived: true, (9400, 5000, 8800));
+
+        Assert.ThrowsAny<Exception>(() => ResultsSection.AssertThresholds(ShippedSection, derived, rowDerived: false, (9400, 5000, 8800)));
+        Assert.ThrowsAny<Exception>(() => ResultsSection.AssertThresholds(ShippedSection, derived, rowDerived: true, (9400, 5000, 8500)));
+        Assert.ThrowsAny<Exception>(() => ResultsSection.AssertThresholds(ShippedSection.Replace("annotate_cosine_bp: 8800", "annotate_cosine_bp: 8500", StringComparison.Ordinal), derived, rowDerived: true, (9400, 5000, 8800)));
+        Assert.ThrowsAny<Exception>(() => ResultsSection.AssertThresholds("- floor_bp: 6400\n", derived, rowDerived: false, (9400, 5000, 8500)));
+    }
+
+    /// <summary>NDT6's other branch over a literal section: a section that ships nothing agrees with a row whose thresholds are not derived, and is refused beside a derived row or when it carries a threshold number.</summary>
+    [Fact]
+    public void R8_89_NDT6_TheUnshippedBranchAcceptsASectionWithNoThresholdAndRefusesOneThatCarriesAnOrADerivedRow()
+    {
+        var derived = new Derived(5000, 9400, 8800);
+        ResultsSection.AssertThresholds(UnshippedSection, derived, rowDerived: false, (9400, 5000, 8500));
+
+        Assert.ThrowsAny<Exception>(() => ResultsSection.AssertThresholds(UnshippedSection, derived, rowDerived: true, (9400, 5000, 8500)));
+        Assert.ThrowsAny<Exception>(() => ResultsSection.AssertThresholds(UnshippedSection + "- annotate_cosine_bp: 8800\n", derived, rowDerived: false, (9400, 5000, 8500)));
+    }
+
     // ------------------------------------------------------------------------------------------------ NDT10, NDT12
 
     private static string ClientWording() => File.ReadAllText(Path.Combine(ModelDirectory.RepositoryRoot(), "src", "Curia.Client", "ModelWording.cs"));
@@ -375,7 +429,18 @@ public sealed class RetrievalRuleTests
 
         var wording = ClientWording();
         const string Clause = "no evidence that the Forum holds anything on the topic";
-        if (outcome == "true") Assert.DoesNotContain(Clause, wording, StringComparison.Ordinal);
+        if (outcome == "true")
+        {
+            Assert.DoesNotContain(Clause, wording, StringComparison.Ordinal);
+
+            // the sentence states the floor and the two percentages the section publishes, each read from the section and typed in the sentence once
+            Assert.Contains((int.Parse(ResultsSection.Value(section!, "floor_bp")!, CultureInfo.InvariantCulture) / 10_000m).ToString("0.00", CultureInfo.InvariantCulture), wording, StringComparison.Ordinal);
+            foreach (var key in new[] { "floor_removal_bp", "floor_keep_bp" })
+            {
+                var percent = int.Parse(Regex.Match(ResultsSection.Value(section!, key)!, @"^\d+").Value, CultureInfo.InvariantCulture) / 100;
+                Assert.Contains($"({percent}%)", wording, StringComparison.Ordinal);
+            }
+        }
         else
         {
             Assert.Contains(Clause, wording, StringComparison.Ordinal);
@@ -521,33 +586,38 @@ public sealed class NearDuplicateThresholdTests(RealModelFixture model) : IClass
     }
 
     /// <summary>
-    /// NDT6. RESULTS.md's bge section against what the runner computes now, and the code's table against the published basis points. The first assertion is the section's existence: it fails there while Task 4's section is
-    /// absent, and the runner is not called on the blind data. Predicted red: <c>Expected: RESULTS.md carries a bge-small-en-v1.5@1 section between markers  Actual: no such section</c>.
+    /// NDT6. RESULTS.md's bge section against what the runner computes now, and the code's table against the published numbers. The first assertion is the section's existence. The threshold half is a
+    /// biconditional (Amendment 4 ruling 3): <c>thresholds_ship</c> is true exactly when the row's <c>ThresholdsDerived</c> is, the runner's verdict is the section's, a shipped section's numbers are the runner's and the
+    /// row's, and a section that ships none carries none. The floor half: the row's floor, the section's <c>floor_bp</c> and the runner's are one number.
     /// </summary>
     [Fact]
     public async Task R8_89_NDT6_ResultsEqualsTheRunnerAndTheCodeHoldsThePublishedBasisPoints()
     {
         var section = ResultsSection.Required();
-        var (derived, floorBp, _) = Compute(await MeasuredAsync(), Parameters.FromRepository());
-        Assert.Equal(derived.OverlapBp.ToString(CultureInfo.InvariantCulture), ResultsSection.Value(section, "overlap_floor_bp"));
-        Assert.Equal(derived.RefuseBp.ToString(CultureInfo.InvariantCulture), ResultsSection.Value(section, "refuse_cosine_bp"));
-        Assert.Equal(derived.AnnotateBp.ToString(CultureInfo.InvariantCulture), ResultsSection.Value(section, "annotate_cosine_bp"));
+        var row = RetrievalRows.For(ResultsSection.Model);
+        Assert.True(row is not null, "Expected: RetrievalRows.For(\"" + ResultsSection.Model + "\") answers a row  Actual: none");
+
+        var (derived, floorBp, verdicts) = Compute(await MeasuredAsync(), Parameters.FromRepository());
+        Assert.Equal(verdicts.ThresholdsShip ? "true" : "false", ResultsSection.Value(section, "thresholds_ship"));
+        ResultsSection.AssertThresholds(section, derived, row!.ThresholdsDerived, (row.RefuseCosineBp, row.RefuseOverlapBp, row.AnnotateCosineBp));
+
         Assert.Equal(floorBp.ToString(CultureInfo.InvariantCulture), ResultsSection.Value(section, "floor_bp"));
+        Assert.Equal(row.FloorBp.ToString(CultureInfo.InvariantCulture), ResultsSection.Value(section, "floor_bp"));
+        Assert.True(row.FloorDerived, "Expected: the row's floor is derived (the section's floor_does_something is true)  Actual: FloorDerived is false");
     }
 
-    /// <summary>NDT6, the code's half: <c>DuplicateThresholds.For("bge-small-en-v1.5@1")</c> is the published row. Predicted red: <c>Expected: DuplicateThresholds.For(string) exists  Actual: no such method</c>.</summary>
+    /// <summary>NDT6, the code's half: <c>RetrievalRows.For("bge-small-en-v1.5@1")</c> is a row of its own, and not the hashed row the code held for every model before D10b.</summary>
     [Fact]
     public void R8_89_NDT6_TheCodeHoldsAnotherRowForTheDeployedModel()
     {
-        var method = typeof(DuplicateThresholds).GetMethod("For", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static, [typeof(string)]);
-        Assert.True(method is not null, $"Expected: DuplicateThresholds.For(string) exists  Actual: no such method; the code holds {DuplicateThresholds.Published.RefuseCosine}/{DuplicateThresholds.Published.RefuseOverlap}/{DuplicateThresholds.Published.AnnotateCosine} and {HybridRanking.MinimumCosine} for every model");
-        var row = method!.Invoke(null, [ResultsSection.Model]);
-        Assert.True(row is not null, "Expected: DuplicateThresholds.For(\"" + ResultsSection.Model + "\") answers a row  Actual: none");
+        var row = RetrievalRows.For(ResultsSection.Model);
+        Assert.True(row is not null, "Expected: RetrievalRows.For(\"" + ResultsSection.Model + "\") answers a row  Actual: none");
+        Assert.NotEqual(RetrievalRows.Hashed.FloorBp, row!.FloorBp);
     }
 
     /// <summary>
-    /// NDT11. Each of the six canaries ranks its expected post in the top three, by the vector channel alone, under the deployed model over the committed corpus with the floor as the code has it today
-    /// (<c>HybridRanking.MinimumCosine</c>). The outcome is recorded either way; a canary that fails under the model is a finding, never a retune.
+    /// NDT11. Each of the six canaries ranks its expected post in the top three, by the vector channel alone, under the deployed model over the committed corpus with the floor of the model's row
+    /// (<c>RetrievalRows.Bge</c>). The outcome is recorded either way; a canary that fails under the model is a finding, never a retune.
     /// </summary>
     [Fact]
     public async Task R10_5_NDT11_EachCanaryRanksItsExpectedPostInTheTopThreeUnderTheDeployedModel()
@@ -572,7 +642,7 @@ public sealed class NearDuplicateThresholdTests(RealModelFixture model) : IClass
             var id = json.RootElement.GetProperty("id").GetString()!;
             var expected = json.RootElement.GetProperty("expected").GetString()!;
             var query = Probe.VectorOf(await model.Embedder.EmbedAsync(json.RootElement.GetProperty("query").GetString()!, EmbeddingRole.Query, Ct), "a canary query");
-            var ranked = posts.Select(p => (p.Id, Cosine: Probe.Cosine(query, p.Vector))).Where(p => p.Cosine >= HybridRanking.MinimumCosine).OrderByDescending(p => p.Cosine).Select(p => p.Id).ToList();
+            var ranked = posts.Select(p => (p.Id, Cosine: Probe.Cosine(query, p.Vector))).Where(p => p.Cosine >= RetrievalRows.Bge.Floor).OrderByDescending(p => p.Cosine).Select(p => p.Id).ToList();
             var rank = ranked.IndexOf(expected) + 1;
             outcomes.Add($"{id}: expected {expected} ranks {(rank == 0 ? "absent" : rank.ToString(CultureInfo.InvariantCulture))}");
             if (rank is 0 or > 3) failed.Add($"{id} (rank {(rank == 0 ? "absent" : rank.ToString(CultureInfo.InvariantCulture))})");

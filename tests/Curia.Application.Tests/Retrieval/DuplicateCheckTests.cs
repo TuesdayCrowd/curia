@@ -23,7 +23,7 @@ public sealed class DuplicateCheckTests
     {
         var embedder = new HashedNGramEmbedder();
         var index = new InMemoryVectorIndex();
-        return new Harness(new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()), new EmbeddingIndexer(embedder, index), new DuplicateCheck(embedder, index, thresholds ?? DuplicateThresholds.Published));
+        return new Harness(new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()), new EmbeddingIndexer(embedder, index), new DuplicateCheck(embedder, index, thresholds ?? RetrievalRows.Hashed.Thresholds));
     }
 
     private static PostEnvelope Envelope(PostKind kind, string title, string body, string board = "postgres", bool? notDuplicate = null, string? rationale = null)
@@ -57,7 +57,7 @@ public sealed class DuplicateCheckTests
         Assert.Equal(1.0, verdict.Cosine, 1e-6);
         Assert.Equal(1.0, verdict.LexicalOverlap, 1e-12);
         Assert.Equal(HashedNGramEmbedding.Model, verdict.Model);
-        Assert.Equal(DuplicateThresholds.Published, verdict.Thresholds);
+        Assert.Equal(RetrievalRows.Hashed.Thresholds, verdict.Thresholds);
     }
 
     [Fact]

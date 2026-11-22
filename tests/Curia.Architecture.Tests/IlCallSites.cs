@@ -219,6 +219,69 @@ internal static class IlCallSites
         return [.. found];
     }
 
+    /// <summary>
+    /// Every floating-point literal of <paramref name="assemblyPath"/>, as (outermost declaring type, source member, value): each <c>ldc.r8</c> and <c>ldc.r4</c> in a method body, and each
+    /// <c>double</c> or <c>float</c> in the metadata's constant table (a <c>const</c> field, a parameter default), so a number held as a <c>const</c> and a number written at its use are both seen
+    /// (errata G66, R11.102's fence). A body whose decoding does not end exactly at its length throws, as <see cref="CallSites"/> does.
+    /// </summary>
+    internal static ImmutableArray<(string Type, string Member, double Value)> FloatLiterals(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var md = pe.GetMetadataReader();
+
+        var found = new List<(string, string, double)>();
+        foreach (var typeHandle in md.TypeDefinitions)
+        {
+            var type = md.GetTypeDefinition(typeHandle);
+            var typeName = DefinitionFullName(md, Outermost(md, typeHandle));
+            foreach (var fieldHandle in type.GetFields())
+            {
+                var field = md.GetFieldDefinition(fieldHandle);
+                if (field.GetDefaultValue() is { IsNil: false } constantHandle && ConstantFloat(md, md.GetConstant(constantHandle)) is { } constant)
+                    found.Add((typeName, md.GetString(field.Name), constant));
+            }
+
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = md.GetMethodDefinition(methodHandle);
+                var name = SourceMethodName(md, type, md.GetString(method.Name));
+                foreach (var parameterHandle in method.GetParameters())
+                {
+                    var parameter = md.GetParameter(parameterHandle);
+                    if (parameter.GetDefaultValue() is { IsNil: false } constantHandle && ConstantFloat(md, md.GetConstant(constantHandle)) is { } constant)
+                        found.Add((typeName, name, constant));
+                }
+
+                if (method.RelativeVirtualAddress == 0)
+                    continue;
+
+                var reader = pe.GetMethodBody(method.RelativeVirtualAddress).GetILReader();
+                while (reader.Offset < reader.Length)
+                {
+                    var opCode = ReadOpCode(ref reader);
+                    if (opCode == ILOpCode.Ldc_r8) { found.Add((typeName, name, reader.ReadDouble())); continue; }
+                    if (opCode == ILOpCode.Ldc_r4) { found.Add((typeName, name, reader.ReadSingle())); continue; }
+                    SkipOperand(ref reader, opCode);
+                }
+
+                if (reader.Offset != reader.Length)
+                    throw new InvalidOperationException(
+                        $"{typeName}.{md.GetString(method.Name)}: IL decoding ended at {reader.Offset} of {reader.Length}; the decoder lost its place");
+            }
+        }
+
+        return [.. found];
+    }
+
+    private static double? ConstantFloat(MetadataReader md, Constant constant)
+    {
+        var blob = md.GetBlobReader(constant.Value);
+        if (constant.TypeCode == ConstantTypeCode.Double) return blob.ReadDouble();
+        if (constant.TypeCode == ConstantTypeCode.Single) return blob.ReadSingle();
+        return null;
+    }
+
     /// <summary>Each opcode's operand type, read once from <see cref="System.Reflection.Emit.OpCodes"/>.</summary>
     private static readonly Dictionary<ILOpCode, System.Reflection.Emit.OperandType> OperandTypes =
         typeof(System.Reflection.Emit.OpCodes)

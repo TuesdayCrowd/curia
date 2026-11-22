@@ -97,9 +97,9 @@ public sealed partial class AnnotationCosineIntegerTests(KestrelForumFixture for
         }
     }
 
-    /// <summary>True when the cosine's JSON text carries no fraction or exponent: the class that hides D122.</summary>
+    /// <summary>True when the annotated cosine is exactly a whole number (0 or 1): the class that hid D122, when the member was a double that serialized as an integer. It is read from <c>cosine_micro</c>, the member that replaced it.</summary>
     private static bool IsIntegral(JsonElement annotation) =>
-        !annotation.TryGetProperty("cosine", out var cosine) || !(cosine.GetRawText().Contains('.', StringComparison.Ordinal) || cosine.GetRawText().Contains('e', StringComparison.OrdinalIgnoreCase));
+        annotation.TryGetProperty("cosine_micro", out var micro) && micro.TryGetInt64(out var millionths) && millionths % 1_000_000 == 0;
 
     private sealed record Scene(int RefusedBp, JsonElement Annotation, JsonElement LiteralAnnotation, (int Exit, string Out, string Err) VerifyNonIntegral, (int Exit, string Out, string Err) VerifyLiteral);
 
@@ -171,5 +171,6 @@ public sealed partial class AnnotationCosineIntegerTests(KestrelForumFixture for
         Assert.True(scene.Annotation.TryGetProperty("cosine_micro", out var micro) && micro.ValueKind == JsonValueKind.Number && micro.TryGetInt64(out _),
             $"Expected: possible_duplicate has an integer member cosine_micro  Actual: members {members}");
         Assert.Equal(scene.RefusedBp, (int)Math.Round(micro.GetInt64() / 100.0, MidpointRounding.AwayFromZero));
+        Assert.False(scene.Annotation.TryGetProperty("cosine", out _), $"Expected: the old member cosine (a number with a fraction) is gone  Actual: members {members}");
     }
 }

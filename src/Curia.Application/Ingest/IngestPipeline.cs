@@ -252,7 +252,7 @@ public sealed class IngestPipeline : IIngestPipeline
                     new("possible_duplicate", new JsonValue.Object(
                     [
                         new("of", new JsonValue.String(duplicate.OfDigest)),
-                        new("cosine", new JsonValue.Number(duplicate.Cosine)),
+                        new("cosine_micro", new JsonValue.Number(duplicate.CosineMicro)),
                         new("model", new JsonValue.String(duplicate.Model)),
                     ])),
                 }

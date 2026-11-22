@@ -4,18 +4,14 @@ using Curia.Domain.Content;
 namespace Curia.Domain.Search;
 
 /// <summary>
-/// §8.5's thresholds (R8.18, R8.21). <see cref="RefuseCosine"/> is the white paper's number;
-/// <see cref="RefuseOverlap"/> and <see cref="AnnotateCosine"/> are provisional values errata G10
-/// names as such, to be re-derived from the measurement in <c>conformance/retrieval/</c> rather
-/// than defended.
+/// §8.5's thresholds (R8.18, R8.21) as a shape. The Domain holds no number: a model's numbers are a row of
+/// <c>Curia.Application.Retrieval.RetrievalRows</c> (errata G66), and an id with no row has no thresholds at all.
 /// </summary>
 /// <param name="RefuseCosine">Cosine at or above which, together with the overlap floor, a question is refused (R8.18: 0.94).</param>
 /// <param name="RefuseOverlap">The lexical-overlap floor R8.18 conjoins with the cosine: Jaccard over <see cref="LexicalSearch.Tokenize"/>'s terms.</param>
 /// <param name="AnnotateCosine">R8.18's "moderate threshold": at or above it a submission is accepted with a <c>possible_duplicate</c> annotation.</param>
 public sealed record DuplicateThresholds(double RefuseCosine, double RefuseOverlap, double AnnotateCosine)
 {
-    public static DuplicateThresholds Published { get; } = new(0.94, 0.5, 0.85);
-
     public bool IsValid =>
         RefuseCosine is >= 0 and <= 1 && RefuseOverlap is >= 0 and <= 1 && AnnotateCosine is >= 0 and <= 1
         && AnnotateCosine <= RefuseCosine;

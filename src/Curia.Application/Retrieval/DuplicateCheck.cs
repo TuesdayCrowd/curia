@@ -14,7 +14,7 @@ public sealed record DuplicateAssessment(
     SearchablePost? Nearest,
     double Cosine,
     double LexicalOverlap,
-    DuplicateThresholds Thresholds,
+    DuplicateThresholds? Thresholds,
     EmbeddingModel Model,
     bool Overridden,
     int CandidatesConsidered);
@@ -37,21 +37,24 @@ public sealed class DuplicateCheck
 
     private readonly ITextEmbedder _embedder;
     private readonly IVectorIndex _index;
-    private readonly DuplicateThresholds _thresholds;
+    private readonly DuplicateThresholds? _thresholds;
 
-    public DuplicateCheck(ITextEmbedder embedder, IVectorIndex index, DuplicateThresholds thresholds)
+    /// <summary>
+    /// <paramref name="thresholds"/> are the served model's row of <see cref="RetrievalRows"/>. <see langword="null"/> is a model with no row: the check refuses nothing and annotates nothing, and is not
+    /// run (errata G66, R11.102). It has no default, so a forgotten argument does not compile into a check that is off.
+    /// </summary>
+    public DuplicateCheck(ITextEmbedder embedder, IVectorIndex index, DuplicateThresholds? thresholds)
     {
         ArgumentNullException.ThrowIfNull(embedder);
         ArgumentNullException.ThrowIfNull(index);
-        ArgumentNullException.ThrowIfNull(thresholds);
-        if (!thresholds.IsValid)
+        if (thresholds is not null && !thresholds.IsValid)
             throw new ArgumentException("Thresholds must lie in [0, 1] with the moderate cosine at or below the refusing one.", nameof(thresholds));
         _embedder = embedder;
         _index = index;
         _thresholds = thresholds;
     }
 
-    public DuplicateThresholds Thresholds => _thresholds;
+    public DuplicateThresholds? Thresholds => _thresholds;
 
     /// <summary>
     /// Every step of the check at which it can be made to wait (errata G71, R9.65): the text embedded as a passage and the index's neighbours of it. It takes no corpus, so it asks the index
@@ -88,7 +91,7 @@ public sealed class DuplicateCheck
         ArgumentNullException.ThrowIfNull(prepared);
 
         var none = new DuplicateAssessment(DuplicateVerdict.None, null, 0, 0, _thresholds, _embedder.Model, prepared.Overridden, 0);
-        if (!prepared.Embedded)
+        if (_thresholds is null || !prepared.Embedded)
             return Result<DuplicateAssessment>.Ok(none);
 
         // R9.47: two stored posts of one digest resolve to the first in log order; a repeat never throws.

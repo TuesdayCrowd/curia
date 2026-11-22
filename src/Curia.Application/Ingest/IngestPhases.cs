@@ -76,9 +76,14 @@ public sealed record ScreenedSubmission(VerifiedSubmission Inner, RiskAnnotation
 /// <summary>
 /// R8.18's <c>possible_duplicate</c>: a derived analysis artifact (R6.14) PERSIST writes beside
 /// <c>risk_flags</c>, never into the signed content. Carries the canonical post's digest and the
-/// measured cosine under the named model (R8.21), and no span of either text.
+/// measured cosine under the named model (R8.21), and no span of either text. The cosine is an integer in millionths (<c>cosine_micro</c>, errata G66, R8.90): the signed bytes a
+/// reader re-canonicalizes admit no number with a fractional part (R6.33), and a post annotated with one could not be verified.
 /// </summary>
-public sealed record PossibleDuplicate(string OfDigest, double Cosine, string Model);
+public sealed record PossibleDuplicate(string OfDigest, long CosineMicro, string Model)
+{
+    /// <summary>A measured cosine in millionths, rounded half away from zero (the 409's <c>cosine_bp</c> rounds the same value in ten-thousandths).</summary>
+    public static long Micro(double cosine) => (long)Math.Round(cosine * 1_000_000, MidpointRounding.AwayFromZero);
+}
 
 /// <summary>PERSIST's output: what the Forum assigned, which the author did not sign.</summary>
 /// <param name="PostId">The Forum-assigned identifier.</param>

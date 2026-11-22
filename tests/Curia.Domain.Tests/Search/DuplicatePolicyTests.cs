@@ -11,7 +11,7 @@ namespace Curia.Domain.Tests.Search;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class DuplicatePolicyTests
 {
-    private static readonly DuplicateThresholds T = DuplicateThresholds.Published;
+    private static readonly DuplicateThresholds T = new DuplicateThresholds(0.94, 0.5, 0.85);
 
     [Fact]
     public void R8_18_ARefusalNeedsBothTheCosineAndTheLexicalFloor()

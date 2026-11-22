@@ -50,22 +50,28 @@ public sealed partial class ModelWordingTests
     }
 
     /// <summary>
-    /// SEM60 (the clause, Amendment 4 ruling 60; the fact behind it is SEM59's). The sentence for <c>bge-small-en-v1.5@1</c> says that the model ranks the nearest posts however far they are and that a long list is no
-    /// evidence the Forum holds the topic; the sentence for <c>hashed-ngram@1</c> (whose floor does remove far posts) and the one for an id the definition does not know make no such claim (trap 185: a positive
-    /// word with no negative neighbour is tested with all three together). The words are asserted by hand, as Table 11's criteria structure is, because parsing prose into a predicate is a second implementation.
-    /// Predicted red on FSEM56: <c>the sentence for bge-small-en-v1.5@1 does not say however far</c>.
+    /// SEM60 (the floor sentence, errata G66, R11.93 (rev.); the fact behind it is SEM59's). The sentence for <c>bge-small-en-v1.5@1</c> states that results below a vector score of 0.64 are removed, what that
+    /// removed and kept on the measured corpus of about 190 posts, that a result list can omit a near match below the floor, and that an empty or short list does not show that the Forum holds nothing on the topic;
+    /// it no longer says that the model ranks the nearest posts however far they are or that a long list is no evidence (the floor removes now). The sentence for <c>hashed-ngram@1</c> and the one for an id the
+    /// definition does not know make no such claim (trap 185: a positive word with no negative neighbour is tested with all three together). The words are asserted by hand, as Table 11's criteria structure is,
+    /// because parsing prose into a predicate is a second implementation. The numbers in the sentence are NDT10's to compare with RESULTS.md.
     /// </summary>
     [Fact]
-    public void R11_93_SEM60_TheBgeSentenceSaysALongListIsNoEvidenceAndNoOtherSentenceDoes()
+    public void R11_93_SEM60_TheBgeSentenceStatesTheFloorAndNoOtherSentenceDoes()
     {
         var bge = ModelWording.Sentence(Bge);
 
-        Assert.True(bge.Contains("however far", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say however far");
-        Assert.True(bge.Contains("no evidence", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say a long list is no evidence");
+        Assert.True(bge.Contains("below a vector score of 0.64 are removed", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say results below a vector score of 0.64 are removed");
+        Assert.True(bge.Contains("about 190 posts", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not name the measured corpus");
+        Assert.True(bge.Contains("can omit a near match", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say a result list can omit a near match below the floor");
+        Assert.True(bge.Contains("does not show that the Forum holds nothing on the topic", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say an empty or short list does not show the Forum holds nothing");
         Assert.True(bge.Contains("paraphrase or may be unrelated", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say a hit with no shared word may be either");
+        Assert.DoesNotContain("however far", bge, StringComparison.Ordinal);
+        Assert.DoesNotContain("no evidence", bge, StringComparison.Ordinal);
 
         foreach (var other in new[] { ModelWording.Sentence(Hashed), ModelWording.Sentence(Unknown), ModelWording.Sentence(null) })
         {
+            Assert.DoesNotContain("below a vector score of 0.64", other, StringComparison.Ordinal);
             Assert.DoesNotContain("however far", other, StringComparison.Ordinal);
             Assert.DoesNotContain("no evidence", other, StringComparison.Ordinal);
         }

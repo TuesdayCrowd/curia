@@ -56,6 +56,19 @@ public sealed class Program
     {
     }
 
+    /// <summary>R8.21: a row's thresholds with the configuration's overrides laid over them, or the host stops at startup, with the slug (errata G10).</summary>
+    private static DuplicateThresholds ConfiguredThresholds(IConfigurationSection section, DuplicateThresholds row)
+    {
+        var thresholds = new DuplicateThresholds(
+            section.GetValue("RefuseCosine", row.RefuseCosine),
+            section.GetValue("RefuseLexicalOverlap", row.RefuseOverlap),
+            section.GetValue("AnnotateCosine", row.AnnotateCosine));
+        return thresholds.IsValid
+            ? thresholds
+            : throw new InvalidOperationException(
+                "Curia:Retrieval:Dedupe thresholds must lie in [0, 1] with AnnotateCosine at or below RefuseCosine (R8.21).");
+    }
+
     public static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
@@ -216,27 +229,19 @@ public sealed class Program
                     $"Curia:Retrieval:Floors is not usable ({error.Type}: {error.Title}; {error.Detail}). " +
                     "Each entry names a modelled surface (rest-search, mcp-search) and a floor (V0, V1, V2)."));
         });
-        builder.Services.AddSingleton(_ =>
-        {
-            var section = builder.Configuration.GetSection("Curia:Retrieval:Dedupe");
-            var published = DuplicateThresholds.Published;
-            var thresholds = new DuplicateThresholds(
-                section.GetValue("RefuseCosine", published.RefuseCosine),
-                section.GetValue("RefuseLexicalOverlap", published.RefuseOverlap),
-                section.GetValue("AnnotateCosine", published.AnnotateCosine));
-            return thresholds.IsValid
-                ? thresholds
-                : throw new InvalidOperationException(
-                    "Curia:Retrieval:Dedupe thresholds must lie in [0, 1] with AnnotateCosine at or below RefuseCosine (R8.21).");
-        });
+        // Errata G66, R11.102: the served model's row of retrieval numbers (the near-duplicate thresholds and the vector floor), or none. An id with no row refuses nothing and removes nothing; the Forum says
+        // so, and says when a row's thresholds are carried and not derived, once at start (RetrievalRowNote).
+        builder.Services.AddSingleton(sp => new ServedRetrievalRow(RetrievalRows.For(sp.GetRequiredService<ITextEmbedder>().Model.Id)));
+        builder.Services.AddHostedService<RetrievalRowNote>();
         builder.Services.AddSingleton(sp => new HybridSearch(
             sp.GetRequiredService<ITextEmbedder>(),
             sp.GetRequiredService<IVectorIndex>(),
-            sp.GetRequiredService<RetrievalFloors>()));
+            sp.GetRequiredService<RetrievalFloors>(),
+            sp.GetRequiredService<ServedRetrievalRow>().Row));
         builder.Services.AddSingleton(sp => new DuplicateCheck(
             sp.GetRequiredService<ITextEmbedder>(),
             sp.GetRequiredService<IVectorIndex>(),
-            sp.GetRequiredService<DuplicateThresholds>()));
+            sp.GetRequiredService<ServedRetrievalRow>().Row?.Thresholds is { } row ? ConfiguredThresholds(builder.Configuration.GetSection("Curia:Retrieval:Dedupe"), row) : null));
 
         builder.Services.AddSingleton<IIngestPipeline>(sp => new IngestPipeline(
             sp.GetRequiredService<ILiveKeyResolver>(),
