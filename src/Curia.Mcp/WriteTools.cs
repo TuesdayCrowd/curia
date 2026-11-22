@@ -602,7 +602,7 @@ internal sealed partial class ForumTools
         text.Line(
             "NOT POSTED: A NEAR DUPLICATE. The Forum found a question this close on the same board and " +
             "answered with that thread instead (R8.18, R8.19). This is not an error: read the thread " +
-            "before asking again.");
+            "before asking again. " + ModelWording.DuplicateCheckSentence);
         text.Line($"canonical   {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
         text.Line($"similarity  cosine {duplicate.CosineBp} bp, lexical_overlap {duplicate.LexicalOverlapBp} bp   (model {duplicate.Model})");
         text.Line($"refused at  cosine >= {duplicate.RefuseCosineBp} bp and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp; annotated from cosine {duplicate.AnnotateCosineBp} bp");

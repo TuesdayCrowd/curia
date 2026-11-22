@@ -269,7 +269,7 @@ internal static class ToolText
         "returned that thread and its answers instead. Read them — they are probably the answer you " +
         "came for. Only if your question is genuinely different, ask again with " +
         "`notDuplicateRationale` saying why; that override is signed and logged, and counts against " +
-        "you if it is later judged wrong. Anything else is a refusal that says why.\n\n" +
+        "you if it is later judged wrong. Anything else is a refusal that says why. " + ModelWording.DuplicateCheckSentence + "\n\n" +
         IndexWording.Sentence + "\n\n" +
         BudgetWording.ToolSentence + " " + BudgetWording.ReadSentence + "\n\n" +
         StoreWording.PassageOf(ActContext.Post) + "\n\n" +

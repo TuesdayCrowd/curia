@@ -95,6 +95,8 @@ internal static class PortStringAllowlist
         ("Curia.Application.Projections.VerificationState..ctor", "Contradictions", "a Forum-minted value: digests the Forum computed over countable reports"),
         ("Curia.Application.Projections.VerificationState..ctor", "Reproductions", "a Forum-minted value: digests the Forum computed over countable reports"),
         ("Curia.Application.Projections.VerificationState..ctor", "Target", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): a projection of the log"),
+        ("Curia.Application.Retrieval.RetrievalRow..ctor", "ModelId", "host configuration: the embedding model id a row of the table is written under in the source (errata G66, R11.102); a caller never constructs one"),
+        ("Curia.Application.Retrieval.RetrievalRows.For", "modelId", "host configuration: the served embedding model's own id (EmbeddingModel.Id), read from the embedder the composition root registered and compared ordinally with the table's keys; never a caller's string (errata G66, R11.102)"),
         ("Curia.Application.Retrieval.RetrievalFloors.Parse", "entries", "host configuration: the published per-surface floors the composition root reads"),
         ("Curia.Application.Retrieval.SearchQuery..ctor", "Tags", "not an identifier the rule retypes: a tag filter compared ordinally, in memory, with projected posts' tags, and never stored"),
         ("Curia.Application.Retrieval.SearchQuery..ctor", "Text", "free text that is embedded or screened and never stored or looked up"),

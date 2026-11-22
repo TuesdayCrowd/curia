@@ -52,15 +52,6 @@ public static class HybridRanking
     /// </summary>
     public const double MaximumAuthorShare = 0.5;
 
-    /// <summary>
-    /// The least cosine at which a vector neighbour counts as a candidate at all. A nearest-
-    /// neighbour query always answers with <i>something</i>; without a floor, a query that matches
-    /// nothing would fuse two hundred posts at cosine 0.05 into a page of noise and call it a
-    /// result. Provisional and published (R9.22); the query set's `distinct` pairs sit below it and
-    /// its `related` pairs above.
-    /// </summary>
-    public const double MinimumCosine = 0.2;
-
     public static ImmutableArray<RankedPost> Rank(
         ImmutableArray<SearchHit> lexical,
         ImmutableArray<VectorHit> vector,

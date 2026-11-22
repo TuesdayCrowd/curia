@@ -77,7 +77,7 @@ internal static class RetrievalTestLog
             members.Add(new("possible_duplicate", new JsonValue.Object(
             [
                 new("of", new JsonValue.String(possibleDuplicateOf)),
-                new("cosine", new JsonValue.Number(0.9)),
+                new("cosine_micro", new JsonValue.Number(900_000)),
                 new("model", new JsonValue.String(indexer.Model.Id)),
             ])));
 

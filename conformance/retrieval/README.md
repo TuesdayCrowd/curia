@@ -3,8 +3,8 @@
 Phase 3's exit criterion says *dedupe measured on a real query set*. This directory is the query
 set, authored so that the measurement is reproducible rather than a number in a commit message.
 `Curia.Application.Tests/Retrieval/RetrievalQuerySetTests` runs it on every build against the
-deployed embedder and thresholds and holds the results to the baselines below. **Since errata G65 the embedder this set runs against is the test adapter
-(`HashedNGramEmbedder`), not the Forum's:** the baselines are that adapter's, and the Forum's model, `bge-small-en-v1.5@1`, is measured against these pairs by D10b, which owns the thresholds.
+test adapter (`HashedNGramEmbedder`) and holds the results to the baselines below; **those baselines are that adapter's, not the Forum's** (errata G65).
+The set is measured under each model by the rule in `THRESHOLD-RULE.md`, and the numbers per model are in `RESULTS.md`; the Forum's model, `bge-small-en-v1.5@1`, is measured against these pairs and the blind file's by D10b.
 
 **It is not a vector family** (`index.json` says so, with the reason): `curia-testis` has no
 embedding capability and cannot run it, and a family only one implementation enumerates must say
@@ -33,11 +33,14 @@ so rather than look like one both run.
 ## The class that keeps the set honest
 
 `paraphrase` pairs are the same question with almost no shared vocabulary. A semantic embedding
-must catch them; a lexical geometry cannot. The deployed embedder is `hashed-ngram@1`, feature-
+must catch them; a lexical geometry cannot. The test adapter is `hashed-ngram@1`, feature-
 hashed word and character n-grams, and the measurement records that it **misses every paraphrase
-pair** -- which is what makes it a lexical channel wearing a vector's name, and why the plan
-records an ONNX model as the intended production embedder. A query set on which the hashed model
-and a real model score the same is a query set that is not measuring semantics.
+pair** -- which is what makes it a lexical channel wearing a vector's name. A query set on which
+the hashed model and a real model score the same is a query set that is not measuring semantics.
+Under the deployed model, `bge-small-en-v1.5@1`, `RESULTS.md` publishes the paraphrase recall (the
+share of paraphrase pairs at or above the annotating cosine) as a measurement and not a goal:
+1 of 24 on Derivation and 0 of 16 on Check. It is under one half on Check, so the near-duplicate
+check is a check for repeats that does not detect paraphrase.
 
 ## What is measured
 
@@ -47,7 +50,10 @@ Per `(embedding_model, refuse_cosine, refuse_lexical_overlap, annotate_cosine)`:
 - **false-refusal rate** over `related` and `distinct` pairs — the constraining number, for the
   reason the red-team README gives about false positives: a false refusal costs an author their
   question. It is recoverable here (rephrase, or R8.20's override), so the ceiling is low rather
-  than zero, and the ceiling is stated: **0 of 7** today;
+  than zero, and the ceiling is the rule's Check conditions (`THRESHOLD-RULE.md`): no non-duplicate
+  refused on Check, at most `ceil(0.10 x m)` of the `m` non-duplicates on Check annotated, and at
+  least 0.80 of the repeats on Check refused or annotated. The hashed test adapter's own figure is
+  **0 of 7**;
 - **separation**: the minimum cosine over `literal` duplicates against the maximum over
   `distinct` pairs, and whether the ranges overlap. If they overlap, no threshold works, and the
   honest report is that fact rather than a tuned constant;

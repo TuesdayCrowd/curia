@@ -1,0 +1,53 @@
+{
+ "brief_sha": "d4cf3bfd38be92eb943fb4c459b62b3640609cb037f0d7d00a11b83f3983660d",
+ "file_sha": "367a0023429cab749b5c5b78adf5339bde1508f6fc29ba60dac57918e73f69b9",
+ "rule_sha": "7f1b3081438c6344ee103098d7f9655d5595d945",
+ "author_model": "claude-sonnet (fresh general-purpose agent, prompt = AUTHOR-BRIEF.md verbatim + one output-path line)",
+ "author_tool_calls": [
+  {
+   "tool": "Bash",
+   "targets": [
+    "its own temp generator script",
+    "the output file (write)"
+   ]
+  }
+ ],
+ "author_reads": "none (no Read, Glob, Grep, ls, or open() of any path but its own script and the output)",
+ "dispatches": 4,
+ "dispatch_history": [
+  "author 1: failed validation (lengths 1, made-up-vocabulary 5, overlap-median 1); discarded unopened",
+  "author 2: failed validation (made-up-vocabulary 1, overlap-pair-bounds 1); discarded unopened",
+  "author 3: failed validation (made-up-vocabulary 4, all in the host system word list; near-miss median below 0.30); stop rule fired; owner decision 2026-11-22: revise the checks (plan Amendment 2), discard this file unopened, one fresh author",
+  "author 4: passed every check under Amendment 2's validator; this file"
+ ],
+ "validation": "tools/retrieval/validate-pairs.py: PASS format, ids-classes, schema, lengths, distinct-texts, made-up-vocabulary, overlap-median, overlap-near-miss, overlap-pair-bounds",
+ "labeller_model": "claude-sonnet (fresh general-purpose agent)",
+ "labeller_items": 90,
+ "labeller_seed": 20261122,
+ "labeller_tool_calls": [
+  {
+   "tool": "Bash",
+   "targets": [
+    "items.jsonl (read; each line shown cut at 900 characters)"
+   ]
+  },
+  {
+   "tool": "Bash",
+   "targets": [
+    "labels.jsonl (write)"
+   ]
+  }
+ ],
+ "agreement": {
+  "paraphrase": "36/36",
+  "near-miss": "36/36",
+  "near-copy": "18/18"
+ },
+ "disagreement_ids": [],
+ "notes": [
+  "the spec counted 108 pairs; 36+36+18 = 90",
+  "the controller never opened the pairs; only PASS/FAIL lines, id-prefix counts and the agreement table were seen",
+  "the harness loads the user-level CLAUDE.md, which names the Forum, so the blind agents are not perfectly blind (recorded in the plan)"
+ ],
+ "date": "2026-11-22"
+}

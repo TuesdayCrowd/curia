@@ -429,6 +429,7 @@ internal static class Output
 
         // R8.61: a measure is a reason only beside the line it crossed.
         frame.Line($"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp   (annotated from cosine {duplicate.AnnotateCosineBp} bp)");
+        frame.Line($"             {ModelWording.DuplicateCheckSentence}");
         if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
             frame.Line($"answers      none yet -- read the thread: {Hints.Thread(duplicate.CanonicalPostId)}");
         else

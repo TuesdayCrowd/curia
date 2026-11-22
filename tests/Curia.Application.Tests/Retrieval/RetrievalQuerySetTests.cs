@@ -29,7 +29,7 @@ public sealed class RetrievalQuerySetTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static readonly string Root = FindRoot();
-    private static readonly DuplicateThresholds Thresholds = DuplicateThresholds.Published;
+    private static readonly DuplicateThresholds Thresholds = RetrievalRows.Hashed.Thresholds;
     private static readonly string[] Verdicts = ["duplicate", "related", "distinct"];
 
     private static string FindRoot()
@@ -75,7 +75,7 @@ public sealed class RetrievalQuerySetTests
             $"{m.Pair.Id,-26} {m.Pair.Class,-10} {m.Pair.Verdict,-9} cosine {m.Cosine:0.000} overlap {m.Overlap:0.000} -> {m.Verdict}");
 
     [Fact]
-    public void R8_21_TheQuerySetIsWellFormedAndCitesNoExpectedSimilarity()
+    public void R8_21_TheQuerySetIsWellFormedAndCitesNoExpectedSimilarity_ForTheTestAdapter()
     {
         var pairs = Pairs();
         Assert.True(pairs.Count >= 12);
@@ -89,7 +89,7 @@ public sealed class RetrievalQuerySetTests
 
     /// <summary>The constraining number: a false refusal costs an author their question.</summary>
     [Fact]
-    public void R8_18_NoRelatedOrDistinctPairIsRefused()
+    public void R8_18_NoRelatedOrDistinctPairIsRefused_ForTheTestAdapter()
     {
         var measured = Measure();
         var falseRefusals = measured.Where(m => m.Pair.Verdict != "duplicate" && m.Verdict == DuplicateVerdict.Refuse).ToList();
@@ -98,7 +98,7 @@ public sealed class RetrievalQuerySetTests
 
     /// <summary>Every pair the baseline says is refused is still refused, by name.</summary>
     [Fact]
-    public void R8_18_TheRefusedBaselineHolds()
+    public void R8_18_TheRefusedBaselineHolds_ForTheTestAdapter()
     {
         var measured = Measure().ToDictionary(m => m.Pair.Id, StringComparer.Ordinal);
         var baseline = File.ReadLines(Path.Combine(Root, "refused-baseline.txt"))
@@ -118,20 +118,20 @@ public sealed class RetrievalQuerySetTests
 
     /// <summary>The set is measuring semantics only if the model under test can be told apart from a lexical one.</summary>
     [Fact]
-    public void R9_5_TheParaphraseBlockRecordsWhatTheDeployedModelCannotDo() // the name is kept (D10b rewrites it); the model is the test adapter's, not the Forum's
+    public void R9_5_TheParaphraseBlockRecordsWhatTheTestAdapterCannotDo_ForTheTestAdapter() // the real model's counterpart is NearDuplicateThresholdTests NDT12 (Curia.Embedding.Tests)
     {
         var measured = Measure();
         var paraphrases = measured.Where(m => m.Pair.Class == "paraphrase").ToList();
         Assert.NotEmpty(paraphrases);
 
         // hashed-ngram@1 is a lexical geometry: it misses every paraphrase. This is the TEST adapter's table (the Forum runs bge-small-en-v1.5@1 since errata G65);
-        // D10b measures the Forum's model, and this assertion and RESULTS.md move with it.
+        // the Forum's model is measured by NearDuplicateThresholdTests NDT12 in Curia.Embedding.Tests, and RESULTS.md's bge block.
         Assert.Equal(HashedNGramEmbedding.Model, new HashedNGramEmbedder().Model);
         Assert.All(paraphrases, m => Assert.NotEqual(DuplicateVerdict.Refuse, m.Verdict));
     }
 
     [Fact]
-    public void R8_21_LiteralDuplicatesSeparateFromDistinctPairs()
+    public void R8_21_LiteralDuplicatesSeparateFromDistinctPairs_ForTheTestAdapter()
     {
         var measured = Measure();
         var minLiteral = measured.Where(m => m.Pair.Class == "literal").Min(m => m.Cosine);
@@ -142,7 +142,7 @@ public sealed class RetrievalQuerySetTests
     }
 
     [Fact]
-    public void TheKnownCollisionsListIsCurrent()
+    public void TheKnownCollisionsListIsCurrent_ForTheTestAdapter()
     {
         var measured = Measure().ToDictionary(m => m.Pair.Id, StringComparer.Ordinal);
         foreach (var e in Lines("known-collisions.jsonl"))
@@ -154,7 +154,7 @@ public sealed class RetrievalQuerySetTests
 
     /// <summary>The measurement, printed so RESULTS.md can be checked against it line by line.</summary>
     [Fact]
-    public void TheMeasurementIsPrinted()
+    public void TheMeasurementIsPrinted_ForTheTestAdapter()
     {
         var measured = Measure();
         var report = string.Join('\n', measured.Select(Report));
@@ -163,14 +163,14 @@ public sealed class RetrievalQuerySetTests
     }
 
     [Fact]
-    public async Task R10_5_EveryCanarysExpectedPostRanksInTheTopThree()
+    public async Task R10_5_EveryCanarysExpectedPostRanksInTheTopThree_ForTheTestAdapter()
     {
         var ct = TestContext.Current.CancellationToken;
         var embedder = new HashedNGramEmbedder();
         var index = new InMemoryVectorIndex();
         var store = new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate());
         var indexer = new EmbeddingIndexer(embedder, index);
-        var search = new HybridSearch(embedder, index, RetrievalFloors.Published);
+        var search = new HybridSearch(embedder, index, RetrievalFloors.Published, RetrievalRows.Hashed);
 
         foreach (var post in Lines("corpus.jsonl"))
         {

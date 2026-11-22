@@ -271,7 +271,7 @@ public static class PostProjector
 
     /// <summary>
     /// R8.18's <c>possible_duplicate</c>, an R6.14 derived artifact beside <c>risk_flags</c>:
-    /// <c>{ "of": digest, "cosine": n, "model": id }</c>. What ingest saw, as of ingest; the
+    /// <c>{ "of": digest, "cosine_micro": n, "model": id }</c>. What ingest saw, as of ingest; the
     /// serving path's own near-duplicate set is a separate, current computation.
     /// </summary>
     public static string? PossibleDuplicateOf(IReadOnlyDictionary<string, JsonValue> fields)

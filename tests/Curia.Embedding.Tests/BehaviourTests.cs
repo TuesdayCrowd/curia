@@ -5,11 +5,17 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
+using Curia.Application.Projections;
 using Curia.Application.Retrieval;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
+using Curia.Canon.Jws;
+using Curia.Domain;
 using Curia.Domain.Content;
+using Curia.Domain.Retrieval;
+using Curia.Domain.Verification;
 using Curia.Domain.Primitives;
 using Curia.Domain.Search;
 using Curia.Infrastructure.Embedder;
@@ -179,15 +185,15 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
     }
 
     /// <summary>
-    /// SEM59 (the fact behind <c>ModelWording</c>'s clause that a long list is no evidence, Amendment 4 ruling 60; the clause is SEM60's). Under this model the vector channel's floor removes nothing: each of four queries
-    /// in the query role (three of made-up words and one on a topic the corpus does not hold) is at or above <c>HybridRanking.MinimumCosine</c> to every post of the ten-post corpus of
-    /// <c>conformance/retrieval/corpus.jsonl</c>, so the nearest posts come back however far they are and a page does not run short. This derives from the model and from the floor's constant, and not from the sentence
-    /// that says it, so a floor that D10b raises turns the sentence false and this red. The least cosine of each query is written to a file and printed. Predicted red on FSEM55 (the floor raised to 0.6):
-    /// <c>is below the floor</c>.
+    /// SEM59 (the fact behind <c>ModelWording</c>'s floor sentence, errata G66, R11.93 (rev.); the sentence is SEM60's). Under this model the vector channel's floor removes: each of four queries in the query role
+    /// (three of made-up words and one on a topic the corpus does not hold) is below the floor of the model's row (<c>RetrievalRows.Bge</c>, 6400 bp) to every post of the ten-post corpus of
+    /// <c>conformance/retrieval/corpus.jsonl</c>, so no neighbour of it is a candidate. It derives from the model and from the table's floor, and not from the sentence that says so. The greatest cosine of each
+    /// query is written to a file and printed. It replaces the assertion that the floor removed nothing (the hashed-era floor of 0.2 did, under this model).
     /// </summary>
     [Fact]
-    public async Task R11_93_SEM59_NoPostOfTheCorpusIsBelowTheFloorForAQueryOfMadeUpWords()
+    public async Task R11_93_SEM59_EveryPostOfTheCorpusIsBelowTheFloorForAQueryOfMadeUpWords()
     {
+        var floor = RetrievalRows.Bge.Floor;
         var corpus = (await File.ReadAllLinesAsync(Path.Combine(ModelDirectory.RepositoryRoot(), "conformance", "retrieval", "corpus.jsonl"), Ct)).Where(l => l.Length > 0).Select(l =>
         {
             using var json = JsonDocument.Parse(l);
@@ -203,12 +209,95 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
         foreach (var query in new[] { "zorblax quimpt vrenkelflap", "xyzzyqwerty nonsense", "frumious bandersnatch gyre", "sourdough starter hydration discard" })
         {
             var vector = await EmbedAsync(query, EmbeddingRole.Query);
-            var least = posts.Min(p => Probe.Cosine(vector, p));
-            lines.Add($"{query,-40} least cosine {least:0.000} (floor {HybridRanking.MinimumCosine:0.000})");
-            Assert.True(least >= HybridRanking.MinimumCosine, $"'{query}': its least cosine over the corpus, {least:0.000}, is below the floor {HybridRanking.MinimumCosine:0.000}, so the channel no longer returns the nearest posts however far they are and ModelWording's sentence for this model says what is no longer true");
+            var greatest = posts.Max(p => Probe.Cosine(vector, p));
+            lines.Add($"{query,-40} greatest cosine {greatest:0.000} (floor {floor:0.000})");
+            Assert.True(greatest < floor, $"'{query}': its greatest cosine over the corpus, {greatest:0.000}, is not below the floor {floor:0.000}, so the channel does not remove every neighbour of a made-up query and ModelWording's sentence for this model says what is no longer true");
         }
 
         Record("sem59-floor.txt", lines);
+    }
+
+    /// <summary>
+    /// SEM61 (the fact behind the second sentence of <c>ModelWording</c>'s floor words, errata G66, R9.66 and R11.93 (rev.)). The floor gates the vector channel and nothing else: over the post set the rule measures
+    /// (the corpus and both sides of every blind pair, stored as posts) and the sixteen noise queries of the Check half, run through <c>HybridSearch</c> at the floor RESULTS.md publishes (<c>floor_bp</c>, read from the
+    /// file and not from <c>RetrievalRows</c>), at least one query returns a result whose own vector score is below that floor while <c>excluded_by_floor</c> is 0: a keyword match the vector floor did not remove. The
+    /// live run on the built Forum showed this (an off-topic query listed keyword matches); this holds it against the real model. Predicted green. The failure names the query. The test builds the log's rows by
+    /// the internal constructor (no production store is reachable from this assembly) and does not alter what <c>HybridSearch</c> reads.
+    /// </summary>
+    [Fact]
+    public async Task R9_66_SEM61_AKeywordMatchBelowTheVectorFloorIsListedAndTheVerificationFloorRemovedNothing()
+    {
+        var section = ResultsSection.Read();
+        Assert.True(section is not null, "RESULTS.md carries no bge-small-en-v1.5@1 section");
+        var floorBp = int.Parse(ResultsSection.Value(section!, "floor_bp")!, CultureInfo.InvariantCulture);
+        var floor = floorBp / 10_000.0;
+
+        List<JsonElement> Lines(string file) =>
+        [.. File.ReadLines(Path.Combine(ModelDirectory.RepositoryRoot(), "conformance", "retrieval", file)).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement.Clone())];
+        string Joined(JsonElement e) => (e.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() + "\n" : string.Empty) + e.GetProperty("body").GetString();
+
+        var blind = Lines("blind-pairs.jsonl");
+        var texts = new List<string>();
+        foreach (var r in blind.Where(r => r.TryGetProperty("a", out _)))
+        {
+            texts.Add(Joined(r.GetProperty("a")));
+            texts.Add(Joined(r.GetProperty("b")));
+        }
+
+        texts.AddRange(Lines("corpus.jsonl").Select(Joined));
+
+        var index = new MemoryIndex();
+        var vectors = new Dictionary<string, Vector>(StringComparer.Ordinal);
+        var events = new List<AppendedEvent>();
+        var appendedType = typeof(AppendedEvent).GetConstructors(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)[0];
+        for (var i = 0; i < texts.Count; i++)
+        {
+            var (title, body) = texts[i].Contains('\n', StringComparison.Ordinal) ? Split(texts[i]) : (string.Empty, texts[i]);
+            var postId = $"sem61-{i:000}";
+            var digest = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(postId)));
+            var data = new JsonValue.Object(
+            [
+                new("post_id", new JsonValue.String(postId)),
+                new("canonical", new JsonValue.String(CanonicalQuestion(title, body))),
+                new("signature", new JsonValue.String("sig")),
+                new("digest", new JsonValue.String(digest)),
+                new("author", new JsonValue.String("https://agents.example/asker")),
+                new("board", new JsonValue.String("postgres")),
+                new("kind", new JsonValue.String("question")),
+            ]);
+            var domainEvent = new DomainEvent(Req(EventId.Create(postId)), Req(EventType.Create("post.accepted")), Req(ActorId.Create("https://agents.example/asker")), data);
+            events.Add((AppendedEvent)appendedType.Invoke([Req(EventSequence.From(i + 1)), Req(AggregateId.Create(postId)), ServerTimestamp.At(new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero)), domainEvent]));
+
+            var passage = await model.Embedder.EmbedAsync(texts[i], EmbeddingRole.Passage, Ct);
+            var embedding = Req(passage);
+            vectors[digest] = embedding.Vector;
+            Req(await index.UpsertAsync(digest, postId, i + 1, embedding, Ct));
+        }
+
+        var row = RetrievalRows.Bge with { FloorBp = floorBp };
+        var search = new HybridSearch(model.Embedder, index, RetrievalFloors.Published, row);
+        var log = new LifecycleVerifier(new Dictionary<string, IContentVerifier>(StringComparer.Ordinal)).OfLog(events);
+        var verification = VerificationProjector.Fold(PostProjector.Fold(events), AgentStandingProjector.Fold(events), _ => true, DisputedPosts.None);
+
+        var noise = blind.Where(r => !r.TryGetProperty("a", out _) && !RetrievalRule.IsDerivation(r.GetProperty("id").GetString()!)).ToList();
+        Assert.Equal(16, noise.Count);
+
+        var lines = new List<string>();
+        var named = new List<string>();
+        foreach (var q in noise)
+        {
+            var text = q.TryGetProperty("text", out var tx) ? tx.GetString()! : Joined(q);
+            var query = new SearchQuery(text, null, [], [], null, null, null, 25);
+            var prepared = Req(await search.PrepareAsync(RetrievalSurface.RestSearch, query, Ct));
+            var page = Req(search.Search(log, prepared, verification));
+            var queryVector = await EmbedAsync(text, EmbeddingRole.Query);
+            var below = page.Results.Count(r => Probe.Cosine(vectors[r.Post.Digest], queryVector) < floor);
+            lines.Add($"{q.GetProperty("id").GetString(),-6} results {page.Results.Length,3}  below the floor {below,3}  excluded_by_floor {page.ExcludedByFloor}");
+            if (below > 0 && page.ExcludedByFloor == 0) named.Add(q.GetProperty("id").GetString()!);
+        }
+
+        Record("sem61-keyword-below-floor.txt", lines);
+        Assert.True(named.Count > 0, "no noise query of the Check half returned a result whose own vector score is below the floor with excluded_by_floor 0, so the floor sentence's claim that the keyword channel is not floored has no instance: " + string.Join("; ", lines));
     }
 
     /// <summary>
@@ -351,7 +440,7 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
             Req(await indexer.IndexAsync(post, Ct));
 
             var envelope = Req(PostEnvelope.Read((JsonValue.Object)Req(JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(CanonicalQuestion(titleB, bodyB))))));
-            var check = new DuplicateCheck(model.Embedder, index, DuplicateThresholds.Published);
+            var check = new DuplicateCheck(model.Embedder, index, RetrievalRows.Bge.Thresholds);
             var prepared = Req(await check.PrepareAsync(envelope, Ct));
             var assessed = Req(check.Assess(ImmutableArray.Create(post), prepared));
             verdicts.Add($"{pair.Class,-11} {pair.Id,-26} {assessed.Verdict,-9} cosine {assessed.Cosine:0.000} overlap {assessed.LexicalOverlap:0.000}");

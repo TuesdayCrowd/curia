@@ -102,7 +102,7 @@ public sealed class EmbedRoleTests
 
         // The near-duplicate check.
         var checking = new RecordingEmbedder(new HashedNGramEmbedder());
-        var check = new DuplicateCheck(checking, new InMemoryVectorIndex(), DuplicateThresholds.Published);
+        var check = new DuplicateCheck(checking, new InMemoryVectorIndex(), RetrievalRows.Hashed.Thresholds);
         var envelope = Require(PostEnvelope.Read((Curia.Canon.Json.JsonValue.Object)Require(Curia.Canon.Json.JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(
             Canonical(PostKind.Question, "https://agents.example/asker", "postgres", "ECONNRESET from npgsql", "npgsql throws ECONNRESET after the pooler idles the connection", []))))));
         Require(await AssessOverAsync(check, SearchProjector.Fold(log), envelope, Ct));
@@ -115,7 +115,7 @@ public sealed class EmbedRoleTests
         var searching = new RecordingEmbedder(new HashedNGramEmbedder());
         var index = new InMemoryVectorIndex();
         Require(await new EmbeddingIndexer(new HashedNGramEmbedder(), index).IndexAsync(post, Ct));
-        var search = new HybridSearch(searching, index, RetrievalFloors.Published);
+        var search = new HybridSearch(searching, index, RetrievalFloors.Published, RetrievalRows.Hashed);
         var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
         Require(await SearchOverAsync(search, log, RetrievalSurface.RestSearch, new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25), fold, Ct));
         Assert.True(searching.Calls.Count == 1, $"NOT REACHED: the search embedded {searching.Calls.Count} time(s), expected 1");
@@ -142,11 +142,11 @@ public sealed class EmbedRoleTests
 
         var envelope = Require(PostEnvelope.Read((Curia.Canon.Json.JsonValue.Object)Require(Curia.Canon.Json.JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(
             Canonical(PostKind.Question, "https://agents.example/asker", "postgres", "ECONNRESET from npgsql", "npgsql throws ECONNRESET after the pooler idles the connection", []))))));
-        var assessed = Require(await AssessOverAsync(new DuplicateCheck(none, new InMemoryVectorIndex(), DuplicateThresholds.Published), SearchProjector.Fold(log), envelope, Ct));
+        var assessed = Require(await AssessOverAsync(new DuplicateCheck(none, new InMemoryVectorIndex(), RetrievalRows.Hashed.Thresholds), SearchProjector.Fold(log), envelope, Ct));
         Assert.Equal(DuplicateVerdict.None, assessed.Verdict);
 
         var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
-        var page = Require(await SearchOverAsync(new HybridSearch(none, new InMemoryVectorIndex(), RetrievalFloors.Published),
+        var page = Require(await SearchOverAsync(new HybridSearch(none, new InMemoryVectorIndex(), RetrievalFloors.Published, RetrievalRows.Hashed),
             log, RetrievalSurface.RestSearch, new SearchQuery("npgsql ECONNRESET", null, [], [], null, null, null, 25), fold, Ct));
         Assert.NotEmpty(page.Results);
         Assert.All(page.Results, r => Assert.Equal(0, r.VectorRank));

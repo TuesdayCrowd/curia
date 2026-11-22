@@ -1150,7 +1150,7 @@ public static class ForumEndpoints
                 return DuplicateRefusal(assessment, dedupeVerified, http);
 
             if (assessment.Verdict == DuplicateVerdict.Annotate && assessment.Nearest is { } nearest)
-                annotation = new PossibleDuplicate(nearest.Digest, assessment.Cosine, assessment.Model.Id);
+                annotation = new PossibleDuplicate(nearest.Digest, PossibleDuplicate.Micro(assessment.Cosine), assessment.Model.Id);
         }
 
         // SCREEN.
@@ -2456,11 +2456,11 @@ public static class ForumEndpoints
             .Select(p => ToResponse(p, standings, marking, contract, accepted, verification, disputed, corrections, acta))
             .ToImmutableArray();
 
-        var t = assessment.Thresholds;
+        var t = assessment.Thresholds!;
         return Results.Json(
             new DuplicateProblem(
                 "curia/posts/duplicate-question",
-                "A question this close to an open one on the same board is refused; here is that thread",
+                "A question this close to an open one on the same board is refused; here is that thread (the check detects repeats and does not detect paraphrase)",
                 $"cosine={assessment.Cosine.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"lexical_overlap={assessment.LexicalOverlap.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"model={assessment.Model.Id} answers={answers.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
