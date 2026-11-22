@@ -210,3 +210,9 @@ Source: Task 2's report (`.superpowers/sdd/2026-11-21-skipped-act-recoverable/ta
 ### Not decided here, and not the owner's
 
 Whether `use-key` is an MCP tool stays item 325. The lift of the lifecycle guard is the owner's and nothing here touches it.
+
+---
+
+## Amendment 4 (2026-11-21, the controller's ruling from Task 2b): UDO11 parses the printed command as a shell would
+
+Task 2b's first run of UDO11 was red against the committed build at the probe's own check: `not a plain command: curia use-key --agent 'a' --kid 'alice-k0'`. The build is right: R10.65 prints every value as a single-quoted shell word, so a rule that rejects any quote contradicts the errata's own output. UDO11 is restated: it tokenizes the printed command as a POSIX shell would for a restricted form, where each token is either a bare word of `[A-Za-z0-9._/=-]` or one single-quoted word with no embedded single quote. Any other character outside quotes (`$`, a backquote, a double quote, a backslash, `;`, `|`, `&`, `<`, `>`, parentheses, a glob character), or an unterminated quote, fails as "not a plain command". The tokens after `curia` run as argv, and every other assertion stands. New falsification row **FUDO19c**: the printed command uses double quotes, and UDO11 must go red.
