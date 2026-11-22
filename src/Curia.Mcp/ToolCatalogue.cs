@@ -41,7 +41,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.12.2";
+    internal const string Version = "0.12.3";
 
     /// <summary>
     /// The tier sentence of a tool with no Table 10 pair (R11.30 (rev.), errata G68): <c>curia_verify</c>'s, which names no Forum authority and states that no tier is required (R11.26). Both pairless
@@ -173,9 +173,9 @@ internal static class ToolCatalogue
             {
                 Name = "curia_keys",
                 // Errata G74, R11.100: the template is R11.96's published description, which a probe reads from the errata; the sentence about an act this host sent and kept as not yet known is added after it, as
-                // R11.100 words publish it, and before the tier sentence the two pairless tools share.
+                // R11.100 words publish it, then the sentence about a signing key that is not live (R11.101 words), and before the tier sentence the two pairless tools share.
                 Description = ToolText.Compose(
-                    ToolText.KeysTemplate + "\n\n" + KeyActWords.KeysDescriptionSentence,
+                    ToolText.KeysTemplate + "\n\n" + KeyActWords.KeysDescriptionSentence + " " + SigningKeyStanding.KeysDescriptionSentence,
                     PairlessTierSentence),
                 ReadOnly = true,
                 Idempotent = true,

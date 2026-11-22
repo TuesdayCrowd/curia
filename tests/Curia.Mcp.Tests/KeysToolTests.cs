@@ -76,7 +76,7 @@ public sealed class KeysToolTests : IDisposable
     [Fact]
     public void LRV24_TheCatalogueIsBumpedToWhatR1195Names()
     {
-        WholeText.Same("version 0.12.2; the catalogue reports 0.12.2", $"version {PublishedReadersLastWords.Version()}; the catalogue reports {ToolCatalogue.Version}");
+        WholeText.Same("version 0.12.3; the catalogue reports 0.12.3", $"version {PublishedReadersLastWords.Version()}; the catalogue reports {ToolCatalogue.Version}");
     }
 
     private static string RepoFile(string relative)

@@ -86,6 +86,7 @@ internal static class Program
                 "keys" => await KeysAsync(args, cts.Token).ConfigureAwait(false),
                 "rotate" => await RotateAsync(args, cts.Token).ConfigureAwait(false),
                 "retire" => await RetireAsync(args, cts.Token).ConfigureAwait(false),
+                "use-key" => await UseKeyAsync(args, cts.Token).ConfigureAwait(false),
                 _ => Output.Fail($"error: unknown command '{command}'. Run 'curia help'.", ExitCode.Usage),
             };
         }
@@ -1974,9 +1975,13 @@ internal static class Program
         var foreign = LifecycleWatch.Compare(profile, keySet).Where(f => f.Foreign).ToList();
         var frame = new FrameBuilder();
         var skipped = KeysReport.AppendSkipped(frame, profile, keySet, saySoWhenSilent: false);
-        if (foreign.Count == 0 && !skipped) return code;
+
+        // R11.101: the signing key is not one the Forum serves live. Said after any FOREIGN and SKIPPED line, from the signing kid and keys[] alone; the key set was read, so this is a claim about it.
+        var notLive = SigningKeyStanding.Read(profile, keySet);
+        if (foreign.Count == 0 && !skipped && notLive is null) return code;
 
         if (foreign.Count > 0) KeysReport.AppendForeign(frame, foreign);
+        if (notLive is not null) SigningKeyStanding.AppendLine(frame, profile, keySet, notLive);
         Output.Error(frame);
         return ExitCode.Unverified;
     }
@@ -2045,6 +2050,57 @@ internal static class Program
 
             return await RetireKeyAsync(client, session, store, agent.Profile, kid, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// <c>curia use-key --agent &lt;slug&gt; --kid &lt;kid&gt;</c> (errata G75, R11.101): makes the profile sign with a key it holds that the Forum's key set serves live, only when the key it signs with is not one. Signs
+    /// nothing, requests no token and sends nothing: the Forum is read once, anonymously, for its key set. The first check that fails answers, and nothing is written before the last passes: usage (exit 1), the profile
+    /// (exit 2), the key set (exit 8, never 6), a signing key that is live (exit 1), a held key with a readable public half (exit 6), the key set serving that kid <c>active</c> with that public half (exit 6); then one
+    /// write of <c>identity.json</c> (<see cref="ProfileStore.AdoptKey"/>) and exit 0.
+    /// </summary>
+    private static async Task<int> UseKeyAsync(Args args, CancellationToken ct)
+    {
+        var store = ProfileStore.Default();
+
+        if (args.Unknown(["agent", "kid", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        // The agent is named, never inferred: this verb changes which key a profile signs with, and R11.82's resolver (the one profile a host holds) is for the verbs that act as an agent. The usage line says --agent is required.
+        if (args.Positional.Length != 0 || args.Value("kid") is not { Length: > 0 } kid || args.Value("agent") is not { } slug || string.IsNullOrWhiteSpace(slug))
+            return Output.Fail("error: usage: curia use-key --agent <slug> --kid <kid> [--forum <url>]", ExitCode.Usage);
+
+        if (!store.ReadProfile(slug).TryGetValue(out var profile, out var profileError))
+            return Output.Fail($"error: {profileError!.Title}{Detail(profileError.Detail)}", ExitCode.Local);
+
+        var forum = ForumUri(args, profile);
+        using var http = HttpFor(forum);
+        var read = await new ForumClient(http, forum).GetKeySetAsync(profile!.AgentId, ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var keySet, out var refusal))
+            return Output.Fail($"could not check: the Forum's key set could not be read ({new OwnText(refusal.Summary)}); nothing was changed.", ExitCode.ForumFault);
+
+        if (SigningKeyStanding.Read(profile, keySet) is null)
+            return Output.Fail($"error: this profile's signing key {profile.Kid} is one the Forum's key set serves live; there is nothing to change, and nothing was changed.", ExitCode.Usage);
+
+        if (!profile.Retained.Any(k => k.Half is not null && string.Equals(k.Kid, kid, StringComparison.Ordinal)))
+            return Output.Fail($"error: this profile holds no key {kid} it can sign with; nothing was changed.", ExitCode.Unverified);
+
+        var listed = keySet.Keys.Where(k => string.Equals(k.Kid, kid, StringComparison.Ordinal)).ToList();
+        var servedLive = SigningKeyStanding.HeldLive(profile, keySet).Any(k => string.Equals(k.Kid, kid, StringComparison.Ordinal));
+        if (!servedLive)
+        {
+            if (listed.Count == 0)
+                return Output.Fail($"error: the Forum's key set does not list key {kid}; nothing was changed.", ExitCode.Unverified);
+
+            return listed.Any(k => string.Equals(k.Status, "active", StringComparison.Ordinal))
+                ? Output.Fail($"error: the Forum's key set lists key {kid} active with a public key other than the one this profile holds; nothing was changed.", ExitCode.Unverified)
+                : Output.Fail($"error: the Forum's key set lists key {kid} as {listed[0].Status ?? "none"} and not active; nothing was changed.", ExitCode.Unverified);
+        }
+
+        if (!store.AdoptKey(profile, kid, keySet).TryGetValue(out var adopted, out var adoptError))
+            return Output.Fail($"error: {adoptError!.Title}{Detail(adoptError.Detail)}", ExitCode.Local);
+
+        Output.Line($"This profile now signs with key {adopted!.Kid}. Nothing was signed or sent. The next command that needs a token asks the Forum for one.");
+        return ExitCode.Ok;
     }
 
     /// <summary>The refusal a Forum that does not enable the kind answers first (spec section 4.7).</summary>

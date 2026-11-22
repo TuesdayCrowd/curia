@@ -35,9 +35,6 @@ internal static class SigningKeyNotLiveWords
     /// <summary>What <c>curia use-key</c> prints when it has made the profile sign with the key, with <c>&lt;kid&gt;</c> left in.</summary>
     internal static string UseKeyResult() => Span("R11.101 words", "The result of use-key");
 
-    /// <summary>The sentence <c>curia_keys</c>'s description gains.</summary>
-    internal static string ToolSentence() => Span("R11.101 words", "The description sentence of curia_keys");
-
     /// <summary>R11.96 (add.) (rev.): the sentence the rotation <c>NOW IN FORCE</c> line ends with while the signing key is not live.</summary>
     internal static string RevisedTail()
     {

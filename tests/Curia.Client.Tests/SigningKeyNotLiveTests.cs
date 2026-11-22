@@ -172,8 +172,11 @@ internal static class SigningKeyNotLiveKit
 
     internal static string Mode(string path) => OperatingSystem.IsWindows() ? "600" : Convert.ToString((int)File.GetUnixFileMode(path) & 0x1FF, 8);
 
-    /// <summary>The line's own count and place in a report: the number of times <c>SIGNING KEY NOT LIVE</c> is written.</summary>
-    internal static int Mentions(string text) => System.Text.RegularExpressions.Regex.Count(text, "SIGNING KEY NOT LIVE", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    /// <summary>
+    /// The line's own count: the number of times the line itself is written, which begins <c>SIGNING KEY NOT LIVE:</c>. The errata's rotation line, while the signing key is not live, ends by naming the line ("see SIGNING KEY NOT LIVE
+    /// below"), so the bare words would count that reference as a second line; the colon is what the line has and the reference does not (Task 2: the count restated, the assertion that it is written once unchanged).
+    /// </summary>
+    internal static int Mentions(string text) => System.Text.RegularExpressions.Regex.Count(text, "SIGNING KEY NOT LIVE:", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>Fails with the whole of both texts and the output the verb wrote, so a red probe's text is what the record keeps.</summary>
     internal static void Red(string expected, string actual, string output) =>
@@ -274,6 +277,30 @@ public sealed class SigningKeyNotLiveKeysTests
         var line = SigningKeyNotLiveKit.NoHeldLine(k1.Kid, null);
         var actual = $"exit {exit}; the no-held-key line: {(PublishedClientWords.Says(stdout, line) ? "said" : "not said")}, written {SigningKeyNotLiveKit.Mentions(stdout)} time(s)";
         var expected = "exit 6; the no-held-key line: said, written 1 time(s)";
+
+        SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- the line, from the errata ---\n" + line);
+    }
+
+    /// <summary>
+    /// UDO1e (non-property (f)): the key set serves K0 with its own public half and serves K1's kid <c>active</c> with a stranger's public half, K2 absent. The line lists exactly K0 (<c>&lt;n&gt;</c> is 1) and does not
+    /// name K1, because a kid alone could be a stranger's. Exit 6.
+    /// </summary>
+    [Fact]
+    public async Task UDO1e_AHeldKidServedWithAnotherPublicHalfIsNotInTheHeldList()
+    {
+        using var rig = KeyActRig.Create();
+        var (k0, k1, _) = SigningKeyNotLiveKit.Lockout(rig);
+        var stranger = HeldKey.New(k1.Kid);
+        rig.Double.KeySet = KeyActDouble.KeySetJson([k0.Served(1), stranger.Served(2)], [0, 1, 2], skipped: [(3, "agent.key-bound", "broken-link")]);
+
+        var (exit, stdout, stderr) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
+
+        var line = SigningKeyNotLiveKit.HeldLine("alice-k2", null, (k0.Kid, 1));
+        var naming = PublishedClientWords.Fold($"{SigningKeyNotLiveKit.Kid(k1.Kid)} (bound at log index 2)");
+        var lines = stdout.Split('\n').Where(l => l.Contains("SIGNING KEY NOT LIVE", StringComparison.Ordinal)).ToArray();
+        var actual = $"exit {exit}; the line with exactly K0 listed: {(PublishedClientWords.Says(stdout, line) ? "said" : "not said")}, written {SigningKeyNotLiveKit.Mentions(stdout)} time(s); "
+            + $"K1 named in the held list: {(lines.Length == 1 && PublishedClientWords.Fold(lines[0]).Contains(naming, StringComparison.Ordinal) ? "yes" : "no")}";
+        var expected = "exit 6; the line with exactly K0 listed: said, written 1 time(s); K1 named in the held list: no";
 
         SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- the line, from the errata ---\n" + line);
     }
@@ -450,14 +477,33 @@ public sealed class SigningKeyNotLiveUseKeyTests
         var keptState = kept is null
             ? "K2 is not kept"
             : $"K2 is kept: rotation_in_force={(kept["rotation_in_force"] is { } r ? r.ToJsonString() : "absent")}, mode {(keptFile is not null && File.Exists(keptFile) ? SigningKeyNotLiveKit.Mode(keptFile) : "no file")}, bytes {(keptFile is not null && File.Exists(keptFile) && Pem(keptFile) == k2.Pem.Trim() ? "its own" : "not its own")}";
-        var (_, afterKeys, afterKeysError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
+        var (keysExit, afterKeys, afterKeysError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
 
         var actual = $"exit {exit}; signing-key.pem is {(signing == k1.Pem.Trim() ? "K1's" : "not K1's")}; kid {identity["kid"]}; token.json {(rig.Store.ReadToken(rig.Slug) is null ? "gone" : "kept")}; "
-            + $"acts {NotHonouredKit.Acts(identity)}; {keptState}; POSTs seen {rig.Double.AllPosts}; curia keys then writes the line {SigningKeyNotLiveKit.Mentions(afterKeys + afterKeysError)} time(s)";
-        var expected = $"exit 0; signing-key.pem is K1's; kid {k1.Kid}; token.json gone; acts [rotation {k1.Kid} 2; rotation {k2.Kid} 3 in_force=false]; K2 is kept: rotation_in_force=false, mode 600, bytes its own; POSTs seen 0; curia keys then writes the line 0 time(s)";
+            + $"acts {NotHonouredKit.Acts(identity)}; {keptState}; POSTs seen {rig.Double.AllPosts}; curia keys then: {AfterUseKey(keysExit, afterKeys, afterKeysError, k1.Kid)}";
+        var expected = $"exit 0; signing-key.pem is K1's; kid {k1.Kid}; token.json gone; acts [rotation {k1.Kid} 2; rotation {k2.Kid} 3 in_force=false]; K2 is kept: rotation_in_force=false, mode 600, bytes its own; POSTs seen 0; curia keys then: {AfterUseKeyExpected(k1.Kid, withNowInForce: false)}";
 
-        SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr);
+        SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- curia keys after ---\n" + afterKeys + afterKeysError);
     }
+
+    /// <summary>
+    /// What <c>curia keys</c> says after <c>use-key</c>, read as the output and the exit (Amendment 2 ruling 3(a)): the silence of an error would satisfy "the line is not written", so the report must begin with the Forum-word
+    /// header, hold the <c>key ... active</c> line of the key the profile now signs with, exit 6, hold one <c>SKIPPED:</c> line for log index 3 (the key set still says the Forum does not act on row 3), and hold no
+    /// <c>MISSING:</c>, <c>FOREIGN:</c> or <c>SIGNING KEY NOT LIVE</c> line, nor a <c>NOW IN FORCE:</c> line unless the profile's rotation A is one the Forum acts on and the profile has not adopted.
+    /// </summary>
+    private static string AfterUseKey(int exit, string stdout, string stderr, string signingKid)
+    {
+        var folded = PublishedClientWords.Fold(stdout);
+        var skipped = System.Text.RegularExpressions.Regex.Matches(stdout, @"SKIPPED:[^\n]*").Select(m => m.Value).ToArray();
+        string Has(string text) => stdout.Contains(text, StringComparison.Ordinal) ? "present" : "absent";
+        return $"exit {exit}; header {(folded.StartsWith(PublishedClientWords.Fold("these lines are the Forum's word"), StringComparison.Ordinal) ? "first" : "not first")}; "
+            + $"key {signingKid} active {(folded.Contains(PublishedClientWords.Fold($"key {SigningKeyNotLiveKit.Kid(signingKid)} active"), StringComparison.Ordinal) ? "present" : "absent")}; "
+            + $"SKIPPED lines {skipped.Length}, for index 3: {(skipped.Length == 1 && skipped[0].Contains("at log index 3", StringComparison.Ordinal) ? "yes" : "no")}; "
+            + $"MISSING {Has("MISSING:")}; FOREIGN {Has("FOREIGN:")}; NOW IN FORCE {Has("NOW IN FORCE:")}; SIGNING KEY NOT LIVE written {SigningKeyNotLiveKit.Mentions(stdout + stderr)} time(s)";
+    }
+
+    private static string AfterUseKeyExpected(string signingKid, bool withNowInForce) =>
+        $"exit 6; header first; key {signingKid} active present; SKIPPED lines 1, for index 3: yes; MISSING absent; FOREIGN absent; NOW IN FORCE {(withNowInForce ? "present" : "absent")}; SIGNING KEY NOT LIVE written 0 time(s)";
 
     /// <summary>
     /// UDO4, the other key: <c>use-key --kid K0</c> exits 0 and A's <c>NOW IN FORCE</c> line then stands with G73's own words, remedy included (the signing key is live now, so the remedy can run).
@@ -469,11 +515,11 @@ public sealed class SigningKeyNotLiveUseKeyTests
         var (k0, k1, _) = SigningKeyNotLiveKit.Lockout(rig);
 
         var (exit, stdout, stderr) = await UseKeyAsync(rig, k0.Kid);
-        var (_, keys, keysError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
+        var (keysExit, keys, keysError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
 
         var original = SigningKeyNotLiveKit.OriginalRotationLine(k0.Kid, k1.Kid, 2);
-        var actual = $"exit {exit}; POSTs seen {rig.Double.AllPosts}; A's NOW IN FORCE line with G73's words: {(PublishedClientWords.Says(keys, original) ? "said" : "not said")}; the line written {SigningKeyNotLiveKit.Mentions(keys + keysError)} time(s)";
-        var expected = "exit 0; POSTs seen 0; A's NOW IN FORCE line with G73's words: said; the line written 0 time(s)";
+        var actual = $"exit {exit}; POSTs seen {rig.Double.AllPosts}; A's NOW IN FORCE line with G73's words: {(PublishedClientWords.Says(keys, original) ? "said" : "not said")}; curia keys then: {AfterUseKey(keysExit, keys, keysError, k0.Kid)}";
+        var expected = $"exit 0; POSTs seen 0; A's NOW IN FORCE line with G73's words: said; curia keys then: {AfterUseKeyExpected(k0.Kid, withNowInForce: true)}";
 
         SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- curia keys after ---\n" + keys + keysError);
     }
@@ -563,5 +609,29 @@ public sealed class SigningKeyNotLiveHelpTests
         var expected = "keys help clause: said; use-key usage line: said; use-key paragraph: said; exit 6 row clause: said; use-key result (exit 0): said";
 
         SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- the result, from the errata ---\n" + result);
+    }
+}
+
+/// <summary>
+/// UDO10 (errata G75, an errata self-agreement check; no code under test): R11.101's published rotation line while the signing key is not live is R11.96 (add.)'s rotation line with <c>, but signs with &lt;kid&gt;</c>
+/// removed from its first sentence and everything from <c>To sign with a new key instead</c> on replaced by R11.96 (add.) (rev.)'s sentence, so the two published copies of one sentence cannot drift. Green when written;
+/// it goes red when either copy is edited in the errata.
+/// </summary>
+[SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class SigningKeyNotLiveErrataAgreementTests
+{
+    [Fact]
+    public void UDO10_TheTwoPublishedCopiesOfTheRevisedRotationLineAgree()
+    {
+        var original = NotInForceWords.NowInForceRotation();
+        const string Signs = ", but signs with <kid>";
+        const string Cut = "To sign with a new key instead";
+        var cut = original.IndexOf(Cut, StringComparison.Ordinal);
+        Assert.True(cut > 0 && original.Contains(Signs, StringComparison.Ordinal), "R11.96 (add.)'s rotation words no longer hold the two phrases this probe derives the revised line from");
+
+        var derived = original[..cut].Replace(Signs, string.Empty, StringComparison.Ordinal) + SigningKeyNotLiveWords.RevisedTail();
+        var published = SigningKeyNotLiveWords.RotationLineWhileNotLive();
+
+        SigningKeyNotLiveKit.Red(published, derived, "R11.101's words and R11.96 (add.) (rev.) with R11.96 (add.)");
     }
 }

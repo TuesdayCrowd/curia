@@ -154,7 +154,7 @@ public sealed class SigningKeyNotLiveToolTests : IDisposable
 
         var same = string.Equals(reference, answer.Text.TrimEnd('\n') + "\n", StringComparison.Ordinal);
         var says = words.All(w => PublishedClientWords.Says(answer.Text, w));
-        var once = Regex.Count(answer.Text, "SIGNING KEY NOT LIVE", RegexOptions.CultureInvariant) == 1;
+        var once = Regex.Count(answer.Text, "SIGNING KEY NOT LIVE:", RegexOptions.CultureInvariant) == 1;   // the line begins "SIGNING KEY NOT LIVE:"; the errata's rotation line names it once more ("see SIGNING KEY NOT LIVE below")
         WholeText.Same(
             "the tool's text is what KeysReport renders; it holds the errata's words, and the line once",
             $"the tool's text {(same ? "is" : "is not")} what KeysReport renders; it {(says ? "holds" : "does not hold")} the errata's words, and the line {(once ? "once" : "not once")}"

@@ -10,7 +10,7 @@ public enum KeysVerdict
     /// <summary>A comparison was made and nothing disagreed: exit 0.</summary>
     Clean,
 
-    /// <summary>A <c>MISSING</c>, <c>FOREIGN</c>, <c>SKIPPED</c> or <c>RECORDED</c> line was written: exit 6.</summary>
+    /// <summary>A <c>MISSING</c>, <c>FOREIGN</c>, <c>SKIPPED</c>, <c>RECORDED</c> or <c>SIGNING KEY NOT LIVE</c> line was written: exit 6.</summary>
     Findings,
 
     /// <summary>No comparison could be made (the key set names no lifecycle, or no key names its binding): exit 8, with <see cref="KeysReading.CouldNotCompare"/>.</summary>
@@ -67,7 +67,7 @@ public static class KeysReport
 
         var frame = new FrameBuilder();
         frame.Line("these lines are the Forum's word: its key set as served; only a signed head, checked by curia verify, anchors a key's binding");
-        foreach (var key in keySet.Keys.OrderBy(k => k.LogIndex ?? long.MaxValue).ThenBy(k => k.Kid, StringComparer.Ordinal))
+        foreach (var key in SigningKeyStanding.Sorted(keySet))
         {
             // The status is the Forum's word: its own four are written as they are, and any other is quoted.
             if (key.Status is "active" or "retired" or "compromised" or "unbound")
@@ -87,9 +87,12 @@ public static class KeysReport
 
         // An act this profile recorded as not in force that the Forum now acts on (R11.96 (add.)): said, and never changed by this read (R11.98).
         var nowInForce = LifecycleWatch.NowInForce(profile, keySet);
+        var notLive = SigningKeyStanding.Read(profile, keySet);
         foreach (var act in nowInForce)
         {
-            if (act.Kind == LifecycleAct.Rotation)
+            if (act.Kind == LifecycleAct.Rotation && notLive is not null)
+                SigningKeyStanding.AppendRotationNowInForce(frame, act.LogIndex, act.Kid);
+            else if (act.Kind == LifecycleAct.Rotation)
                 frame.Line($"NOW IN FORCE: this profile's rotation at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is live and this profile holds it, but signs with {profile.Kid}. A live key this profile does not sign with is one more key that can sign as this agent, and curia keys exits 6 until it is ended. To sign with a new key instead, end this one and rotate again. End it with: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
             else
                 frame.Line($"NOW IN FORCE: this profile's retirement at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is ended. This profile has not recorded that, and curia keys exits 6 until it does. Record it with this command, which signs and sends nothing: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
@@ -123,11 +126,19 @@ public static class KeysReport
         var text = new System.Text.StringBuilder(frame.ToString());
         if (foreign.Count > 0) text.Append(ForeignLines(foreign).ToString());
 
+        // R11.101: the signing key is not one the Forum serves live. Decided from the signing kid and keys[] alone, once, after every SKIPPED and FOREIGN line and before the kinds line.
+        if (notLive is not null)
+        {
+            var notLiveFrame = new FrameBuilder();
+            SigningKeyStanding.AppendLine(notLiveFrame, profile, keySet, notLive);
+            text.Append(notLiveFrame.ToString());
+        }
+
         text.Append((keySet.EnabledKinds is { } enabled
             ? new FrameBuilder().Line($"lifecycle kinds this Forum enables: {(enabled.IsEmpty ? new OwnText("none (every lifecycle kind is guarded until the owner lifts the guard, R4.38)") : Literals(enabled))}")
             : new FrameBuilder().Line("lifecycle kinds this Forum enables: its key set does not say")).ToString());
 
-        var disagreed = findings.Any(f => f.Foreign || !skippedAt.Contains(f.LogIndex)) || (keySet.SkippedTotal ?? 0) > 0 || !nowInForce.IsEmpty || pending.Any(p => p.State == KeyActState.Recorded);
+        var disagreed = findings.Any(f => f.Foreign || !skippedAt.Contains(f.LogIndex)) || (keySet.SkippedTotal ?? 0) > 0 || !nowInForce.IsEmpty || pending.Any(p => p.State == KeyActState.Recorded) || notLive is not null;
         if (disagreed) return new KeysReading(text.ToString(), KeysVerdict.Findings, null);
 
         // No finding is a clean comparison only if one could be made: a lifecycle to read and a key naming its binding.
