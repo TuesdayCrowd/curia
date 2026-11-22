@@ -578,6 +578,126 @@ public sealed class SigningKeyNotLiveUseKeyTests
 
         SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr);
     }
+
+    /// <summary>
+    /// The printed command read as a POSIX shell reads this restricted form (Amendment 4): words separated by single spaces, each a bare word of <c>[A-Za-z0-9._/=-]</c> or one single-quoted word with no embedded
+    /// single quote. Anything else (an expansion, a double quote, a backslash, an operator, an unterminated quote) is not a plain command: null.
+    /// </summary>
+    private static List<string>? PlainShellWords(string command)
+    {
+        var words = new List<string>();
+        var i = 0;
+        while (i < command.Length)
+        {
+            if (command[i] == '\'')
+            {
+                var close = command.IndexOf('\'', i + 1);
+                if (close < 0) return null;
+                words.Add(command[(i + 1)..close]);
+                i = close + 1;
+            }
+            else
+            {
+                var start = i;
+                while (i < command.Length && command[i] != ' ')
+                {
+                    var c = command[i];
+                    if (!(char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '/' or '=' or '-')) return null;
+                    i++;
+                }
+
+                words.Add(command[start..i]);
+            }
+
+            if (i < command.Length)
+            {
+                if (command[i] != ' ' || i + 1 >= command.Length) return null;
+                i++;
+            }
+        }
+
+        return words;
+    }
+
+    /// <summary>
+    /// UDO11 (Amendment 3 ruling 3): the command the held-form line prints is a command the verb accepts. In the lockout scene, <c>curia keys</c>'s line is read between <c>To sign with one of them: </c> and
+    /// <c>. That command reads</c>, read as plain shell words (Amendment 4), and run through the same CLI against the same rig: it must exit 0, send nothing, and make the first held key (K0, the key set's order) the signing key.
+    /// </summary>
+    [Fact]
+    public async Task UDO11_TheCommandTheLinePrintsIsOneTheVerbAccepts()
+    {
+        using var rig = KeyActRig.Create();
+        var (k0, _, _) = SigningKeyNotLiveKit.Lockout(rig);
+        var (_, keys, keysError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
+
+        const string Open = "To sign with one of them: ";
+        const string Close = ". That command reads";
+        var from = keys.IndexOf(Open, StringComparison.Ordinal);
+        var to = from < 0 ? -1 : keys.IndexOf(Close, from, StringComparison.Ordinal);
+        Assert.True(from >= 0 && to > from, $"the held-form line is not in curia keys' output\n--- output ---\n{keys}{keysError}");
+        var command = keys[(from + Open.Length)..to].Trim();
+        var tokens = PlainShellWords(command);
+        Assert.True(tokens is not null, $"not a plain command: {command}");
+        Assert.True(tokens!.Count > 2 && tokens[0] == "curia" && tokens[1] == "use-key", $"not a use-key command: {command}");
+
+        var (exit, stdout, stderr) = await SigningKeyNotLiveKit.CliAsync(rig, [.. tokens.Skip(1)]);
+        var signing = rig.Store.ReadProfile(rig.Slug).TryGetValue(out var profile, out _) ? profile!.Kid : "<profile unreadable>";
+
+        var actual = $"exit {exit}; POSTs seen {rig.Double.AllPosts}; signing kid {signing}";
+        var expected = $"exit 0; POSTs seen 0; signing kid {k0.Kid}";
+        SigningKeyNotLiveKit.Red(expected, actual, $"command: {command}\n" + stdout + "\n" + stderr);
+    }
+
+    /// <summary>
+    /// UDO13 (Amendment 3 ruling 4): <c>use-key</c> names its agent. With no <c>--agent</c>, an empty one and a blank one, the one profile the rig holds is not taken: exit 1, no byte of the profile changed, nothing
+    /// sent, and the usage of <c>use-key</c> (not the unknown-command answer).
+    /// </summary>
+    [Theory]
+    [InlineData("no-agent")]
+    [InlineData("blank-agent")]
+    [InlineData("whitespace-agent")]
+    public async Task UDO13_UseKeyWithoutAnAgentRefusesAndTakesNoProfile(string row)
+    {
+        using var rig = KeyActRig.Create();
+        var (_, k1, _) = SigningKeyNotLiveKit.Lockout(rig);
+        string[] args = row switch
+        {
+            "no-agent" => [Verb, "--kid", k1.Kid],
+            "blank-agent" => [Verb, "--agent", "", "--kid", k1.Kid],
+            _ => [Verb, "--agent", "  ", "--kid", k1.Kid],
+        };
+        var before = SigningKeyNotLiveKit.Tree(rig);
+
+        var (exit, stdout, stderr) = await SigningKeyNotLiveKit.CliAsync(rig, args);
+
+        var actual = $"exit {exit}; the profile is {(before == SigningKeyNotLiveKit.Tree(rig) ? "byte-identical" : "CHANGED")}; POSTs seen {rig.Double.AllPosts}; "
+            + $"stderr has the use-key usage: {stderr.Contains("usage: curia use-key", StringComparison.Ordinal)}; stderr says unknown command: {stderr.Contains("unknown command", StringComparison.Ordinal)}";
+        var expected = "exit 1; the profile is byte-identical; POSTs seen 0; stderr has the use-key usage: True; stderr says unknown command: False";
+        SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr);
+    }
+
+    /// <summary>
+    /// UDO14 (Amendment 3 ruling 7): the acts, read from the profile and not from any printed text. <c>use-key --kid K0</c> (the key the enrolment bound, at the key set's first binding) records no rotation naming K0 and
+    /// leaves the act count as it was; <c>use-key --kid K1</c> leaves exactly one act naming K1 (A, the rotation at 2 the profile already recorded: UDO4's K1 test does not record a new one, this is its pair).
+    /// </summary>
+    [Theory]
+    [InlineData("k0")]
+    [InlineData("k1")]
+    public async Task UDO14_UseKeyRecordsNoActForTheEnrolmentKeyAndNoNewActForAnyOther(string key)
+    {
+        using var rig = KeyActRig.Create();
+        var (k0, k1, _) = SigningKeyNotLiveKit.Lockout(rig);
+        var target = key == "k0" ? k0 : k1;
+        int Count() => rig.Store.ReadProfile(rig.Slug).TryGetValue(out var p, out _) ? p!.Acts.Length : -1;
+        int Naming(string kid) => rig.Store.ReadProfile(rig.Slug).TryGetValue(out var p, out _) ? p!.Acts.Count(a => a.Kid == kid) : -1;
+        var before = Count();
+
+        var (exit, stdout, stderr) = await UseKeyAsync(rig, target.Kid);
+
+        var actual = $"exit {exit}; acts {Count()} (were {before}); acts naming {target.Kid} {Naming(target.Kid)}";
+        var expected = $"exit 0; acts {before} (were {before}); acts naming {target.Kid} {(key == "k0" ? 0 : 1)}";
+        SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr);
+    }
 }
 
 /// <summary>
@@ -609,6 +729,21 @@ public sealed class SigningKeyNotLiveHelpTests
         var expected = "keys help clause: said; use-key usage line: said; use-key paragraph: said; exit 6 row clause: said; use-key result (exit 0): said";
 
         SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- the result, from the errata ---\n" + result);
+    }
+
+    /// <summary>
+    /// UDO12 (Amendment 3 ruling 5): the top-level help names the recovery verb: it holds the errata's use-key usage line cut at its first <c> [</c> clause and the words <c>SIGNING KEY NOT LIVE</c>.
+    /// </summary>
+    [Fact]
+    public void UDO12_TheTopLevelHelpNamesTheRecoveryVerb()
+    {
+        var top = PublishedClientWords.Fold(Help.Usage);
+        var usage = SigningKeyNotLiveWords.UseKeyUsage();
+        var cut = usage.IndexOf(" [", StringComparison.Ordinal);
+        var line = PublishedClientWords.Fold(cut < 0 ? usage : usage[..cut]);
+        string Said(bool says) => says ? "said" : "not said";
+        var actual = $"use-key usage line: {Said(top.Contains(line, StringComparison.Ordinal))}; SIGNING KEY NOT LIVE: {Said(top.Contains(PublishedClientWords.Fold("SIGNING KEY NOT LIVE"), StringComparison.Ordinal))}";
+        SigningKeyNotLiveKit.Red("use-key usage line: said; SIGNING KEY NOT LIVE: said", actual, $"usage line sought: {line}\n--- top-level help ---\n{Help.Usage}");
     }
 }
 
