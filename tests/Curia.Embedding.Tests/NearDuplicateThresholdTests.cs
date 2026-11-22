@@ -579,7 +579,7 @@ public sealed class NearDuplicateThresholdTests(RealModelFixture model) : IClass
     private const string WriteVariable = "CURIA_WRITE_MEASUREMENTS";
 
     /// <summary>
-    /// The committed measurements (<c>conformance/retrieval/measured/bge-small-en-v1.5@1.measurements.jsonl</c>) are what the runner measures now, within 1e-9 on every value. When
+    /// The committed measurements (<c>conformance/retrieval/measured/bge-small-en-v1.5@1.measurements.jsonl</c>) are what the runner measures now, within 1e-6 on every value (ONNX Runtime differs across platforms in the last float digits). When
     /// <c>CURIA_WRITE_MEASUREMENTS</c> names a path the file is first written there. Fails, never skips, when the committed file is absent.
     /// </summary>
     [Fact]
@@ -609,7 +609,9 @@ public sealed class NearDuplicateThresholdTests(RealModelFixture model) : IClass
             worst = Math.Max(worst, Math.Abs(a.Score - b.Score));
         }
 
-        Assert.True(worst <= 1e-9, $"the committed measurements differ from the runner's by {worst:E3}");
+        // 1e-6: ONNX Runtime's output differs across platforms in the last float digits (1.7e-7 between macOS and the Linux CI runner,
+        // PR #169's first CI run); the rule's grid is 0.005, so a drift that could move a number is four orders of magnitude larger.
+        Assert.True(worst <= 1e-6, $"the committed measurements differ from the runner's by {worst:E3}");
     }
 
     /// <summary>NDT4b. Role control for FNDT7: the dedupe's passage-passage cosine and the floor's query-passage cosine differ by more than 1e-3 for at least one blind pair, because the prefix changes the vector. Green.</summary>
