@@ -279,3 +279,165 @@ Prompts: CR-a as before; CR-b's gains "Is there anything else you would do, and 
 
 - After `use-key`, `curia keys` keeps exiting 6 while the Forum skips a row of this agent's, so an owner who has recovered still meets exit 6; whether `curia keys` should say that the SKIPPED row, not a key, is why is a lead (a reader may ask in round 2; record it).
 - The choice rule makes the printed key the newest; a held key that is newest and is not a rotation's (two enrolments of one identity cannot exist: G14) has no case today. Recorded so a later key kind that breaks "newest is the owner's last choice" re-opens this ruling.
+
+---
+
+## As run
+
+*(Written by Task 5 from the task reports in `.superpowers/sdd/2026-11-21-skipped-act-recoverable/` (`task-0-report.md` to `task-4c-report.md`, `task-3.jsonl`, `item323-live.txt`, `cold-read-results-323.md`), the commit messages and the files they cite; every figure is copied from the file that holds it, and a figure Task 5 recounted says so. Where the plan or an amendment predicted a number, the prediction stands beside what was seen. The controller's pre-push gates and the PR are not recorded as run here.)*
+
+### As run: the commits (`git log origin/main..skipped-act-recoverable`, ten commits before Task 5's own, which the controller makes; none is a CI-1 commit)
+
+| Commit | Task | What |
+|---|---|---|
+| `3d05a30a` | plan | the plan for register item 323 (provisional errata G75, R11.101): the fold is right and does not change; the harm is a profile that signs with a key the Forum no longer binds |
+| `d27bdcf0` | plan | Amendment 1 (rulings 1 to 7, from Task 0): detection is no `keys[]` entry for the signing kid with status `active` (absent is the lockout case); the live seed is by log index, not 290's FLRV20; the version pins; `preflight.py --list` struck; the line does not rely on MISSING or SKIPPED; the seam for UDO6 |
+| `c77f0ccd` | T1 | errata G75 pasted (R11.101 and R11.96 (add.) (rev.), two index rows; specified, not built); `KeyActDouble` keys carry `kty`/`crv`, skipped rows and request counters; `UDO1` to `UDO9` written and red by their own assertions |
+| `63f4de6e` | plan | Amendment 2 (rulings 1 to 9, from Task 1): the held-keys placeholder, the display-literal agent id and the dropped signs-with tail accepted; UDO4's last check restated; `UDO1e`, `UDO10`; `FUDO11` to `FUDO18` |
+| `ba315596` | T2 | the build: the line, the footnote, `use-key`, `AdoptKey`, the help, 0.12.3 and every pin |
+| `371cb970` | plan | Amendment 3 (rulings 1 to 8, from Task 2): counting `SIGNING KEY NOT LIVE:` accepted (`FUDO23`); WAF31 joins the version readers; `use-key` stays explicit-only outside R11.82 (a)'s list; `UDO11` to `UDO14`, `FUDO19` to `FUDO22`; Task 2b |
+| `af75f61e` | plan | Amendment 4 (the controller's ruling from Task 2b): `UDO11` tokenizes the printed command as a POSIX shell would for bare and single-quoted words; `FUDO19c` |
+| `756b0979` | T2b, T3 | `UDO11` to `UDO14`; falsification `FUDO1` to `FUDO23` with the lettered forms: 30 rows, every one red for its own reason |
+| `a9a31737` | plan | Amendment 5 (rulings 1 to 7, from cold read round 1: 18 of 21, CR-c 0 of 3): the held-keys line prints the newest held live key and says so; `use-key`'s result names any other live held key and its retire command; the lockout line names no retire; `UDO15`, `UDO16`, `FUDO24` to `FUDO28`; round 2 |
+| `02f0ecd3` | T4c | Amendment 5's words in the build; `UDO15` and `UDO16`; `FUDO24` to `FUDO28`; pages 1, 2, 3 and 10 re-captured live |
+
+Tasks 0, 4 and 4b committed nothing (records only: Task 0 and Task 4 ran exports; Task 4b is the controller's cold read).
+
+### As run: Task 0 (`task-0-report.md`)
+
+Run on an export of `origin/main` at `27746ffb` (the base), Release, no tracked file changed, a throwaway database dropped after the last run. **The lockout is real.** A build seeded to skip the rotation at log index 2 (A) answered `500 curia/keys/not-honoured` (exit 6, the act recorded not in force); the next `curia rotate` (B) was `201` at index 3 and the profile signed with its key K2; the same database read by the unmodified build skipped B (`broken-link`), listed K0 (index 1) and K1 (index 2) `active` and **not K2**, and the token was refused (`401 curia/authn/token-key-not-live` on a cached token, then `401 invalid_client`); `curia retire --kid K1` and `curia rotate` each exit 6 with the profile byte-identical and the Forum's events unchanged at 4. The stop rules (M1 contradicts the scene; M3 serves K2 `active`; M4's refusal has no hook) **did not fire**. **Plan sentences it corrected:** (1) K2 is **absent** from `keys[]`, not `unbound` (a key the log does not bind is not listed), so R11.101's "the status the Forum serves for it" had no value in the lockout case (Amendment 1 ruling 1); (2) **the seed patch is by log index** (`|| index == 2` at the rotation link step, `LifecycleFold.cs:233`): 290's FLRV20 skips every rotation, so B is skipped too and the scene cannot be made with it; (3) the refusal is two types depending on a cached token, and the CLI prints the final `invalid_client`; (4) no MISSING line prints for B (the SKIPPED line stands in); (5) the version is also read from the errata by `PublishedReadersLastWords.Version()` (R11.100's paragraph), which must be re-pointed; (6) `preflight.py --list` does not exist at the base. **M2:** no `conformance/lifecycle` vector has two rows naming one `prev` (85 vectors scanned); Rust decides the case as the C# fold, read and not run. The seam for `UDO6` was decided from the code (a `ForumFixture` subclass replacing the `LifecycleVerifier` registration over a decorated copy of the verifier dictionary, not `FaultableStore`). Not checked: the Rust fold run, `curia-mcp` on the scene, `curia whoami` in the scene, `curia help <verb>`.
+
+### As run: Task 1 (`task-1-report.md`)
+
+G75 pasted with two index rows (`check-spec.py` asked for R11.101; the `R11.96 (add.) (rev.)` row was added beside it); `KeyActDouble` extended; `UDO1` to `UDO9` written against the unmodified code. **Counts:** Client 1,821 tests, **17 red, every one a `UDO`**; with `UDO6` (Api, 1) and the five red `UDO9` rows (Mcp) **23 red in all**; `UDO3`, `UDO3b`, `UDO2`'s `400` row and `UDO7` green on the base by design (carried by `FUDO1`, `FUDO2`, `FUDO11` and `FUDO12`, and `FUDO17`). **Red by assertion, as predicted:** `UDO1` (`held-keys line: not said, written 0 time(s)`, with the base's NOW IN FORCE offering to rotate again), `UDO1b` to `UDO1d`, `UDO2` (three rows), `UDO4` (the verb is unknown: exit 1), `UDO5` (every row reads the unknown-verb answer, so the rows carry information only through falsification), `UDO6` (`curia keys` prints no line after the budget refusal), `UDO8`, `UDO9` (version `0.12.2`, no description sentence). **Deviations from the brief's pasted text:** the held form's trailing list is a placeholder `<held keys>` (a list of unknown length cannot be filled literally); the rotation line while not live drops `, but signs with <kid>` from its first sentence; labels cannot hold backticks. **The `UDO6` seam as built:** `SkippedRotationFixture` overrides the existing `ConfigureStore` hook and decorates the verifier dictionary; the first message the decorator verifies is A's rotation statement itself (the enrolment binding is never seen by it), A's bytes failed each of the 9 times seen while armed and B's (different bytes) never.
+
+### As run: Task 2 (`ba315596`; `task-2-report.md`) and Amendment 3
+
+The build, in `Curia.Client`, `Curia.Client.Cli` and `Curia.Mcp`: `SigningKeyStanding` (new: the standing, the held list, the line, the rotation tail, `UseKeyCommand`, the description sentence), `KeysReport.Of` (the line before the `lifecycle kinds` line, a finding), `ProfileStore` (`RetainedKey.Half`, derived when the profile is read and never rendered; `AdoptKey`, one write of `identity.json` with every key file in place before the record names it), `KeyActSettling.Holds` made internal for the reuse, `Program.UseKeyAsync` and `ForeignAfterAsync`, `Help.cs`, `ToolCatalogue` 0.12.3 and the description sentence. The words were generated from the errata by script, not typed. **Gates:** Client 1,823 passed, Mcp 999 passed and 5 skipped, Application Credentials 188, Architecture 146 and 146, the Api classes green, 0 warnings. **Intended reds before the fix:** `UDO1e` and `UDO4`. **Reds that were not intended, and what each was:** the probes' count of the bare words `SIGNING KEY NOT LIVE` double-counted the rotation line's own "see SIGNING KEY NOT LIVE below" (a probe fault found by a red against a correct build; the count is now of `SIGNING KEY NOT LIVE:`, and `FUDO23` shows the colon-keyed count still fails for a line without the colon); a help line over 176 columns (`D37`, wrapped); `CWK52` and `CWK1` (the verb in the YOUR KEYS list, moved to a continuation paragraph); and `WAF31` (read its own version from R11.100's paragraph; re-pointed to R11.101's). **Amendment 3's answers (rulings 1 to 8):** (1) the colon-form count accepted; (2) WAF31 accepted, with a sweep lead for the register; (3) `use-key` stays explicit-only: `--agent` is required, no default, and the verb does not join R11.82 (a)'s list of 19 (the list is a deliberate change with its own fences; filed as a lead), carried by `UDO13` and `FUDO21`; (4) the top-level help names `use-key` in a continuation paragraph, carried by `UDO12`; (5) no `Hints.UseKey`, one composer, and the printed command run as printed (`UDO11`); (6) README's added sentence and CLAUDE.md's reworded history accepted; (7) `use-key` of the enrolment key records no act (a rotation at the enrolment index would be fictitious), carried by `UDO14` and `FUDO22`; (8) Task 3's rows re-pointed to the real behaviours, `FUDO9` split, `FUDO19` to `FUDO23` added, and Task 2b created.
+
+### As run: Task 2b and Task 3 (`task-2b-3-report.md`, `task-3.jsonl`)
+
+**Task 2b** (test file only): `UDO11` (first version split the printed command on spaces and was red against the correct build, `not a plain command: curia use-key --agent 'a' --kid 'alice-k0'`; the build is right, since R10.65 prints single-quoted shell words; restated per Amendment 4 and green), `UDO12`, `UDO13` (three rows), `UDO14` (two rows): green on the committed build by construction, so discharged until `FUDO19` to `FUDO22` ran, then shown to work. **Task 3**, every probe run against each patched build, restored by plain `cp`, `dotnet build Curia.sln -c Release --no-incremental` 0 warnings, the unpatched named probes green after every record, `git diff --stat` of the patched files empty. **Counts from the jsonl (recounted by Task 5):** 30 rows in 33 records (`FUDO5` two records, `FUDO13` three; the report says 29 rows and 30 patches, which counts `FUDO19c` once less than the file does); every row's final record has its named probe red; the first records of `FUDO5` and `FUDO13` are build failures (`StringContent` under CA2000; `KeyActSettling.Holds` internal to the Client assembly, so `FUDO13` adds a public pass-through helper to its patch), not results. **Per row, the probes that went red:**
+
+| Row | Patch | Red |
+|---|---|---|
+| `FUDO1` | the line only when the standing is `unbound` | `UDO1`, `1b` to `1e`, `UDO2` x3, `UDO11`, `UDO6`, `UDO9` x3 (13 Client/Api/Mcp) |
+| `FUDO1b` | the line only when the kid is listed (any status) | `UDO1b`, `1c`; also `UDO1`, `1d`, `1e`, `UDO2` x3, `UDO11`, `UDO6`, `UDO9` x3 (11): the brief wanted `UDO1` green, and the patch excludes `UDO1`'s absent kid |
+| `FUDO2`, `FUDO2b` | the line never after a refusal; after every refusal | `UDO2` x3, `UDO6`; `UDO2`'s `400` row |
+| `FUDO3`, `FUDO4` | kid-only comparison; proceeds while the signing key is live | `UDO5` different-half; `UDO5` signing-key-live |
+| `FUDO5` | `use-key` requests a token | `UDO4` x2, `UDO11` (`POSTs seen 1`) |
+| `FUDO6`, `FUDO7` | B left in force; the old key's file deleted | `UDO4` K1 only (K0 stays green: the control, carried by `FUDO22`); `UDO4` K1 |
+| `FUDO8` | `curia keys` runs the adoption | `UDO1`, `UDO11`, `UDO6` (`UDO1d` green) |
+| `FUDO9`, `FUDO9b` | the rotation line keeps G73's remedy; keeps `, but signs with` | `UDO1`, `UDO9` rotation row, both |
+| `FUDO10`, `FUDO10b`, `FUDO10c` | `curia_keys` omits the line; omits the description sentence; the version not moved | `UDO9` held, rotation, no-held rows; `UDO9` description; `UDO9` version and 19 other Mcp tests (20 in all: the version readers, not the six the brief named) |
+| `FUDO11`, `FUDO12` | the line for a live key; for an unreadable key set | `UDO3`, `UDO4` x2, `UDO7`; `UDO3b` |
+| `FUDO13` to `FUDO16` | status ignored; a write before the checks; an unreadable key set read as serving nothing; no `--kid` falls back to a held key | `UDO5` served-retired and served-compromised; `UDO5` six rows; `UDO5` key-set-unreadable; `UDO5` no-kid |
+| `FUDO17` | `use-key` writes a profile the reader refuses | `UDO7`, `UDO4` x2, `UDO14` x2, `UDO11`, `UDO6` (7) |
+| `FUDO18` | the held list loses a key | `UDO1e`, `UDO5` different-half |
+| `FUDO19`, `FUDO19b`, `FUDO19c` | the printed command carries a flag the verb does not take (`--key`; `--kid` unrecognized by the verb; double quotes) | `UDO11` by its own check in each (11, 16 and 11 red in all, the text probes also going red) |
+| `FUDO20` | the top-level help paragraph dropped | `UDO12` only (whole Client run of 1,830: that one red) |
+| `FUDO21` | `use-key` resolves a default agent | `UDO13` no-agent (`AgentResolution` 10 of 10 stayed green, `AgentResolverFence` CWK6 went red: the fence noticed) |
+| `FUDO22` | K0's adoption records a rotation | `UDO14` k0 only (`UDO4` K0 stays green) |
+| `FUDO23` | the line written without the colon | `UDO1`, `1b` to `1e`, `UDO2` x3, `UDO6`, `UDO9` x3 (12) |
+
+**Counts by outcome:** 30 rows red on the probe the row names, **none masked, none green**; controls green as intended (`UDO3`, `UDO3b`, `UDO2`'s `400` row under `FUDO1` and `FUDO23`; `UDO1d` under `FUDO8`; `UDO4` K0 under `FUDO6` and `FUDO22`). Rows that differed from their brief: `FUDO1b` (above), `FUDO6` (`UDO4` K0 green), `FUDO10c` (20 red, not the brief's list), `FUDO21` (the tests that noticed). Task 3 ran the Api and Mcp probes in every row, not only the rows that name them. The restore-mtime flag compares the restored source with `Curia.Client.dll`, which an Mcp-only row does not rebuild, so for those rows the `--no-incremental` rebuild and the green unpatched run carry that check.
+
+### As run: Task 4, the live run (`task-4-report.md`, `item323-live.txt`) and Task 4c
+
+`c` (`origin/main` at `27746ffb`) and `t` (the tip, exported by name), each built `dotnet build Curia.sln -c Release`, 0 warnings, the approval record lifted **in the exports only**; seeded copies `cp` and `tp` of the Api project only, the seed being the one line at `LifecycleFold.cs:233`; the scene built on `cp`/`tp` and served by the unseeded `c`/`t` over the same database; no patched Forum in any tip observation; throwaway databases `curia_item323_*`, all dropped. **Every leg beside its control.**
+
+| Leg | Control `c` | Tip `t` | Oracle |
+|---|---|---|---|
+| LV1, the lockout | `curia keys` exit 6: NOW IN FORCE ending "end this one and rotate again ... `curia retire --kid <K1>`", a SKIPPED line, no word that the signing key is not live; `curia ask` answers `invalid_client` and SKIPPED; the printed `curia retire` runs: exit 6, profile byte-identical, events 4 (the remedy cannot run) | `curia keys` exit 6: NOW IN FORCE in the not-live form, SKIPPED, one `SIGNING KEY NOT LIVE:` line naming K0 (index 1) and K1 (index 2) and, after Task 4c, the command for K1; the `ask` refusal followed by the same line | the key set by `GET /v1/jwks?agent=` and `openssl pkey -pubout` of each key file: named kids, indices and halves equal the entries; the signing kid has no entry |
+| LV2, `use-key` of K1 | `unknown command`, exit 1, profile byte-identical, no request | exit 0; `events` 4 to 4; only `GET /v1/jwks` in the proxy log; `signing-key.pem` equals K1's kept file; the old signing key under `keys/` with `rotation_in_force: false`; A in force at 2, B `in_force: false`; `curia ask` exit 0 (events 4 to 5); `curia verify` exit 8 (no signed head), never 6; `curia keys` then SKIPPED only | `psql` events count; the proxy log; `cmp` of key files |
+| LV3 (a) to (f), refusals and K0 | not run on `c` (the verb does not exist there) | (a) K0: exit 0, events unchanged, GET only, no act names K0; (b) a fresh key at K0's kid: exit 6, tree byte-identical; (c) not held: exit 6; (d) signing key live: exit 1; (e) no or blank `--agent`: exit 1, usage, no request; (f) a planted token deleted | tree hash before and after; the proxy log |
+| LV4, an honest rotation, retirement, ask, keys (no seed) | the baseline | stdout (normalized), exits (0, 0, 0, 0) and `identity.json` equal member for member; no `NOT LIVE` word; a control with one stdout edited differs as it must | the two builds |
+| LV5, `curia-mcp` | 0.12.2; text byte-equal to the CLI's (976 bytes); no `SIGNING KEY NOT LIVE`; the description sentence absent | `initialize` 0.12.3; `curia_keys` text equals `curia keys` byte for byte (1,619 bytes); the description carries the errata's sentence (taken by `grep` of the errata); no `use-key` among the 16 tools | the errata's own span |
+
+**Task 4c** (Amendment 5): red before code (Client 1,823 passed and 7 failed of 1,830; Mcp 997 and 2 failed of 1,004, the errata already carrying the new words), then `SigningKeyStanding.Newest`, `OthersSentence`, the held form and the tail, and `Program.cs` printing the second sentence after `use-key`'s result only when another held key is live: Client 1,832 of 1,832, Mcp 999 and 5 skipped, Api end-to-end and NotHonoured 12 of 12, Architecture 146 in Release and in Debug, `check-spec` clean, `falsify-spec-checks` 4 of 4 red, preflight exit 0. **Found against the brief:** `UDO1b`, `1c`, `1e` and `UDO2` could not stay green (each fills the held form whose words changed); `UDO10` reads only the errata and stayed green; `SigningKeyNotLiveWords.Span` needed a `firstOfMany` mode. **`FUDO24` to `FUDO28`** (one at a time, a kept copy restored by plain `cp`, `cmp` checked, rebuilt `--no-incremental`, the unpatched run green each time): `FUDO24` (`heldKeys[0]`) red `UDO1`, `UDO11`, `UDO15`, `UDO2` x3 and the Api end-to-end probe, **Mcp green** (its scene holds one key, so it cannot tell: a finding against the prediction); `FUDO25` (the last of `Sorted`) red `UDO15` only; `FUDO26` (the second sentence never printed) red `UDO16`, `UDO4` x2, `UDO8`; `FUDO27` (printed with no other live key) red `UDO16` only; `FUDO28` (the adopted key listed among the others) red `UDO16`, `UDO4` x2, `UDO8`. **Live, re-captured from the tip rebuilt at `a9a31737` overlaid with the six changed files:** LV1 (the command names K1, index 2; the oracle agrees), LV2 (events 4 to 4, GET only, `signing-key.pem` equals K1's, the second form names K0 with `<that kid>`, `ask` exit 0, `verify` exit 8), LV3(a) (K0 adopted: the second form names K1, no act names K0), LV5 (text equals the CLI byte for byte; 0.12.3); LV4 not re-run (no honest-rotation word moved). Pages 4 to 9 were identical to round 1's after normalization (6 and 8 byte for byte); pages 1, 2, 3 and 10 are new.
+
+### As run: Task 4b, the cold read (`cold-read-results-323.md`; the controller's)
+
+Fresh Sonnet readers, none told what is tested, each given one page captured by the command the reader would type; the gates are on what the reader would do and why (trap 289). Round 1, 28 readers; round 2, 10.
+
+| Set | Page | Round 1 | Round 2 |
+|---|---|---|---|
+| CR-a (the refusal and the held-keys line) | 1 | 3 of 3 (would run the printed command: the Forum serves the key live with the same public key; all three noted the page names two live keys and does not say which is preferable) | **3 of 3**, naming the key the command chooses and why it is the one (the newest, bound last) |
+| CR-b (`use-key` succeeded, then the ask) | 2 | 3 of 3 (nothing signed or sent; signs with the new key; the ask got the token) | **3 of 3**, plus: ending the other live key is optional and would be done after, with that key's kid |
+| CR-c (`curia keys` in the lockout) | 3 | **0 of 3**: all three would run `use-key` of the newer key and would not run the printed command (the older key's: "the page does not say which to prefer"); all three read "exits 6 until it is ended" as a duty with no command named | **3 of 3**: run the printed command (the newest), would not run `retire` or `rotate` now (they need a token), read the use-key result for the retire command |
+| CR-d (no held key is served) | 4 | 3 of 3 (stop and report to the operator; do not enrol again, do not retry) | carried, page byte-identical |
+| CR-e (the signing key is live: nothing to change) | 5 | 3 of 3 (not the Forum down, no `rotate`) | carried |
+| CR-f (`use-key --help`, `rotate --help`) | 6 | 3 of 3 (only when the signing key is not live; signs and sends nothing; `rotate` is not a recovery) | carried |
+| CR-g (two refusals) | 7 | 3 of 3 (another public key at that kid; not held; `curia keys`, then `use-key` with a held matching kid, or report) | carried |
+| X1, X2 (controls on `c`'s pages) | 8, 9 | X1: no `SIGNING KEY` line, the readers guess `curia keys` or `use-key`, one would retry the ask; X2: two of three would run the printed `curia retire` (the harm: it needs a token and would retire the one held live key) | not re-read |
+| R (`curia_keys` through `curia-mcp`) | 10 | 1 reader, recorded: runs the printed command from a shell; the tool changes nothing; asks why one key and not the other | 1 reader, recorded: the same, and reads use-key's result for the retire command |
+
+**Gated:** round 1 18 of 21; round 2 9 of 9; with the carried sets 21 of 21. **Finding of round 1:** the held-keys line named the first held live key (K0, the enrolment key, the lowest index) while the rotation's key (K1, the newest, the act the Forum now acts on) is also held and live; readers prefer the newest and rejected the printed command, and no page said what to do about the second live key that keeps `curia keys` at exit 6 after the switch (it is the SKIPPED line that does, not a second key). **Leads, not gates:** whether exit 6 clears after `use-key` (it does not while the SKIPPED row stands; Amendment 5 ruling 5 and UDO4's own expectation), `curia verify`'s argument form (item 327), whether retirement is reversible, and (CR-f readers r19 and r22) that the help does not say `curia keys` shows whether the signing key is live.
+
+### As run: the help clauses, exactly (`curia keys --help` and `curia use-key --help`, the top-level help's use-key paragraph and the exit-6 row's added clause, as built; each block was compared with the built binary's output by `diff`)
+
+`curia use-key --help`:
+
+```
+curia use-key --agent <slug> --kid <kid> [--forum <url>]
+    Only when the signing key is not live, and only for a held key the Forum serves live with the same public key; it signs nothing, requests no token and sends nothing; it changes this profile's files only; exit 6 key not held or not served, 8 key set unreadable, 1 signing key live.
+```
+
+`curia keys --help`:
+
+```
+curia keys --agent <name> [--forum <url>]
+    The keys the Forum binds to this identity, retired ones included, and the lifecycle it
+    publishes, compared with the acts this profile recorded (R4.39). A FOREIGN line is an entry
+    you did not make; a MISSING line is an act of yours the Forum does not list; a SKIPPED line is a row
+    of this identity's stream the Forum does not act on (it ends, binds and marks no key), where one of
+    yours means what it did is not in force (R11.96); SIGNING KEY NOT LIVE (the signing key is not one the
+    Forum serves live: curia use-key makes the profile sign with a held key it does serve). Exit 6 on any of the four.
+```
+
+The top-level help, under YOUR KEYS (a continuation paragraph, not a listed verb line: `VerbsOfTheHelp` and `CWK52` parse lines starting `  curia <verb>`):
+
+```
+  When the key you sign with is not one the Forum serves live (curia keys says SIGNING KEY NOT LIVE):
+    curia use-key --agent <slug> --kid <kid>
+                             Makes this profile sign with a key it holds that the Forum
+                             serves live. Signs and sends nothing.
+```
+
+The exit table's row 6, its added clause (the end of the clause that names FOREIGN and MISSING):
+
+```
+     this profile did not make (a FOREIGN line) or lacks an act it recorded (MISSING), or the signing key is not one the Forum serves live.
+```
+
+### As run: deviations from the plan, one line each
+
+- The live seed is by log index at the rotation link step, not 290's FLRV20 (Amendment 1 ruling 2).
+- An absent signing kid is the lockout case: the standing is "no `keys[]` entry for the kid is `active`", not a status of `unbound` (Amendment 1 ruling 1).
+- The held form's list is a placeholder, and the not-live rotation line drops `, but signs with <kid>` (Amendment 2 ruling 1).
+- `use-key` takes `--agent` explicitly and is not in R11.82 (a)'s list; the top-level help names it in a continuation paragraph (Amendment 3 rulings 3 and 4).
+- No `Hints.UseKey`: `SigningKeyStanding.UseKeyCommand` is the one composer (Amendment 3 ruling 5).
+- `use-key` of the enrolment key records no act (Amendment 3 ruling 7).
+- The probes count `SIGNING KEY NOT LIVE:`, not the bare words (Amendment 3 ruling 1); `WAF31` is a version reader (ruling 2).
+- `UDO11` parses the printed command as a shell would (Amendment 4); `FUDO19c` added.
+- The line's command names the held key bound last, and `use-key`'s result names any other live held key (Amendment 5); `curia-mcp` stays 0.12.3.
+- Falsification ran 35 rows, not the plan's 10: `FUDO11` to `FUDO23` by Amendments 2 and 3, `FUDO24` to `FUDO28` by Amendment 5, and seven lettered forms.
+- Task 3's brief predicted wrong reds for `FUDO1b`, `FUDO6` and `FUDO10c` (recorded above).
+- The plan's tip claim "then `curia keys` exits 0" after `use-key` was wrong: exit 6 stays while the SKIPPED row stands (Amendment 2 ruling 3).
+- After `use-key` of K0 the `NOW IN FORCE` line for A stands, with G73's own words and a remedy that can now run (as the plan said; recorded in LV3 as an observation, not a defect).
+
+### As run: the plan's open risks, answered from the run or marked unanswered
+
+1. *The scene was never produced:* **answered** (Task 0 M1 produced it for real; the plan did not stop).
+2. *`use-key` is a signing-key change outside `rotate`:* **answered** (bounded by `UDO5`, `FUDO3`, `FUDO4`, each red; the `UDO5` rows are carried by those rows and `FUDO13` to `FUDO16`).
+3. *A key set that serves `active` for a key the token endpoint still refuses (clock, `jti`) leaves the line silent:* **unanswered**; no task ran it.
+4. *No MCP-only recovery (item 325):* **still open**; the tool's page reader (R, round 1 and round 2) said it would run the printed command from a shell and that the tool changes nothing.
+5. *The plan was not run:* **answered** for the build, the suites, the probes, the live legs and the cold read. Not opened by Task 0 and since read by the builders: `Help.cs`, `KeyActSettling.cs`; `LifecycleLineWords.cs` was not read by any report; `RawStubForum` and `EventStoreFault` were not used (the seam is a verifier decorator). **Still not run by any task:** the whole Api suite, `Curia.Infrastructure.Tests`, the three `cargo` commands, the differential gate and the closed fuzz (the controller's before the push; nothing server-side or on the wire changed); LV4 after Amendment 5; `use-key` against an unreadable key set run live; `--signer`; a signed head, so `curia verify` stays exit 8 in the run; the Rust fold run over the scene.
+
+### As run: Task 5 (this record)
+
+Written by Task 5: errata G75's Status line (one line, nothing else); this section; `README.md` (one sentence in the key-lifecycle paragraph; 0.12.3 and the G75 sentence beside the pin were Task 2's); `CLAUDE.md` (one clause, and G74's clause's open-items sentence, which this item's close made stale); `impl-plan-323.md` (the text for `IMPLEMENTATION_PLAN.md`, applied by the controller after #161 merges, the held 290 text has landed and `impl-plan-322.md` has been applied); the PR body is the controller's. **Numbers**, re-grepped over `main`, `origin/main` (`27746ffb`), every `origin/*` ref and the one open PR (#161) immediately before the writes and again at the end: the highest `## G` is 74 on `main` and G75 on this branch alone; the highest `R11.` definition is 100 on `main` and R11.101 on this branch alone; no ref holds item 330, trap 291, G76 or R11.102; item 330 and trap 291 are allocated by `impl-plan-323.md`. First free after: D125, G76, R11.102, item 331, trap 292 (R4.45 stays unallocated: the server did not change).
+
+### As run: not run, and left open
+
+Not run by any task: the whole Api suite, `Curia.Infrastructure.Tests`, the three `cargo` commands, the differential gate and the closed fuzz. Left open: items 325, 326 and 327 (and 324 and 328, 329 as 322's patch leaves them) and item 330's leads; G75 non-properties (a) to (f), with (g) and (h) and the verb's refusal words still to be written into the entry; the guard is not lifted. Item 323 is closed.
