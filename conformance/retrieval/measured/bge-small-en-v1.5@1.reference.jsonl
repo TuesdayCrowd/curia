@@ -1,0 +1,130 @@
+{"kind": "pair", "id": "literal-identical", "source": "legacy", "passage": 1.0, "query_passage": 0.9825503983227025}
+{"kind": "pair", "id": "literal-reordered", "source": "legacy", "passage": 0.9893419637096689, "query_passage": 0.9722222325263914}
+{"kind": "pair", "id": "literal-appended", "source": "legacy", "passage": 0.995944777009476, "query_passage": 0.9855285144620043}
+{"kind": "pair", "id": "literal-cased", "source": "legacy", "passage": 0.9913714161472333, "query_passage": 0.9672600688148659}
+{"kind": "pair", "id": "literal-one-word", "source": "legacy", "passage": 0.9846558882986677, "query_passage": 0.9575501756156526}
+{"kind": "pair", "id": "paraphrase-reset", "source": "legacy", "passage": 0.6892665709558965, "query_passage": 0.6675827730866412}
+{"kind": "pair", "id": "paraphrase-rotate", "source": "legacy", "passage": 0.7022365488298286, "query_passage": 0.647126014194279}
+{"kind": "pair", "id": "paraphrase-jcs", "source": "legacy", "passage": 0.775890262672035, "query_passage": 0.7371130182991167}
+{"kind": "pair", "id": "paraphrase-dpop", "source": "legacy", "passage": 0.7335373738734869, "query_passage": 0.7161894889501403}
+{"kind": "pair", "id": "related-pool-size", "source": "legacy", "passage": 0.7560661171521923, "query_passage": 0.7191787753437349}
+{"kind": "pair", "id": "related-key-publication", "source": "legacy", "passage": 0.7832098127006912, "query_passage": 0.7088885879437701}
+{"kind": "pair", "id": "related-jcs-escaping", "source": "legacy", "passage": 0.7586109047618055, "query_passage": 0.7271291751956938}
+{"kind": "pair", "id": "related-nonce-lifetime", "source": "legacy", "passage": 0.6884130820156069, "query_passage": 0.6563941818376854}
+{"kind": "pair", "id": "distinct-board", "source": "legacy", "passage": 0.5502224802756468, "query_passage": 0.5206942003925576}
+{"kind": "pair", "id": "distinct-flag", "source": "legacy", "passage": 0.5291023883884045, "query_passage": 0.4715050410563078}
+{"kind": "pair", "id": "distinct-budget", "source": "legacy", "passage": 0.5367362159932654, "query_passage": 0.5191409958673412}
+{"kind": "pair", "id": "bp-01", "source": "blind", "passage": 0.7859062826049208, "query_passage": 0.7553733104386045}
+{"kind": "pair", "id": "bp-02", "source": "blind", "passage": 0.7783328662978228, "query_passage": 0.7380201896550282}
+{"kind": "pair", "id": "bp-03", "source": "blind", "passage": 0.8372137955725293, "query_passage": 0.7944142626195017}
+{"kind": "pair", "id": "bp-04", "source": "blind", "passage": 0.8357467388455033, "query_passage": 0.7795657306322058}
+{"kind": "pair", "id": "bp-05", "source": "blind", "passage": 0.8179217730012406, "query_passage": 0.8011328902090197}
+{"kind": "pair", "id": "bp-06", "source": "blind", "passage": 0.7046261261508329, "query_passage": 0.6436748571264345}
+{"kind": "pair", "id": "bp-07", "source": "blind", "passage": 0.864842716799173, "query_passage": 0.8446970728678626}
+{"kind": "pair", "id": "bp-08", "source": "blind", "passage": 0.8146139980529821, "query_passage": 0.7856126915917374}
+{"kind": "pair", "id": "bp-09", "source": "blind", "passage": 0.7870174124208558, "query_passage": 0.7418266343347306}
+{"kind": "pair", "id": "bp-10", "source": "blind", "passage": 0.8249977920294389, "query_passage": 0.8020757860036736}
+{"kind": "pair", "id": "bp-11", "source": "blind", "passage": 0.8248156208663076, "query_passage": 0.7930066153214488}
+{"kind": "pair", "id": "bp-12", "source": "blind", "passage": 0.7896161003718463, "query_passage": 0.7561446324366401}
+{"kind": "pair", "id": "bp-13", "source": "blind", "passage": 0.7761532114864427, "query_passage": 0.7348714354130641}
+{"kind": "pair", "id": "bp-14", "source": "blind", "passage": 0.842960867291197, "query_passage": 0.8077000265546608}
+{"kind": "pair", "id": "bp-15", "source": "blind", "passage": 0.7957458337455217, "query_passage": 0.7421395663689617}
+{"kind": "pair", "id": "bp-16", "source": "blind", "passage": 0.7188885718634866, "query_passage": 0.6743917905920971}
+{"kind": "pair", "id": "bp-17", "source": "blind", "passage": 0.7664402333447193, "query_passage": 0.7516348950081744}
+{"kind": "pair", "id": "bp-18", "source": "blind", "passage": 0.73624306189078, "query_passage": 0.695862153680409}
+{"kind": "pair", "id": "bp-19", "source": "blind", "passage": 0.8117659035956567, "query_passage": 0.7935835837460334}
+{"kind": "pair", "id": "bp-20", "source": "blind", "passage": 0.7782657018061465, "query_passage": 0.730272373050947}
+{"kind": "pair", "id": "bp-21", "source": "blind", "passage": 0.895407523046754, "query_passage": 0.8741683494857142}
+{"kind": "pair", "id": "bp-22", "source": "blind", "passage": 0.8704037199141731, "query_passage": 0.8400779119316542}
+{"kind": "pair", "id": "bp-23", "source": "blind", "passage": 0.8229979871673985, "query_passage": 0.7983338517702079}
+{"kind": "pair", "id": "bp-24", "source": "blind", "passage": 0.7799544500327527, "query_passage": 0.7382774894755133}
+{"kind": "pair", "id": "bp-25", "source": "blind", "passage": 0.8231987683554403, "query_passage": 0.7870512910484069}
+{"kind": "pair", "id": "bp-26", "source": "blind", "passage": 0.8458038044715598, "query_passage": 0.8161907286560353}
+{"kind": "pair", "id": "bp-27", "source": "blind", "passage": 0.7132604425595721, "query_passage": 0.6887143815368995}
+{"kind": "pair", "id": "bp-28", "source": "blind", "passage": 0.7595578557980278, "query_passage": 0.7225585773000269}
+{"kind": "pair", "id": "bp-29", "source": "blind", "passage": 0.6688467973796122, "query_passage": 0.6050577807859407}
+{"kind": "pair", "id": "bp-30", "source": "blind", "passage": 0.8639497642794713, "query_passage": 0.8203612729771553}
+{"kind": "pair", "id": "bp-31", "source": "blind", "passage": 0.8389817731831453, "query_passage": 0.7858160809372772}
+{"kind": "pair", "id": "bp-32", "source": "blind", "passage": 0.783395657323605, "query_passage": 0.7367533986027675}
+{"kind": "pair", "id": "bp-33", "source": "blind", "passage": 0.8278560382482772, "query_passage": 0.8139320747744703}
+{"kind": "pair", "id": "bp-34", "source": "blind", "passage": 0.7884912301294664, "query_passage": 0.7372279503829318}
+{"kind": "pair", "id": "bp-35", "source": "blind", "passage": 0.8663680193923453, "query_passage": 0.8315208949329218}
+{"kind": "pair", "id": "bp-36", "source": "blind", "passage": 0.7773704574353477, "query_passage": 0.7122673575347356}
+{"kind": "pair", "id": "bn-01", "source": "blind", "passage": 0.8459129990105512, "query_passage": 0.8245630151672567}
+{"kind": "pair", "id": "bn-02", "source": "blind", "passage": 0.8825317870100706, "query_passage": 0.8622151498995697}
+{"kind": "pair", "id": "bn-03", "source": "blind", "passage": 0.888251930059073, "query_passage": 0.8424778963489995}
+{"kind": "pair", "id": "bn-04", "source": "blind", "passage": 0.7631228808105055, "query_passage": 0.7454784120141352}
+{"kind": "pair", "id": "bn-05", "source": "blind", "passage": 0.7800972970666078, "query_passage": 0.7552549066829792}
+{"kind": "pair", "id": "bn-06", "source": "blind", "passage": 0.824949342665752, "query_passage": 0.7939650133073919}
+{"kind": "pair", "id": "bn-07", "source": "blind", "passage": 0.739333465777514, "query_passage": 0.6770876479921668}
+{"kind": "pair", "id": "bn-08", "source": "blind", "passage": 0.8765586765430943, "query_passage": 0.8460341802453422}
+{"kind": "pair", "id": "bn-09", "source": "blind", "passage": 0.7516835453324693, "query_passage": 0.7251700208358177}
+{"kind": "pair", "id": "bn-10", "source": "blind", "passage": 0.8645458211751853, "query_passage": 0.8281195854801662}
+{"kind": "pair", "id": "bn-11", "source": "blind", "passage": 0.8200841943976304, "query_passage": 0.7699198774614155}
+{"kind": "pair", "id": "bn-12", "source": "blind", "passage": 0.8832674697552294, "query_passage": 0.8417072780728572}
+{"kind": "pair", "id": "bn-13", "source": "blind", "passage": 0.754514402422932, "query_passage": 0.6889555095859791}
+{"kind": "pair", "id": "bn-14", "source": "blind", "passage": 0.7865885708153096, "query_passage": 0.7346479833866317}
+{"kind": "pair", "id": "bn-15", "source": "blind", "passage": 0.785542724507613, "query_passage": 0.7502719231951683}
+{"kind": "pair", "id": "bn-16", "source": "blind", "passage": 0.7471039763846046, "query_passage": 0.7184646137705766}
+{"kind": "pair", "id": "bn-17", "source": "blind", "passage": 0.6871845476788372, "query_passage": 0.6205714704878362}
+{"kind": "pair", "id": "bn-18", "source": "blind", "passage": 0.7754203321638904, "query_passage": 0.732582308364865}
+{"kind": "pair", "id": "bn-19", "source": "blind", "passage": 0.8048677780548391, "query_passage": 0.7364696848180972}
+{"kind": "pair", "id": "bn-20", "source": "blind", "passage": 0.7205343715196499, "query_passage": 0.6789186645159286}
+{"kind": "pair", "id": "bn-21", "source": "blind", "passage": 0.769159542449977, "query_passage": 0.721294954424827}
+{"kind": "pair", "id": "bn-22", "source": "blind", "passage": 0.7525877293679469, "query_passage": 0.7379325978408529}
+{"kind": "pair", "id": "bn-23", "source": "blind", "passage": 0.8158233911748793, "query_passage": 0.8097844772257037}
+{"kind": "pair", "id": "bn-24", "source": "blind", "passage": 0.7770138613859874, "query_passage": 0.7449633397890681}
+{"kind": "pair", "id": "bn-25", "source": "blind", "passage": 0.7456508883140347, "query_passage": 0.7086498546665507}
+{"kind": "pair", "id": "bn-26", "source": "blind", "passage": 0.7828713497998263, "query_passage": 0.7333096924967164}
+{"kind": "pair", "id": "bn-27", "source": "blind", "passage": 0.7528014108083079, "query_passage": 0.7148174028793431}
+{"kind": "pair", "id": "bn-28", "source": "blind", "passage": 0.7212845924909032, "query_passage": 0.7199084437178824}
+{"kind": "pair", "id": "bn-29", "source": "blind", "passage": 0.706328867190293, "query_passage": 0.6696491016583421}
+{"kind": "pair", "id": "bn-30", "source": "blind", "passage": 0.8147550761191, "query_passage": 0.7487137273877688}
+{"kind": "pair", "id": "bn-31", "source": "blind", "passage": 0.8742478803251615, "query_passage": 0.8179620647770686}
+{"kind": "pair", "id": "bn-32", "source": "blind", "passage": 0.7761695306012099, "query_passage": 0.7330531886548725}
+{"kind": "pair", "id": "bn-33", "source": "blind", "passage": 0.7515781398671829, "query_passage": 0.7585697803266006}
+{"kind": "pair", "id": "bn-34", "source": "blind", "passage": 0.7843634648670949, "query_passage": 0.7639057463615319}
+{"kind": "pair", "id": "bn-35", "source": "blind", "passage": 0.7098777949919702, "query_passage": 0.6688904935683083}
+{"kind": "pair", "id": "bn-36", "source": "blind", "passage": 0.8990954791047057, "query_passage": 0.8583187042635202}
+{"kind": "pair", "id": "bc-01", "source": "blind", "passage": 0.9965381166011369, "query_passage": 0.9906471730670072}
+{"kind": "pair", "id": "bc-02", "source": "blind", "passage": 0.9980311115963885, "query_passage": 0.9785142108491669}
+{"kind": "pair", "id": "bc-03", "source": "blind", "passage": 0.9590750867807762, "query_passage": 0.9427070204325512}
+{"kind": "pair", "id": "bc-04", "source": "blind", "passage": 0.9906760483304531, "query_passage": 0.9739590881274248}
+{"kind": "pair", "id": "bc-05", "source": "blind", "passage": 0.9980101120803742, "query_passage": 0.9888440750166819}
+{"kind": "pair", "id": "bc-06", "source": "blind", "passage": 0.9869937447989089, "query_passage": 0.9580438851481762}
+{"kind": "pair", "id": "bc-07", "source": "blind", "passage": 0.9640450709228077, "query_passage": 0.935508856285913}
+{"kind": "pair", "id": "bc-08", "source": "blind", "passage": 0.9940655800169609, "query_passage": 0.9746401035253119}
+{"kind": "pair", "id": "bc-09", "source": "blind", "passage": 0.9884729688665744, "query_passage": 0.9747786169708483}
+{"kind": "pair", "id": "bc-10", "source": "blind", "passage": 0.9958408138455144, "query_passage": 0.9556687299770449}
+{"kind": "pair", "id": "bc-11", "source": "blind", "passage": 0.9277280801117661, "query_passage": 0.9109614336669114}
+{"kind": "pair", "id": "bc-12", "source": "blind", "passage": 0.9935155991038773, "query_passage": 0.9696831937473438}
+{"kind": "pair", "id": "bc-13", "source": "blind", "passage": 0.9904542675067843, "query_passage": 0.9645991312668831}
+{"kind": "pair", "id": "bc-14", "source": "blind", "passage": 0.958352429466788, "query_passage": 0.9145522858193615}
+{"kind": "pair", "id": "bc-15", "source": "blind", "passage": 0.9926111617711173, "query_passage": 0.9760849335342271}
+{"kind": "pair", "id": "bc-16", "source": "blind", "passage": 0.9971924984716316, "query_passage": 0.9689457374891176}
+{"kind": "pair", "id": "bc-17", "source": "blind", "passage": 0.9913914779086879, "query_passage": 0.9588031718809963}
+{"kind": "pair", "id": "bc-18", "source": "blind", "passage": 0.9918235370594971, "query_passage": 0.9407376213584988}
+{"kind": "noise", "id": "qo-01", "score": 0.5479460826530413}
+{"kind": "noise", "id": "qo-02", "score": 0.5176736426881985}
+{"kind": "noise", "id": "qo-03", "score": 0.4698691570800719}
+{"kind": "noise", "id": "qo-04", "score": 0.5134657916054922}
+{"kind": "noise", "id": "qo-05", "score": 0.5381689892250331}
+{"kind": "noise", "id": "qo-06", "score": 0.48128476104662216}
+{"kind": "noise", "id": "qo-07", "score": 0.48019365513369205}
+{"kind": "noise", "id": "qo-08", "score": 0.49567610396208805}
+{"kind": "noise", "id": "qo-09", "score": 0.5520044902499137}
+{"kind": "noise", "id": "qo-10", "score": 0.5762316015683344}
+{"kind": "noise", "id": "qo-11", "score": 0.5010127578997037}
+{"kind": "noise", "id": "qo-12", "score": 0.47807263232475544}
+{"kind": "noise", "id": "qm-01", "score": 0.5278863373867023}
+{"kind": "noise", "id": "qm-02", "score": 0.44485138873041974}
+{"kind": "noise", "id": "qm-03", "score": 0.4329350027949178}
+{"kind": "noise", "id": "qm-04", "score": 0.5101762010503234}
+{"kind": "noise", "id": "qm-05", "score": 0.5115271432187163}
+{"kind": "noise", "id": "qm-06", "score": 0.42852271247248275}
+{"kind": "noise", "id": "qm-07", "score": 0.4696937364716569}
+{"kind": "noise", "id": "qm-08", "score": 0.5057280424781869}
+{"kind": "noise", "id": "qm-09", "score": 0.4992354409616055}
+{"kind": "noise", "id": "qm-10", "score": 0.5009244077021652}
+{"kind": "noise", "id": "qm-11", "score": 0.4617686622765299}
+{"kind": "noise", "id": "qm-12", "score": 0.5954095907253988}

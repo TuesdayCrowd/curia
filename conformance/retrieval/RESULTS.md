@@ -1,4 +1,4 @@
-# Retrieval query set — results
+# Retrieval query set — results (the hashed test adapter, then the deployed model)
 
 Reproduced by `Curia.Application.Tests/Retrieval/RetrievalQuerySetTests` on every build; the
 per-pair report is what `TheMeasurementIsPrinted` computes. **The table below is the test adapter's** (`HashedNGramEmbedder`, which the Forum no longer runs: errata G65): it
@@ -97,3 +97,44 @@ A statement about **these pairs against today's model and thresholds**. A high l
 rate is evidence that the listed shapes are caught, not that duplicates are; the paraphrase row
 is the evidence that they are not. The thresholds are provisional and are to be re-derived from
 this set when the model changes (R8.21), not defended.
+
+## The deployed model, `bge-small-en-v1.5@1` (D10b)
+
+Measured under each model by the rule in `THRESHOLD-RULE.md`; the block below is printed by `tools/retrieval/derive-thresholds.py --emit-section` over `measured/bge-small-en-v1.5@1.measurements.jsonl` and pasted unedited.
+
+<!-- bge-small-en-v1.5@1:begin -->
+
+### Measured under `bge-small-en-v1.5@1`
+
+- model: bge-small-en-v1.5@1
+- rule_commit: 7f1b3081
+- rule_sha256: 7afca984948be0415fe8e014ccad04aee3e90968c4ae3d8450e1eca06e97c0c5
+- blind_pairs_sha256: 367a0023429cab749b5c5b78adf5339bde1508f6fc29ba60dac57918e73f69b9
+- dedupe_pairs_sha256: b844a4d182304fc0a0b8fe1dc66065aa2bba1e4da349f34bb745e4c5601b05fa
+- ndt4_agreement: the runner and tools/model/pair-cosines.py agree within 2.3e-08 over 236 values; python 3.12.9 here; the manifest records 3.12.16
+- split_nondup_derivation_check: 23/20
+- split_repeat_derivation_check: 9/14
+- split_paraphrase_derivation_check: 24/16
+- split_noise_derivation_check: 8/16
+- thresholds_ship: false
+- floor_bp: 6400
+- check_no_nondup_refused: pass (0 of 20 refused)
+- check_annotated_within_ceiling: FAIL (3 annotated, at most 2 of 20)
+- check_repeats_caught: pass (14 of 14)
+- floor_does_something: true
+- floor_removal_bp: 10000 (16 of 16 noise queries in Check below F)
+- floor_keep_bp: 10000 (27 of 27 relevant scores in Check at or above F)
+- paraphrase_recall_derivation: 1/24
+- paraphrase_recall_check: 0/16
+- repeat_recall_derivation: 9/9
+- repeat_recall_check: 14/14
+
+The Check failed (annotated_within_ceiling): no number ships. The rule's only continuation is a further blind set; nothing was retuned. The derived thresholds are recorded outside this file, labelled not published.
+
+The paraphrase recall on Check is under one half: the near-duplicate check is a check for repeats that does not detect paraphrase.
+
+The Derivation ceiling floor(0.05 x 23) = 1 is 1 non-duplicate's cosine: the numbers rest on few pairs.
+
+These numbers are this model's (`bge-small-en-v1.5@1`), on this corpus of about 190 posts, and are derived again at the next model id.
+
+<!-- bge-small-en-v1.5@1:end -->

@@ -278,6 +278,34 @@ internal static class RetrievalRule
         return (d, floorBp, verdicts);
     }
 
+    // ------------------------------------------------------------------------------------------------ the measurements file
+
+    /// <summary>The measurements as the committed file holds them: one JSON line per pair or noise query, cosines and overlaps at round-trip precision. No label, threshold or verdict.</summary>
+    internal static IEnumerable<string> MeasurementLines(Measurements m) =>
+        m.Pairs.Select(p => string.Create(CultureInfo.InvariantCulture,
+                $"{{\"kind\":\"pair\",\"id\":{JsonSerializer.Serialize(p.Id)},\"class\":{JsonSerializer.Serialize(p.Class)},\"source\":{JsonSerializer.Serialize(p.Source)},\"passage\":{p.Passage:R},\"query_passage\":{p.QueryPassage:R},\"overlap\":{p.Overlap:R}}}"))
+            .Concat(m.Noise.Select(n => string.Create(CultureInfo.InvariantCulture,
+                $"{{\"kind\":\"noise\",\"id\":{JsonSerializer.Serialize(n.Id)},\"class\":{JsonSerializer.Serialize(n.Class)},\"score\":{n.Score:R}}}")));
+
+    /// <summary>Reads the committed measurements file back into the runner's own table.</summary>
+    internal static Measurements ReadMeasurements(string path)
+    {
+        var pairs = new List<PairMeasure>();
+        var noise = new List<NoiseMeasure>();
+        foreach (var line in File.ReadLines(path).Where(l => l.Length > 0))
+        {
+            using var json = JsonDocument.Parse(line);
+            var r = json.RootElement;
+            if (r.GetProperty("kind").GetString() == "pair")
+                pairs.Add(new PairMeasure(r.GetProperty("id").GetString()!, r.GetProperty("class").GetString()!, r.GetProperty("source").GetString()!,
+                    r.GetProperty("passage").GetDouble(), r.GetProperty("query_passage").GetDouble(), r.GetProperty("overlap").GetDouble()));
+            else
+                noise.Add(new NoiseMeasure(r.GetProperty("id").GetString()!, r.GetProperty("class").GetString()!, r.GetProperty("score").GetDouble()));
+        }
+
+        return new Measurements(pairs, noise);
+    }
+
     // ------------------------------------------------------------------------------------------------ the reference file
 
     /// <summary>The measurements <c>tools/model/pair-cosines.py</c> wrote: one JSON line per pair or noise query.</summary>

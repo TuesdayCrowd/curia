@@ -274,6 +274,38 @@ public sealed class RetrievalRuleTests
         Assert.Equal((8, 16), Sizes(c => c is "off-topic" or "made-up"));
     }
 
+    // ------------------------------------------------------------------------------------------------ the runner over the committed measurements
+
+    /// <summary>
+    /// The runner's own derivation over the committed measurements file, needing no model: O, R, A, F, the five Check conditions and the recalls, written as <c>name = value</c> lines to the path
+    /// <c>CURIA_WRITE_DERIVED</c> names when it is set (so <c>tools/retrieval/derive-thresholds.py</c> can be compared with the runner value by value). Fails, never skips, without the committed file.
+    /// </summary>
+    [Fact]
+    public void R8_89_TheRunnerDerivesFromTheCommittedMeasurements()
+    {
+        var committed = Path.Combine(ModelDirectory.RepositoryRoot(), "conformance", "retrieval", "measured", ResultsSection.Model + ".measurements.jsonl");
+        Assert.True(File.Exists(committed), "Expected: the committed measurements file " + ResultsSection.Model + ".measurements.jsonl  Actual: absent");
+        var m = ReadMeasurements(committed);
+        var (d, floorBp, v) = Compute(m, P);
+        var rows = m.Pairs.Select(x => new PairRow(x.Class, x.Id, x.Passage, x.Overlap)).ToList();
+        var der = rows.Where(r => IsDerivation(r.Id)).ToList();
+        var chk = rows.Where(r => !IsDerivation(r.Id)).ToList();
+        (int, int) Repeats(List<PairRow> of) => (of.Count(r => IsRepeat(r.Class) && Decide(r, d) != Verdict.None), of.Count(r => IsRepeat(r.Class)));
+        var lines = new List<string>
+        {
+            $"overlap_floor_bp = {d.OverlapBp}", $"refuse_cosine_bp = {d.RefuseBp}", $"annotate_cosine_bp = {d.AnnotateBp}", $"floor_bp = {floorBp}",
+            $"check_no_nondup_refused = {v.NoNonDuplicateRefused}", $"check_annotated_within_ceiling = {v.AnnotatedWithinCeiling}", $"check_repeats_caught = {v.RepeatsCaught}",
+            $"floor_removal_check = {v.FloorRemoves}", $"floor_keep_check = {v.FloorKeeps}",
+            $"paraphrase_recall_derivation = {Recall(der, "paraphrase", d.AnnotateBp).Hit}/{Recall(der, "paraphrase", d.AnnotateBp).Total}",
+            $"paraphrase_recall_check = {Recall(chk, "paraphrase", d.AnnotateBp).Hit}/{Recall(chk, "paraphrase", d.AnnotateBp).Total}",
+            $"repeat_recall_derivation = {Repeats(der).Item1}/{Repeats(der).Item2}", $"repeat_recall_check = {Repeats(chk).Item1}/{Repeats(chk).Item2}",
+            $"thresholds_ship = {v.ThresholdsShip}", $"floor_does_something = {v.FloorDoesSomething}",
+        };
+        var path = Environment.GetEnvironmentVariable("CURIA_WRITE_DERIVED");
+        if (!string.IsNullOrEmpty(path)) File.WriteAllLines(path, lines);
+        Assert.NotEmpty(lines);
+    }
+
     // ------------------------------------------------------------------------------------------------ NDT7
 
     private static (PairRow[] Rows, double[] Relevant, double[] Noise) Passing() =>
@@ -442,6 +474,42 @@ public sealed class NearDuplicateThresholdTests(RealModelFixture model) : IClass
         foreach (var (cls, lo, hi) in ranges)
             foreach (var p in measured.Pairs.Where(x => x.Source == "legacy" && x.Class == cls))
                 Assert.True(p.Passage >= lo - 0.0005 && p.Passage <= hi + 0.0005, $"legacy pair {p.Id} ({cls}) is outside D10a's recorded range {lo:0.000} to {hi:0.000}");
+    }
+
+    private const string WriteVariable = "CURIA_WRITE_MEASUREMENTS";
+
+    /// <summary>
+    /// The committed measurements (<c>conformance/retrieval/measured/bge-small-en-v1.5@1.measurements.jsonl</c>) are what the runner measures now, within 1e-9 on every value. When
+    /// <c>CURIA_WRITE_MEASUREMENTS</c> names a path the file is first written there. Fails, never skips, when the committed file is absent.
+    /// </summary>
+    [Fact]
+    public async Task R8_89_TheCommittedMeasurementsAreWhatTheRunnerMeasuresNow()
+    {
+        var measured = await MeasuredAsync();
+        var writeTo = Environment.GetEnvironmentVariable(WriteVariable);
+        if (!string.IsNullOrEmpty(writeTo)) await File.WriteAllLinesAsync(writeTo, MeasurementLines(measured), Ct);
+
+        var committed = Path.Combine(ModelDirectory.RepositoryRoot(), "conformance", "retrieval", "measured", ResultsSection.Model + ".measurements.jsonl");
+        Assert.True(File.Exists(committed), "Expected: the committed measurements file " + ResultsSection.Model + ".measurements.jsonl  Actual: absent");
+        var file = ReadMeasurements(committed);
+
+        Assert.Equal((measured.Pairs.Count, measured.Noise.Count), (file.Pairs.Count, file.Noise.Count));
+        var worst = 0.0;
+        for (var i = 0; i < measured.Pairs.Count; i++)
+        {
+            var (a, b) = (measured.Pairs[i], file.Pairs[i]);
+            Assert.Equal((a.Id, a.Class, a.Source), (b.Id, b.Class, b.Source));
+            worst = Math.Max(worst, Math.Max(Math.Abs(a.Passage - b.Passage), Math.Max(Math.Abs(a.QueryPassage - b.QueryPassage), Math.Abs(a.Overlap - b.Overlap))));
+        }
+
+        for (var i = 0; i < measured.Noise.Count; i++)
+        {
+            var (a, b) = (measured.Noise[i], file.Noise[i]);
+            Assert.Equal((a.Id, a.Class), (b.Id, b.Class));
+            worst = Math.Max(worst, Math.Abs(a.Score - b.Score));
+        }
+
+        Assert.True(worst <= 1e-9, $"the committed measurements differ from the runner's by {worst:E3}");
     }
 
     /// <summary>NDT4b. Role control for FNDT7: the dedupe's passage-passage cosine and the floor's query-passage cosine differ by more than 1e-3 for at least one blind pair, because the prefix changes the vector. Green.</summary>
