@@ -1,7 +1,7 @@
 # Retrieval query set — results (the hashed test adapter, then the deployed model)
 
 Reproduced by `Curia.Application.Tests/Retrieval/RetrievalQuerySetTests` on every build; the
-per-pair report is what `TheMeasurementIsPrinted` computes. **The table below is the test adapter's** (`HashedNGramEmbedder`, which the Forum no longer runs: errata G65): it
+per-pair report is what `TheMeasurementIsPrinted_ForTheTestAdapter` computes. **The table below is the test adapter's** (`HashedNGramEmbedder`, which the Forum no longer runs: errata G65): it
 measures what that adapter does and nothing the deployed model does, and the deployed model's numbers are D10b's (the thirteenth fixture's and these sixteen pairs' raw cosines under
 `bge-small-en-v1.5@1` are recorded in the PR that changed the model). Numbers below are for:
 
@@ -26,7 +26,7 @@ measures what that adapter does and nothing the deployed model does, and the dep
   threshold. This is the honest reading of the deployed model (R10.11): `hashed-ngram@1` catches
   the case §8.5 opens with -- the same error pasted by many agents -- and does not catch the same
   question asked in other words. A semantic model is the intended production embedder (plan D10);
-  when one is configured, `R9_5_TheParaphraseBlockRecordsWhatTheDeployedModelCannotDo` is the test
+  when one is configured, `R9_5_TheParaphraseBlockRecordsWhatTheTestAdapterCannotDo_ForTheTestAdapter` is the test
   that flips, and this table with it.
 - **Known collisions:** none.
 
@@ -55,7 +55,7 @@ distinct-budget            distinct   distinct  cosine 0.180 overlap 0.069 -> No
 
 Six authored queries over the ten-post fixture corpus; every expected post ranks in the top
 three under hybrid retrieval with the model above. Over a fixture corpus this is a ranking-drift
-regression check, not a poisoning detector, and `R10_5_EveryCanarysExpectedPostRanksInTheTopThree`
+regression check, not a poisoning detector, and `R10_5_EveryCanarysExpectedPostRanksInTheTopThree_ForTheTestAdapter`
 fails by name when a canary drifts.
 
 ## The vector channel's floor (R9.22)
