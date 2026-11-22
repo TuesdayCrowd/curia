@@ -27,9 +27,10 @@ internal sealed class KeyActDouble : HttpMessageHandler
 
     /// <summary>
     /// A key of the key set a test serves. <paramref name="X"/> and <paramref name="Y"/> are the key's public members as base64url; null serves the 32 zero bytes every key carried before register item 322 (a
-    /// key set that need not say whose key it is). <see cref="Bound"/> serves the public half of a PEM private key.
+    /// key set that need not say whose key it is). <see cref="Bound"/> serves the public half of a PEM private key. <paramref name="Kty"/> and <paramref name="Crv"/> are what a key's entry says it is (register item 323: a
+    /// held key is adopted only for the same <c>kty</c>, <c>crv</c>, <c>x</c> and <c>y</c>); <paramref name="Status"/> is <c>curia_status</c> and <paramref name="LogIndex"/> is <c>curia_log_index</c>.
     /// </summary>
-    internal sealed record Key(string Kid, long? LogIndex, string Status = "active", long? RetiredAt = null, string? X = null, string? Y = null)
+    internal sealed record Key(string Kid, long? LogIndex, string Status = "active", long? RetiredAt = null, string? X = null, string? Y = null, string Kty = "EC", string Crv = "P-256")
     {
         /// <summary>The key <paramref name="kid"/> bound at <paramref name="logIndex"/> with the public half of <paramref name="privatePem"/> (what a kept key's file holds).</summary>
         internal static Key Bound(string kid, long logIndex, string privatePem, string status = "active", long? retiredAt = null)
@@ -76,6 +77,15 @@ internal sealed class KeyActDouble : HttpMessageHandler
     /// <summary>The body of every lifecycle POST, in order.</summary>
     internal List<string> LifecycleBodies { get; } = [];
 
+    /// <summary>How many <c>POST /oauth/token</c> the double saw (register item 323: a verb that signs nothing requests no token).</summary>
+    internal int TokenPosts => Requests.Count(r => string.Equals(r, "POST /oauth/token", StringComparison.Ordinal));
+
+    /// <summary>How many <c>POST /v1/...</c> the double saw, of any route (register item 323: a verb that sends nothing posts nothing).</summary>
+    internal int V1Posts => Requests.Count(r => r.StartsWith("POST /v1/", StringComparison.Ordinal));
+
+    /// <summary>How many requests of any <c>POST</c> the double saw.</summary>
+    internal int AllPosts => Requests.Count(r => r.StartsWith("POST ", StringComparison.Ordinal));
+
     /// <summary>How many times the key set was read.</summary>
     internal int KeySetReads { get; private set; }
 
@@ -107,15 +117,15 @@ internal sealed class KeyActDouble : HttpMessageHandler
         && (request.EndsWith("/keys", StringComparison.Ordinal) || request.EndsWith("/retire", StringComparison.Ordinal));
 
     /// <summary>A key set document: the keys, the lifecycle indices (null leaves the member out), and the kinds enabled.</summary>
-    internal static string KeySetJson(IEnumerable<Key> keys, long[]? lifecycle, string[]? enabled = null)
+    internal static string KeySetJson(IEnumerable<Key> keys, long[]? lifecycle, string[]? enabled = null, IEnumerable<(long LogIndex, string Type, string Predicate)>? skipped = null)
     {
         var array = new JsonArray();
         foreach (var key in keys)
         {
             var node = new JsonObject
             {
-                ["kty"] = "EC",
-                ["crv"] = "P-256",
+                ["kty"] = key.Kty,
+                ["crv"] = key.Crv,
                 ["alg"] = "ES256",
                 ["kid"] = key.Kid,
                 ["x"] = key.X ?? Base64Url(new byte[32]),
@@ -136,6 +146,13 @@ internal sealed class KeyActDouble : HttpMessageHandler
             ["approved"] = new JsonArray(),
             ["enabled"] = new JsonArray([.. (enabled ?? ["rotation", "retirement"]).Select(k => (JsonNode)NodeValue.Create(k)!)]),
         };
+
+        if (skipped is not null)
+        {
+            var rows = skipped.ToList();
+            document["curia_skipped"] = new JsonArray([.. rows.Select(r => (JsonNode)new JsonObject { ["log_index"] = r.LogIndex, ["type"] = r.Type, ["predicate"] = r.Predicate })]);
+            document["curia_skipped_total"] = rows.Count;
+        }
 
         return document.ToJsonString();
     }

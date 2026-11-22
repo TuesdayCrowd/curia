@@ -48,7 +48,8 @@ public static class KeyActSettling
             : null;
     }
 
-    private static bool Holds(ForumJwk key, KeptKeyHalf kept) =>
+    /// <summary>Whether the key set's <paramref name="key"/> has <c>kty</c>, <c>crv</c>, <c>x</c> and <c>y</c> equal to <paramref name="kept"/>'s: the public half compared, never the kid alone.</summary>
+    internal static bool Holds(ForumJwk key, KeptKeyHalf kept) =>
         string.Equals(key.Kty, kept.Kty, StringComparison.Ordinal)
         && string.Equals(key.Crv, kept.Crv, StringComparison.Ordinal)
         && string.Equals(key.X, kept.X, StringComparison.Ordinal)

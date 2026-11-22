@@ -154,7 +154,7 @@ public sealed class UnheardKeysToolTests : IDisposable
             + (same && says ? string.Empty : $"\n--- the tool's text ---\n{answer.Text}"));
     }
 
-    /// <summary>UKA12, the version: <c>curia-mcp</c> reports the version R11.100's paragraph names, read by the one reader (<c>PublishedReadersLastWords.Version()</c>, re-pointed at R11.100's paragraph by errata G74's build). Red on the tree: <c>Expected: 0.12.2  Actual: 0.12.1</c>.</summary>
+    /// <summary>UKA12, the version: <c>curia-mcp</c> reports the version R11.100's paragraph names, read by the one reader (<c>PublishedReadersLastWords.Version()</c>, re-pointed at R11.100's paragraph by errata G74's build and at R11.101's by errata G75's). Red on the tree: <c>Expected: 0.12.2  Actual: 0.12.1</c>.</summary>
     [Fact]
     public async Task UKA12_CuriaMcpReportsTheVersionR11100Names()
     {
