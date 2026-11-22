@@ -233,7 +233,8 @@ public sealed class HybridSearchTests
         var page = await SearchAsync(h, Query("npgsql ECONNRESET", limit: 4), ct);
         Assert.Equal(4, page.Results.Length);
         Assert.Equal(2, page.Results.Take(3).Count(r => r.Post.Author.EndsWith("/loud", StringComparison.Ordinal)));
-        Assert.Contains(page.Results, r => r.Deferred);
+        // R9.68: the cap moves the third loud post behind the quiet one inside the same window of 4 (the window is topped up with it), and Deferred is by position, so none is deferred.
+        Assert.DoesNotContain(page.Results, r => r.Deferred);
     }
 
     [Fact]
@@ -247,7 +248,8 @@ public sealed class HybridSearchTests
 
         var page = await SearchAsync(h, Query("npgsql ECONNRESET"), ct);
         Assert.Equal(["orig", "other", "dupe"], page.Results.Select(r => r.Post.PostId));
-        Assert.True(page.Results[2].Deferred);
+        // R9.68: the duplicate stays inside its own window, moved nowhere; Deferred is by position.
+        Assert.False(page.Results[2].Deferred);
     }
 
     [Fact]
