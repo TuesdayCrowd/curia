@@ -53,6 +53,22 @@ public static class NotInForceReport
     }
 
     /// <summary>
+    /// The command that completes a rotation this profile sent and did not hear an answer to, as <c>curia keys</c> prints it (errata G74, R11.100 words): the agent goes in as a bare word when it is made of letters, digits, dots,
+    /// underscores and hyphens (a word no shell reads as anything but itself), as a shell word (R10.65, R10.66) otherwise, and the command is not printed when it is neither.
+    /// </summary>
+    public static OwnText RotateCommand(string slug)
+    {
+        ArgumentNullException.ThrowIfNull(slug);
+
+        if (slug.Length > 0 && slug[0] != '-' && slug.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-'))
+            return new OwnText("curia rotate --agent " + slug);
+
+        return TryName(slug, out var agent)
+            ? new OwnText(new FrameBuilder().Append($"curia rotate --agent {agent}").ToString())
+            : new OwnText(new FrameBuilder().Append($"curia rotate and the agent named above ({new OwnText(PrintedCommand.Withheld)})").ToString());
+    }
+
+    /// <summary>
     /// The words for a rotation the Forum recorded and does not act on: <paramref name="newKid"/> is the key the rotation generated (kept, not bound) and <paramref name="kid"/> the key the profile still signs
     /// with. <paramref name="logIndex"/> is the index the profile recorded the act at, or null when the Forum named none the client can use (no act was recorded).
     /// </summary>

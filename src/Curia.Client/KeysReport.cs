@@ -10,11 +10,17 @@ public enum KeysVerdict
     /// <summary>A comparison was made and nothing disagreed: exit 0.</summary>
     Clean,
 
-    /// <summary>A <c>MISSING</c>, <c>FOREIGN</c> or <c>SKIPPED</c> line was written: exit 6.</summary>
+    /// <summary>A <c>MISSING</c>, <c>FOREIGN</c>, <c>SKIPPED</c> or <c>RECORDED</c> line was written: exit 6.</summary>
     Findings,
 
     /// <summary>No comparison could be made (the key set names no lifecycle, or no key names its binding): exit 8, with <see cref="KeysReading.CouldNotCompare"/>.</summary>
     CouldNotCompare,
+
+    /// <summary>
+    /// An act this profile sent and did not hear an answer to is inside the window and the key set shows neither it nor its absence (errata G74, R11.100: an <c>UNKNOWN</c> line): exit 8, with no line on standard error, because
+    /// waiting and asking again is the remedy. A finding wins over it.
+    /// </summary>
+    Unknown,
 }
 
 /// <summary>
@@ -36,20 +42,25 @@ public sealed record KeysReading(string Text, KeysVerdict Verdict, string? Could
 /// </summary>
 public static class KeysReport
 {
-    /// <summary>Reads the identity's key set and reports it against <paramref name="profile"/>. A refusal is the key-set read's.</summary>
-    public static async Task<ForumResult<KeysReading>> ReadAsync(ForumClient client, AgentProfile profile, CancellationToken ct)
+
+    /// <summary>
+    /// Reads the identity's key set and reports it against <paramref name="profile"/>, as of the time <paramref name="time"/> gives once (an act this profile sent and did not hear an answer to is judged against the window,
+    /// R11.100). A refusal is the key-set read's. Writes nothing.
+    /// </summary>
+    public static async Task<ForumResult<KeysReading>> ReadAsync(ForumClient client, AgentProfile profile, TimeProvider time, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(time);
 
         var read = await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false);
         return read.TryGetValue(out var keySet, out var refusal)
-            ? ForumResult<KeysReading>.Ok(Of(profile, keySet))
+            ? ForumResult<KeysReading>.Ok(Of(profile, keySet, time.GetUtcNow()))
             : ForumResult<KeysReading>.Refused(refusal);
     }
 
-    /// <summary>The report for a key set already read.</summary>
-    public static KeysReading Of(AgentProfile profile, KeySetDocument keySet)
+    /// <summary>The report for a key set already read, as of <paramref name="now"/>: a pure function of its three values.</summary>
+    public static KeysReading Of(AgentProfile profile, KeySetDocument keySet, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(keySet);
@@ -84,6 +95,28 @@ public static class KeysReport
                 frame.Line($"NOW IN FORCE: this profile's retirement at log index {act.LogIndex}, which the Forum answered it did not act on, is one it now acts on: key {act.Kid} is ended. This profile has not recorded that, and curia keys exits 6 until it does. Record it with this command, which signs and sends nothing: {NotInForceReport.RetireCommand(profile.Slug, act.Kid)}");
         }
 
+        // An act this profile sent and did not hear an answer to (R11.100): one line the key set decides, and none where a row the Forum skips could be the act's (the SKIPPED line below is that report).
+        var pending = profile.Pending.Select(act => KeyActSettling.Read(profile, act, keySet, now)).ToList();
+        foreach (var reading in pending)
+        {
+            switch (reading.State)
+            {
+                case KeyActState.Recorded:
+                    frame.Append($"{new OwnText(KeyActWords.Recorded(profile, reading.Act, reading.LogIndex!.Value).ToString())}");
+                    break;
+                case KeyActState.Unknown:
+                    frame.Append($"{new OwnText(KeyActWords.Unknown(reading.Act).ToString())}");
+                    break;
+                case KeyActState.NotRecorded:
+                    frame.Append($"{new OwnText(KeyActWords.NotRecorded(reading.Act).ToString())}");
+                    break;
+                case KeyActState.Held:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(profile), reading.State, "R11.99 has four states.");
+            }
+        }
+
         AppendSkipped(frame, profile, keySet, saySoWhenSilent: true);
 
         var foreign = findings.Where(f => f.Foreign).ToList();
@@ -94,7 +127,7 @@ public static class KeysReport
             ? new FrameBuilder().Line($"lifecycle kinds this Forum enables: {(enabled.IsEmpty ? new OwnText("none (every lifecycle kind is guarded until the owner lifts the guard, R4.38)") : Literals(enabled))}")
             : new FrameBuilder().Line("lifecycle kinds this Forum enables: its key set does not say")).ToString());
 
-        var disagreed = findings.Any(f => f.Foreign || !skippedAt.Contains(f.LogIndex)) || (keySet.SkippedTotal ?? 0) > 0 || !nowInForce.IsEmpty;
+        var disagreed = findings.Any(f => f.Foreign || !skippedAt.Contains(f.LogIndex)) || (keySet.SkippedTotal ?? 0) > 0 || !nowInForce.IsEmpty || pending.Any(p => p.State == KeyActState.Recorded);
         if (disagreed) return new KeysReading(text.ToString(), KeysVerdict.Findings, null);
 
         // No finding is a clean comparison only if one could be made: a lifecycle to read and a key naming its binding.
@@ -102,7 +135,8 @@ public static class KeysReport
         if (!keySet.Keys.Any(k => k.LogIndex is not null))
             return new KeysReading(text.ToString(), KeysVerdict.CouldNotCompare, "could not compare: no key names its binding");
 
-        return new KeysReading(text.ToString(), KeysVerdict.Clean, null);
+        // R11.100: an act inside the window is unknown, and waiting is the remedy: exit 8 and nothing to say beyond its line. A NOT RECORDED line owes nothing, and is clean.
+        return new KeysReading(text.ToString(), pending.Any(p => p.State == KeyActState.Unknown) ? KeysVerdict.Unknown : KeysVerdict.Clean, null);
     }
 
     /// <summary>

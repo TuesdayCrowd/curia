@@ -1909,20 +1909,26 @@ internal static class Program
 
         var forum = ForumUri(args, profile);
         using var http = HttpFor(forum);
-        return await ShowKeysAsync(new ForumClient(http, forum), profile!, ct).ConfigureAwait(false);
+        return await ShowKeysAsync(new ForumClient(http, forum), profile!, TimeProvider.System, ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// The report <c>curia keys</c> prints (spec section 4.9), from <see cref="KeysReport"/>, which <c>curia_keys</c> reads too (errata G68, R11.96): one line per key, the lifecycle's extent, a
     /// <c>MISSING</c> line for each act this profile recorded that the Forum's lifecycle does not hold, a <c>SKIPPED</c> line for each row it does not act on, a <c>FOREIGN</c> line for each entry it
-    /// holds that this profile did not make, and the kinds the Forum enables. Exit 6 on any of the first three, 8 when no comparison could be made.
+    /// holds that this profile did not make, and the kinds the Forum enables. Exit 6 on any of the first three, 8 when no comparison could be made. For each act this profile sent and did not hear an answer to, one
+    /// line the key set decides: <c>RECORDED</c> (exit 6), <c>UNKNOWN</c> (exit 8) or <c>NOT RECORDED</c> (exit 0, no finding) (errata G74, R11.100); the report writes nothing. The clock is the composition root's: this form judges the window on the system clock.
     /// </summary>
-    internal static async Task<int> ShowKeysAsync(ForumClient client, AgentProfile profile, CancellationToken ct)
+    internal static Task<int> ShowKeysAsync(ForumClient client, AgentProfile profile, CancellationToken ct) =>
+        ShowKeysAsync(client, profile, TimeProvider.System, ct);
+
+    /// <summary><see cref="ShowKeysAsync(ForumClient, AgentProfile, CancellationToken)"/> on the clock <paramref name="time"/> gives: the window an act not heard from is judged against (errata G74, plan Amendment 2 ruling 4).</summary>
+    internal static async Task<int> ShowKeysAsync(ForumClient client, AgentProfile profile, TimeProvider time, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(time);
 
-        var read = await KeysReport.ReadAsync(client, profile, ct).ConfigureAwait(false);
+        var read = await KeysReport.ReadAsync(client, profile, time, ct).ConfigureAwait(false);
         if (!read.TryGetValue(out var reading, out var refusal)) return Output.Fail(refusal);
 
         Output.Keys(reading);
@@ -1930,6 +1936,7 @@ internal static class Program
         {
             KeysVerdict.Findings => ExitCode.Unverified,
             KeysVerdict.CouldNotCompare => Output.CouldNotCompare(reading),
+            KeysVerdict.Unknown => ExitCode.ForumFault,
             KeysVerdict.Clean => ExitCode.Ok,
             _ => ExitCode.Ok,
         };
@@ -2047,13 +2054,12 @@ internal static class Program
     private const string LifecycleMoved = "curia/keys/lifecycle-moved";
 
     /// <summary>
-    /// A rotation, from reading the key set to the profile written (spec section 4.12), in this order: the key set is
-    /// read and compared with the profile before a key is generated or a signer is asked for anything, and a
-    /// foreign entry ends the verb there (R4.39); the new key is made and the statement signed with the lifecycle
-    /// operation of each signer; the act is sent; and only a 201 changes anything on disk. A refusal of any kind
-    /// leaves <c>identity.json</c>, <c>signing-key.pem</c> and <c>keys/</c> byte-identical and the new key
-    /// discarded. A <c>lifecycle-moved</c> is retried once, with the same new key, and only over acts this
-    /// profile made.
+    /// A rotation, from reading the key set to the profile written (spec section 4.12), in this order: a rotation this profile sent and did not hear an answer to is settled by the key set first, and a settled one ends
+    /// the verb with nothing signed or sent (errata G74, R11.99 (settling)); the key set is read and compared with the profile before a key is generated or a signer is asked for anything, and a foreign entry ends the
+    /// verb there (R4.39); the new key is made and the statement signed with the lifecycle operation of each signer; the rotation is kept, with its key, before it is sent (R11.99); it is sent; and the answer decides what
+    /// is kept. A <c>201</c> makes the key the one this profile signs with. An answer below 500, and a request that provably did not leave, remove what was kept and leave <c>identity.json</c>, <c>signing-key.pem</c> and
+    /// <c>keys/</c> as they were. An answer of 500 or above and a send whose answer was not read keep it, as not yet known, and say what to do (R11.99). A <c>lifecycle-moved</c> is retried once, with the same new key, and
+    /// only over acts this profile made.
     /// </summary>
     internal static async Task<int> RotateKeyAsync(
         ForumClient client, ForumSession session, EnrolledAgent agent, ProfileStore store, string? signerCommand, CancellationToken ct)
@@ -2064,6 +2070,10 @@ internal static class Program
         ArgumentNullException.ThrowIfNull(store);
 
         var profile = agent.Profile;
+
+        var (settled, current) = await SettleAsync(client, session, store, profile, LifecycleAct.Rotation, kid: null, ct).ConfigureAwait(false);
+        if (settled is { } settleExit) return settleExit;
+        profile = current;
 
         var (stopped, prev) = await ReadLifecycleAsync(client, profile, after: null, ct).ConfigureAwait(false);
         if (stopped is { } exit) return exit;
@@ -2097,17 +2107,36 @@ internal static class Program
                 if (!built.TryGetValue(out var request, out var buildError))
                     return Output.Fail($"error: {buildError!.Title}{Detail(buildError.Detail)}", ExitCode.Local);
 
+                // R11.99: the rotation and its key are kept before the request is written, so a process that ends mid-send leaves the key the Forum may have bound. A retry's time is the retry's.
+                try
+                {
+                    if (attempt == 0) store.BeginRotation(FreshProfile(store, profile), next, generated, session.Clock.GetUtcNow());
+                    else store.ResendPending(FreshProfile(store, profile), LifecycleAct.Rotation, next.Kid, session.Clock.GetUtcNow());
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return Output.Fail($"error: this profile could not keep key {next.Kid} before sending the rotation, and nothing was sent: {ex.Message}", ExitCode.Local);
+                }
+
                 var sent = await session.RotateKeyAsync(profile.AgentId, request, ct).ConfigureAwait(false);
                 if (sent.TryGetValue(out var receipt, out var refusal))
                     return CompleteRotation(store, profile, next, generated, receipt);
 
                 if (refusal!.Error.Type == LifecycleNotEnabled)
+                {
+                    DropPending(store, profile, LifecycleAct.Rotation, next.Kid);
                     return Output.Fail("refused   this Forum does not enable key rotation (curia/keys/lifecycle-not-enabled); nothing was changed", ExitCode.Denied);
+                }
 
                 if (refusal.Error.Type == LifecycleMoved && attempt == 0)
                 {
                     (stopped, prev) = await ReadLifecycleAsync(client, FreshProfile(store, profile), after: prev, ct).ConfigureAwait(false);
-                    if (stopped is { } retryExit) return retryExit;
+                    if (stopped is { } retryExit)
+                    {
+                        DropPending(store, profile, LifecycleAct.Rotation, next.Kid);
+                        return retryExit;
+                    }
+
                     continue;
                 }
 
@@ -2115,13 +2144,135 @@ internal static class Program
                 if (NotInForceReport.Answers(refusal))
                     return await NotHonouredRotationAsync(client, store, profile, next, generated, refusal, ct).ConfigureAwait(false);
 
-                return await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
+                return await RefusedKeyActAsync(client, store, profile, LifecycleAct.Rotation, next.Kid, refusal, ct).ConfigureAwait(false);
             }
         }
         finally
         {
             local?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The end of a key act the Forum refused, otherwise (errata G74, R11.99): an answer of 500 or above and a send whose answer was not read keep the act, as not yet known, and print what this profile holds meanwhile (a rotation: it still signs with the key it signed with before, read from the profile as it stands) and what to do, after the refusal's
+    /// own lines, on standard error, the exit staying the refusal's; any other refusal, an answer below 500 or a request that provably did not leave, removes what was kept and is written as every refusal is.
+    /// </summary>
+    private static async Task<int> RefusedKeyActAsync(
+        ForumClient client, ProfileStore store, AgentProfile profile, string kind, string kid, Refusal refusal, CancellationToken ct)
+    {
+        if (refusal.KeptSend != SendClass.Unanswered)
+        {
+            DropPending(store, profile, kind, kid);
+            return await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
+        }
+
+        var code = await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
+        var fresh = FreshProfile(store, profile);
+        if (fresh.Pending.FirstOrDefault(p => p.Kind == kind && string.Equals(p.Kid, kid, StringComparison.Ordinal)) is { } kept)
+            Output.Error(KeyActWords.AfterNotHeard(kept, kept.SentAt, fresh.Kid));
+
+        return code;
+    }
+
+    /// <summary>Removes the record of an act that is not owed, and a rotation's kept key (errata G74, R11.99). A profile that cannot be written says so and goes on with the verb's own answer.</summary>
+    private static void DropPending(ProfileStore store, AgentProfile profile, string kind, string kid)
+    {
+        var fresh = FreshProfile(store, profile);
+        if (fresh.Pending.FirstOrDefault(p => p.Kind == kind && string.Equals(p.Kid, kid, StringComparison.Ordinal)) is not { } act) return;
+
+        try
+        {
+            store.DropPending(fresh, act);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Output.Error(new FrameBuilder().Line($"warning: this profile could not remove its record of the {act.Kind} of key {act.Kid} that it kept before sending: {ex.Message}"));
+        }
+    }
+
+    /// <summary>
+    /// Settles each act of <paramref name="kind"/> this profile sent and did not hear an answer to (for a retirement, of the key <paramref name="kid"/>) before anything is signed, by the key set and never by a resend
+    /// (errata G74, R11.99 (settling)). The key set is read once, and only when the profile holds such an act. A recorded act is completed (a rotation as a <c>201</c> would have, a retirement marked) with nothing signed or
+    /// sent, and the verb ends, exit 0. A foreign entry ends the verb as the foreign check does, exit 6. Decided in this order: recorded, foreign, inside the window, held, drop. Otherwise, inside the window the verb is refused, exit 8, and keeps everything; past it an act that could be a row the
+    /// Forum skips is released (the key kept, no act recorded) and the verb goes on, and any other is dropped (its key removed) and the verb goes on to make the act it was asked for, once.
+    /// </summary>
+    private static async Task<(int? Exit, AgentProfile Profile)> SettleAsync(
+        ForumClient client, ForumSession session, ProfileStore store, AgentProfile profile, string kind, string? kid, CancellationToken ct)
+    {
+        var acts = profile.Pending.Where(p => p.Kind == kind && (kid is null || string.Equals(p.Kid, kid, StringComparison.Ordinal))).ToList();
+        if (acts.Count == 0) return (null, profile);
+
+        var read = await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var keySet, out var refusal)) return (Output.Fail(refusal), profile);
+
+        var now = session.Clock.GetUtcNow();
+        var readings = acts.Select(act => KeyActSettling.Read(profile, act, keySet, now)).ToList();
+
+        try
+        {
+            if (readings.Any(r => r.State == KeyActState.Recorded))
+                return (SettleRecorded(store, profile, readings.First(r => r.State == KeyActState.Recorded)), profile);
+
+            // A foreign entry ends the verb before anything is dropped or refused: a stranger's act is not made less so by a wait (R4.39).
+            var foreign = LifecycleWatch.Compare(profile, keySet).Where(f => f.Foreign).ToList();
+            if (foreign.Count > 0)
+            {
+                Output.Error(KeysReport.ForeignLines(foreign));
+                return (ExitCode.Unverified, profile);
+            }
+
+            foreach (var reading in readings)
+            {
+                if (reading.State == KeyActState.Unknown)
+                {
+                    Output.Error(KeyActWords.RefusedInsideWindow(reading.Act));
+                    return (ExitCode.ForumFault, profile);
+                }
+            }
+
+            foreach (var reading in readings)
+            {
+                var fresh = FreshProfile(store, profile);
+                if (reading.State == KeyActState.Held)
+                {
+                    store.ReleasePending(fresh, reading.Act);
+                }
+                else
+                {
+                    store.DropPending(fresh, reading.Act);
+                    Output.Frame(KeyActWords.Dropped(reading.Act));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return (Output.Fail($"error: this profile could not settle the {kind} it sent and did not hear an answer to: {ex.Message}", ExitCode.Local), profile);
+        }
+
+        return (null, FreshProfile(store, profile));
+    }
+
+    /// <summary>A pending act the key set shows as recorded, completed in the profile and said (errata G74, R11.99 (settling)); nothing is signed or sent. Exit 0, or 2 when the kept key cannot be read.</summary>
+    private static int SettleRecorded(ProfileStore store, AgentProfile profile, KeyActReading recorded)
+    {
+        var (act, index) = (recorded.Act, recorded.LogIndex!.Value);
+        var fresh = FreshProfile(store, profile);
+
+        if (act.Kind == LifecycleAct.Retirement)
+        {
+            store.CompleteRetirement(fresh, new KeyActReceipt(profile.AgentId, act.Kid, index, null));
+            Output.Frame(KeyActWords.Settled(act.Kind, act.Kid, index));
+            return ExitCode.Ok;
+        }
+
+        if (!store.SettleRotation(fresh, act, index).TryGetValue(out _, out var error))
+            return Output.Fail($"error: {error!.Title}{Detail(error.Detail)}", ExitCode.Local);
+
+        Output.Frame(KeyActWords.Settled(act.Kind, act.Kid, index));
+        Output.Line($"{fresh.Kid} stays live until it is retired:");
+        Output.Line($"{Hints.Retire(profile.Slug, fresh.Kid)}");
+        Output.Line("restart any curia-mcp serving this identity; it read its key at start.");
+        return ExitCode.Ok;
     }
 
     private static int CompleteRotation(
@@ -2149,8 +2300,9 @@ internal static class Program
 
     /// <summary>
     /// A retirement of a key this profile rotated away from (spec section 4.12), in the order a rotation is made:
-    /// the current key is refused first, with nothing read or sent, then the key set is read and compared, then
-    /// the retained key signs, then the act is sent, and only a 201 changes the profile.
+    /// the current key is refused first, with nothing read or sent, then a retirement of this key this profile sent and did not hear an answer to is
+    /// settled by the key set (errata G74), then the key set is read and compared, then the retained key signs, then the retirement is kept and sent
+    /// (R11.99), and the answer decides what is kept as a rotation's does: a <c>201</c> marks the key retired, an answer below 500 removes the record.
     /// </summary>
     internal static async Task<int> RetireKeyAsync(
         ForumClient client, ForumSession session, ProfileStore store, AgentProfile profile, string kid, CancellationToken ct)
@@ -2172,6 +2324,10 @@ internal static class Program
             var unknown = ClientErrors.NoRetainedKey(kid);
             return Output.Fail($"error: {unknown.Title}{Detail(unknown.Detail)}\n       the keys this profile knows: {Hints.Keys(profile.Slug)}", ExitCode.Local);
         }
+
+        var (settled, current2) = await SettleAsync(client, session, store, profile, LifecycleAct.Retirement, kid, ct).ConfigureAwait(false);
+        if (settled is { } settleExit) return settleExit;
+        profile = current2;
 
         // A retirement this profile recorded as not in force that the Forum now acts on is recorded and sent nothing (R11.96 (add.), R11.98). The key set is read once more, and only when the profile holds such an act for
         // this key: every other retirement reads it as it always did.
@@ -2208,6 +2364,17 @@ internal static class Program
                 if (!built.TryGetValue(out var request, out var buildError))
                     return Output.Fail($"error: {buildError!.Title}{Detail(buildError.Detail)}", ExitCode.Local);
 
+                // R11.99: the retirement is kept before the request is written; a retry's time is the retry's.
+                try
+                {
+                    if (attempt == 0) store.BeginRetirement(FreshProfile(store, profile), kid, session.Clock.GetUtcNow());
+                    else store.ResendPending(FreshProfile(store, profile), LifecycleAct.Retirement, kid, session.Clock.GetUtcNow());
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return Output.Fail($"error: this profile could not keep the retirement of key {kid} before sending it, and nothing was sent: {ex.Message}", ExitCode.Local);
+                }
+
                 var sent = await session.RetireKeyAsync(profile.AgentId, kid, request, ct).ConfigureAwait(false);
                 if (sent.TryGetValue(out var receipt, out var refusal))
                 {
@@ -2227,19 +2394,27 @@ internal static class Program
                 }
 
                 if (refusal!.Error.Type == LifecycleNotEnabled)
+                {
+                    DropPending(store, profile, LifecycleAct.Retirement, kid);
                     return Output.Fail("refused   this Forum does not enable key retirement (curia/keys/lifecycle-not-enabled); nothing was changed", ExitCode.Denied);
+                }
 
                 if (refusal.Error.Type == LifecycleMoved && attempt == 0)
                 {
                     (stopped, prev) = await ReadLifecycleAsync(client, FreshProfile(store, profile), after: prev, ct).ConfigureAwait(false);
-                    if (stopped is { } retryExit) return retryExit;
+                    if (stopped is { } retryExit)
+                    {
+                        DropPending(store, profile, LifecycleAct.Retirement, kid);
+                        return retryExit;
+                    }
+
                     continue;
                 }
 
                 if (NotInForceReport.Answers(refusal))
                     return await NotHonouredRetirementAsync(client, store, profile, kid, refusal, ct).ConfigureAwait(false);
 
-                return await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
+                return await RefusedKeyActAsync(client, store, profile, LifecycleAct.Retirement, kid, refusal, ct).ConfigureAwait(false);
             }
         }
         finally

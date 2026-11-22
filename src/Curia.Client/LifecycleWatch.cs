@@ -31,7 +31,7 @@ public sealed record LifecycleFinding(bool Foreign, string Kind, long LogIndex);
 /// </summary>
 public static class LifecycleWatch
 {
-    /// <summary>The foreign entries, ascending, then the missing acts, ascending.</summary>
+    /// <summary>The foreign entries, ascending, then the missing acts, ascending. An act the profile sent and did not hear an answer to is counted as its own where <see cref="KeyActSettling.RecordedAt"/> says the key set holds it.</summary>
     public static ImmutableArray<LifecycleFinding> Compare(AgentProfile profile, KeySetDocument keySet)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -44,6 +44,12 @@ public static class LifecycleWatch
         // An act in force is the profile's own at its index, as a 201 answered it. An act recorded as not in force (R11.98) is the profile's own there only where the key set binds (a rotation) or
         // retires (a retirement) the act's own kid at that index: at an index the lifecycle holds for another kid it is not, and the entry is FOREIGN (R11.96 (add.)).
         var recorded = profile.Acts.Where(a => a.InForce || Holds(keySet, a)).Select(a => a.LogIndex).ToHashSet();
+
+        // An act this profile sent and did not hear an answer to (R11.100) is its own at an index only where the key set binds the kept kid with the kept key's public half there (a rotation) or shows the kid retired there
+        // (a retirement). Any other entry at that index is FOREIGN: the kid alone could be a stranger's.
+        foreach (var pending in profile.Pending)
+            if (KeyActSettling.RecordedAt(pending, keySet) is { } at)
+                recorded.Add(at);
 
         var bindings = keySet.Keys.Where(k => k.LogIndex is not null).Select(k => k.LogIndex!.Value).ToList();
         if (bindings.Count > 0)

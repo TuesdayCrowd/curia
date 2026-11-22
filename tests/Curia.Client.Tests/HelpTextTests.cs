@@ -475,7 +475,8 @@ public sealed class HelpTextTests
             // (iii) no other verb's command. The one sentence R10.98 publishes for --new-board names `curia boards` in prose, as the way to find a board; it is held word for word by
             // LOB51 and is taken out of the text this rule reads (Amendment 2, ruling 38), and nothing else is.
             var scanned = usage.Replace(Help.WrappedForTest(Help.NewBoardSentence), string.Empty, StringComparison.Ordinal);
-            foreach (var other in verbs.Where(w => w != verb && !Pair(w, verb)))
+            // One reasoned row: R11.99 words, Help: the clause names the command that prints the time.
+            foreach (var other in verbs.Where(w => w != verb && !Pair(w, verb) && !(verb is "rotate" or "retire" && w == "keys")))
             {
                 Assert.False(
                     Regex.IsMatch(scanned, "curia " + other + "(?=\\s)") || Regex.IsMatch(scanned, "(?m)^curia " + other + "(?=[\\s(])"),

@@ -25,8 +25,50 @@ internal sealed class KeyActDouble : HttpMessageHandler
 {
     internal static readonly Uri Forum = new("http://forum.test");
 
-    /// <summary>A key of the key set a test serves.</summary>
-    internal sealed record Key(string Kid, long? LogIndex, string Status = "active", long? RetiredAt = null);
+    /// <summary>
+    /// A key of the key set a test serves. <paramref name="X"/> and <paramref name="Y"/> are the key's public members as base64url; null serves the 32 zero bytes every key carried before register item 322 (a
+    /// key set that need not say whose key it is). <see cref="Bound"/> serves the public half of a PEM private key.
+    /// </summary>
+    internal sealed record Key(string Kid, long? LogIndex, string Status = "active", long? RetiredAt = null, string? X = null, string? Y = null)
+    {
+        /// <summary>The key <paramref name="kid"/> bound at <paramref name="logIndex"/> with the public half of <paramref name="privatePem"/> (what a kept key's file holds).</summary>
+        internal static Key Bound(string kid, long logIndex, string privatePem, string status = "active", long? retiredAt = null)
+        {
+            using var key = ECDsa.Create();
+            key.ImportFromPem(privatePem);
+            var q = key.ExportParameters(includePrivateParameters: false).Q;
+            return new Key(kid, logIndex, status, retiredAt, Base64Url(q.X!), Base64Url(q.Y!));
+        }
+    }
+
+    /// <summary>What the double does to a lifecycle POST before it answers (register item 322): nothing, or a transport failure.</summary>
+    internal enum LifecycleFault
+    {
+        /// <summary>Answer as scripted.</summary>
+        None,
+
+        /// <summary>Fail before a byte of the request is written: the connection is refused, so the send provably did not leave the host. The request is not recorded.</summary>
+        ConnectionRefused,
+
+        /// <summary>Read and record the request, then end the connection with no answer: the transport reports the response as ended (an unheard send).</summary>
+        AnswerLost,
+
+        /// <summary>Read and record the request, then wait for the caller's cancellation (a send the caller ends).</summary>
+        WaitForCancel,
+    }
+
+    /// <summary>The fault applied to each lifecycle POST, one each, before the answers are consulted.</summary>
+    internal Queue<LifecycleFault> LifecycleFaults { get; } = [];
+
+    /// <summary>Called with the body of every lifecycle POST at the moment the double receives it (a refused connection included), before any fault or answer: where a test looks at the disk at the moment of the request.</summary>
+    internal Action<string>? OnLifecycleRequest { get; set; }
+
+    /// <summary>True: the first lifecycle POST, unless a fault takes it, is answered <c>401</c> with a <c>DPoP-Nonce</c> (the challenge hop); it is in <see cref="Requests"/> and not in <see cref="LifecycleBodies"/>.</summary>
+    internal bool Challenge { get; set; }
+
+    private int _challenged;
+
+    internal static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
 
     /// <summary>Every request, in order, as <c>METHOD path</c>.</summary>
     internal List<string> Requests { get; } = [];
@@ -42,6 +84,9 @@ internal sealed class KeyActDouble : HttpMessageHandler
 
     /// <summary>Key sets served, one per read, before <see cref="KeySet"/> is.</summary>
     internal Queue<string> KeySetSequence { get; } = [];
+
+    /// <summary>Members appended to a served key set that carries no <c>curia_skipped</c> (what a deciding Forum publishes); null serves the document as it is.</summary>
+    internal string? SkippedMembers { get; set; }
 
     /// <summary>Answers to the lifecycle POSTs, one each, before the default (a 201 for the statement sent).</summary>
     internal Queue<(HttpStatusCode Status, string Body)> LifecycleAnswers { get; } = [];
@@ -73,8 +118,8 @@ internal sealed class KeyActDouble : HttpMessageHandler
                 ["crv"] = "P-256",
                 ["alg"] = "ES256",
                 ["kid"] = key.Kid,
-                ["x"] = Convert.ToBase64String(new byte[32]).Replace('+', '-').Replace('/', '_').TrimEnd('='),
-                ["y"] = Convert.ToBase64String(new byte[32]).Replace('+', '-').Replace('/', '_').TrimEnd('='),
+                ["x"] = key.X ?? Base64Url(new byte[32]),
+                ["y"] = key.Y ?? Base64Url(new byte[32]),
                 ["curia_not_before"] = "1970-01-01T00:00:00.0000000+00:00",
                 ["curia_status"] = key.Status,
             };
@@ -104,9 +149,41 @@ internal sealed class KeyActDouble : HttpMessageHandler
     {
         var path = request.RequestUri!.AbsolutePath;
         var line = $"{request.Method} {path}";
-        Requests.Add(line);
-
+        var lifecycle = request.Method == HttpMethod.Post && IsLifecyclePost(line);
         var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
+
+        var fault = LifecycleFault.None;
+        if (lifecycle)
+        {
+            OnLifecycleRequest?.Invoke(body);
+            if (LifecycleFaults.Count > 0) fault = LifecycleFaults.Dequeue();
+            if (fault == LifecycleFault.ConnectionRefused)
+                throw new HttpRequestException(HttpRequestError.ConnectionError, "the double refused the connection");
+        }
+
+        Requests.Add(line);
+        if (fault == LifecycleFault.AnswerLost)
+        {
+            LifecycleBodies.Add(body);
+            throw new HttpRequestException(HttpRequestError.ResponseEnded, "the double ended the connection before the answer", new IOException("the double ended the connection"));
+        }
+
+        if (fault == LifecycleFault.WaitForCancel)
+        {
+            LifecycleBodies.Add(body);
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+
+        if (lifecycle && Challenge && _challenged++ == 0)
+        {
+            var challenge = new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent(Problem("use_dpop_nonce", "A nonce is required"), Encoding.UTF8, "application/json"),
+            };
+            challenge.Headers.Add("DPoP-Nonce", "double-nonce");
+            return challenge;
+        }
+
         var (status, answer) = Answer(request.Method, path, line, body);
 
         return new HttpResponseMessage(status)
@@ -124,7 +201,9 @@ internal sealed class KeyActDouble : HttpMessageHandler
         if (method == HttpMethod.Get && path == "/v1/jwks")
         {
             KeySetReads++;
-            return (HttpStatusCode.OK, KeySetSequence.Count > 0 ? KeySetSequence.Dequeue() : KeySet);
+            var served = KeySetSequence.Count > 0 ? KeySetSequence.Dequeue() : KeySet;
+            if (SkippedMembers is { } skipped && !served.Contains("curia_skipped", StringComparison.Ordinal)) served = served[..^1] + "," + skipped + "}";
+            return (HttpStatusCode.OK, served);
         }
 
         if (IsLifecyclePost(line))
@@ -163,15 +242,18 @@ internal sealed class KeyActRig : IDisposable
 
     private readonly HttpClient _http;
 
-    private KeyActRig(string home, KeyActDouble forum, EnrolledAgent agent, ProfileStore store)
+    private readonly TimeProvider _clock;
+
+    private KeyActRig(string home, KeyActDouble forum, EnrolledAgent agent, ProfileStore store, TimeProvider clock)
     {
+        _clock = clock;
         Home = home;
         Double = forum;
         Agent = agent;
         Store = store;
         _http = new HttpClient(forum, disposeHandler: false) { BaseAddress = KeyActDouble.Forum };
         Client = new ForumClient(_http, KeyActDouble.Forum);
-        Session = new ForumSession(Client, agent, store, TimeProvider.System);
+        Session = new ForumSession(Client, agent, store, clock);
     }
 
     internal string Home { get; }
@@ -190,14 +272,17 @@ internal sealed class KeyActRig : IDisposable
 
     internal string Directory => Store.DirectoryFor(Slug);
 
-    internal static KeyActRig Create(string slug = "a", string kid = "a-0000abcd")
+    /// <summary>The clock the session is built over: <see cref="TimeProvider.System"/> unless the probe gave one.</summary>
+    internal TimeProvider Clock => _clock;
+
+    internal static KeyActRig Create(string slug = "a", string kid = "a-0000abcd", TimeProvider? clock = null)
     {
         var home = System.IO.Directory.CreateTempSubdirectory("curia-keyact-").FullName;
         var store = new ProfileStore(home);
         var created = store.Create(slug, AgentId, kid, KeyActDouble.Forum);
         Assert.True(created.TryGetValue(out var agent, out var error), error?.Title);
 
-        var rig = new KeyActRig(home, new KeyActDouble(), agent!, store);
+        var rig = new KeyActRig(home, new KeyActDouble(), agent!, store, clock ?? TimeProvider.System);
         rig.Double.KeySet = KeyActDouble.KeySetJson([new KeyActDouble.Key(kid, 1)], [0, 1]);
         return rig;
     }
@@ -215,7 +300,7 @@ internal sealed class KeyActRig : IDisposable
         Agent.Dispose();
         Assert.True(Store.Load(Slug).TryGetValue(out var agent, out var error), error?.Title);
         Agent = agent!;
-        Session = new ForumSession(Client, agent!, Store, TimeProvider.System);
+        Session = new ForumSession(Client, agent!, Store, _clock);
     }
 
     /// <summary>

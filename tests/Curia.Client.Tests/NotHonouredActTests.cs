@@ -266,9 +266,10 @@ public sealed class NotHonouredRotationTests
 
     /// <summary>
     /// NHR6b (control, green on the tree by design; Amendment 3 ruling 2, R6.33, R6.12): a problem document the profile refuses (a number that is not an integer or is out of range, anywhere in it) is unreadable as a
-    /// whole and is not read for its type, so the refusal is <c>curia/client/unreadable-problem</c>, exit 8, and nothing is recorded or kept. Rows are the numbers the profile refuses, measured (not reasoned):
+    /// whole and is not read for its type, so the refusal is <c>curia/client/unreadable-problem</c>, exit 8, and nothing is <i>recorded</i>: no act, no index is trusted. The act and its key are <i>kept</i> as not yet
+    /// known (errata G74, R11.99: an answer of 500 or above is not an answer read), the pending record written before the send and the key under <c>keys/</c>, the signing identity unchanged. Rows are the numbers the profile refuses, measured (not reasoned):
     /// <c>1.5</c>, <c>9223372036854775808</c>, <c>1e400</c>. A positive control in the same method (the same scene with <c>log_index</c> 7) shows the fingerprint and the <c>keys/</c> check able to see a change.
-    /// It carries information through FNHR15.
+    /// It carries information through FNHR15 and through FUKA17.
     /// </summary>
     [Theory]
     [InlineData("1.5")]
@@ -287,27 +288,31 @@ public sealed class NotHonouredRotationTests
             Assert.True(controlSaw, "the control (log_index 7) must change the profile: an act recorded, a key under keys/, a different fingerprint");
         }
 
-        using var rig = KeyActRig.Create();
+        var instant = new DateTimeOffset(2026, 11, 21, 10, 0, 0, TimeSpan.Zero);
+        using var rig = KeyActRig.Create(clock: new ManualTimeProvider(instant));
         rig.Double.LifecycleAnswers.Enqueue(NotHonouredKit.Answer(logIndexJson));
         rig.Double.KeySet = NotHonouredKit.KeySetAfterRefusedRotation(Index);
-        var before = rig.Fingerprint();
+        var identityBefore = NotHonouredKit.SigningIdentity(rig);
 
         var (exit, stdout, stderr) = await KeyActRig.CaptureAsync(() => Program.RotateKeyAsync(rig.Client, rig.Session, rig.Agent, rig.Store, null, Ct));
 
-        var kept = Directory.Exists(Path.Combine(rig.Directory, "keys")) ? Directory.GetFiles(Path.Combine(rig.Directory, "keys")).Length : 0;
+        var received = NotHonouredKit.ReceivedBy(rig.Double);
         var everything = NotHonouredKit.Everything(stdout, stderr);
         var type = everything.Contains("(\"curia/client/unreadable-problem\")", StringComparison.Ordinal) ? "curia/client/unreadable-problem"
             : everything.Contains("curia/keys/not-honoured", StringComparison.Ordinal) ? "curia/keys/not-honoured" : "another";
-        var actual = $"exit {exit}; type {type}; acts {NotHonouredKit.Acts(NotHonouredKit.Identity(rig))}; "
-            + (rig.Fingerprint() == before ? "the profile's record is as it was" : "the profile's record CHANGED: " + before + " -> " + rig.Fingerprint()) + $"; {kept} files under keys/";
-        var expected = $"exit {ExitCode.ForumFault}; type curia/client/unreadable-problem; acts []; the profile's record is as it was; 0 files under keys/";
+        var pending = "[" + string.Join("; ", rig.Profile().Pending.Select(p => $"{p.Kind} {p.Kid} sent {p.SentAt.ToString("o", CultureInfo.InvariantCulture)}")) + "]";
+        var actual = $"exit {exit}; type {type}; acts {NotHonouredKit.Acts(NotHonouredKit.Identity(rig))}; pending {pending}; "
+            + $"signing identity {(identityBefore == NotHonouredKit.SigningIdentity(rig) ? "unchanged" : "CHANGED")}; {NotHonouredKit.KeptKey(rig, received.Kid, received)}";
+        var expected = $"exit {ExitCode.ForumFault}; type curia/client/unreadable-problem; acts []; pending [rotation {received.Kid} sent {instant.ToString("o", CultureInfo.InvariantCulture)}]; signing identity unchanged; "
+            + $"key {received.Kid} is kept: rotation_in_force=false, file {NotHonouredKit.DerivedFile(received.Kid)}, mode 600, public half is the statement's jwk";
 
         WholeText.Same(expected, actual);
     }
 
     /// <summary>
-    /// NHR7 (control, green on the tree by design): every other refusal of <c>curia rotate</c> keeps nothing. The rig's fingerprint (<c>identity.json</c>, <c>signing-key.pem</c>, the listing of <c>keys/</c>) is
-    /// equal before and after, and there is no file under <c>keys/</c>. A <c>503</c> and a request not heard from are not rows: the register holds them (item 322). It carries information through FNHR6.
+    /// NHR7 (control, green on the tree by design): every other refusal of <c>curia rotate</c> that the Forum answered below 500 keeps nothing. The rig's fingerprint (<c>identity.json</c>, <c>signing-key.pem</c>, the listing of <c>keys/</c>) is
+    /// equal before and after, and there is no file under <c>keys/</c>. Its rows are the answers below 500: a <c>5xx</c> and a request not heard from keep the act as not yet known (errata G74, R11.99), and
+    /// their rows are <c>UKA1</c>'s (the <c>500 curia/internal-error</c> row moved there, register item 322). It carries information through FNHR6.
     /// </summary>
     [Theory]
     [InlineData(400, "curia/keys/statement-unreadable", 1)]
@@ -316,7 +321,6 @@ public sealed class NotHonouredRotationTests
     [InlineData(409, "curia/keys/too-many-live-keys", 1)]
     [InlineData(409, "curia/keys/lifecycle-moved", 2)]
     [InlineData(429, "curia/keys/rotation-budget-exhausted", 1)]
-    [InlineData(500, "curia/internal-error", 1)]
     public async Task NHR7_EveryOtherRefusalOfARotationKeepsNothing_Control(int status, string type, int answers)
     {
         using var rig = KeyActRig.Create();

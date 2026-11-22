@@ -63,6 +63,18 @@ internal sealed class RawStubForum : IDisposable
     /// <summary>The body of every <c>POST /v1/posts</c> read.</summary>
     internal ConcurrentQueue<string> Submissions { get; } = new();
 
+    /// <summary>
+    /// True (register item 322, errata G74): the two lifecycle routes, <c>POST /v1/agents/{id}/keys</c> and <c>POST /v1/agents/{id}/keys/{kid}/retire</c>, record the body in <see cref="LifecycleBodies"/> and apply
+    /// <see cref="Behaviour"/> as a submission does, and <c>GET /v1/jwks</c> serves <see cref="KeySet"/>. False (the default): both fall through to the stub's generic answer, as every earlier fact expects.
+    /// </summary>
+    internal bool ServeLifecycle { get; set; }
+
+    /// <summary>The key set <c>GET /v1/jwks</c> serves while <see cref="ServeLifecycle"/> is set; null answers the generic 404.</summary>
+    internal string? KeySet { get; set; }
+
+    /// <summary>The body of every lifecycle POST read, while <see cref="ServeLifecycle"/> is set.</summary>
+    internal ConcurrentQueue<string> LifecycleBodies { get; } = new();
+
     private async Task AcceptAsync()
     {
         while (!_stop.IsCancellationRequested)
@@ -103,20 +115,21 @@ internal sealed class RawStubForum : IDisposable
             if (method == "POST" && path == "/v1/posts")
             {
                 Submissions.Enqueue(body);
-                switch (Behaviour)
-                {
-                    case UnheardBehaviour.Stall:
-                        await Task.Delay(Timeout.Infinite, _stop.Token).ConfigureAwait(false);
-                        break;
-                    case UnheardBehaviour.Fin:
-                        client.Close();
-                        break;
-                    default:
-                        client.LingerState = new LingerOption(true, 0);
-                        client.Close();
-                        break;
-                }
+                await ApplyBehaviourAsync(client).ConfigureAwait(false);
+                return;
+            }
 
+            if (ServeLifecycle && method == "POST" && path.StartsWith("/v1/agents/", StringComparison.Ordinal) && (path.EndsWith("/keys", StringComparison.Ordinal) || path.EndsWith("/retire", StringComparison.Ordinal)))
+            {
+                LifecycleBodies.Enqueue(body);
+                await ApplyBehaviourAsync(client).ConfigureAwait(false);
+                return;
+            }
+
+            if (ServeLifecycle && KeySet is { } keySet && method == "GET" && path.StartsWith("/v1/jwks", StringComparison.Ordinal))
+            {
+                await RespondAsync(stream, 200, "application/json", keySet).ConfigureAwait(false);
+                client.Close();
                 return;
             }
 
@@ -143,6 +156,24 @@ internal sealed class RawStubForum : IDisposable
         catch (Exception)
         {
             client.Close();
+        }
+    }
+
+    /// <summary>What the stub does with a request it has read and will not answer: nothing (a stall), a FIN, or an RST.</summary>
+    private async Task ApplyBehaviourAsync(TcpClient client)
+    {
+        switch (Behaviour)
+        {
+            case UnheardBehaviour.Stall:
+                await Task.Delay(Timeout.Infinite, _stop.Token).ConfigureAwait(false);
+                break;
+            case UnheardBehaviour.Fin:
+                client.Close();
+                break;
+            default:
+                client.LingerState = new LingerOption(true, 0);
+                client.Close();
+                break;
         }
     }
 
