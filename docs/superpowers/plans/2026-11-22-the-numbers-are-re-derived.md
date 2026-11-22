@@ -199,3 +199,31 @@ Each ruling relies on something re-checked against the tree on 2026-11-22, named
 8. **Allocation.** `G66`, `R8.89`, `R8.90`, `R9.66` and `R11.102` are taken by Task 1 (re-grepped: none exists in the errata, `CLAUDE.md` or `IMPLEMENTATION_PLAN.md`; `G66` sits between `G65` and `G67`). `check-spec.py` refuses a proposed number absent from the consolidated index, so **the four index rows are written in Task 1, not Task 8**; Task 8 adds the `(rev.)` rows and finalizes the entry.
 9. **Task record path** is `.superpowers/sdd/2026-11-22-numbers-re-derived/` (as built), not the path in the header.
 10. **M6:** the Api, Client and Mcp stubs that carry `9400`/`8500` are feeding a stub document and stay as they are; Task 5 edits a pin only where it asserts the numbers as the *Forum's* under bge. `README.md` (around the dedupe paragraph, the D10a interim text) and `CLAUDE.md`'s "still the hashed era's" clause are Task 8's, neither pinned by a test.
+
+---
+
+## Amendment 2 (2026-11-22, `curia-architect`, after the three-author stop; rulings on the stop rule's firing, before any text, cosine or overlap value was read)
+
+Each ruling relies on the committed rule and brief as read on 2026-11-22: `conformance/retrieval/THRESHOLD-RULE.md` and `AUTHOR-BRIEF.md` last changed at `7f1b3081`, and `validate-pairs.py` check 6 and check 7 as in the tree. Where this amendment and the body or Amendment 1 disagree, this governs.
+
+1. **Check 6 (made-up words) loses the system word lists.** `/usr/share/dict/words` and `web2` are 236k-word lists of real but obscure English words, so a good invented word ("zorvik") can be listed by accident, and the check then fails an author for obeying the brief. The check's purpose is that a made-up query is not a word the corpus or the legacy pairs already carry, since such a word would be found. The legacy corpus vocabulary (`dedupe-pairs.jsonl` and `corpus.jsonl`) is kept: it is the vocabulary the near-duplicate and search probes will run against, so a hit there is a real defect, and it derives from a different artifact than the pairs. No replacement list is added: a principled one (for example a frequency list) would be a new dependency the machine may not hold, and a made-up string that embeds near English is a measured outcome the noise queries report, not a validity failure. The check's name, `made-up-vocabulary`, is unchanged.
+
+2. **The near-miss median bound is replaced; the brief is not changed.** The rule has no near-miss median; the bound was the plan's gate for "hard" near-misses. What the rule uses near-misses for is Refusing cosine R, from non-duplicates whose overlap is at least O, and O is clamped to at least 0.25. A near-miss below 0.25 constrains R under no O, so the quantity that matters is how many near-misses can be in that set, not their median. Replacement (check `overlap-near-miss`): at least 12 of the 36 near-miss pairs have Jaccard at least 0.25; it fails with the shortfall. The paraphrase and near-copy medians and the pair bounds are unchanged. Because the brief is not edited, `AUTHOR-BRIEF.md` stays byte for byte as committed at `7f1b3081` (the rule commit), `rule_sha` is unchanged, and **THRESHOLD-RULE.md is untouched**; both files' sha256 are recorded in the dispatch log beside the fourth dispatch and compared with `git show 7f1b3081:<path>`. The check change is committed with the validator, before the dispatch, so the new check precedes any number as the rule did. If the run's near-miss overlaps leave fewer than 12 in R's set, the rule's own clamp handles it (R falls to 0.94) and the result is published as a finding about the pairs.
+
+3. **Stop rule for the new attempt.** One fresh blind author, brief verbatim, no addition. The controller runs the revised validator and reads only PASS/FAIL lines. Any FAIL: stop, discard the file unopened, record which checks failed, and report to the owner; there is no fourth author and no further revision of checks without a new amendment and owner decision. A PASS file is committed unedited.
+
+4. **The spoiled-run test: purpose governs, and a generator script is not spoiled.** The brief permits a script "to check that your output is valid JSON" and "nothing else"; the letter is therefore broken by a script that generates the file. The purpose of the clause is that the author read nothing but the brief (no repository file, no other instruction), because any read could carry the rule. Authors 1 and 2 wrote and ran a script in their own temp directory and read nothing, so they are **not spoiled**; the stop came from the checks, and their discarded files stay discarded. A run is spoiled only by a read, list or search of a file or directory other than its own output (or the script it wrote). The generator is recorded as a letter deviation in the dispatch log; it also tends to templated pairs, which the checks, not this test, judge.
+
+### Validator changes (`tools/retrieval/validate-pairs.py`)
+
+- Delete the `WORD_LISTS` constant and the loop that reads it in check 6; `vocab = pair_words | corpus_words` only.
+- In check 7 delete `("near-miss", lambda m: m >= 0.30)` from the median tuple.
+- After `overlap-pair-bounds` add `report("overlap-near-miss", max(0, 12 - sum(1 for v in by["near-miss"] if v >= 0.25)))`.
+- Update the docstring for the new check and the dropped lists.
+
+### Unit tests (`tools/retrieval/test_validate_pairs.py`)
+
+- `test_made_up`: keep the `npgsql zzv9qq` case only if `npgsql` is in the legacy files (it must now fail on that alone); add a case that a word absent from the legacy files but present in `/usr/share/dict/words` passes.
+- `test_overlap`: the paraphrase and near-copy assertions stay; add a case where every `bn` side pair has disjoint words and `overlap-near-miss` fails (and `overlap-median` does not).
+- `test_good_file_passes`: may fail until `good_records()` gives at least 12 near-miss pairs Jaccard at least 0.25; adjust the fixture, not the bound.
+- `test_output_leaks_nothing` is unchanged and must still hold: the new line prints only a count.
