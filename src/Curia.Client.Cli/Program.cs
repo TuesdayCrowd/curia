@@ -2100,6 +2100,8 @@ internal static class Program
             return Output.Fail($"error: {adoptError!.Title}{Detail(adoptError.Detail)}", ExitCode.Local);
 
         Output.Line($"This profile now signs with key {adopted!.Kid}. Nothing was signed or sent. The next command that needs a token asks the Forum for one.");
+        if (SigningKeyStanding.OthersSentence(profile, keySet, adopted.Kid) is { } others)
+            Output.Line($"{others}");
         return ExitCode.Ok;
     }
 

@@ -35,6 +35,9 @@ internal static class SigningKeyNotLiveWords
     /// <summary>What <c>curia use-key</c> prints when it has made the profile sign with the key, with <c>&lt;kid&gt;</c> left in.</summary>
     internal static string UseKeyResult() => Span("R11.101 words", "The result of use-key");
 
+    /// <summary>The second sentence <c>use-key</c> (the first span after its label; the parenthetical after it holds two more, which name its placeholders) prints when it holds other keys the Forum serves live, with <c>&lt;other keys&gt;</c> and <c>&lt;slug&gt;</c> (and <c>&lt;that kid&gt;</c>, left for the owner) in it.</summary>
+    internal static string UseKeyResultWithOthers() => Span("R11.101 words", "The result of use-key while it holds other keys the Forum serves live", firstOfMany: true);
+
     /// <summary>R11.96 (add.) (rev.): the sentence the rotation <c>NOW IN FORCE</c> line ends with while the signing key is not live.</summary>
     internal static string RevisedTail()
     {
@@ -55,7 +58,7 @@ internal static class SigningKeyNotLiveWords
             : throw new InvalidOperationException($"{Errata}'s R11.101 yields {matches.Count} readings of the curia-mcp version, expected one");
     }
 
-    private static string Span(string paragraphName, string label)
+    private static string Span(string paragraphName, string label, bool firstOfMany = false)
     {
         var paragraph = PublishedAcceptBudget.Paragraph($"**{paragraphName}.**");
         var marker = $"*{label}:*";
@@ -67,7 +70,7 @@ internal static class SigningKeyNotLiveWords
         var next = Regex.Match(paragraph[start..], @"\*[A-Z][^*`]*:\*", RegexOptions.CultureInvariant);
         var section = next.Success ? paragraph[start..(start + next.Index)] : paragraph[start..];
         var spans = Regex.Matches(section, "`([^`]+)`", RegexOptions.CultureInvariant).Select(m => m.Groups[1].Value).ToArray();
-        return spans.Length == 1
+        return spans.Length == 1 || (firstOfMany && spans.Length >= 1)
             ? spans[0]
             : throw new InvalidOperationException($"{Errata}'s {paragraphName}, {marker}: {spans.Length} spans, expected 1");
     }

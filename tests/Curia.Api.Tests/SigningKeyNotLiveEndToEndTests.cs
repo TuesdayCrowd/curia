@@ -212,7 +212,7 @@ public sealed partial class SigningKeyNotLiveEndToEndTests(SkippedRotationFixtur
         line = Once(line, "<held keys>", held);
         line = Once(line, "<does not list | lists as <status>>", "does not list");
         line = Once(line, "<n>", served.Count.ToString(CultureInfo.InvariantCulture));
-        line = Once(line, "<the use-key command for the first>", $"curia use-key --agent '{slug}' --kid '{served[0].Kid}'");
+        line = Once(line, "<the use-key command for the key bound last>", $"curia use-key --agent '{slug}' --kid '{served.MaxBy(b => b.Index)!.Kid}'");
         line = Once(line, "<kid>", Kid(signing));
 
         var afterRefusal = Fold(budgetText).Contains(Fold(line), StringComparison.Ordinal);

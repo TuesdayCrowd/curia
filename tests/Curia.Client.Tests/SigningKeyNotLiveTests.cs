@@ -142,8 +142,34 @@ internal static class SigningKeyNotLiveKit
         line = Once(line, "<held keys>", list);
         line = Once(line, "<does not list | lists as <status>>", Standing(status));
         line = Once(line, "<n>", held.Length.ToString(CultureInfo.InvariantCulture));
-        line = Once(line, "<the use-key command for the first>", UseKeyCommand(held[0].Kid));
+        line = Once(line, "<the use-key command for the key bound last>", UseKeyCommand(held.MaxBy(h => h.Index).Kid));
         return Once(line, "<kid>", Kid(signing));
+    }
+
+    /// <summary>What <c>use-key</c> prints for <paramref name="adopted"/> when the profile holds <paramref name="others"/> (kids, in the key set's order) the Forum serves live: the plain result, then the errata's second form filled (the agent a shell word; <c>&lt;that kid&gt;</c> left).</summary>
+    internal static string ResultWithOthers(string adopted, params string[] others)
+    {
+        var second = SigningKeyNotLiveWords.UseKeyResultWithOthers();
+        second = Once(second, "<other keys>", string.Join(", ", others.Select(Kid)));
+        var retire = Hints.Retire(Slug, "x").Text;   // curia retire --agent <word> --kid <word>: the agent's shell word as the client prints it
+        const string From = "--agent ";
+        var word = retire[(retire.IndexOf(From, StringComparison.Ordinal) + From.Length)..retire.IndexOf(" --kid ", StringComparison.Ordinal)];
+        second = Once(second, "<slug>", word);
+        return PlainResult(adopted) + " " + second;
+    }
+
+    /// <summary>What <c>use-key</c> prints when no other held key is live.</summary>
+    internal static string PlainResult(string adopted) => SigningKeyNotLiveWords.UseKeyResult().Replace("<kid>", Kid(adopted), StringComparison.Ordinal);
+
+    /// <summary>The command the held-keys line prints, read between its <c>(the highest log index): </c> and <c>. That command reads</c> in the output of <c>curia keys</c>; a marker for a line that is not there.</summary>
+    internal static async Task<string> PrintedCommandAsync(KeyActRig rig)
+    {
+        var (_, keys, _) = await CliAsync(rig, "keys", "--agent", Slug).ConfigureAwait(false);
+        const string Open = "(the highest log index): ";
+        const string Close = ". That command reads";
+        var from = keys.IndexOf(Open, StringComparison.Ordinal);
+        var to = from < 0 ? -1 : keys.IndexOf(Close, from, StringComparison.Ordinal);
+        return from >= 0 && to > from ? keys[(from + Open.Length)..to].Trim() : "<the held-keys line is not in the output>";
     }
 
     /// <summary>The line for a profile whose held keys the Forum serves none of.</summary>
@@ -306,6 +332,40 @@ public sealed class SigningKeyNotLiveKeysTests
     }
 
     /// <summary>
+    /// UDO15 (Amendment 5 ruling 1): the held-form line's command names the held key with the greatest log index, not a position. Three held keys the key set serves live: K0 (index 1), K1 (index 2) and a key the key
+    /// set gives no log index (<c>Sorted</c> puts it last), with <c>keys[]</c> served as K1, the index-less key, K0. The printed command names K1. Controls in the one probe: the same scene without the index-less key
+    /// names K1, and the single-held scene names its one key. Red against <c>heldKeys[0]</c> (K0) and against the last of <c>Sorted</c> (the index-less key).
+    /// </summary>
+    [Fact]
+    public async Task UDO15_TheCommandNamesTheKeyBoundLastNotAPosition()
+    {
+        using var rig = KeyActRig.Create();
+        var (k0, k1, k2) = SigningKeyNotLiveKit.Lockout(rig);
+        var kx = HeldKey.New("alice-kx");
+        SigningKeyNotLiveKit.Seed(rig, k2, [(k0, true), (k1, false), (kx, true)], [("rotation", k1.Kid, 2, false), ("rotation", k2.Kid, 3, true)]);
+        var noIndex = kx.Served(1) with { LogIndex = null };
+        rig.Double.KeySet = KeyActDouble.KeySetJson([k1.Served(2), noIndex, k0.Served(1)], [0, 1, 2], skipped: [(3, "agent.key-bound", "broken-link")]);
+        var three = await SigningKeyNotLiveKit.PrintedCommandAsync(rig);
+
+        rig.Double.KeySet = KeyActDouble.KeySetJson([k1.Served(2), k0.Served(1)], [0, 1, 2], skipped: [(3, "agent.key-bound", "broken-link")]);
+        var two = await SigningKeyNotLiveKit.PrintedCommandAsync(rig);
+
+        using var single = KeyActRig.Create();
+        var (s0, s1) = (HeldKey.New("alice-k0"), HeldKey.New("alice-k1"));
+        SigningKeyNotLiveKit.Seed(single, s1, [(s0, true)], [("rotation", s1.Kid, 2, true)]);
+        single.Double.KeySet = KeyActDouble.KeySetJson([s0.Served(1), s1.Served(2, "retired", retiredAt: 3)], [0, 1, 2, 3], skipped: []);
+        var one = await SigningKeyNotLiveKit.PrintedCommandAsync(single);
+
+        string Names(string command) =>
+            command == SigningKeyNotLiveKit.UseKeyCommand(k0.Kid) ? "K0"
+            : command == SigningKeyNotLiveKit.UseKeyCommand(k1.Kid) ? "K1"
+            : command == SigningKeyNotLiveKit.UseKeyCommand(kx.Kid) ? "the index-less key"
+            : $"<{command}>";
+        var actual = $"three held keys (K1, index-less, K0 served): names {Names(three)}; without the index-less key: names {Names(two)}; the single-held scene: names {Names(one)}";
+        SigningKeyNotLiveKit.Red("three held keys (K1, index-less, K0 served): names K1; without the index-less key: names K1; the single-held scene: names K0", actual, "the three-key scene's command: " + three);
+    }
+
+    /// <summary>
     /// UDO3 (control, the vacuity row): the signing key is listed <c>active</c> and K1 is kept (G73's scene): no line, exit 6 and G73's words unedited. Green on the tree for the wrong reason: the line does not exist, so it
     /// is not printed. It carries information only through FUDO2 and FUDO1, which print the line when they should not.
     /// </summary>
@@ -465,7 +525,7 @@ public sealed class SigningKeyNotLiveUseKeyTests
     public async Task UDO4_UseKeyMakesTheProfileSignWithAHeldKeyTheForumServesAndSendsNothing()
     {
         using var rig = KeyActRig.Create();
-        var (_, k1, k2) = SigningKeyNotLiveKit.Lockout(rig);
+        var (k0, k1, k2) = SigningKeyNotLiveKit.Lockout(rig);
         rig.Store.WriteToken(rig.Slug, new CachedToken("cached", DateTimeOffset.UtcNow.AddHours(1), null));
 
         var (exit, stdout, stderr) = await UseKeyAsync(rig, k1.Kid);
@@ -480,8 +540,8 @@ public sealed class SigningKeyNotLiveUseKeyTests
         var (keysExit, afterKeys, afterKeysError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
 
         var actual = $"exit {exit}; signing-key.pem is {(signing == k1.Pem.Trim() ? "K1's" : "not K1's")}; kid {identity["kid"]}; token.json {(rig.Store.ReadToken(rig.Slug) is null ? "gone" : "kept")}; "
-            + $"acts {NotHonouredKit.Acts(identity)}; {keptState}; POSTs seen {rig.Double.AllPosts}; curia keys then: {AfterUseKey(keysExit, afterKeys, afterKeysError, k1.Kid)}";
-        var expected = $"exit 0; signing-key.pem is K1's; kid {k1.Kid}; token.json gone; acts [rotation {k1.Kid} 2; rotation {k2.Kid} 3 in_force=false]; K2 is kept: rotation_in_force=false, mode 600, bytes its own; POSTs seen 0; curia keys then: {AfterUseKeyExpected(k1.Kid, withNowInForce: false)}";
+            + $"acts {NotHonouredKit.Acts(identity)}; {keptState}; POSTs seen {rig.Double.AllPosts}; result with K0 named: {(PublishedClientWords.Says(stdout, SigningKeyNotLiveKit.ResultWithOthers(k1.Kid, k0.Kid)) ? "said" : "not said")}; curia keys then: {AfterUseKey(keysExit, afterKeys, afterKeysError, k1.Kid)}";
+        var expected = $"exit 0; signing-key.pem is K1's; kid {k1.Kid}; token.json gone; acts [rotation {k1.Kid} 2; rotation {k2.Kid} 3 in_force=false]; K2 is kept: rotation_in_force=false, mode 600, bytes its own; POSTs seen 0; result with K0 named: said; curia keys then: {AfterUseKeyExpected(k1.Kid, withNowInForce: false)}";
 
         SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- curia keys after ---\n" + afterKeys + afterKeysError);
     }
@@ -518,8 +578,8 @@ public sealed class SigningKeyNotLiveUseKeyTests
         var (keysExit, keys, keysError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
 
         var original = SigningKeyNotLiveKit.OriginalRotationLine(k0.Kid, k1.Kid, 2);
-        var actual = $"exit {exit}; POSTs seen {rig.Double.AllPosts}; A's NOW IN FORCE line with G73's words: {(PublishedClientWords.Says(keys, original) ? "said" : "not said")}; curia keys then: {AfterUseKey(keysExit, keys, keysError, k0.Kid)}";
-        var expected = $"exit 0; POSTs seen 0; A's NOW IN FORCE line with G73's words: said; curia keys then: {AfterUseKeyExpected(k0.Kid, withNowInForce: true)}";
+        var actual = $"exit {exit}; POSTs seen {rig.Double.AllPosts}; result with K1 named: {(PublishedClientWords.Says(stdout, SigningKeyNotLiveKit.ResultWithOthers(k0.Kid, k1.Kid)) ? "said" : "not said")}; A's NOW IN FORCE line with G73's words: {(PublishedClientWords.Says(keys, original) ? "said" : "not said")}; curia keys then: {AfterUseKey(keysExit, keys, keysError, k0.Kid)}";
+        var expected = $"exit 0; POSTs seen 0; result with K1 named: said; A's NOW IN FORCE line with G73's words: said; curia keys then: {AfterUseKeyExpected(k0.Kid, withNowInForce: true)}";
 
         SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- curia keys after ---\n" + keys + keysError);
     }
@@ -620,17 +680,18 @@ public sealed class SigningKeyNotLiveUseKeyTests
     }
 
     /// <summary>
-    /// UDO11 (Amendment 3 ruling 3): the command the held-form line prints is a command the verb accepts. In the lockout scene, <c>curia keys</c>'s line is read between <c>To sign with one of them: </c> and
-    /// <c>. That command reads</c>, read as plain shell words (Amendment 4), and run through the same CLI against the same rig: it must exit 0, send nothing, and make the first held key (K0, the key set's order) the signing key.
+    /// UDO11 (Amendment 3 ruling 3): the command the held-form line prints is a command the verb accepts. In the lockout scene, <c>curia keys</c>'s line is read between <c>(the highest log index): </c> and
+    /// <c>. That command reads</c>, read as plain shell words (Amendment 4), and run through the same CLI against the same rig: it must exit 0, send nothing, and make the key bound last (K1, Amendment 5) the signing
+    /// key, record the rotation at index 2 as in force, and leave <c>curia keys</c> with no <c>NOW IN FORCE</c> line.
     /// </summary>
     [Fact]
     public async Task UDO11_TheCommandTheLinePrintsIsOneTheVerbAccepts()
     {
         using var rig = KeyActRig.Create();
-        var (k0, _, _) = SigningKeyNotLiveKit.Lockout(rig);
+        var (_, k1, _) = SigningKeyNotLiveKit.Lockout(rig);
         var (_, keys, keysError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
 
-        const string Open = "To sign with one of them: ";
+        const string Open = "(the highest log index): ";
         const string Close = ". That command reads";
         var from = keys.IndexOf(Open, StringComparison.Ordinal);
         var to = from < 0 ? -1 : keys.IndexOf(Close, from, StringComparison.Ordinal);
@@ -643,9 +704,53 @@ public sealed class SigningKeyNotLiveUseKeyTests
         var (exit, stdout, stderr) = await SigningKeyNotLiveKit.CliAsync(rig, [.. tokens.Skip(1)]);
         var signing = rig.Store.ReadProfile(rig.Slug).TryGetValue(out var profile, out _) ? profile!.Kid : "<profile unreadable>";
 
-        var actual = $"exit {exit}; POSTs seen {rig.Double.AllPosts}; signing kid {signing}";
-        var expected = $"exit 0; POSTs seen 0; signing kid {k0.Kid}";
-        SigningKeyNotLiveKit.Red(expected, actual, $"command: {command}\n" + stdout + "\n" + stderr);
+        var identity = NotHonouredKit.Identity(rig);
+        var rotationAt2 = (identity["lifecycle_acts"]?.AsArray() ?? []).FirstOrDefault(a => (long?)a!["log_index"] == 2);
+        var recorded = rotationAt2 is null ? "absent" : rotationAt2["in_force"] is { } f ? $"in_force={f.ToJsonString()}" : "in force";
+        var (_, after, afterError) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
+
+        var actual = $"exit {exit}; POSTs seen {rig.Double.AllPosts}; signing kid {signing}; the act at index 2 is {recorded}; curia keys then: NOW IN FORCE {(after.Contains("NOW IN FORCE:", StringComparison.Ordinal) ? "present" : "absent")}";
+        var expected = $"exit 0; POSTs seen 0; signing kid {k1.Kid}; the act at index 2 is in force; curia keys then: NOW IN FORCE absent";
+        SigningKeyNotLiveKit.Red(expected, actual, $"command: {command}\n" + stdout + "\n" + stderr + "\n--- curia keys after ---\n" + after + afterError);
+    }
+
+    /// <summary>
+    /// UDO16 (Amendment 5 ruling 3): the second form of <c>use-key</c>'s result. (a) K1 adopted while K0 is also held and served live: the plain result, then the errata's second form filled (K0 a display literal, the agent
+    /// a shell word, <c>&lt;that kid&gt;</c> left). (b) The key set serves only one held public half: the plain result exactly, nothing after it. (c) Two others: both listed in the key set's order, the key just adopted not
+    /// among them. (d) The command the form prints, with <c>&lt;that kid&gt;</c> replaced by an other key's kid, is a plain <c>curia retire --agent &lt;slug&gt; --kid &lt;kid&gt;</c>; it is not run.
+    /// </summary>
+    [Fact]
+    public async Task UDO16_TheResultNamesTheOtherLiveKeysAndOnlyThen()
+    {
+        using var rig = KeyActRig.Create();
+        var (k0, k1, _) = SigningKeyNotLiveKit.Lockout(rig);
+        var (_, a, aError) = await UseKeyAsync(rig, k1.Kid);
+
+        using var single = KeyActRig.Create();
+        var (s0, s1) = (HeldKey.New("alice-k0"), HeldKey.New("alice-k1"));
+        SigningKeyNotLiveKit.Seed(single, s1, [(s0, true)], [("rotation", s1.Kid, 2, true)]);
+        single.Double.KeySet = KeyActDouble.KeySetJson([s0.Served(1), s1.Served(2, "retired", retiredAt: 3)], [0, 1, 2, 3], skipped: []);
+        var (_, b, bError) = await UseKeyAsync(single, s0.Kid);
+
+        using var many = KeyActRig.Create();
+        var (m0, m1, m2) = SigningKeyNotLiveKit.Lockout(many);
+        var mx = HeldKey.New("alice-kx");
+        SigningKeyNotLiveKit.Seed(many, m2, [(m0, true), (m1, false), (mx, true)], [("rotation", m1.Kid, 2, false), ("rotation", m2.Kid, 3, true)]);
+        many.Double.KeySet = KeyActDouble.KeySetJson([m1.Served(2), mx.Served(4), m0.Served(1)], [0, 1, 2, 4], skipped: [(3, "agent.key-bound", "broken-link")]);
+        var (_, c, cError) = await UseKeyAsync(many, m1.Kid);
+
+        var secondForm = PublishedClientWords.Fold(a);
+        const string Marker = "once a token works: ";
+        var at = secondForm.IndexOf(Marker, StringComparison.Ordinal);
+        var printed = at < 0 ? "<no second form>" : secondForm[(at + Marker.Length)..].Trim().TrimEnd('.').Replace("<that kid>", k0.Kid, StringComparison.Ordinal);
+        var words = PlainShellWords(printed);
+        var asWords = words is null ? "not plain shell words" : string.Join(" ", words);
+
+        string Exact(string text, string expected) => PublishedClientWords.Fold(text).Trim() == PublishedClientWords.Fold(expected).Trim() ? "exact" : "different";
+        var actual = $"(a) the result with K0 named: {Exact(a, SigningKeyNotLiveKit.ResultWithOthers(k1.Kid, k0.Kid))}; (b) one held key, the plain result: {Exact(b, SigningKeyNotLiveKit.PlainResult(s0.Kid))}; "
+            + $"(c) two others, in the key set's order: {Exact(c, SigningKeyNotLiveKit.ResultWithOthers(m1.Kid, m0.Kid, mx.Kid))}; (d) the printed command as words: {asWords}";
+        var expected = $"(a) the result with K0 named: exact; (b) one held key, the plain result: exact; (c) two others, in the key set's order: exact; (d) the printed command as words: curia retire --agent {SigningKeyNotLiveKit.Slug} --kid {k0.Kid}";
+        SigningKeyNotLiveKit.Red(expected, actual, $"--- (a) ---\n{a}{aError}\n--- (b) ---\n{b}{bError}\n--- (c) ---\n{c}{cError}");
     }
 
     /// <summary>
@@ -717,18 +822,19 @@ public sealed class SigningKeyNotLiveHelpTests
         var rowSix = PublishedClientWords.Fold(HelpTextTests.ExitCodeEntry(6));
 
         using var rig = KeyActRig.Create();
-        var (_, k1, _) = SigningKeyNotLiveKit.Lockout(rig);
+        var (k0, k1, _) = SigningKeyNotLiveKit.Lockout(rig);
         var (exit, stdout, stderr) = await SigningKeyNotLiveKit.CliAsync(rig, "use-key", "--agent", SigningKeyNotLiveKit.Slug, "--kid", k1.Kid);
-        var result = SigningKeyNotLiveWords.UseKeyResult().Replace("<kid>", SigningKeyNotLiveKit.Kid(k1.Kid), StringComparison.Ordinal);
+        var result = SigningKeyNotLiveKit.PlainResult(k1.Kid);
+        var withOthers = SigningKeyNotLiveKit.ResultWithOthers(k1.Kid, k0.Kid);
 
         bool Has(string text, string published) => text.Contains(PublishedClientWords.Fold(published), StringComparison.Ordinal);
         string Said(bool says) => says ? "said" : "not said";
         var actual = $"keys help clause: {Said(Has(keysHelp, SigningKeyNotLiveWords.KeysHelpClause()))}; use-key usage line: {Said(Has(useKeyHelp, SigningKeyNotLiveWords.UseKeyUsage()))}; "
             + $"use-key paragraph: {Said(Has(useKeyHelp, SigningKeyNotLiveWords.UseKeyParagraph()))}; exit 6 row clause: {Said(Has(rowSix, SigningKeyNotLiveWords.ExitSixClause()))}; "
-            + $"use-key result (exit {exit}): {Said(PublishedClientWords.Says(stdout, result))}";
-        var expected = "keys help clause: said; use-key usage line: said; use-key paragraph: said; exit 6 row clause: said; use-key result (exit 0): said";
+            + $"use-key result (exit {exit}): {Said(PublishedClientWords.Says(stdout, result))}; with the others sentence: {Said(PublishedClientWords.Says(stdout, withOthers))}";
+        var expected = "keys help clause: said; use-key usage line: said; use-key paragraph: said; exit 6 row clause: said; use-key result (exit 0): said; with the others sentence: said";
 
-        SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- the result, from the errata ---\n" + result);
+        SigningKeyNotLiveKit.Red(expected, actual, stdout + "\n" + stderr + "\n--- the result, from the errata ---\n" + withOthers);
     }
 
     /// <summary>

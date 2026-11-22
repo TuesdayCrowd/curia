@@ -142,7 +142,7 @@ public sealed class SigningKeyNotLiveToolTests : IDisposable
             line = Once(line, "<held keys>", $"{DisplayLiteral.Of(StubLog.AgentKid)} (bound at log index {_log.KeyIndex.ToString(CultureInfo.InvariantCulture)})");
             line = Once(line, "<does not list | lists as <status>>", "does not list");
             line = Once(line, "<n>", "1");
-            line = Once(line, "<the use-key command for the first>", $"curia use-key --agent 'alice' --kid '{StubLog.AgentKid}'");
+            line = Once(line, "<the use-key command for the key bound last>", $"curia use-key --agent 'alice' --kid '{StubLog.AgentKid}'");
             words.Add(Once(line, "<kid>", DisplayLiteral.Of(GoneKid)));
             if (row == "held-and-rotation-now-in-force")
             {
