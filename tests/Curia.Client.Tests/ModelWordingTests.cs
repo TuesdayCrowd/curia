@@ -52,7 +52,9 @@ public sealed partial class ModelWordingTests
     /// <summary>
     /// SEM60 (the floor sentence, errata G66, R11.93 (rev.); the fact behind it is SEM59's). The sentence for <c>bge-small-en-v1.5@1</c> states that results below a vector score of 0.64 are removed, what that
     /// removed and kept on the measured corpus of about 190 posts, that a result list can omit a near match below the floor, and that an empty or short list does not show that the Forum holds nothing on the topic;
-    /// it no longer says that the model ranks the nearest posts however far they are or that a long list is no evidence (the floor removes now). The sentence for <c>hashed-ngram@1</c> and the one for an id the
+    /// it no longer says that the model ranks the nearest posts however far they are or that a long list is no evidence (the floor removes now). The live run on the built Forum showed that an off-topic query
+    /// still returned a long list of keyword matches, so the sentence qualifies the floor's claim as the vector channel's candidates, says the keyword channel has no floor and the page does not say which results
+    /// are which, and says that the <c>removed by floor</c> line counts the verification floor and not this one (R9.66). The sentence for <c>hashed-ngram@1</c> and the one for an id the
     /// definition does not know make no such claim (trap 185: a positive word with no negative neighbour is tested with all three together). The words are asserted by hand, as Table 11's criteria structure is,
     /// because parsing prose into a predicate is a second implementation. The numbers in the sentence are NDT10's to compare with RESULTS.md.
     /// </summary>
@@ -68,6 +70,11 @@ public sealed partial class ModelWordingTests
         Assert.True(bge.Contains("paraphrase or may be unrelated", StringComparison.Ordinal), "the sentence for bge-small-en-v1.5@1 does not say a hit with no shared word may be either");
         Assert.DoesNotContain("however far", bge, StringComparison.Ordinal);
         Assert.DoesNotContain("no evidence", bge, StringComparison.Ordinal);
+        Assert.Contains("vector channel's candidates", bge, StringComparison.Ordinal);
+        Assert.Contains("The keyword channel has no floor", bge, StringComparison.Ordinal);
+        Assert.Contains("does not say which results the vector channel chose", bge, StringComparison.Ordinal);
+        Assert.Contains("The `removed by floor` line counts the verification floor", bge, StringComparison.Ordinal);
+        Assert.DoesNotContain("that removed 16 of 16", bge, StringComparison.Ordinal);
 
         foreach (var other in new[] { ModelWording.Sentence(Hashed), ModelWording.Sentence(Unknown), ModelWording.Sentence(null) })
         {

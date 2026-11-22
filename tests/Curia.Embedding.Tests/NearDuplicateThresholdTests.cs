@@ -466,6 +466,38 @@ public sealed class RetrievalRuleTests
         var underHalf = hit * 10_000 < P.Bp("paraphrase_recall_claim_least") * total;
         Assert.Equal(underHalf, ClientWording().Contains("does not detect paraphrase", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// NDT13 (errata G66, R9.66's three obligations about the floor's words). R9.66 is read from the errata by its <c>**R9.66**</c> marker and must carry each obligation as the errata words it: "what the floor removed as
+    /// vector candidates and not as results of a page" (<c>vector candidates</c>), "keyword matches are not floored" (<c>keyword matches are not floored</c>), and "its `removed by floor` count is the verification floor's"
+    /// (<c>removed by floor</c>). The client's sentence for <c>bge-small-en-v1.5@1</c> must then carry one fragment per obligation: <c>vector channel's candidates</c>, <c>The keyword channel has no floor</c> with
+    /// <c>does not say which results the vector channel chose</c>, and <c>The `removed by floor` line counts the verification floor</c>. The pairing is by hand, not parsed from the prose (a parser from prose to predicate is a
+    /// second implementation). Predicted red before the words: <c>Assert.Contains() Failure: Sub-string not found</c> naming the first absent fragment.
+    /// </summary>
+    [Fact]
+    public void R9_66_NDT13_TheErratasThreeObligationsAboutTheFloorAreInTheSentence()
+    {
+        var errata = File.ReadAllText(Path.Combine(ModelDirectory.RepositoryRoot(), "curia-whitepaper-ERRATA-AND-ADDENDUM.md"));
+        var start = errata.IndexOf("**R9.66**", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Expected: the errata carries a paragraph that begins **R9.66**  Actual: none");
+        var end = errata.IndexOf("\n\n", start, StringComparison.Ordinal);
+        var paragraph = errata[start..(end < 0 ? errata.Length : end)];
+
+        var pairs = new[]
+        {
+            ("vector candidates", new[] { "vector channel's candidates" }),
+            ("keyword matches are not floored", new[] { "The keyword channel has no floor", "does not say which results the vector channel chose" }),
+            ("removed by floor", new[] { "The `removed by floor` line counts the verification floor" }),
+        };
+
+        var sentence = ClientWording();
+        foreach (var (obligation, fragments) in pairs)
+        {
+            Assert.Contains(obligation, paragraph, StringComparison.Ordinal);
+            foreach (var fragment in fragments)
+                Assert.Contains(fragment, sentence, StringComparison.Ordinal);
+        }
+    }
 }
 
 /// <summary>
@@ -494,9 +526,12 @@ public sealed class NearDuplicateThresholdTests(RealModelFixture model) : IClass
     [Fact]
     public async Task R8_89_NDT4_TheRunnersCosinesEqualTheIndependentReferencesAndD10aRecordedRanges()
     {
+        // The committed reference (conformance/retrieval/measured/) is the default, so CI needs no variable; the variable overrides it with a fresh run of the script.
         var path = Environment.GetEnvironmentVariable(ReferenceVariable);
-        Assert.True(!string.IsNullOrEmpty(path) && File.Exists(path),
-            $"Expected: {ReferenceVariable} set to the file tools/model/pair-cosines.py wrote  Actual: {(string.IsNullOrEmpty(path) ? "unset" : "no such file")}. Run: python3.12 -I tools/model/pair-cosines.py --hf-dir <snapshot> --model-dir \"$CURIA_EMBEDDING_MODEL_DIR\" --out <file>; see the script's header.");
+        if (string.IsNullOrEmpty(path))
+            path = Path.Combine(ModelDirectory.RepositoryRoot(), "conformance", "retrieval", "measured", ResultsSection.Model + ".reference.jsonl");
+        Assert.True(File.Exists(path),
+            $"Expected: the reference file tools/model/pair-cosines.py wrote, at {ReferenceVariable} or the committed conformance/retrieval/measured/ copy  Actual: no such file ({path}). Run: python3.12 -I tools/model/pair-cosines.py --hf-dir <snapshot> --model-dir \"$CURIA_EMBEDDING_MODEL_DIR\" --out <file>; see the script's header.");
 
         var reference = Reference.Read(path!);
         var measured = await MeasuredAsync();
