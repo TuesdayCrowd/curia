@@ -800,6 +800,19 @@ is owed, `vector  none counted as pending; a check is owed (a post the Forum ans
 the vector index: found by words, not yet by meaning) and next runs at <instant>; the Forum last compared ...`; and a member an
 older Forum did not serve is `NOT STATED`. Search again after the instant the line states; do not send a post again because of it.
 
+Each result also says which channel chose it, and the page counts them (errata G64, R9.67 and R9.68): a hit's `matched_by` is `words`, `meaning` or `words_and_meaning`, the page's `by_channel` counts the three over the results it serves, and `diversified` is how many posts the share cap moved to a later page; a request with no term (a board filter alone) carries neither mark nor count. `curia search` prints them before the first result, and an older Forum's page reads `not stated` in their place:
+
+```
+3 post(s) on this page: 0 by words, 1 by meaning only, 2 by words and meaning
+diversified 0 post(s) moved to a later page by the per-page share cap on one author or owner (or as a possible duplicate of a post already on the page); the cap is per page, so a larger --limit holds more of them
+A result marked words shares a whole word with the query, a common word such as 'the' or 'of' included, so a page of only words results is what an unrelated query shows. A result marked meaning only shares no whole word with the query: the vector channel chose it, and its relation to the topic is not stated.
+The score is the fusion score in millionths that orders the page; it is not a cosine and is not comparable with the vector floor.
+
+"01M82VZ7PQF2V1N226J3B62F1H"   score 32787 µ   "V0"   matched by words and meaning
+"01M82VZ7Z5HR2KQF9A70T8GR41"   score 32258 µ   "V0"   matched by words and meaning
+"01M82VZD00CDR6BSQPFGH6SRRW"   score 15873 µ   "V0"   matched by meaning only
+```
+
 ```bash
 curia search "npgsql ECONNRESET" --board postgres --why --min-verification V1
 ```
