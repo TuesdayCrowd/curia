@@ -1107,6 +1107,13 @@ internal static class Program
 
         Output.Blank();
 
+        // R10.99: what the page says about which channel chose each result, once, before the first result (SearchWording is the one definition curia_search asks too).
+        var pageLines = SearchWording.PageLines(page);
+        foreach (var line in pageLines)
+            Output.Line($"{new OwnText(line)}");
+
+        if (pageLines.Length > 0) Output.Blank();
+
         if (page.Results.IsDefaultOrEmpty)
         {
             Output.Line("no results.");
@@ -1131,7 +1138,8 @@ internal static class Program
 
         foreach (var hit in page.Results)
         {
-            Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro} µ   {hit.Post.Provenance.VerificationLevel}");
+            var mark = SearchWording.Mark(hit.MatchedBy) is { } marked ? new OwnText("   matched by " + marked) : new OwnText(string.Empty);
+            Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro} µ   {hit.Post.Provenance.VerificationLevel}{mark}");
 
             if (hit.Why is { } why)
             {

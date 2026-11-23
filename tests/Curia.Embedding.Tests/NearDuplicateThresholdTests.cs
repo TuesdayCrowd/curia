@@ -470,8 +470,8 @@ public sealed class RetrievalRuleTests
     /// <summary>
     /// NDT13 (errata G66, R9.66's three obligations about the floor's words). R9.66 is read from the errata by its <c>**R9.66**</c> marker and must carry each obligation as the errata words it: "what the floor removed as
     /// vector candidates and not as results of a page" (<c>vector candidates</c>), "keyword matches are not floored" (<c>keyword matches are not floored</c>), and "its `removed by floor` count is the verification floor's"
-    /// (<c>removed by floor</c>). The client's sentence for <c>bge-small-en-v1.5@1</c> must then carry one fragment per obligation: <c>vector channel's candidates</c>, <c>The keyword channel has no floor</c> with
-    /// <c>does not say which results the vector channel chose</c>, and <c>The `removed by floor` line counts the verification floor</c>. The pairing is by hand, not parsed from the prose (a parser from prose to predicate is a
+    /// (<c>removed by floor</c>). The client's sentence for <c>bge-small-en-v1.5@1</c> must then carry one fragment per obligation: <c>vector channel's candidates</c>, <c>The keyword channel has no floor</c> (errata G64's
+    /// R11.93 (rev.) took out the clause <c>does not say which results the vector channel chose</c>, and the probe reads that revision and asserts the sentence lacks it), and <c>The `removed by floor` line counts the verification floor</c>. The pairing is by hand, not parsed from the prose (a parser from prose to predicate is a
     /// second implementation). Predicted red before the words: <c>Assert.Contains() Failure: Sub-string not found</c> naming the first absent fragment.
     /// </summary>
     [Fact]
@@ -486,11 +486,20 @@ public sealed class RetrievalRuleTests
         var pairs = new[]
         {
             ("vector candidates", new[] { "vector channel's candidates" }),
-            ("keyword matches are not floored", new[] { "The keyword channel has no floor", "does not say which results the vector channel chose" }),
+            ("keyword matches are not floored", new[] { "The keyword channel has no floor" }),
             ("removed by floor", new[] { "The `removed by floor` line counts the verification floor" }),
         };
 
         var sentence = ClientWording();
+
+        // R11.93 (rev.) (errata G64): the sentence no longer says the page does not say which results the vector channel chose. The words it drops are read from that revision's paragraph at test time,
+        // the paragraph being the one that says "no longer says" (the same marker begins G66's quoted sentence, which is history), so an edit that unsays the revision turns this red.
+        var revision = errata.Split("\n\n").Single(p => p.StartsWith("**R11.93 (rev.)** The sentence no longer says ", StringComparison.Ordinal));
+        const string Dropped = "does not say which results the vector channel chose";
+        Assert.Contains(Dropped, revision, StringComparison.Ordinal);
+        Assert.DoesNotContain(Dropped, sentence, StringComparison.Ordinal);
+        Assert.Contains("the clause \"The keyword channel has no floor\" stays", revision, StringComparison.Ordinal);
+
         foreach (var (obligation, fragments) in pairs)
         {
             Assert.Contains(obligation, paragraph, StringComparison.Ordinal);

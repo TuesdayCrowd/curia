@@ -629,6 +629,10 @@ internal sealed partial class ForumTools(
         if (NameWording.FiltersLine(request.Board, request.Author, page.UnmatchedFilters, emptyFirstPage: page.Results.IsDefaultOrEmpty && string.IsNullOrEmpty(request.Cursor)) is { } filters)
             frame.Line($"{new OwnText(filters)}");
 
+        // R10.99, R11.103: what `curia search` states about which channel chose each result, from the same definitions (SearchWording), so the count line is the CLI's byte for byte.
+        foreach (var line in SearchWording.PageLines(page))
+            frame.Line($"{new OwnText(line)}");
+
         // R9.8, asked for: each hit's terms under its post id, written as the CLI writes them.
         foreach (var hit in page.Results)
         {
@@ -636,6 +640,9 @@ internal sealed partial class ForumTools(
             frame.Line($"post_id={hit.Post.PostId}");
             SearchScore.WriteWhy(frame, why);
         }
+
+        // R11.103: the served model's limits (R11.93) whole and last, so a reader that cuts a long block short loses the end of it and not the count line.
+        frame.Line($"{new OwnText(ModelWording.Sentence(page.Model))}");
 
         return frame.ToString();
     }

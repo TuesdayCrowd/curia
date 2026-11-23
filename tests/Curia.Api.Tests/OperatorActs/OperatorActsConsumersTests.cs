@@ -104,7 +104,8 @@ public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixtu
         var agentAfter = await AgentConsumersAsync();
         for (var i = 0; i < agentNames.Length; i++) rows.Add((agentNames[i], agentBefore[i], agentAfter[i]));
 
-        // Search diversification: six authors on one board, a same-owner attestation for each.
+        // Search diversification: six authors on one board, a same-owner attestation for each, and a seventh author nobody attests, posted last. R9.68 defers by position: six posts that
+        // all share one owner only top their own window up and move nowhere, so the farm shows in `diversified` only where an independent post moves into the first window ahead of them.
         var term = "zdiv" + OperatorActsApi.Suffix();
         var divBoard = OperatorActsApi.Board();
         var posters = new List<OperatorActsApi.Actor>();
@@ -115,8 +116,11 @@ public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixtu
             Assert.Equal(201, (await api.PostRawAsync(a, a.Agent.SignQuestion(divBoard, $"{term} behaviour number {i} {RevisionProbe.Unrelated()}", $"{term} {i}", forum.Now), Ct)).Status);
         }
 
+        var independent = await api.GenuineAsync("div-independent", Ct);
+        Assert.Equal(201, (await api.PostRawAsync(independent, independent.Agent.SignQuestion(divBoard, $"{term} behaviour number independent {RevisionProbe.Unrelated()}", $"{term} independent", forum.Now), Ct)).Status);
+
         async Task<string> DeferredAsync() =>
-            $"deferred_by_diversification x{Regex.Count(await api.GetBodyAsync($"/v1/search?q={term}&board={divBoard}&limit=3&why=true", Ct), "\"deferred_by_diversification\":true")}";
+            $"diversified x{Regex.Match(await api.GetBodyAsync($"/v1/search?q={term}&board={divBoard}&limit=3", Ct), "\"diversified\":(\\d+)").Groups[1].Value}";
         var divBefore = await DeferredAsync();
         var oneFarm = "owner:one-farm-" + OperatorActsApi.Suffix();
         foreach (var p in posters) await AttestAsync(p.Agent.AgentId, oneFarm);

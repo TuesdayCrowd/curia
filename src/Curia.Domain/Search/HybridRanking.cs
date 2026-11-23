@@ -18,7 +18,8 @@ public sealed record VectorHit(SearchablePost Post, double Cosine);
 /// <param name="Fused">The reciprocal-rank-fusion score: the two terms summed.</param>
 /// <param name="Weight">Table 13's multiplier for <paramref name="Level"/>.</param>
 /// <param name="Score"><c>Fused × Weight</c>: what orders the page.</param>
-/// <param name="Deferred">Whether diversification (R10.6, R10.7) pushed this post behind others it outscored.</param>
+/// <param name="Deferred">Whether diversification (R10.6, R10.7) moved this post to a later window of the page size than the one it ranked in (R9.68): by position, not by mechanism.</param>
+/// <param name="MatchedBy">Which channel or channels chose this post (R9.67), read from the ranks fusion holds; null where the query had no term, set by the search and never by <c>Rank</c>.</param>
 public sealed record RankedPost(
     SearchablePost Post,
     VerificationLevel Level,
@@ -31,7 +32,21 @@ public sealed record RankedPost(
     double Fused,
     double Weight,
     double Score,
-    bool Deferred);
+    bool Deferred,
+    ChannelMark? MatchedBy = null);
+
+/// <summary>R9.67: which channel chose a result, from the ranks fusion holds and never from a score.</summary>
+public enum ChannelMark
+{
+    /// <summary>The keyword channel alone ranked it.</summary>
+    Words,
+
+    /// <summary>The vector channel alone ranked it.</summary>
+    Meaning,
+
+    /// <summary>Both channels ranked it.</summary>
+    WordsAndMeaning,
+}
 
 /// <summary>
 /// §9.2's pipeline after the two retrievers: reciprocal rank fusion over equal-depth candidate
@@ -118,12 +133,11 @@ public static class HybridRanking
         [.. ranked.Where(r => RetrievalFloorPolicy.Serves(floor, r.Post.Kind, r.Level))];
 
     /// <summary>
-    /// R10.7 and R10.6 as one pass over the ranked list. Within each page-sized window, a post is
-    /// deferred -- moved behind the rest, never dropped -- when its author or its author's
-    /// attested owner already holds <see cref="MaximumAuthorShare"/> of the window, or when it is
-    /// annotated as a possible
-    /// duplicate of a post already placed in the window (or that post of it). A retrieval that
-    /// hands k passages from one source to a reader has handed one actor the reader's whole
+    /// R10.7, R10.6 and R9.68, window by window. Each window of <paramref name="pageSize"/> posts takes, in rank order, the remaining posts that pass the caps: the author
+    /// and the author's attested owner each under <see cref="MaximumAuthorShare"/> of the window, and no possible duplicate of a post already placed in the window (or that post
+    /// of it). The caps' state restarts with every window. A post that fails stays remaining and is offered again to the next window, so it moves to the next window in which
+    /// it passes and never to the end of the list. A window the passing posts cannot fill is topped up with the earliest-ranked remaining posts, so every window but the last
+    /// is <paramref name="pageSize"/> long and nothing is dropped. A retrieval that hands k passages from one source to a reader has handed one actor the reader's whole
     /// context, which is the precondition reader-side defenses need not to hold.
     /// </summary>
     public static ImmutableArray<RankedPost> Diversify(ImmutableArray<RankedPost> ranked, int pageSize, double maximumAuthorShare = MaximumAuthorShare)
@@ -133,55 +147,59 @@ public static class HybridRanking
         ArgumentOutOfRangeException.ThrowIfGreaterThan(maximumAuthorShare, 1.0);
 
         var cap = Math.Max(1, (int)Math.Floor(pageSize * maximumAuthorShare));
-        var placed = new List<RankedPost>(ranked.Length);
-        var deferred = new List<RankedPost>();
+        var remaining = ranked.Select((post, position) => (Post: post, Position: position)).ToList();
+        var output = new List<RankedPost>(ranked.Length);
 
-        var inWindow = 0;
-        var authorsInWindow = new Dictionary<string, int>(StringComparer.Ordinal);
-        var ownersInWindow = new Dictionary<string, int>(StringComparer.Ordinal);
-        var digestsInWindow = new HashSet<string>(StringComparer.Ordinal);
-        var duplicatesOfInWindow = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var candidate in ranked)
+        while (remaining.Count > 0)
         {
-            if (inWindow == pageSize)
+            var windowIndex = output.Count / pageSize;
+            var window = new List<(RankedPost Post, int Position)>(pageSize);
+            var taken = new HashSet<int>();
+
+            var authorsInWindow = new Dictionary<string, int>(StringComparer.Ordinal);
+            var ownersInWindow = new Dictionary<string, int>(StringComparer.Ordinal);
+            var digestsInWindow = new HashSet<string>(StringComparer.Ordinal);
+            var duplicatesOfInWindow = new HashSet<string>(StringComparer.Ordinal);
+
+            for (var i = 0; i < remaining.Count && window.Count < pageSize; i++)
             {
-                inWindow = 0;
-                authorsInWindow.Clear();
-                ownersInWindow.Clear();
-                digestsInWindow.Clear();
-                duplicatesOfInWindow.Clear();
+                var candidate = remaining[i].Post;
+                var author = candidate.Post.Author;
+
+                // An unattested author is its own owner. Grouping every ownerless post under one key
+                // would defer unrelated authors as though they had colluded, which is wider than the
+                // evidence; this way the owner cap is never weaker than the author cap and never
+                // claims a relationship the log does not record.
+                var owner = candidate.Post.Owner ?? author;
+                var digest = candidate.Post.Digest;
+                var duplicateOf = candidate.Post.PossibleDuplicateOf;
+
+                var overAuthorShare = authorsInWindow.TryGetValue(author, out var count) && count >= cap;
+                var overOwnerShare = ownersInWindow.TryGetValue(owner, out var ownerCount) && ownerCount >= cap;
+                var duplicatesPlaced = (duplicateOf is not null && digestsInWindow.Contains(duplicateOf)) || duplicatesOfInWindow.Contains(digest);
+                if (overAuthorShare || overOwnerShare || duplicatesPlaced) continue;
+
+                window.Add(remaining[i]);
+                taken.Add(i);
+                authorsInWindow[author] = count + 1;
+                ownersInWindow[owner] = ownerCount + 1;
+                digestsInWindow.Add(digest);
+                if (duplicateOf is not null) duplicatesOfInWindow.Add(duplicateOf);
             }
 
-            var author = candidate.Post.Author;
-
-            // An unattested author is its own owner. Grouping every ownerless post under one key
-            // would defer unrelated authors as though they had colluded, which is wider than the
-            // evidence; this way the owner cap is never weaker than the author cap and never
-            // claims a relationship the log does not record.
-            var owner = candidate.Post.Owner ?? author;
-            var digest = candidate.Post.Digest;
-            var duplicateOf = candidate.Post.PossibleDuplicateOf;
-
-            var overAuthorShare = authorsInWindow.TryGetValue(author, out var count) && count >= cap;
-            var overOwnerShare = ownersInWindow.TryGetValue(owner, out var ownerCount) && ownerCount >= cap;
-            var overShare = overAuthorShare || overOwnerShare;
-            var duplicatesPlaced = (duplicateOf is not null && digestsInWindow.Contains(duplicateOf)) || duplicatesOfInWindow.Contains(digest);
-
-            if (overShare || duplicatesPlaced)
+            // Top up: a window the passing posts cannot fill takes the earliest-ranked of what remains.
+            for (var i = 0; i < remaining.Count && window.Count < pageSize; i++)
             {
-                deferred.Add(candidate with { Deferred = true });
-                continue;
+                if (taken.Add(i)) window.Add(remaining[i]);
             }
 
-            placed.Add(candidate);
-            inWindow++;
-            authorsInWindow[author] = count + 1;
-            ownersInWindow[owner] = ownerCount + 1;
-            digestsInWindow.Add(digest);
-            if (duplicateOf is not null) duplicatesOfInWindow.Add(duplicateOf);
+            // R9.68: deferred is by position -- the post's window in the output is later than its window in the input.
+            foreach (var (post, position) in window)
+                output.Add(post with { Deferred = windowIndex > position / pageSize });
+
+            remaining = [.. remaining.Where((_, i) => !taken.Contains(i))];
         }
 
-        return [.. placed, .. deferred];
+        return [.. output];
     }
 }

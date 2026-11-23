@@ -316,7 +316,9 @@ public sealed class SearchReadsAfterWaitTests(ParkingEmbedderForumFixture forum,
     private static readonly string[] StateDependent = ["vector_pending", "vector_checked_at", "vector_check_due_at"];
 
     private static readonly string[] ResponseMembers =
-        ["results", "next_cursor", "floor", "model", "corpus_bound", "k", "candidate_depth", "min_cosine_bp", "vector_pending", "vector_checked_at", "vector_check_due_at", "unmatched_filters"];
+        ["results", "next_cursor", "floor", "model", "corpus_bound", "k", "candidate_depth", "min_cosine_bp", "vector_pending", "vector_checked_at", "vector_check_due_at", "unmatched_filters",
+         // G64 (R9.67, R9.68): counts over the served page, so the log's and not the process's.
+         "by_channel", "diversified"];
 
     private static string Normalised(JsonDocument page)
     {

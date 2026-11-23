@@ -12,13 +12,14 @@ namespace Curia.Client;
 /// </summary>
 /// <param name="ScoreMicro">The fused score, in millionths (R6.33: an integer).</param>
 /// <param name="Why">The Forum's why_ranked breakdown, or <see langword="null"/> when it was not asked for.</param>
-public sealed record SearchScore(long ScoreMicro, WhyRanked? Why)
+/// <param name="MatchedBy">The Forum's <c>matched_by</c> word for the hit (R9.67), as served; <see langword="null"/> when it served none. <see cref="SearchWording.Mark"/> prints it.</param>
+public sealed record SearchScore(long ScoreMicro, WhyRanked? Why, string? MatchedBy = null)
 {
     /// <summary>A hit's ranking, without its post.</summary>
     public static SearchScore Of(SearchHitDocument hit)
     {
         ArgumentNullException.ThrowIfNull(hit);
-        return new(hit.ScoreMicro, hit.Why);
+        return new(hit.ScoreMicro, hit.Why, hit.MatchedBy);
     }
 
     /// <summary>A hit's why_ranked rows, as two lines of this client's frame.</summary>

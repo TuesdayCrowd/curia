@@ -51,7 +51,12 @@ public sealed record SearchPage(
     // and whether the request was served at a higher floor. None has a default for the reason the counts do not.
     VerificationLevel PublishedDefault,
     VerificationLevel? RequestedFloor,
-    bool Clamped);
+    bool Clamped,
+    ChannelCounts? ByChannel,
+    int Diversified);
+
+/// <summary>R9.67: how many of the served page's results each channel chose.</summary>
+public sealed record ChannelCounts(int Words, int Meaning, int WordsAndMeaning);
 
 /// <summary>
 /// §9.2's pipeline: lexical and vector candidates fused by reciprocal rank fusion (R9.4), Table
@@ -167,6 +172,11 @@ public sealed class HybridSearch
         // a disputed post below the floor exists. `read` by id still serves a disputed post.
         var disputed = DisputedPosts.Fold(verified, PostProjector.Fold(log));
 
+        // R9.67: the mark is read from the ranks fusion holds, and only for a query with a term: a filter alone, or a text with no term, ran no channel to name.
+        var hasTerm = !string.IsNullOrWhiteSpace(query.Text) && LexicalSearch.Tokenize(query.Text).Length > 0;
+        if (hasTerm)
+            fused = [.. fused.Select(r => r with { MatchedBy = r.LexicalRank > 0 && r.VectorRank > 0 ? ChannelMark.WordsAndMeaning : r.LexicalRank > 0 ? ChannelMark.Words : ChannelMark.Meaning })];
+
         var admitted = HybridRanking.Admit(fused, floor);
         var excludedByFloor = fused.Length - admitted.Length;   // R9.30: the floor's removals alone, before dispute
         var diversified = HybridRanking.Diversify(admitted, limit);
@@ -175,6 +185,15 @@ public sealed class HybridSearch
         var page = window.Where(r => !disputed.IsDisputed(r.Post)).ToImmutableArray();
         var next = offset + limit < diversified.Length ? new RetrievalCursor(bound, offset + limit, binding) : null;
         var excludedDisputed = diversified.Count(r => disputed.IsDisputed(r.Post));
+
+        // R9.68: how many posts the page's windows moved later, over the whole list and before the dispute drop, so it is equal on every page of one query.
+        var diversifiedCount = diversified.Count(r => r.Deferred);
+        var byChannel = hasTerm
+            ? new ChannelCounts(
+                page.Count(r => r.MatchedBy == ChannelMark.Words),
+                page.Count(r => r.MatchedBy == ChannelMark.Meaning),
+                page.Count(r => r.MatchedBy == ChannelMark.WordsAndMeaning))
+            : null;
 
         return Result<SearchPage>.Ok(new SearchPage(
             page,
@@ -191,7 +210,9 @@ public sealed class HybridSearch
             excludedDisputed,
             RetrievalFloorPolicy.PublishedFloor(surface),
             query.RequestedFloor,
-            clamped));
+            clamped,
+            byChannel,
+            diversifiedCount));
     }
 
     /// <summary>

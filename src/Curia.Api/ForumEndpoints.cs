@@ -328,6 +328,8 @@ public sealed record WhyRankedResponse(
     [property: JsonPropertyName("verification_level")] string VerificationLevel,
     [property: JsonPropertyName("verification_weight_bp")] int VerificationWeightBp,
     [property: JsonPropertyName("score_micro")] long ScoreMicro,
+
+    /// <summary>R9.68: true where diversification moved this post to a later window of the page size than the one it ranked in; by position, not by mechanism.</summary>
     [property: JsonPropertyName("deferred_by_diversification")] bool Deferred,
     [property: JsonPropertyName("not_computed")] IReadOnlyDictionary<string, string> NotComputed);
 
@@ -372,7 +374,18 @@ public sealed record SearchHitResponse(
     [property: JsonPropertyName("score_micro")] long ScoreMicro,
     [property: JsonPropertyName("why_ranked")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    WhyRankedResponse? Why);
+    WhyRankedResponse? Why,
+
+    /// <summary>R9.67: <c>words</c>, <c>meaning</c> or <c>words_and_meaning</c>, from the ranks fusion holds; omitted where the query had no term.</summary>
+    [property: JsonPropertyName("matched_by")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? MatchedBy);
+
+/// <summary>R9.67: how many results of the served page each channel chose. Integers only (R6.33).</summary>
+public sealed record ByChannelResponse(
+    [property: JsonPropertyName("words")] int Words,
+    [property: JsonPropertyName("meaning")] int Meaning,
+    [property: JsonPropertyName("words_and_meaning")] int WordsAndMeaning);
 
 /// <summary>
 /// An agent's inbox: open questions it could usefully answer, and an account of what was taken out
@@ -494,7 +507,15 @@ public sealed record SearchResponse(
     [property: JsonPropertyName("vector_check_due_at")] string? VectorCheckDueAt,
 
     /// <summary>R9.55 (errata G62): the filters the request named that no served post bears; always present on a 200, outside the cursor's binding.</summary>
-    [property: JsonPropertyName("unmatched_filters")] ImmutableArray<string> UnmatchedFilters);
+    [property: JsonPropertyName("unmatched_filters")] ImmutableArray<string> UnmatchedFilters,
+
+    /// <summary>R9.67: the served page's results by the channel that chose them; omitted where the query had no term.</summary>
+    [property: JsonPropertyName("by_channel")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ByChannelResponse? ByChannel,
+
+    /// <summary>R9.68: how many posts of the whole list diversification moved to a later window, equal on every page of one query; always an integer.</summary>
+    [property: JsonPropertyName("diversified")] int Diversified);
 
 /// <summary>
 /// R8.18 / R8.19's 409, errata G10: an RFC 9457 problem carrying the canonical thread, its
@@ -2647,7 +2668,8 @@ public static class ForumEndpoints
             results.Add(new SearchHitResponse(
                 ToResponse(view, standings, marking, contract, acceptedByThread, verification, disputed, corrections, acta),
                 Micro(hit.Score),
-                wantsWhy ? WhyRanked(hit, page.Model.Id, page.K) : null));
+                wantsWhy ? WhyRanked(hit, page.Model.Id, page.K) : null,
+                hit.MatchedBy is { } mark ? MarkWire(mark) : null));
         }
 
         // R9.51, R9.53: the check's two instants from one lock, read before the count. A clear obligation seen here means the check that cleared it had finished enrolling,
@@ -2681,8 +2703,18 @@ public static class ForumEndpoints
             Instant(checkedAt),
             dueAt is { } due ? Instant(due) : null,
             // R9.55: judged on each filter alone, from the projection already folded for this request; no read is added.
-            NamedFilters.Unmatched(views, servable, boardWire, authorWire)));
+            NamedFilters.Unmatched(views, servable, boardWire, authorWire),
+            page.ByChannel is { } counts ? (matchesNothing ? new ByChannelResponse(0, 0, 0) : new ByChannelResponse(counts.Words, counts.Meaning, counts.WordsAndMeaning)) : null,
+            matchesNothing ? 0 : page.Diversified));
     }
+
+    private static string MarkWire(ChannelMark mark) => mark switch
+    {
+        ChannelMark.Words => "words",
+        ChannelMark.Meaning => "meaning",
+        ChannelMark.WordsAndMeaning => "words_and_meaning",
+        _ => throw new ArgumentOutOfRangeException(nameof(mark), mark, "a channel mark this build does not name"),
+    };
 
     /// <summary>R8.36's terms this build does not compute, named as absent with the reason (errata G10).</summary>
     private static readonly IReadOnlyDictionary<string, string> NotComputedTerms = new Dictionary<string, string>(StringComparer.Ordinal)

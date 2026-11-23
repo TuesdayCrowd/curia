@@ -69,7 +69,9 @@ internal static class ToolText
         "states excluded_disputed: among the results the floor kept, across every page, how many were left out because their author's key " +
         "was declared compromised. A count the Forum did not serve reads not stated, which is not 0.\n\n" +
         IndexWording.CheckParagraph + " The first block states vector_pending=N, vector_check_due_at (an instant, none or not stated) and " +
-        "vector_checked_at (an instant or not stated), and no hit is marked. " + IndexWording.Sentence + "\n\n" +
+        "vector_checked_at (an instant or not stated), and no hit is marked as pending. " + IndexWording.Sentence + "\n\n" +
+        "The first block then states, as `curia search` does and in the same words: a count line (N post(s) on this page: how many results the keyword channel chose, how many the vector channel alone chose and how many both chose; a count the Forum did not serve reads not stated, never 0), a diversified line (how many posts moved to a later page by the per-page share cap), what a words result and a meaning-only result are, that the score is a fusion score and not a cosine, and the served model's limits whole. " +
+        "`limit` moves membership: the per-page share cap works on windows of `limit` results, so a different `limit` returns a different set of posts and not a shorter or longer list of the same ones; keep the `limit` you start a query with.\n\n" +
         "The first block also states unmatched_filters: which of the `board` and `author` filters you named bear no post the Forum serves (board, author, none, or NOT STATED where the Forum did not say), " +
         "and a filters line that says so for each filter you named. It is a word about the names and not about the terms: a board that exists and a query that found nothing read as none.\n\n" +
         "The result states `next_cursor` followed by the cursor written in quotes; the text between " +
