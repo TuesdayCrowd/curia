@@ -2118,6 +2118,8 @@ internal static class Program
         Output.Line($"This profile now signs with key {adopted!.Kid}. Nothing was signed or sent. The next command that needs a token asks the Forum for one.");
         if (SigningKeyStanding.OthersSentence(profile, keySet, adopted.Kid) is { } others)
             Output.Line($"{others}");
+        if (SigningKeyStanding.SkippedSentence(keySet) is { } skipped)
+            Output.Line($"{skipped}");
         return ExitCode.Ok;
     }
 
@@ -2243,7 +2245,7 @@ internal static class Program
         var code = await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
         var fresh = FreshProfile(store, profile);
         if (fresh.Pending.FirstOrDefault(p => p.Kind == kind && string.Equals(p.Kid, kid, StringComparison.Ordinal)) is { } kept)
-            Output.Error(KeyActWords.AfterNotHeard(kept, kept.SentAt, fresh.Kid));
+            Output.Error(KeyActWords.AfterNotHeard(kept, kept.SentAt, fresh.Kid, fresh.Slug));
 
         return code;
     }

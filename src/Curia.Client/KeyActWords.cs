@@ -17,21 +17,23 @@ public static class KeyActWords
     /// act is settled (a rotation: it still signs with <paramref name="signingKid"/> and holds the new key unused; a retirement: it still lists the key as live and has not recorded it retired) and why to wait (the Forum may still
     /// record the act). <paramref name="signingKid"/> is the key the profile signs with now; a retirement's sentence does not use it.
     /// </summary>
-    public static FrameBuilder AfterNotHeard(PendingKeyAct act, DateTimeOffset sent, string signingKid)
+    public static FrameBuilder AfterNotHeard(PendingKeyAct act, DateTimeOffset sent, string signingKid, string slug)
     {
         ArgumentNullException.ThrowIfNull(signingKid);
+        ArgumentNullException.ThrowIfNull(slug);
         ArgumentNullException.ThrowIfNull(act);
 
         var frame = new FrameBuilder();
+        var keysCommand = NotInForceReport.KeysCommand(slug);
         if (act.Kind == LifecycleAct.Rotation)
         {
             var newKid = act.Kid;
-            frame.Line($"The Forum may or may not have recorded this rotation, and this profile has kept it as not yet known: it was sent at {Instant(sent)}. Until it is settled this profile still signs with {signingKid} and holds the new key {newKid} unused. The Forum may still record the rotation in the meantime, so run curia rotate again no sooner than {Instant(sent + KeyActSettling.Window)}: it reads the Forum's key set first, completes the rotation if the Forum recorded it, and makes a second one only if the Forum shows none. curia keys reads the same key set and writes nothing. Do not make a key by hand.");
+            frame.Line($"The Forum may or may not have recorded this rotation, and this profile has kept it as not yet known: it was sent at {Instant(sent)}. Until it is settled this profile still signs with {signingKid} and holds the new key {newKid} unused. The Forum may still record the rotation in the meantime, so run curia rotate again no sooner than {Instant(sent + KeyActSettling.Window)}: it reads the Forum's key set first, completes the rotation if the Forum recorded it, and makes a second one only if the Forum shows none. If it ends with exit 8 and prints only a refused line or the Forum's error, the Forum's key set could not be read or the time above has not come: nothing was signed or sent and this profile still keeps this rotation, so run the same command again later. If it prints this paragraph again, it made a new rotation (a dropped line says it first removed this one), and the time in that paragraph is the new rotation's. {keysCommand} reads the same key set and writes nothing. Do not make a key by hand.");
         }
         else
         {
             var kid = act.Kid;
-            frame.Line($"The Forum may or may not have recorded this retirement of key {kid}, and this profile has kept it as not yet known: it was sent at {Instant(sent)}. Until it is settled this profile still lists {kid} as live and has not recorded it retired. The Forum may still record the retirement in the meantime, so run curia retire again no sooner than {Instant(sent + KeyActSettling.Window)}: it reads the Forum's key set first, records the retirement if the Forum recorded it, and sends a second one only if the Forum shows none. curia keys reads the same key set and writes nothing.");
+            frame.Line($"The Forum may or may not have recorded this retirement of key {kid}, and this profile has kept it as not yet known: it was sent at {Instant(sent)}. Until it is settled this profile still lists {kid} as live and has not recorded it retired. The Forum may still record the retirement in the meantime, so run curia retire again no sooner than {Instant(sent + KeyActSettling.Window)}: it reads the Forum's key set first, records the retirement if the Forum recorded it, and sends a second one only if the Forum shows none. If it ends with exit 8 and prints only a refused line or the Forum's error, the Forum's key set could not be read or the time above has not come: nothing was signed or sent and this profile still keeps this retirement, so run the same command again later. If it prints this paragraph again, it made a new retirement (a dropped line says it first removed this one), and the time in that paragraph is the new retirement's. {keysCommand} reads the same key set and writes nothing.");
         }
 
         return frame;
@@ -158,11 +160,20 @@ public static class KeyActWords
         return frame;
     }
 
-    /// <summary>R11.99 words, Help, rotate: the clause <c>curia help rotate</c> carries.</summary>
-    public const string HelpRotate = "A rotation that was sent and not heard from is kept as not yet known: run curia rotate again, no sooner than the time curia keys prints, and it settles that rotation from the Forum's key set before it makes another.";
+    /// <summary>R11.99 words, Help, rotate: the clause <c>curia rotate --help</c> carries, with R11.105's added sentence (errata G77).</summary>
+    public const string HelpRotate = "A rotation that was sent and not heard from is kept as not yet known: run curia rotate again, no sooner than the time curia keys prints, and it settles that rotation from the Forum's key set before it makes another. Until then this profile still signs with the old key and holds the new one unused.";
 
-    /// <summary>R11.99 words, Help, retire: the clause <c>curia help retire</c> carries.</summary>
-    public const string HelpRetire = "A retirement that was sent and not heard from is kept as not yet known: run curia retire again, no sooner than the time curia keys prints, and it settles that retirement from the Forum's key set before it sends another.";
+    /// <summary>R11.99 words, Help, retire: the clause <c>curia retire --help</c> carries, with R11.105's added sentence (errata G77).</summary>
+    public const string HelpRetire = "A retirement that was sent and not heard from is kept as not yet known: run curia retire again, no sooner than the time curia keys prints, and it settles that retirement from the Forum's key set before it sends another. Until then this profile still lists the key as live and has not recorded it retired.";
+
+    /// <summary>R11.105 words, Help, retire, permanence: the sentence <c>curia retire --help</c> gains after <see cref="HelpRetire"/> (a statement about the kid, not about key material: non-property (d)).</summary>
+    public const string RetirePermanence = "A retirement is permanent for the key's kid: the Forum never lists it live again and skips a rotation that names a kid it has already bound (errata G68, R6.64). To have a key again, rotate to a new one.";
+
+    /// <summary>R11.105 words, the first line of <c>curia keys</c> and <c>curia_keys</c>.</summary>
+    public const string KeysFirstLine = "these lines are the Forum's word: its key set as served; only a signed head, checked by curia verify <post-id> [--forum <url>] (the tool curia_verify takes a post id), anchors a key's binding";
+
+    /// <summary>R11.105 words, the use-key result's sentence while the key set lists a skipped row.</summary>
+    public const string UseKeySkippedSentence = "The Forum's key set still lists a row of this agent's stream that the Forum does not act on, so curia keys still exits 6: that is the row (a SKIPPED line), not a key to end, and signing with this key does not clear it; report it to the Forum's operator.";
 
     /// <summary>R11.100 words, the description's added sentence: <c>curia_keys</c>'s description carries it.</summary>
     public const string KeysDescriptionSentence = "A RECORDED, UNKNOWN or NOT RECORDED line is an act this host sent and kept as not yet known: the Forum's key set settles it, curia rotate or curia retire (never this tool) completes it, and this report writes nothing.";
