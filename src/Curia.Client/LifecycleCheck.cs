@@ -350,6 +350,10 @@ public static class LifecycleCheck
             if (Bound.ContainsKey(statement.Kid))
                 return Mismatch(index, "the kid is already bound");
 
+            // R4.45, R6.54: a key's bytes are bound once; the algorithm and complete public key of any key bound before, in any standing, never the kid.
+            if (Bound.Values.Any(b => string.Equals(b.Material.Alg, newKey!.Alg, StringComparison.Ordinal) && b.Material.Public.Span.SequenceEqual(newKey.Public.Span)))
+                return Mismatch(index, "the key is already bound under another kid");
+
             Bound[statement.Kid] = new BoundKey(newKey!, index);
             Rotations.Add(new Rotated(index, statement.AuthorizedBy, statement.Kid));
             return null;

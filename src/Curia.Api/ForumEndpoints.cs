@@ -3826,6 +3826,7 @@ public static class ForumEndpoints
 
         AuthorKeyErrors.KidTakenType
             or KeyActErrors.LifecycleMovedType
+            or KeyActErrors.KeyAlreadyBoundType
             or KeyActErrors.TooManyLiveKeysType
             or KeyActErrors.RotationCeilingReachedType
             or KeyActErrors.NotLiveType

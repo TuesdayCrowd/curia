@@ -28,6 +28,7 @@ public static class KeyActErrors
 {
     public const string LifecycleMovedType = "curia/keys/lifecycle-moved";
     public const string AuthorizingKeyNotLiveType = "curia/keys/authorizing-key-not-live";
+    public const string KeyAlreadyBoundType = "curia/keys/key-already-bound";
     public const string TooManyLiveKeysType = "curia/keys/too-many-live-keys";
     public const string RotationBudgetExhaustedType = "curia/keys/rotation-budget-exhausted";
     public const string RotationCeilingReachedType = "curia/keys/rotation-ceiling-reached";
@@ -83,6 +84,12 @@ public static class KeyActErrors
 
     /// <summary>The authorizing key is not live: unbound, unknown to the store, outside its window or retired.</summary>
     public static Error AuthorizingKeyNotLive() => new(AuthorizingKeyNotLiveType, "The authorizing key is not live");
+
+    /// <summary>R4.45: the key a rotation names is one this identity's honoured prefix has bound, live or not. Names no kid and no key.</summary>
+    public static Error KeyAlreadyBound() => new(
+        KeyAlreadyBoundType,
+        "That key is already bound to this identity",
+        "A key this identity has bound before, live or not, cannot be bound again under another key identifier; make a new key.");
 
     /// <summary>R7.23: a rotation would make more than <see cref="Curia.Domain.Authorization.TierPolicy.MaxLiveKeys"/> live keys.</summary>
     public static Error TooManyLiveKeys() => new(
@@ -196,7 +203,7 @@ internal static class KeyActs
     /// What one read of the whole log says of an identity: its honoured lifecycle, the log folded as an Acta, the index of the latest honoured entry, and the stream
     /// (the version a conditioned append is made on). The version is counted from the same entries the decision is drawn from, so there is no second instant (R6.56).
     /// </summary>
-    internal sealed record LifecycleRead(KeyLifecycle Lifecycle, ActaLog Log, long? LatestIndex, Stream Stream, ImmutableArray<SkippedRow> Skipped);
+    internal sealed record LifecycleRead(KeyLifecycle Lifecycle, ActaLog Log, long? LatestIndex, Stream Stream, ImmutableArray<SkippedRow> Skipped, EnrollmentBinding? Binding);
 
     /// <summary>
     /// The log read once (errata G68, ruling 36: a statement's <c>prev</c> and a declaration's <c>from_index</c> are positions in the whole log, so no decision reads an aggregate by itself),
@@ -221,11 +228,11 @@ internal static class KeyActs
         var stream = new Stream(aggregate!, actor!, version!);
         var verified = verifier.OfLog(log!).For(agent);
         var lifecycle = verified.Honoured;
-        if (lifecycle.Entries.IsEmpty) return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta!, null, stream, verified.Skipped));
+        if (lifecycle.Entries.IsEmpty) return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta!, null, stream, verified.Skipped, verified.Binding));
         if (acta!.IndexOf(lifecycle.Entries[^1].EventId) is not { } latest)
             return Result<LifecycleRead>.Fail(LogBoundKeys.LogUnreadable(KeyStatementErrors.Mismatch("entry")));
 
-        return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta, latest, stream, verified.Skipped));
+        return Result<LifecycleRead>.Ok(new LifecycleRead(lifecycle, acta, latest, stream, verified.Skipped, verified.Binding));
     }
 
     /// <summary>The canonical bytes of a statement already read as its own canonical form.</summary>

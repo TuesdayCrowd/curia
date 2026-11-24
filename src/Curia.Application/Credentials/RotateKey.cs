@@ -23,7 +23,7 @@ namespace Curia.Application.Credentials;
 /// <item>(Step 5 is step 4's read.)</item>
 /// <item>The authorizing key is live.</item>
 /// <item>The authorization verifies under the authorizing key and the possession under the new one, each under the rotation's header <c>typ</c> and its role's <c>kid</c> (KF1, KF2).</item>
-/// <item>The <c>kid</c> is not taken, then R7.23's live-key cap, daily budget and lifetime ceiling.</item>
+/// <item>The <c>kid</c> is not taken, then the key's bytes are not any this identity's honoured prefix has bound (R4.45), then R7.23's live-key cap, daily budget and lifetime ceiling.</item>
 /// <item>Register the key (never overwriting, R4.32), then append <c>agent.key-bound</c> at the version read.</item>
 /// <item>A concurrency conflict is the lifecycle moving, and answers with the latest index.</item>
 /// </list>
@@ -122,6 +122,8 @@ public sealed class RotateKey
         var orphan = held is not null && KeyEnrollment.SameMaterial(held.Key, newKey!);
         if (KeyActs.AnyEntryNames(all, rotation.Kid) || (held is not null && !orphan))
             return Result<KeyActRecorded>.Fail(AuthorKeyErrors.KidTaken(rotation.Kid));
+        if (BoundBefore(read.Binding, newKey!))
+            return Result<KeyActRecorded>.Fail(KeyActErrors.KeyAlreadyBound());
         if (read.Lifecycle.LiveCount() >= TierPolicy.MaxLiveKeys)
             return Result<KeyActRecorded>.Fail(KeyActErrors.TooManyLiveKeys());
         if (read.Lifecycle.RotationsSince(now.AddHours(-24)) >= TierPolicy.RotationsPerDay)
@@ -151,4 +153,14 @@ public sealed class RotateKey
         var index = await KeyActs.AppendAsync(_events, _verifier, agent, read.Stream, entry!, ct).ConfigureAwait(false);
         return index.Map(i => new KeyActRecorded(agent.Value, rotation.Kid, i, rotation.AuthorizedBy));
     }
+
+    /// <summary>
+    /// R4.45: whether any key the honoured bindings name, live or not, has <paramref name="key"/>'s algorithm and public bytes. The kid is never compared. A binding with no key
+    /// (an identity enrolled before R4.34) or whose key has no material names none.
+    /// </summary>
+    private static bool BoundBefore(EnrollmentBinding? binding, PublicKeyMaterial key) =>
+        binding is not null
+        && binding.Keys.Any(b => b.Jwk is { } jwk
+            && ClosedJwk.Read(jwk, b.Kid)?.Material(b.Kid) is { } held
+            && KeyEnrollment.SameMaterial(held, key));
 }
