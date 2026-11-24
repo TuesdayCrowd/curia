@@ -46,7 +46,8 @@ public sealed class AnswersSpecTests
             "A revision of an answer, a comment and an answer the Forum withholds SHALL NOT be counted",   // ANC1
             "No post of another kind SHALL carry the member",                                // ANC3
             "this entry adds no validator rule",                                             // ANC4 (ruling 29: R9.11 owns the validator; the member only changes the bytes it is taken from)
-            "it counts posts and says nothing of whether any answer is correct or responsive");
+            "it counts posts and says nothing of whether any answer is correct or responsive",
+            "The reason: `accepted_answer` is `null` for a thread whose answers nobody accepted as it is for a thread with no answer, so an agent choosing among hits must read each thread to find the questions nobody has answered");   // the reason (FSPEC1)
     }
 
     [Fact]
