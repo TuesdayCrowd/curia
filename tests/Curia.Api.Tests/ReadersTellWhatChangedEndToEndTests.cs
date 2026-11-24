@@ -47,7 +47,8 @@ public sealed partial class ReadersTellWhatChangedEndToEndTests(KestrelForumFixt
     [GeneratedRegex(@"^(?<key>posted|digest)\s+""?(?<value>[^\s""]+)", RegexOptions.Multiline)]
     private static partial Regex Receipt();
 
-    [GeneratedRegex(@"\banswers\s+(accepted|none accepted|NOT STATED)", RegexOptions.CultureInvariant)]
+    // Errata G76 (ruling 8): the real Forum serves the count, so the line leads with it (`answers  2 served, accepted: ...`); the clause this test looks for follows.
+    [GeneratedRegex(@"\banswers\s+(?:\d+ served, )?(accepted|none accepted|NOT STATED)", RegexOptions.CultureInvariant)]
     private static partial Regex AnswersLine();
 
     private string Address => forum.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);

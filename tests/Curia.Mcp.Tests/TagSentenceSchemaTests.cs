@@ -51,7 +51,7 @@ public sealed class TagSentenceSchemaTests
         var takers = registered.Where(t => t.TakesTags).Select(t => t.Name).Order(StringComparer.Ordinal).ToArray();
         Assert.True(takers.Length > 0, "NOT REACHED: no registered tool has a top-level tags argument, so the comparison below would be vacuous");
         Assert.DoesNotContain("curia_search", takers);
-        Assert.Equal(["curia_ask", "curia_revise"], takers);
+        Assert.Equal(["curia_ask", "curia_inbox", "curia_revise"], takers);
 
         var phrases = PublishedSmallWords.TagPhrases();
         var expected = registered.Select(t => $"{t.Name}: {(t.TakesTags ? "states" : "does not state")}");

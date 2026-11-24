@@ -84,7 +84,8 @@ public sealed class FirstBlockSupersededTests : IDisposable
 
         var line = await AcceptedLineAsync();
 
-        Assert.Equal($"accepted answer={DisplayLiteral.Of(StubLog.AnswerPostId)} {AnswerStanding.Basis}", line);
+        // Ruling 8 (ruling 27): the acceptance's instant fragment, NOT STATED where the member carries none, follows the named post.
+        Assert.Equal($"accepted answer={DisplayLiteral.Of(StubLog.AnswerPostId)} (accepted at NOT STATED) {AnswerStanding.Basis}", line);
     }
 
     [Fact]

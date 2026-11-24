@@ -136,14 +136,103 @@ public sealed record ProvenanceResponse(
     /// </summary>
     [property: JsonPropertyName("accepted_answer")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    AcceptedAnswerResponse? AcceptedAnswer = null);
+    AcceptedAnswerResponse? AcceptedAnswer = null,
+
+    /// <summary>
+    /// R9.69 (errata G76): on a question only, <c>{"served": n}</c>, the number of answers the Forum serves it (<see cref="AcceptedAnswerIndex.ServedAnswersTo"/>, the one function the
+    /// duplicate refusal's list is made by). CLR <c>null</c> is a post that is not a question and is left out. The Forum's word; a count of posts and no judgement of them.
+    /// </summary>
+    [property: JsonPropertyName("answers")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    AnswersResponse? Answers = null,
+
+    /// <summary>R9.70: on a revision whose correction chain ends at a question, the question it revises; left out for every other post.</summary>
+    [property: JsonPropertyName("revises")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    RevisesResponse? Revises = null,
+
+    /// <summary>
+    /// R9.71 (b): on an answer, always present: JSON <c>null</c> (<see cref="QuestionRevisedResponse.None"/>) where its question has no revision, else the relation. CLR <c>null</c> is a
+    /// post that is not an answer and is left out.
+    /// </summary>
+    [property: JsonPropertyName("question_revised")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    QuestionRevisedResponse? QuestionRevised = null);
+
+/// <summary>R9.69: the count of answers the Forum serves a question.</summary>
+public sealed record AnswersResponse([property: JsonPropertyName("served")] int Served);
+
+/// <summary>R9.70: the question a revision revises: its id only where the Forum serves it (R10.36), and its kind.</summary>
+public sealed record RevisesResponse(
+    [property: JsonPropertyName("post_id")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? PostId,
+    [property: JsonPropertyName("kind")] string Kind)
+{
+    /// <summary>The wire form of the index's answer.</summary>
+    public static RevisesResponse? From(RevisesFact? fact) => fact is null ? null : new RevisesResponse(fact.PostId, fact.Kind);
+}
+
+/// <summary>
+/// R9.71 (b): an answer's relation to its question's first revision. <see cref="None"/> is the instance that stands for "no revision" and is written as JSON <c>null</c>.
+/// </summary>
+[JsonConverter(typeof(QuestionRevisedResponseConverter))]
+public sealed record QuestionRevisedResponse(string? FirstRevisionDigest, string? FirstRevisionPostId, string? AnswerPosted)
+{
+    /// <summary>The question has no revision; written as <c>null</c>, present.</summary>
+    public static QuestionRevisedResponse None { get; } = new(null, null, null);
+
+    /// <summary>True when the question has no revision.</summary>
+    public bool IsNone => FirstRevisionDigest is null;
+
+    /// <summary>The wire form of the index's answer.</summary>
+    public static QuestionRevisedResponse From(QuestionRevisedFact fact)
+    {
+        ArgumentNullException.ThrowIfNull(fact);
+        return fact.Revised ? new QuestionRevisedResponse(fact.FirstRevisionDigest, fact.FirstRevisionPostId, fact.AnswerPosted) : None;
+    }
+}
+
+/// <summary>
+/// Writes <see cref="QuestionRevisedResponse.None"/> as JSON <c>null</c> and a relation as <c>{first_revision: {digest, post_id?}, answer_posted}</c>.
+/// </summary>
+public sealed class QuestionRevisedResponseConverter : JsonConverter<QuestionRevisedResponse>
+{
+    /// <summary>The Forum writes this member and never reads one; a caller's JSON is read through the guarded reader (R11.34).</summary>
+    public override QuestionRevisedResponse? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        throw new NotSupportedException("question_revised is written by the Forum and read by Curia.Client");
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, QuestionRevisedResponse value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (value.IsNone)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        writer.WriteStartObject();
+        writer.WriteStartObject("first_revision");
+        writer.WriteString("digest", value.FirstRevisionDigest);
+        if (value.FirstRevisionPostId is not null) writer.WriteString("post_id", value.FirstRevisionPostId);
+        writer.WriteEndObject();
+        writer.WriteString("answer_posted", value.AnswerPosted);
+        writer.WriteEndObject();
+    }
+
+    /// <summary>The converter must be asked for a present <c>null</c> too, because that is the "no revision" state.</summary>
+    public override bool HandleNull => true;
+}
 
 /// <summary>
 /// R9.36: the answer a question's standing acceptance names: its digest, and its id only where the Forum serves it (R10.36).
 /// <see cref="None"/> is the instance that stands for "no acceptance" and is written as JSON <c>null</c>.
 /// </summary>
 [JsonConverter(typeof(AcceptedAnswerResponseConverter))]
-public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, ImmutableArray<SupersededByResponse> SupersededBy, string? Kind = null)
+public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, ImmutableArray<SupersededByResponse> SupersededBy, string? Kind = null, string? AcceptedAt = null, string? FirstRevision = null)
 {
     /// <summary>No acceptance stands; written as <c>null</c>, present, and carrying no list.</summary>
     public static AcceptedAnswerResponse None { get; } = new(null, null, []);
@@ -155,7 +244,7 @@ public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, Immu
     public static AcceptedAnswerResponse From(AcceptedAnswerMember member)
     {
         ArgumentNullException.ThrowIfNull(member);
-        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId, [.. member.SupersededBy.Select(s => new SupersededByResponse(s.Digest, s.PostId))], member.Kind);
+        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId, [.. member.SupersededBy.Select(s => new SupersededByResponse(s.Digest, s.PostId))], member.Kind, member.AcceptedAt, member.FirstRevision);
     }
 }
 
@@ -185,6 +274,9 @@ public sealed class AcceptedAnswerResponseConverter : JsonConverter<AcceptedAnsw
         writer.WriteString("digest", value.Digest);
         if (value.PostId is not null) writer.WriteString("post_id", value.PostId);
         if (value.Kind is not null) writer.WriteString("kind", value.Kind);
+        // R9.71: the acceptance's instant as the receipt writes it, and, only where the post named has a revision, which came first in log order.
+        if (value.AcceptedAt is not null) writer.WriteString("accepted_at", value.AcceptedAt);
+        if (value.FirstRevision is not null) writer.WriteString("first_revision", value.FirstRevision);
         writer.WriteStartArray("superseded_by");
         foreach (var successor in value.SupersededBy.IsDefault ? [] : value.SupersededBy)
         {
@@ -2390,7 +2482,7 @@ public static class ForumEndpoints
         {
             thread_root = acceptance!.ThreadRoot,
             post_id = acceptance.AnswerId,
-            accepted_at = acceptance.AcceptedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+            accepted_at = AcceptanceFact.InstantText(acceptance.AcceptedAt),
             already_accepted = acceptance.AlreadyAccepted,
             // R8.71 (errata G40): always present; the replaced answer's post id, or JSON null.
             replaced_answer = acceptance.ReplacedAnswer,
@@ -2470,12 +2562,13 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
 
-        var answers = views
-            .Where(p => string.Equals(p.Parent, canonical.PostId, StringComparison.Ordinal)
-                && string.Equals(p.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal)
-                && servable(p.PostId))
-            .Select(p => ToResponse(p, standings, marking, contract, accepted, verification, disputed, corrections, acta))
-            .ToImmutableArray();
+        // R9.69 (errata G76): the answers are the index's, the list the question's `served` count is the length of, so `answers=N` below and the question's own member cannot disagree.
+        var question = views.FirstOrDefault(v => string.Equals(v.PostId, canonical.PostId, StringComparison.Ordinal));
+        var answers = question is null
+            ? []
+            : accepted.ServedAnswersOf(question)
+                .Select(p => ToResponse(p, standings, marking, contract, accepted, verification, disputed, corrections, acta))
+                .ToImmutableArray();
 
         var t = assessment.Thresholds!;
         return Results.Json(
@@ -3180,6 +3273,21 @@ public static class ForumEndpoints
             // The one rule that sets the answer's `accepted` below also sets this, so the two cannot disagree.
             AcceptedAnswer: string.Equals(p.Kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal)
                 ? AcceptedAnswerResponse.From(accepted.StandingOf(p))
+                : null,
+
+            // R9.69: a question states how many answers the Forum serves it; no other kind carries the member.
+            Answers: string.Equals(p.Kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal)
+                ? new AnswersResponse(accepted.ServedAnswersTo(p))
+                : null,
+
+            // R9.70: a revision whose correction chain ends at a question says which; the index returns null for a revision of anything else.
+            Revises: string.Equals(p.Kind, PostKinds.Wire(PostKind.Revision), StringComparison.Ordinal)
+                ? RevisesResponse.From(accepted.RevisesOf(p))
+                : null,
+
+            // R9.71 (b): an answer always says whether its question was revised before or after it was posted: a present null for "no revision".
+            QuestionRevised: string.Equals(p.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal)
+                ? QuestionRevisedResponse.From(accepted.QuestionRevisedOf(p))
                 : null);
 
         return new PostResponse(

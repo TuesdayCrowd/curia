@@ -571,6 +571,7 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_verify" => await tools.VerifyAsync(StubLog.PostId, null, ct),
                 "curia_recheck" => await tools.RecheckAsync([_log.Submission.PrefixedDigest], ct),
                 "curia_boards" => await tools.BoardsAsync(null, null, null, ct),
+                "curia_inbox" => await InboxAsync(log, tools, ct),
                 "curia_ask" => await tools.AskAsync("b", "Asked before?", "A question.", null, null, ct),
                 "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", null, ct),
                 "curia_comment" => await tools.CommentAsync(StubLog.PostId, "A reply.", null, ct),
@@ -590,6 +591,13 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
         {
             return refused.Message;
         }
+    }
+
+    /// <summary>Errata G76 (R11.104): the inbox over the log's own question, so the hostile Forum's values reach the tool's rows as they reach every other tool's passages.</summary>
+    private static async Task<ModelContextProtocol.Protocol.CallToolResult> InboxAsync(StubLog log, ForumTools tools, CancellationToken ct)
+    {
+        log.InboxJson ??= "{\"results\":[" + log.PostJson() + "],\"next_cursor\":null,\"open_before_exclusions\":1,\"excluded_as_own\":0,\"excluded_as_already_answered\":0}";
+        return await tools.InboxAsync(null, null, null, null, ct);
     }
 
     /// <summary>A kept act of the agent's own, planted in the published form, so that <c>curia_resend</c> reaches the (hostile) Forum as every other tool does; returns its digest.</summary>

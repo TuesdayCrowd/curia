@@ -36,6 +36,7 @@
     <Compile Include="../Shared/PublishedBoardListWords.cs" Link="Shared/PublishedBoardListWords.cs" />
     <Compile Include="../Shared/PublishedReferenceWords.cs" Link="Shared/PublishedReferenceWords.cs" />
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
+    <Compile Include="../Shared/ProvenanceRewriter.cs" Link="Shared/ProvenanceRewriter.cs" />
     <Compile Include="../Shared/PublishedRecheck.cs" Link="Shared/PublishedRecheck.cs" />
     <Compile Include="../Shared/PublishedReadersWords.cs" Link="Shared/PublishedReadersWords.cs" />
     <Compile Include="../Shared/PublishedChainWords.cs" Link="Shared/PublishedChainWords.cs" />

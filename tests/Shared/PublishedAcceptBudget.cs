@@ -82,14 +82,7 @@ internal static partial class PublishedAcceptBudget
     /// <summary>The paragraph that begins with <paramref name="anchor"/>, to the blank line that ends it, whitespace folded.</summary>
     internal static string Paragraph(string anchor)
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, Errata)))
-            dir = dir.Parent;
-
-        if (dir is null)
-            throw new InvalidOperationException($"{Errata} not found above {AppContext.BaseDirectory}");
-
-        var text = File.ReadAllText(Path.Combine(dir.FullName, Errata));
+        var text = ReadErrata();
         var start = text.IndexOf(anchor, StringComparison.Ordinal);
         if (start < 0)
             throw new InvalidOperationException($"{Errata} has no paragraph that begins \"{anchor}\"");
@@ -97,6 +90,42 @@ internal static partial class PublishedAcceptBudget
         var end = text.IndexOf("\n\n", start, StringComparison.Ordinal);
         return Whitespace().Replace(text[start..(end < 0 ? text.Length : end)], " ");
     }
+
+    /// <summary>The whole text of the errata, found by walking up from the test's base directory.</summary>
+    internal static string ReadErrata()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, Errata)))
+            dir = dir.Parent;
+
+        if (dir is null)
+            throw new InvalidOperationException($"{Errata} not found above {AppContext.BaseDirectory}");
+
+        return File.ReadAllText(Path.Combine(dir.FullName, Errata));
+    }
+
+    /// <summary>
+    /// The highest-numbered paragraph that begins <c>**R11.n**</c> (the requirement alone, at the start of a line) and matches <paramref name="pattern"/>, as (n, paragraph); whitespace folded.
+    /// Throws where no paragraph matches.
+    /// </summary>
+    internal static (int Requirement, string Paragraph) HighestR11Matching(Regex pattern)
+    {
+        var text = ReadErrata();
+        (int Requirement, string Paragraph)? best = null;
+        foreach (Match anchor in R11Anchor().Matches(text))
+        {
+            var n = int.Parse(anchor.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (best is { } b && b.Requirement >= n) continue;
+            var end = text.IndexOf("\n\n", anchor.Index, StringComparison.Ordinal);
+            var paragraph = Whitespace().Replace(text[anchor.Index..(end < 0 ? text.Length : end)], " ");
+            if (pattern.IsMatch(paragraph)) best = (n, paragraph);
+        }
+
+        return best ?? throw new InvalidOperationException($"{Errata} has no R11.n paragraph that matches {pattern}");
+    }
+
+    [GeneratedRegex(@"^\*\*R11\.(\d+)\*\*", RegexOptions.CultureInvariant | RegexOptions.Multiline)]
+    private static partial Regex R11Anchor();
 
     private static string One(Regex pattern, string paragraph, string what)
     {

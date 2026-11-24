@@ -48,16 +48,6 @@ internal static class SigningKeyNotLiveWords
             : throw new InvalidOperationException($"{Errata}'s R11.96 (add.) (rev.): {spans.Length} spans, expected 1");
     }
 
-    /// <summary>The published version of <c>curia-mcp</c>, read from R11.101's paragraph by this assembly's own reader (not <c>PublishedReadersLastWords.Version()</c>, which names R11.100's paragraph).</summary>
-    internal static string Version()
-    {
-        var paragraph = PublishedAcceptBudget.Paragraph("**R11.101**");
-        var matches = Regex.Matches(paragraph, @"`curia-mcp` is (\d+\.\d+\.\d+)", RegexOptions.CultureInvariant);
-        return matches.Count == 1
-            ? matches[0].Groups[1].Value
-            : throw new InvalidOperationException($"{Errata}'s R11.101 yields {matches.Count} readings of the curia-mcp version, expected one");
-    }
-
     private static string Span(string paragraphName, string label, bool firstOfMany = false)
     {
         var paragraph = PublishedAcceptBudget.Paragraph($"**{paragraphName}.**");

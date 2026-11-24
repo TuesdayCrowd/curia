@@ -279,9 +279,10 @@ public sealed class AcceptedAnswerEndpointTests(ForumFixture forum) : IClassFixt
         var scene = await SceneAsync(ct);
         await AcceptAsync(scene, scene.Answer1, ct);
 
-        // R9.36's three names, R9.41's one (the object gained `superseded_by`, which errata G40 publishes beside them) and R9.46's `kind` (errata G44).
-        var published = PublishedSearchPage.AcceptedAnswerNames().Append(PublishedReadersWords.R941Member()).Append("kind").Order(StringComparer.Ordinal).ToArray();
-        Assert.Equal(5, published.Length);
+        // R9.36's three names, R9.41's one (the object gained `superseded_by`, which errata G40 publishes beside them) and R9.46's `kind` (errata G44), and R9.71 (a)'s `accepted_at` (errata G76; `first_revision` is
+        // present only where the named post has a revision, which this scene's has not).
+        var published = PublishedSearchPage.AcceptedAnswerNames().Append(PublishedReadersWords.R941Member()).Append("kind").Append("accepted_at").Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(6, published.Length);
 
         var provenance = JsonDocument.Parse(await RawAsync(scene.Question.PostId, ct)).RootElement.GetProperty("provenance");
         Assert.True(provenance.TryGetProperty("accepted_answer", out var member), "accepted_answer is absent");

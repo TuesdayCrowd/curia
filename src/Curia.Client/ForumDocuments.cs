@@ -43,9 +43,9 @@ public sealed record BudgetReceipt(string Name, int? Limit, int Used, int? Remai
 public sealed record InboxPage(
     ImmutableArray<ProvenancePost> Results,
     string? NextCursor,
-    int OpenBeforeExclusions,
-    int ExcludedAsOwn,
-    int ExcludedAsAlreadyAnswered,
+    int? OpenBeforeExclusions,
+    int? ExcludedAsOwn,
+    int? ExcludedAsAlreadyAnswered,
     ImmutableArray<string>? UnmatchedFilters = null);
 
 /// <summary>What the Forum recorded when an answer was accepted (Table 10's <c>answer</c>/<c>accept</c>).</summary>
@@ -227,7 +227,14 @@ public sealed record DuplicateRefusalDocument(
     int RefuseLexicalOverlapBp,
     int AnnotateCosineBp,
     string Model,
-    string Override);
+    string Override)
+{
+    /// <summary>
+    /// R9.69, R10.100 (errata G76, ruling 28): the number of answers the Forum served in the refusal, the document's own list: the ones this client read and the ones it could not. The Forum builds the
+    /// detail's <c>answers=N</c> and this array from one list, so the array's length is the Forum's count; the detail is free prose and is not parsed.
+    /// </summary>
+    public int Served => Answers.Length + UnreadableAnswers;
+}
 
 /// <summary>
 /// What the Forum recorded when it accepted a flag (R10.35).
@@ -518,13 +525,24 @@ internal static class ForumDocuments
         if (!ReadUnmatchedFilters(o, "inbox").TryGetValue(out var unmatched, out var unmatchedError))
             return Result<InboxPage>.Fail(unmatchedError!);
 
-        return Result<InboxPage>.Ok(new InboxPage(
-            posts.ToImmutable(),
-            ClientJson.String(o, "next_cursor"),
-            (int)(ClientJson.Number(o, "open_before_exclusions") ?? 0),
-            (int)(ClientJson.Number(o, "excluded_as_own") ?? 0),
-            (int)(ClientJson.Number(o, "excluded_as_already_answered") ?? 0),
-            unmatched));
+        // R10.101 (errata G76, ruling 18): a count of the account is absent (not stated, never 0) or a non-negative whole number that fits an int. A member that is present
+        // and anything else (a string, null, a boolean, an object, a negative, a value past int.MaxValue) is a malformed response naming the member: the Forum never serves a
+        // count as a string, and a reader that read one as absent would hide a Forum or proxy fault as an ordinary absence.
+        if (!InboxCount(o, "open_before_exclusions").TryGetValue(out var open, out var openError)) return Result<InboxPage>.Fail(openError!);
+        if (!InboxCount(o, "excluded_as_own").TryGetValue(out var own, out var ownError)) return Result<InboxPage>.Fail(ownError!);
+        if (!InboxCount(o, "excluded_as_already_answered").TryGetValue(out var answered, out var answeredError)) return Result<InboxPage>.Fail(answeredError!);
+
+        return Result<InboxPage>.Ok(new InboxPage(posts.ToImmutable(), ClientJson.String(o, "next_cursor"), open, own, answered, unmatched));
+    }
+
+    /// <summary>R10.101: an inbox account count: absent is null (not stated); present, it is a non-negative whole number that fits an int or the page is malformed.</summary>
+    private static Result<int?> InboxCount(JsonValue.Object page, string name)
+    {
+        if (ClientJson.Member(page, name) is null) return Result<int?>.Ok(null);
+
+        return ClientJson.Member(page, name) is JsonValue.Number && ClientJson.WholeNumber(page, name) is >= 0 and <= int.MaxValue and var count
+            ? Result<int?>.Ok((int)count)
+            : Result<int?>.Fail(ClientErrors.ResponseMalformed($"inbox states {name} as something that is not a count (R10.101)"));
     }
 
     internal static Result<AcceptanceReceipt> ReadAcceptance(JsonValue.Object o) =>
@@ -1206,9 +1224,102 @@ internal static class ForumDocuments
             acceptedKind = word.Value;
         }
 
+        // R9.71 (a), errata G76: the acceptance's instant is a string when the Forum states it (printed as the Forum's word, never parsed or compared), and the relation of the first
+        // revision to the acceptance is one of two words; absent is an older Forum (not stated), and anything else present is malformed, never coerced to the nearer word.
+        string? acceptedAt = null;
+        if (ClientJson.Member(answer, "accepted_at") is { } atMember)
+        {
+            if (atMember is not JsonValue.String atText)
+                return Result<AcceptedAnswerMember?>.Fail(ClientErrors.ResponseMalformed("provenance.accepted_answer.accepted_at is not a string (R9.71)"));
+            acceptedAt = atText.Value;
+        }
+
+        string? firstRevision = null;
+        if (ClientJson.Member(answer, "first_revision") is { } relationMember)
+        {
+            if (relationMember is not JsonValue.String { Value: "before_acceptance" or "after_acceptance" } relation)
+            {
+                return Result<AcceptedAnswerMember?>.Fail(
+                    ClientErrors.ResponseMalformed("provenance.accepted_answer.first_revision is neither \"before_acceptance\" nor \"after_acceptance\" (R9.71)"));
+            }
+
+            firstRevision = relation.Value;
+        }
+
         // R9.41: the answer's revisions, read as strictly as the answer's own list. Absent is not stated, which is not empty.
         return ReadSupersededBy(answer, "provenance.accepted_answer.superseded_by", "R9.41")
-            .Map(revisions => (AcceptedAnswerMember?)new AcceptedAnswerMember(digest, postId, revisions, acceptedKind));
+            .Map(revisions => (AcceptedAnswerMember?)new AcceptedAnswerMember(digest, postId, revisions, acceptedKind, acceptedAt, firstRevision));
+    }
+
+    /// <summary>
+    /// R9.69 (errata G76): <c>provenance.answers</c> is absent (the Forum did not state it: null, which is not 0) or <c>{"served": n}</c> with n a non-negative whole number that fits an int, and it is on a question
+    /// only. Anything else that is present, including the member on a post of another kind, is a malformed response and is never coerced.
+    /// </summary>
+    private static Result<AnswersMember?> ReadAnswers(JsonValue.Object provenance, string kind)
+    {
+        if (ClientJson.Member(provenance, "answers") is not { } member) return Result<AnswersMember?>.Ok(null);
+
+        if (!string.Equals(kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal))
+            return Result<AnswersMember?>.Fail(ClientErrors.ResponseMalformed("provenance.answers is on a post that is not a question (R9.69)"));
+
+        if (member is JsonValue.Object counted && Count(counted, "served") is { } served && ClientJson.Member(counted, "served") is JsonValue.Number)
+            return Result<AnswersMember?>.Ok(new AnswersMember(served));
+
+        return Result<AnswersMember?>.Fail(ClientErrors.ResponseMalformed("provenance.answers is not {\"served\": n} with n a non-negative whole number (R9.69)"));
+    }
+
+    /// <summary>
+    /// R9.70 (errata G76): <c>provenance.revises</c> is absent (not a statement: a revision of an answer or a comment carries none, and a reader of one revision cannot tell that from an older Forum's) or
+    /// <c>{"kind": "question", "post_id"?: "..."}</c> on a post of kind <c>revision</c>. Anything else present is malformed: another kind word, a non-string or empty post id, a non-object, the member on another kind.
+    /// </summary>
+    private static Result<RevisesMember?> ReadRevises(JsonValue.Object provenance, string kind)
+    {
+        if (ClientJson.Member(provenance, "revises") is not { } member) return Result<RevisesMember?>.Ok(null);
+
+        var malformed = Result<RevisesMember?>.Fail(ClientErrors.ResponseMalformed("provenance.revises is not {\"kind\": \"question\", \"post_id\"?: id} on a revision (R9.70)"));
+        if (!string.Equals(kind, PostKinds.Wire(PostKind.Revision), StringComparison.Ordinal)) return malformed;
+        if (member is not JsonValue.Object revises || ClientJson.String(revises, "kind") is not "question") return malformed;
+
+        string? postId = null;
+        if (ClientJson.Member(revises, "post_id") is { } id)
+        {
+            if (id is not JsonValue.String { Value.Length: > 0 } text) return malformed;
+            postId = text.Value;
+        }
+
+        return Result<RevisesMember?>.Ok(new RevisesMember("question", postId));
+    }
+
+    /// <summary>
+    /// R9.71 (b) (errata G76): <c>provenance.question_revised</c> is absent (a Forum that did not say), <c>null</c> (<see cref="QuestionRevisedMember.None"/>: the question has no revision), or
+    /// <c>{"first_revision": {"digest": ..., "post_id"?: ...}, "answer_posted": "before" | "after"}</c>, and it is on an answer only. Anything else present is malformed.
+    /// </summary>
+    private static Result<QuestionRevisedMember?> ReadQuestionRevised(JsonValue.Object provenance, string kind)
+    {
+        if (ClientJson.Member(provenance, "question_revised") is not { } member) return Result<QuestionRevisedMember?>.Ok(null);
+
+        var malformed = Result<QuestionRevisedMember?>.Fail(
+            ClientErrors.ResponseMalformed("provenance.question_revised is neither null nor a first revision with answer_posted before or after, on an answer (R9.71)"));
+        if (!string.Equals(kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal)) return malformed;
+        if (member is JsonValue.Null) return Result<QuestionRevisedMember?>.Ok(QuestionRevisedMember.None);
+
+        if (member is not JsonValue.Object revised
+            || ClientJson.Object(revised, "first_revision") is not { } first
+            || ClientJson.String(first, "digest") is not { } digest
+            || !EnvelopeDigest.IsPrefixedForm(digest)
+            || ClientJson.String(revised, "answer_posted") is not ("before" or "after"))
+            return malformed;
+
+        var posted = ClientJson.String(revised, "answer_posted");
+
+        string? postId = null;
+        if (ClientJson.Member(first, "post_id") is { } id)
+        {
+            if (id is not JsonValue.String { Value.Length: > 0 } text) return malformed;
+            postId = text.Value;
+        }
+
+        return Result<QuestionRevisedMember?>.Ok(new QuestionRevisedMember(digest, postId, posted));
     }
 
     internal static Result<ProvenancePost> ReadPost(JsonValue value)
@@ -1248,6 +1359,16 @@ internal static class ForumDocuments
         if (!ReadAcceptedAnswer(p, ClientJson.String(o, "kind") ?? string.Empty).TryGetValue(out var acceptedAnswer, out var acceptedError))
             return Result<ProvenancePost>.Fail(acceptedError!);
 
+        var postKind = ClientJson.String(o, "kind") ?? string.Empty;
+        if (!ReadAnswers(p, postKind).TryGetValue(out var answers, out var answersError))
+            return Result<ProvenancePost>.Fail(answersError!);
+
+        if (!ReadRevises(p, postKind).TryGetValue(out var revises, out var revisesError))
+            return Result<ProvenancePost>.Fail(revisesError!);
+
+        if (!ReadQuestionRevised(p, postKind).TryGetValue(out var questionRevised, out var questionRevisedError))
+            return Result<ProvenancePost>.Fail(questionRevisedError!);
+
         var provenance = new Provenance(
             ClientJson.String(p, "content_type") ?? string.Empty,
             ClientJson.String(p, "warning") ?? string.Empty,
@@ -1269,7 +1390,10 @@ internal static class ForumDocuments
             ClientJson.String(p, "key_status") ?? "active",
             ClientJson.WholeNumber(p, "disputed_by_log_index"),
             supersededBy,
-            acceptedAnswer);
+            acceptedAnswer,
+            answers,
+            revises,
+            questionRevised);
 
         if (ClientJson.String(o, "post_id") is not { } postId
             || ClientJson.String(o, "canonical") is not { } canonical

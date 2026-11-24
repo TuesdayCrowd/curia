@@ -41,7 +41,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.12.5";
+    internal const string Version = "0.12.6";
 
     /// <summary>
     /// The tier sentence of a tool with no Table 10 pair (R11.30 (rev.), errata G68): <c>curia_verify</c>'s, which names no Forum authority and states that no tier is required (R11.26). Both pairless
@@ -160,6 +160,19 @@ internal static class ToolCatalogue
                 Description = ToolText.Compose(
                     ToolText.BudgetTemplate,
                     TierSpan.For(ResourceKind.Budget, ActionKind.Read)),
+                ReadOnly = true,
+                Idempotent = true,
+                OpenWorld = true,
+            });
+
+        // R11.104 (errata G76): the inbox, read as the configured agent. It has no Table 10 row, and the pair the PDP evaluates for the route (`thread`/`search`) is anonymous-permitted while the route refuses a call with
+        // no token, so a description composed from that span would say the opposite of the route: its requirement is the adapter's own sentence (ToolText.InboxRequirement), held against the route by INX6.
+        yield return McpServerTool.Create(
+            tools.InboxAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_inbox",
+                Description = ToolText.Compose(ToolText.InboxTemplate, ToolText.InboxRequirement),
                 ReadOnly = true,
                 Idempotent = true,
                 OpenWorld = true,

@@ -85,9 +85,6 @@ public sealed partial class SearchChannelToolTests : IDisposable
     private static string Shown(string block, params string[] needles) =>
         string.Join(" ", needles.Select(n => $"[{Head(n)}]@{block.IndexOf(n, StringComparison.Ordinal).ToString(CultureInfo.InvariantCulture)}"));
 
-    [GeneratedRegex("`curia-mcp` is ([0-9]+\\.[0-9]+\\.[0-9]+)", RegexOptions.CultureInvariant)]
-    private static partial Regex VersionPhrase();
-
     /// <summary>
     /// MBC6. R11.103: the first block holds <c>ModelWording.Sentence(model)</c> byte for byte, the count line (the literal the CLI's test holds for the same page), the diversified line, the
     /// gloss of a `words` mark and the sentence that the score is not a cosine, and (Amendment 1, ruling 7(a)) in this order: the adapter's own <c>key=value</c> line, the count line, the
@@ -143,13 +140,13 @@ public sealed partial class SearchChannelToolTests : IDisposable
     }
 
     /// <summary>
-    /// MBC6 (version). R11.103 names the version: <c>`curia-mcp` is 0.12.5</c>. Read here by this task's own reader out of R11.103's paragraph (UDO9's shape), not through
-    /// <c>PublishedReadersLastWords.Version()</c>, which still reads R11.102's and is re-pointed with the bump; the catalogue's constant is what <c>initialize</c> serves as <c>serverInfo.version</c>.
+    /// MBC6 (version). R11.103 names the version: <c>`curia-mcp` is X.Y.Z</c>. Read through the one parser, <c>PublishedReadersLastWords.Version()</c> (item 344);
+    /// the catalogue's constant is what <c>initialize</c> serves as <c>serverInfo.version</c>.
     /// </summary>
     [Fact]
     public void MBC6_TheCatalogueIsBumpedToWhatR11103Names()
     {
-        var named = VersionPhrase().Match(Paragraph("**R11.103**")).Groups[1].Value;
+        var named = PublishedReadersLastWords.Version();
 
         Assert.True(named == ToolCatalogue.Version, $"Expected: {named}  Actual: {ToolCatalogue.Version}");
     }

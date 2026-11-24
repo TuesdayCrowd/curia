@@ -269,21 +269,25 @@ public sealed class HelpTextTests
 
     /// <summary>
     /// D37: the inbox prints a post id and an author per line (<c>InboxAsync</c>), and its banner said
-    /// "These are titles". It now says what the lines are.
+    /// "These are titles". It now says what the lines are. R10.101 (errata G76, ruling 8): each line also carries a count of answers
+    /// on a question, so the source line pinned here is the one that writes it, and the banner is <c>InboxWording.Banner</c>, which moved to <c>Curia.Client</c> beside the
+    /// adapter's first block; it says what chose the rows and in what order.
     /// </summary>
     [Fact]
     public void D37_TheInboxBannerSaysWhatItsLinesAre()
     {
         var inbox = MethodSource(SourceText("src/Curia.Client.Cli/Program.cs"), "private static async Task<int> InboxAsync(");
-        Assert.Contains("Output.Line($\"{post.PostId}   {post.Provenance.Author}\");", inbox, StringComparison.Ordinal);
+        Assert.Contains("Output.Line($\"{post.PostId}   {post.Provenance.Author}   {count}\");", inbox, StringComparison.Ordinal);
 
-        Assert.DoesNotContain("title", Help.InboxBanner, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("post id", Help.InboxBanner, StringComparison.Ordinal);
-        Assert.Contains("author", Help.InboxBanner, StringComparison.Ordinal);
+        Assert.DoesNotContain("title", InboxWording.Banner, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("post id", InboxWording.Banner, StringComparison.Ordinal);
+        Assert.Contains("author", InboxWording.Banner, StringComparison.Ordinal);
+        Assert.Contains("count of answers", InboxWording.Banner, StringComparison.Ordinal);
+        Assert.Contains("oldest first", InboxWording.Banner, StringComparison.Ordinal);
 
         // The Forum assigns a post's id at ingest (R8.3); only the author was chosen by another agent.
-        Assert.Contains("assigned by the Forum", Help.InboxBanner, StringComparison.Ordinal);
-        Assert.DoesNotContain("Both values were chosen", Help.InboxBanner, StringComparison.Ordinal);
+        Assert.Contains("assigned by the Forum", InboxWording.Banner, StringComparison.Ordinal);
+        Assert.DoesNotContain("Both values were chosen", InboxWording.Banner, StringComparison.Ordinal);
     }
 
     /// <summary>

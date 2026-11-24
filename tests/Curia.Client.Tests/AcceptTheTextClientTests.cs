@@ -97,6 +97,9 @@ public sealed class AcceptTheTextClientTests
 
     // ----- PK24: the question's line -----
 
+    /// <summary>R10.100: what a question whose Forum served no <c>answers</c> member says first (these members are built with none), hand-written from the errata's sentence.</summary>
+    private const string NoCount = "NOT STATED (no count; not 0), ";
+
     private static string PassageLine(AcceptedAnswerMember member) => Assert.IsType<OwnText>(AnswerStanding.PassageLine("question", member)).Text;
 
     private static string RowLine(AcceptedAnswerMember member) => Assert.IsType<OwnText>(AnswerStanding.Row("question", member)).Text;
@@ -108,15 +111,16 @@ public sealed class AcceptTheTextClientTests
     [Fact]
     public void R10_85_PK24_TheQuestionsLineStatesARevisionAndKeepsTheAnswerLineByteForByte()
     {
-        var golden = $"accepted: post {DisplayLiteral.Of(RevisionId)}, chosen by the thread's asker {Basis}";
+        // Ruling 8 (R10.100, ruling 27): the G36 literal now carries the acceptance's instant fragment (NOT STATED where the member carries none) and, first, the count's NOT STATED (this member is built with no count).
+        var golden = $"accepted: post {DisplayLiteral.Of(RevisionId)} (accepted at NOT STATED), chosen by the thread's asker {Basis}";
 
         var revision = new AcceptedAnswerMember(Digest, RevisionId, [], "revision");
         var answer = new AcceptedAnswerMember(Digest, RevisionId, [], "answer");
         var unstated = new AcceptedAnswerMember(Digest, RevisionId, []);
 
         // The control first: an answer's line is the G36 line, in both forms (green now).
-        Assert.Equal("answers  " + golden, PassageLine(answer));
-        Assert.Equal("answers " + golden, RowLine(answer));
+        Assert.Equal("answers  " + NoCount + golden, PassageLine(answer));
+        Assert.Equal("answers " + NoCount + golden, RowLine(answer));
 
         // A revision says so in both forms.
         Assert.Contains("a revision", PassageLine(revision), StringComparison.Ordinal);
@@ -135,7 +139,7 @@ public sealed class AcceptTheTextClientTests
 
         Assert.Contains($"the revision with digest {DisplayLiteral.Of(Digest)} ({PublishedReadersLastWords.DefinitionSentence()})", line, StringComparison.Ordinal);
         Assert.Equal(
-            $"answers  accepted: the answer with digest {DisplayLiteral.Of(Digest)} ({PublishedReadersLastWords.DefinitionSentence()}), chosen by the thread's asker {Basis}",
+            $"answers  {NoCount}accepted: the answer with digest {DisplayLiteral.Of(Digest)} ({PublishedReadersLastWords.DefinitionSentence()}) (accepted at NOT STATED), chosen by the thread's asker {Basis}",
             PassageLine(new AcceptedAnswerMember(Digest, null, [], "answer")));
     }
 
