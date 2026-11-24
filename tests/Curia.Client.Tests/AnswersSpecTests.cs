@@ -23,16 +23,15 @@ public sealed class AnswersSpecTests
     }
 
     /// <summary>
-    /// R11.30 (rev.) is annotated more than once in the errata (G58 and G68 each add a paragraph under the anchor), so <see cref="PublishedAcceptBudget.Paragraph(string)"/>, which takes the first, would read
-    /// the wrong one: the paragraph read is the one under that anchor that holds the third arm's own sentence.
+    /// The anchor of G76's third arm is unique (ruling 26): <c>**R11.30 (rev. 2)**</c> begins exactly one paragraph. <see cref="PublishedAcceptBudget.Paragraph(string)"/> takes the first match and
+    /// would stay green if a later entry reused the anchor, so this holds the count and the filter helpers INX7 and INX8 first carried are not needed.
     /// </summary>
-    internal static string ThirdArm()
+    [Fact]
+    public void INX8_TheAnchorOfTheThirdArmBeginsExactlyOneParagraph()
     {
-        var found = PublishedAcceptBudget.ReadErrata().Split("\n\n", StringSplitOptions.None)
-            .Where(p => p.StartsWith("**R11.30 (rev.)**", StringComparison.Ordinal) && p.Contains("defined by what the caller has already done", StringComparison.Ordinal))
-            .Select(p => string.Join(' ', p.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
-            .ToArray();
-        return found.Length == 1 ? found[0] : throw new InvalidOperationException($"the errata holds {found.Length} paragraphs under **R11.30 (rev.)** that state the third arm, expected one");
+        var starting = PublishedAcceptBudget.ReadErrata().Split("\n\n", StringSplitOptions.None).Count(p => p.StartsWith("**R11.30 (rev. 2)**", StringComparison.Ordinal));
+
+        Assert.Equal(1, starting);
     }
 
     [Fact]
@@ -46,7 +45,7 @@ public sealed class AnswersSpecTests
             "SHALL be made by the one function that lists a duplicate refusal's answers",   // ANC2
             "A revision of an answer, a comment and an answer the Forum withholds SHALL NOT be counted",   // ANC1
             "No post of another kind SHALL carry the member",                                // ANC3
-            "changes the validator of the post it is served with",                           // ANC4
+            "this entry adds no validator rule",                                             // ANC4 (ruling 29: R9.11 owns the validator; the member only changes the bytes it is taken from)
             "it counts posts and says nothing of whether any answer is correct or responsive");
     }
 
@@ -126,7 +125,7 @@ public sealed class AnswersSpecTests
             "SHALL say that a count of answers is not a filter",                              // INX4
             "the server instructions SHALL name it");                                         // INX5
         Holds(
-            ThirdArm(),
+            PublishedAcceptBudget.Paragraph("**R11.30 (rev. 2)**"),
             "a read whose result is defined by what the caller has already done",
             "which a model with no memory between sessions cannot supply to any other read",
             "`curia_inbox` is admitted on that arm and on no other");

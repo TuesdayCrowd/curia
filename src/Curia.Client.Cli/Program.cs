@@ -867,23 +867,29 @@ internal static class Program
                 // R10.97 (Amendment 4, ruling 41): the words are NameWording's: beside a board nothing bears the filters line is the only statement, and beside a NOT STATED one the first half alone.
                 if (!NameWording.AnyUnmatched(args.Value("board"), null, inbox.UnmatchedFilters))
                 {
-                    if (inbox.OpenBeforeExclusions == 0)
+                    if (inbox.OpenBeforeExclusions is 0)
                         Output.Line($"{new OwnText(NameWording.InboxEmptySentence(args.Value("board"), inbox.UnmatchedFilters)!)}");
                     else
-                        Output.Line(Summary(inbox));
+                        Output.Line($"{new OwnText(Summary(inbox))}");
                 }
 
                 return ExitCode.Ok;
             }
 
-            Output.Line(Help.InboxBanner);
+            Output.Line($"{new OwnText(InboxWording.Banner)}");
             Output.Blank();
 
+            // R10.101: each row is the post id, its author and, on a question, the count of answers the Forum serves (R10.100's words, one definition with the adapter's rows).
             foreach (var post in inbox.Results)
-                Output.Line($"{post.PostId}   {post.Provenance.Author}");
+            {
+                if (AnswerStanding.CountRow(post.Kind, post.Provenance.Answers) is { } count)
+                    Output.Line($"{post.PostId}   {post.Provenance.Author}   {count}");
+                else
+                    Output.Line($"{post.PostId}   {post.Provenance.Author}");
+            }
 
             Output.Blank();
-            Output.Line(Summary(inbox));
+            Output.Line($"{new OwnText(Summary(inbox))}");
 
             if (inbox.NextCursor is { Length: > 0 } next)
                 Output.Line($"more: {Hints.More("curia inbox ...", next)}");
@@ -893,8 +899,7 @@ internal static class Program
     }
 
     /// <summary>What the inbox left out, in the agent's own terms: the open set before exclusions, two counts of it, and how many are listed.</summary>
-    internal static FrameText Summary(InboxPage inbox) =>
-        $"{inbox.OpenBeforeExclusions} open before exclusions, of which {inbox.ExcludedAsOwn} yours and {inbox.ExcludedAsAlreadyAnswered} already answered by you; {inbox.Results.Length} listed.";
+    internal static string Summary(InboxPage inbox) => InboxWording.Summary(inbox);
 
     /// <summary>
     /// Table 10's <c>answer</c>/<c>accept</c>: <c>curia resolve &lt;post-id&gt;</c>.
@@ -1139,7 +1144,10 @@ internal static class Program
         foreach (var hit in page.Results)
         {
             var mark = SearchWording.Mark(hit.MatchedBy) is { } marked ? new OwnText("   matched by " + marked) : new OwnText(string.Empty);
-            Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro} µ   {hit.Post.Provenance.VerificationLevel}{mark}");
+
+            // R10.100: the line of a question hit also says how many answers the Forum serves it (this line prints no kind, so a hit that is not a question, and one the Forum served no count for, is unchanged).
+            var served = AnswerStanding.HitCount(hit.Post.Kind, hit.Post.Provenance.Answers) is { } counted ? new OwnText("   " + counted.Text) : new OwnText(string.Empty);
+            Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro} µ   {hit.Post.Provenance.VerificationLevel}{served}{mark}");
 
             if (hit.Why is { } why)
             {

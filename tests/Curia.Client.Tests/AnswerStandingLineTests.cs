@@ -67,7 +67,7 @@ public sealed class AnswerStandingLineTests : IDisposable
             Kind = kind,
             Signature = signed.Signature,
             Digest = signed.PrefixedDigest,
-            Provenance = post.Provenance with { AcceptedAnswer = member },
+            Provenance = post.Provenance with { AcceptedAnswer = member, Answers = new AnswersMember(2) },
         };
 
         return new Passage(post, new SignatureVerdict(true, "alice-1", "ok", signed.Digest, signed.PrefixedDigest));
@@ -107,22 +107,22 @@ public sealed class AnswerStandingLineTests : IDisposable
         switch (state)
         {
             case "accepted":
-                Assert.StartsWith("answers  accepted: post ", line, StringComparison.Ordinal);
+                Assert.StartsWith("answers  2 served, accepted: post ", line, StringComparison.Ordinal);
                 Assert.Contains(DisplayLiteral.Of(AnswerId), line, StringComparison.Ordinal);
                 Assert.Contains(Basis, line, StringComparison.Ordinal);
                 break;
             case "accepted but not served":
-                Assert.StartsWith("answers  accepted: ", line, StringComparison.Ordinal);
+                Assert.StartsWith("answers  2 served, accepted: ", line, StringComparison.Ordinal);
                 Assert.Contains(DisplayLiteral.Of(Digest), line, StringComparison.Ordinal);
                 Assert.Contains("not served", line, StringComparison.Ordinal);
                 Assert.DoesNotContain(AnswerId, line, StringComparison.Ordinal);
                 Assert.Contains(Basis, line, StringComparison.Ordinal);
                 break;
             case "none accepted":
-                Assert.StartsWith("answers  none accepted", line, StringComparison.Ordinal);
+                Assert.StartsWith("answers  2 served, none accepted", line, StringComparison.Ordinal);
                 break;
             default:
-                Assert.StartsWith("answers  NOT STATED", line, StringComparison.Ordinal);
+                Assert.StartsWith("answers  2 served, NOT STATED", line, StringComparison.Ordinal);
                 break;
         }
 

@@ -191,7 +191,7 @@ public sealed class InboxToolTests : IDisposable
                 : base.SendAsync(request, cancellationToken);
     }
 
-    /// <summary>INX3. A refusal of the Forum's reaches the model worded by its cause, as <c>curia_budget</c>'s does: an error result naming the problem's type and detail, not a transport fault. Red on the tree (the tool is absent).</summary>
+    /// <summary>INX3. A refusal of the Forum's reaches the model worded by its cause, as <c>curia_budget</c>'s does: an error result carrying the problem's title and detail (as display literals), not a transport fault. Red on the tree (the tool is absent).</summary>
     [Fact]
     public async Task R11_104_INX3_AForumRefusalIsRelayedWordedByItsCause()
     {
@@ -203,7 +203,8 @@ public sealed class InboxToolTests : IDisposable
         var answered = await session.CallAsync("curia_inbox", []);
 
         Assert.True(answered.IsError, answered.Text);
-        Assert.Contains("curia/rate/limited", answered.Text, StringComparison.Ordinal);
+        // Refusal.Summary quotes the problem document's title and detail as display literals (R10.63) and not its type, as curia_budget's refusal does.
+        Assert.Contains("Too many requests", answered.Text, StringComparison.Ordinal);
         Assert.Contains("slow down", answered.Text, StringComparison.Ordinal);
     }
 
@@ -307,6 +308,42 @@ public sealed class InboxToolTests : IDisposable
         Assert.DoesNotContain(ForeignTitle, row, StringComparison.Ordinal);
         Assert.Contains("(no title:", row, StringComparison.Ordinal);
         Assert.Contains("did not verify", row, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// INX5, ruling 32: each row's standing warning is the adapter's, appended after the row's closing span (or after its <c>no title</c> line when there is no span) and never inside a span. A row that verified carries
+    /// one open delimiter, one close delimiter and the warning after both; the row that did not verify carries no delimiter and the warning after its reason line; each row carries the warning once. The CLI's titled
+    /// page is the control: <c>TitledIndex.Write</c> is unchanged, so every existing <c>--titles</c> suite passes unedited and none prints the warning per row.
+    /// </summary>
+    [Fact]
+    public async Task R11_104_INX5_TheStandingWarningFollowsEachRowsSpanAndIsNeverInsideOne()
+    {
+        ServeInbox();
+        await using var session = await SessionAsync(Tools());
+        Assert.True((await session.ListAsync()).Any(t => t.Name == "curia_inbox"), "Expected: curia_inbox listed Actual: absent");
+
+        var answered = await session.CallAsync("curia_inbox", []);
+
+        Assert.False(answered.IsError, answered.Text);
+        var rows = answered.Blocks.Skip(1).ToArray();
+        Assert.Equal(3, rows.Length);
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var warning = rows[i].IndexOf(Provenance.StandardWarning, StringComparison.Ordinal);
+            Assert.True(warning >= 0 && rows[i].IndexOf(Provenance.StandardWarning, warning + 1, StringComparison.Ordinal) < 0, $"row {i} does not carry the standing warning exactly once");
+            if (i < 2)
+            {
+                var open = rows[i].IndexOf(Datamarking.OpenDelimiter, StringComparison.Ordinal);
+                var close = rows[i].IndexOf(Datamarking.CloseDelimiter, StringComparison.Ordinal);
+                Assert.True(open >= 0 && close > open, $"row {i} has no span to place the warning after");
+                Assert.True(warning > close, $"row {i}'s warning is not after its closing delimiter");
+            }
+            else
+            {
+                Assert.DoesNotContain(Datamarking.OpenDelimiter, rows[i], StringComparison.Ordinal);
+                Assert.True(warning > rows[i].IndexOf("(no title:", StringComparison.Ordinal), "the unverified row's warning is not after its reason line");
+            }
+        }
     }
 
     /// <summary>INX5: the server instructions name <c>curia_inbox</c> when an identity is configured, from the catalogue's own list (R11.104: "the server instructions SHALL name it"). Red on the tree.</summary>

@@ -311,7 +311,8 @@ public sealed class AnswersLinesTests : IDisposable
 
         var line = Assert.Single(AnswersWireHarness.Lines(await RenderedAsync(), "answers  "));
 
-        Assert.Contains("since revised", line, StringComparison.Ordinal);
+        // Ruling 27: the full fragment, hand-written here and not read from AnswerStanding.
+        Assert.Contains("which its author has since revised", line, StringComparison.Ordinal);
         Assert.Contains(DisplayLiteral.Of(Instant), line, StringComparison.Ordinal);
     }
 
@@ -327,14 +328,14 @@ public sealed class AnswersLinesTests : IDisposable
         var line = Assert.Single(AnswersWireHarness.Lines(await RenderedAsync(), "answers  "));
 
         Assert.DoesNotContain("since revised", line, StringComparison.Ordinal);
-        Assert.Contains("already revised", line, StringComparison.Ordinal);
+        Assert.Contains("which its author had already revised when the asker accepted it", line, StringComparison.Ordinal);
         Assert.Contains(DisplayLiteral.Of(Instant), line, StringComparison.Ordinal);
     }
 
     /// <summary>ACA4, the same two words in the one-row forms (the titled row and the screen's H6): the three forms cannot say it differently.</summary>
     [Theory]
-    [InlineData("before_acceptance", "already revised", "since revised")]
-    [InlineData("after_acceptance", "since revised", "already revised")]
+    [InlineData("before_acceptance", "which its author had already revised when the asker accepted it", "since revised")]
+    [InlineData("after_acceptance", "which its author has since revised", "already revised")]
     public async Task R10_100_ACA4_TheRowFormsSayTheSameAsTheFrame(string relation, string says, string doesNotSay)
     {
         ServeAcceptance(relation);

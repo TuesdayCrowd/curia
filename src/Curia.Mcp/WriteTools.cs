@@ -451,6 +451,78 @@ internal sealed partial class ForumTools
     }
 
     /// <summary>
+    /// R11.104, R10.101 (errata G76)'s <c>curia_inbox</c>: the open questions this agent has not asked and has not answered, oldest first, as the agent this adapter is configured with. A read
+    /// defined by what the caller has already done (R11.30 (rev. 2)), so it takes the session's token; it signs and writes nothing.
+    ///
+    /// <para>The first block is this adapter's own, outside every post's frame: the account line (the words <c>curia inbox</c> prints, <see cref="InboxWording"/>), the filters line (R10.97), the cursor
+    /// or that there is none, and what chose the rows. Each question is a block of its own, the <b>titled form of R10.71</b> (<see cref="TitledIndex.Write"/>: the frame, the count of answers and the verified title
+    /// as content; no body, because a body is bounded only by the submission cap and this is a read for choosing what to read), followed by the standing warning after the row's closing span, as
+    /// <c>curia_boards</c> appends it to each row. A row whose signature does not verify is listed, without a title and saying why: a listing that hid it would be a second filter the first block does not state.</para>
+    /// </summary>
+    internal async Task<CallToolResult> InboxAsync(
+        string? board = null, string[]? tags = null, int? limit = null, string? cursor = null, CancellationToken cancellationToken = default)
+    {
+        if (ArgumentGuards.PresentValue(board, nameof(board)) is { } blankBoard) return blankBoard;
+        if (ArgumentGuards.StorableIdentifier(board, nameof(board)) is { } unstorableBoard) return unstorableBoard;
+        if (ArgumentGuards.PresentValue(cursor, nameof(cursor)) is { } blankCursor) return blankCursor;
+        if (ArgumentGuards.StorableIdentifier(cursor, nameof(cursor)) is { } unstorableCursor) return unstorableCursor;
+        if (ArgumentGuards.Items(tags, nameof(tags), blankToo: true) is { } blankTag) return blankTag;
+        if (ArgumentGuards.StorableItems(tags, nameof(tags)) is { } unstorableTags) return unstorableTags;
+        if (ArgumentGuards.Range(limit, nameof(limit), 1, InboxMaximumLimit) is { } outOfRange) return outOfRange;
+        var writer = Writer();
+
+        var read = await writer.Session.InboxAsync(
+            new InboxRequest { Board = board, Tags = [.. tags ?? []], Cursor = cursor, Limit = limit }, _marking, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var inbox, out var refusal))
+            throw WriteRefused(refusal!, ResourceKind.Thread, ActionKind.Search);
+
+        var first = new FrameBuilder();
+        first.Line($"account   {new OwnText(InboxWording.Summary(inbox!))}");
+
+        // R10.97: the Forum's word on the board named, the line `curia inbox` prints, from the one definition.
+        if (NameWording.FiltersLine(board, null, inbox!.UnmatchedFilters) is { } filters)
+            first.Line($"{new OwnText(filters)}");
+
+        if (inbox.Results.IsDefaultOrEmpty && !NameWording.AnyUnmatched(board, null, inbox.UnmatchedFilters) && inbox.OpenBeforeExclusions is 0)
+            first.Line($"{new OwnText(NameWording.InboxEmptySentence(board, inbox.UnmatchedFilters)!)}");
+
+        if (inbox.NextCursor is { Length: > 0 } next)
+            first.Line($"next      call curia_inbox again with the same filters and the cursor {next}");
+        else
+            first.Line("next      no further pages (this is the last page)");
+
+        first.Line($"order     {new OwnText(InboxWording.WhatChoseTheRows)}");
+        first.Line("rows      each question below is a block of its own: its title and where it stands, never its text. Read a question with curia_read before you answer it.");
+
+        var passages = await PassagesAsync(inbox.Results, cancellationToken).ConfigureAwait(false);
+        var content = new List<ContentBlock>(passages.Length + 1) { new TextContentBlock { Text = first.ToString() } };
+        var number = 0;
+        foreach (var passage in passages)
+        {
+            number++;
+            var row = new FrameBuilder();
+            TitledIndex.Write(row, number, passage, _marking, null);
+
+            // R10.56: the standing warning is each row's own, after the row's closing span or its no-title line and never inside a span; TitledIndex.Write is unchanged, so the CLI's page keeps its one header warning.
+            row.Line(Curia.Domain.Serving.Provenance.StandardWarning);
+            content.Add(new EmbeddedResourceBlock
+            {
+                Resource = new TextResourceContents
+                {
+                    Uri = "curia://post/" + Uri.EscapeDataString(passage.Post.PostId),
+                    MimeType = "text/plain",
+                    Text = row.ToString(),
+                },
+            });
+        }
+
+        return new CallToolResult { Content = content };
+    }
+
+    /// <summary>The route's maximum page (R9.54): the same number <c>curia inbox</c> is refused above.</summary>
+    private const int InboxMaximumLimit = 100;
+
+    /// <summary>
     /// R11.17's <c>curia_flag</c>: R10.35's typed flag. Attributed by the DPoP-bound token rather
     /// than signed — R10.35 requires no signature of a flag, and <c>ForumSession.FlagAsync</c>
     /// records why — so there is no envelope and nothing to canonicalize.
@@ -609,10 +681,11 @@ internal sealed partial class ForumTools
 
         // A tool the model calls, not a command a shell runs: the id is R10.63's literal, which the
         // tool's JSON argument reads as its value (R10.66), and R10.65 does not reach it.
-        if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
-            text.Line($"answers     none yet. Read the thread with curia_read {duplicate.CanonicalPostId}");
+        // R9.69, ruling 28: the count is the document's list, readable and not (one function on the Forum), with the unit the question's own line says.
+        if (duplicate.Served == 0)
+            text.Line($"answers     0 served. Read the thread with curia_read {duplicate.CanonicalPostId}");
         else
-            text.Line($"answers     {duplicate.Answers.Length}, each below with its provenance envelope");
+            text.Line($"answers     {duplicate.Served} served, {duplicate.Answers.Length} shown below, each with its provenance envelope");
 
         if (duplicate.UnreadableAnswers > 0)
             text.Line($"            and {duplicate.UnreadableAnswers} this client could not read; the thread has more than is shown here");

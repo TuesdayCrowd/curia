@@ -136,7 +136,10 @@ public sealed class SearchWordingSpecTests
             "SHALL state what a client's default form states, from the same definitions",
             "the count line before the served model's limits (R11.93) and those limits whole",
             "SHALL say that `limit` moves membership",
-            "not a shorter set",
-            $"`curia-mcp` is {PublishedReadersLastWords.Version()}");
+            "not a shorter set");
+
+        // R11.103 states the version it was built at, which is no longer the current one: G76's R11.104 is the highest paragraph that names it (item 344, VER1), and the one parser reads that.
+        // What stays true of R11.103 is that it states a version.
+        Assert.Matches(@"`curia-mcp` is \d+\.\d+\.\d+", G64Words.R11103());
     }
 }

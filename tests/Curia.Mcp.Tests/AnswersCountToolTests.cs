@@ -138,8 +138,8 @@ public sealed class AnswersCountToolTests : IDisposable
     /// not its words, so these tokens are this probe's assumption.) Red on the tree: the line says neither.
     /// </summary>
     [Theory]
-    [InlineData("before_acceptance", "already revised", "since revised")]
-    [InlineData("after_acceptance", "since revised", "already revised")]
+    [InlineData("before_acceptance", "which its author had already revised when the asker accepted it", "since revised")]
+    [InlineData("after_acceptance", "which its author has since revised", "already revised")]
     public async Task R10_100_ACA4_TheFirstBlocksAcceptedLineStatesTheOrder(string relation, string says, string doesNotSay)
     {
         ServeAcceptance(relation);
@@ -224,5 +224,51 @@ public sealed class AnswersCountToolTests : IDisposable
         var revisionPassage = Assert.Single(Passages(result), p => p.StartsWith($"post      \"{Revision}\"", StringComparison.Ordinal));
         Assert.Single(Lines(revisionPassage, "thread    this text revises post "));
         Assert.DoesNotContain("this text revises", FirstBlock(result), StringComparison.Ordinal);
+    }
+
+    // ---- ACA9 (ruling 27): the first block and the passage say the acceptance in the same words ------------------------------------------------------------------------------
+
+    /// <summary>
+    /// ACA9. For one served acceptance the first block's <c>accepted</c> line of <c>curia_read</c> and the passage's <c>answers</c> line (the CLI's frame, which the adapter renders through the same <c>Passage</c>) carry the
+    /// same three fragments of ruling 27: the instant, the order's words for its relation, and that the answer is named. The expected substrings are hand-written here once, from the ruling, and both outputs are asked
+    /// to contain them, so the two forms are one definition and not two that agree today. FACA11's form: the MCP composing the order words itself.
+    /// </summary>
+    [Theory]
+    [InlineData("before_acceptance", "which its author had already revised when the asker accepted it")]
+    [InlineData("after_acceptance", "which its author has since revised")]
+    public async Task R10_100_ACA9_TheFirstBlockAndThePassageSayTheAcceptanceInTheSameWords(string relation, string order)
+    {
+        ServeAcceptance(relation);
+
+        var result = await Tools().ReadAsync(StubLog.PostId, TestContext.Current.CancellationToken);
+        var accepted = Assert.Single(FirstBlock(result).Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'), l => l.StartsWith("accepted ", StringComparison.Ordinal));
+        var passage = Assert.Single(Lines(QuestionPassage(Passages(result)), "answers  "));
+
+        var instant = " (accepted at \"2026-11-24T00:40:40.7654940+00:00\"), ";
+        foreach (var form in new[] { accepted, passage })
+        {
+            Assert.Contains(instant + order + ": SUPERSEDED by", form, StringComparison.Ordinal);
+            Assert.Contains($"\"{RevisionId}\"", form, StringComparison.Ordinal);
+        }
+    }
+
+    // ---- RVT6's MCP leg (ruling 25) ---------------------------------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// RVT6, the MCP leg (its own row: items 347 and 351). The revision's passage inside the thread <c>curia_read</c> returns, served with no <c>revises</c>, carries no line that mentions <c>revises</c> and
+    /// <c>NOT STATED</c> on no line of its frame; the first block is unchanged (RVT5's control). FRVT6's form: the adapter's passage path printing <c>NOT STATED</c> for it.
+    /// </summary>
+    [Fact]
+    public async Task R10_100_RVT6_ARevisionServedWithNoRevisesPrintsNoPointerAndNoNotStatedInThePassage()
+    {
+        ServeRevisedThread();
+
+        var result = await Tools().ReadAsync(Revision, TestContext.Current.CancellationToken);
+
+        var revisionPassage = Assert.Single(Passages(result), p => p.StartsWith($"post      \"{Revision}\"", StringComparison.Ordinal));
+        var frame = revisionPassage.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').TakeWhile(l => l.Length > 0).ToArray();
+        Assert.Contains(frame, l => l.StartsWith("kind      \"revision\"", StringComparison.Ordinal));
+        Assert.DoesNotContain(frame, l => l.Contains("revises", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(frame, l => l.Contains("NOT STATED", StringComparison.Ordinal));
     }
 }

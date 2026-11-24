@@ -186,8 +186,16 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
             frame.Line($"{superseded}");
 
         // R10.81 (errata G36): the Forum's word on which answer settles a question, from AnswerStanding's words, in the frame and never in the span.
-        if (AnswerStanding.PassageLine(Post.Kind, Post.Provenance.AcceptedAnswer) is { } answers)
+        if (AnswerStanding.PassageLine(Post.Kind, Post.Provenance.AcceptedAnswer, Post.Provenance.Answers) is { } answers)
             frame.Line($"{answers}");
+
+        // R9.70, R10.100 (errata G76): the revision of a question says which question it revises and where its answers are read, and states none of its own (the passage makes no second request).
+        if (RevisedWords.RevisesLine(Post.Kind, Post.Provenance.Revises) is { } pointer)
+            frame.Line($"thread    {pointer}");
+
+        // R9.71 (b): and an answer says whether its question was revised before or after it was posted.
+        if (RevisedWords.QuestionRevised(Post.Kind, Post.Provenance.QuestionRevised) is { } questionRevised)
+            frame.Line($"question  {questionRevised}");
 
         // R8.15: a contradiction is surfaced where the post is read, not buried. The report's digest
         // is printed, each as a display literal, and nothing of its content; read it with curia

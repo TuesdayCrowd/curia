@@ -430,10 +430,11 @@ internal static class Output
         // R8.61: a measure is a reason only beside the line it crossed.
         frame.Line($"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp   (annotated from cosine {duplicate.AnnotateCosineBp} bp)");
         frame.Line($"             {ModelWording.DuplicateCheckSentence}");
-        if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
-            frame.Line($"answers      none yet -- read the thread: {Hints.Thread(duplicate.CanonicalPostId)}");
+        // R9.69, ruling 22 and 28: the refusal's count is the question's own (one function on the Forum), written with the same noun and unit as the line of the page it points at: the document's list, readable and not.
+        if (duplicate.Served == 0)
+            frame.Line($"answers      0 served -- read the thread: {Hints.Thread(duplicate.CanonicalPostId)}");
         else
-            frame.Line($"answers      {duplicate.Answers.Length}");
+            frame.Line($"answers      {duplicate.Served} served");
         if (duplicate.UnreadableAnswers > 0)
             frame.Line($"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: {Hints.Thread(duplicate.CanonicalPostId)}");
         foreach (var answer in verifiedAnswers)

@@ -266,11 +266,13 @@ internal sealed partial class ForumTools(
         var kindNote = member.Kind is null
             ? " (kind NOT STATED: the Forum served the accepted post without saying whether it is an answer or a revision)"
             : string.Empty;
+        // R10.100, ruling 27: the instant and the order of the first revision are AnswerStanding's fragments, the same words the passage's frame writes; no form words them alone.
+        var at = AnswerStanding.AcceptedAt(member.AcceptedAt);
         var statement = member.SupersededBy.IsDefault
-            ? $" {Supersession.NotStatedShort} (the Forum served {named} without a word on whether it has been revised, so do not take it as unrevised)"
+            ? $"{at} {Supersession.NotStatedShort} (the Forum served {named} without a word on whether it has been revised, so do not take it as unrevised)"
             : Supersession.IsSuperseded(member.SupersededBy)
-                ? " " + AnswerStanding.RevisionStatement(named, member.SupersededBy, "curia_resolve").Text
-                : string.Empty;
+                ? $"{at}, {AnswerStanding.RevisionOrder(member.FirstRevision)}: {AnswerStanding.RevisionStatement(named, member.SupersededBy, "curia_resolve").Text}"
+                : at;
         frame.Line($"accepted {new OwnText(named + kindNote + statement)} {new OwnText(AnswerStanding.Basis)}");
     }
 

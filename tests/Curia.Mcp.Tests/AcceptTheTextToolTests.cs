@@ -82,7 +82,8 @@ public sealed class AcceptTheTextToolTests : IDisposable
         var block = await FirstBlockAsync(StubLog.PostId);
         var line = One(AcceptedLines(block), block);
 
-        Assert.Equal($"accepted revision={DisplayLiteral.Of(RevisionId)} {AnswerStanding.Basis}", line);
+        // Ruling 8 (ruling 27): the acceptance's instant fragment, NOT STATED where the member carries none, follows the named post.
+        Assert.Equal($"accepted revision={DisplayLiteral.Of(RevisionId)} (accepted at NOT STATED) {AnswerStanding.Basis}", line);
     }
 
     /// <summary>
@@ -214,7 +215,7 @@ public sealed class AcceptTheTextToolTests : IDisposable
 
         var block = await FirstBlockAsync(StubLog.PostId);
 
-        Assert.Equal($"accepted answer={DisplayLiteral.Of(StubLog.AnswerPostId)} {AnswerStanding.Basis}", One(AcceptedLines(block), block));
+        Assert.Equal($"accepted answer={DisplayLiteral.Of(StubLog.AnswerPostId)} (accepted at NOT STATED) {AnswerStanding.Basis}", One(AcceptedLines(block), block));
     }
 
     // ----- PK26 (MCP half): the receipt -----

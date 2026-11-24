@@ -60,6 +60,9 @@ public sealed class AnswerStandingToolTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         _log.AcceptedAnswer = state;
 
+        // Errata G76 (ruling 8): the line leads with the count, so the Forum serves one here and the acceptance clause is read after it; the unserved-count words are ANC10's.
+        _log.AnswersServed = 2;
+
         var read = await Tools().ReadAsync(StubLog.PostId, ct);
         var search = await Tools().SearchAsync(new SearchCriteria(), ct);
 
@@ -74,7 +77,7 @@ public sealed class AnswerStandingToolTests : IDisposable
             switch (state)
             {
                 case StubAcceptedAnswer.Standing:
-                    Assert.StartsWith("answers  accepted: post ", lines[0], StringComparison.Ordinal);
+                    Assert.StartsWith("answers  2 served, accepted: post ", lines[0], StringComparison.Ordinal);
                     Assert.Contains(DisplayLiteral.Of(StubLog.AnswerPostId), lines[0], StringComparison.Ordinal);
                     break;
                 case StubAcceptedAnswer.StandingUnserved:
@@ -82,10 +85,10 @@ public sealed class AnswerStandingToolTests : IDisposable
                     Assert.Contains("not served", lines[0], StringComparison.Ordinal);
                     break;
                 case StubAcceptedAnswer.None:
-                    Assert.StartsWith("answers  none accepted", lines[0], StringComparison.Ordinal);
+                    Assert.StartsWith("answers  2 served, none accepted", lines[0], StringComparison.Ordinal);
                     break;
                 default:
-                    Assert.StartsWith("answers  NOT STATED", lines[0], StringComparison.Ordinal);
+                    Assert.StartsWith("answers  2 served, NOT STATED", lines[0], StringComparison.Ordinal);
                     break;
             }
         }

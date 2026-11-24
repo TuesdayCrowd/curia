@@ -187,8 +187,10 @@ public sealed class ToolDescriptionTests
     /// <summary>
     /// Tools whose Table 10 row depends on the act they act on or that have none (plan rulings 40 and 44, M8): <c>curia_resend</c> sends an act of any kind, so a static description cannot state
     /// one row and says that a refusal at a tier names the tier; <c>curia_discard</c> removes a local file and has no row. Neither carries a composed tier span, and neither is mapped to a pair.
+    /// Errata G76, R11.104 (ruling 9): <c>curia_inbox</c> has no Table 10 row either, and the pair its route is authorized under (<c>thread</c>/<c>search</c>) is anonymous-permitted while the route refuses a call
+    /// with no token, so a span composed from it would say "Requires no credential" of a tool that needs an identity: its requirement is the adapter's own sentence, held against the route by INX6 and INX4.
     /// </summary>
-    private static readonly string[] NoRowTools = ["curia_resend", "curia_discard"];
+    private static readonly string[] NoRowTools = ["curia_resend", "curia_discard", "curia_inbox"];
 
     private static string SpanFor(string name)
     {
@@ -242,7 +244,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_acts", "curia_answer", "curia_ask", "curia_boards", "curia_budget", "curia_comment", "curia_discard", "curia_flag", "curia_keys", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
+            ["curia_acts", "curia_answer", "curia_ask", "curia_boards", "curia_budget", "curia_comment", "curia_discard", "curia_flag", "curia_inbox", "curia_keys", "curia_read", "curia_recheck", "curia_resend", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 
@@ -493,7 +495,8 @@ public sealed class ToolDescriptionTests
         var read = RegisteredTools(withIdentity: false).Select(t => t.ProtocolTool.Name).ToHashSet();
         // curia_budget needs the session's token and is registered with the write tools under the one gate, but it writes nothing and is not named as a tool that writes (errata G49); curia_keys is registered
         // under the same gate because it reads the configured identity's key set, and is a read as well (errata G68): the instructions name it in a sentence of its own (KeysSentence), asserted by KeysToolTests.
-        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n) && n != "curia_budget" && n != "curia_acts" && n != "curia_discard" && n != "curia_keys").ToArray();
+        // curia_inbox (errata G76, R11.104) is a read under the same gate (it needs the session's token) and is named in a sentence of its own (InboxSentence), asserted by InboxToolTests (INX5).
+        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n) && n != "curia_budget" && n != "curia_acts" && n != "curia_discard" && n != "curia_keys" && n != "curia_inbox").ToArray();
         Assert.NotEmpty(writeTools);
 
         // The names the instructions are composed from are the catalogue's own, whatever the identity.
@@ -874,9 +877,12 @@ public sealed class ToolDescriptionTests
         var description = Registered().Single(t => t.Name == tool).Description;
         Assert.NotEmpty(description);
 
-        Assert.Contains("'answers none accepted'", description, StringComparison.Ordinal);
-        Assert.Contains("'answers NOT STATED'", description, StringComparison.Ordinal);
-        Assert.Contains("'answers accepted'", description, StringComparison.Ordinal);
+        // Errata G76 (R10.81 (rev.), R11.104; ruling 8): the line now leads with the count, and the sentence that said nothing is known of whether answers exist is gone where the count is served.
+        Assert.Contains("'answers N served'", description, StringComparison.Ordinal);
+        Assert.Contains("'none accepted'", description, StringComparison.Ordinal);
+        Assert.Contains("'NOT STATED'", description, StringComparison.Ordinal);
+        Assert.Contains("'accepted'", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("nothing of whether answers exist", description, StringComparison.Ordinal);
         Assert.DoesNotContain("`answers", description, StringComparison.Ordinal);
     }
 

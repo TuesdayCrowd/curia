@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Curia.Canon.Json;
 using Curia.Domain.Content;
 using Curia.Domain.Serving;
@@ -29,19 +30,87 @@ public static class AnswerStanding
 
     private const string NoneAccepted = "none accepted (the Forum's word as of this read; it says nothing of whether answers exist)";
 
-    /// <summary>The passage's frame line, <c>answers  ...</c>, for a post of kind <paramref name="kind"/> carrying <paramref name="member"/>; nothing for any other kind.</summary>
-    public static OwnText? PassageLine(string kind, AcceptedAnswerMember? member) =>
-        Statement(kind, member) is { } statement ? new OwnText($"answers  {statement.Text}") : null;
+    /// <summary>
+    /// <see cref="NoneAccepted"/> where the count of answers is served (R10.81 (rev.)): the sentence that says nothing is known of whether answers exist is retired, because the count
+    /// beside it says; what remains is whose word it is.
+    /// </summary>
+    private const string NoneAcceptedCounted = "none accepted (the Forum's word as of this read)";
+
+    /// <summary>
+    /// R10.100: what the count counts, said once beside the line of every question whose count the Forum served: posts the Forum serves, and no judgement of any answer. Not said where the count is
+    /// NOT STATED, because there is no count to gloss.
+    /// </summary>
+    internal const string CountGloss = "; served counts posts the Forum serves and is not a judgement of the answers";
+
+    /// <summary>
+    /// Both the count and the acceptance unstated (an older Forum): one statement and not two, so a row that carried only the acceptance's NOT STATED stays as short as it was (the screen's header at 80 columns
+    /// holds it in the rows it held).
+    /// </summary>
+    private const string BothNotStated = "NOT STATED (the Forum served no count and no word on which answer, if any, this thread has accepted, so do not take it as none)";
+
+    /// <summary>The count's words where the Forum served none (R10.100): NOT STATED, never 0.</summary>
+    private const string CountNotStated = "NOT STATED (no count; not 0)";
+
+    /// <summary>
+    /// The passage's frame line, <c>answers  ...</c>, for a post of kind <paramref name="kind"/> carrying <paramref name="member"/> and <paramref name="answers"/>; nothing for any other kind.
+    /// A null <paramref name="answers"/> is a count the Forum did not serve (<c>NOT STATED</c>), never 0.
+    /// </summary>
+    public static OwnText? PassageLine(string kind, AcceptedAnswerMember? member, AnswersMember? answers = null) =>
+        Statement(kind, member, answers) is { } statement ? new OwnText($"answers  {statement.Text}") : null;
 
     /// <summary>The one-row form (the titled index's row, the screen's H6): <c>answers ...</c>, or nothing for a post that is not a question.</summary>
-    public static OwnText? Row(string kind, AcceptedAnswerMember? member) =>
-        Statement(kind, member) is { } statement ? new OwnText($"answers {statement.Text}") : null;
+    public static OwnText? Row(string kind, AcceptedAnswerMember? member, AnswersMember? answers = null) =>
+        Statement(kind, member, answers) is { } statement ? new OwnText($"answers {statement.Text}") : null;
 
-    private static OwnText? Statement(string kind, AcceptedAnswerMember? member)
+    /// <summary>
+    /// The count alone, as a listing row carries it (the inbox's, R10.101): <c>answers N served</c>, or <c>answers NOT STATED</c> where the Forum served none; nothing for a post that is not a question.
+    /// </summary>
+    public static OwnText? CountRow(string kind, AnswersMember? answers) =>
+        IsQuestion(kind)
+            ? new OwnText(answers is null ? "answers NOT STATED" : $"answers {answers.Served.ToString(CultureInfo.InvariantCulture)} served")
+            : null;
+
+    /// <summary>
+    /// The count as the default search hit line carries it: <c>answers N served</c> only where the post is a question and the Forum served the member, so a hit line of an older Forum, which prints no kind
+    /// and no count today, is unchanged.
+    /// </summary>
+    public static OwnText? HitCount(string kind, AnswersMember? answers) =>
+        IsQuestion(kind) && answers is not null ? new OwnText($"answers {answers.Served.ToString(CultureInfo.InvariantCulture)} served") : null;
+
+    private static bool IsQuestion(string kind) => string.Equals(kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal);
+
+    /// <summary>
+    /// R10.100, ruling 27: where the acceptance's instant is served, <c> (accepted at "instant")</c> as the Forum's word and a display literal; where the member is an object that does not carry it,
+    /// <c> (accepted at NOT STATED)</c>. Every form that says an acceptance composes from here and from <see cref="RevisionOrder"/>.
+    /// </summary>
+    public static string AcceptedAt(string? instant) =>
+        instant is null ? " (accepted at NOT STATED)" : $" (accepted at {DisplayLiteral.Of(instant)})";
+
+    /// <summary>
+    /// R10.100, ruling 27: for an acceptance whose <c>superseded_by</c> is not empty, whether the first revision of the post it names came before or after the acceptance, decided by the Forum from the log's
+    /// order (R9.71). "Since revised" is said of <c>after_acceptance</c> and of no other state; an absent relation is NOT STATED and never read as either word.
+    /// </summary>
+    public static string RevisionOrder(string? firstRevision) => firstRevision switch
     {
-        if (!string.Equals(kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal)) return null;
-        if (member is null) return new OwnText(NotStatedWords);
-        if (member.IsNone) return new OwnText(NoneAccepted);
+        "after_acceptance" => "which its author has since revised",
+        "before_acceptance" => "which its author had already revised when the asker accepted it",
+        _ => "which its author has revised, and whether that was before or after the asker accepted it is NOT STATED",
+    };
+
+    private static OwnText? Statement(string kind, AcceptedAnswerMember? member, AnswersMember? answers)
+    {
+        if (!IsQuestion(kind)) return null;
+
+        var counted = answers is not null;
+        if (!counted && member is null) return new OwnText(BothNotStated);
+        var count = answers is null ? CountNotStated : $"{answers.Served.ToString(CultureInfo.InvariantCulture)} served";
+        return new OwnText($"{count}, {Acceptance(member, counted)}{(counted ? CountGloss : string.Empty)}");
+    }
+
+    private static string Acceptance(AcceptedAnswerMember? member, bool counted)
+    {
+        if (member is null) return NotStatedWords;
+        if (member.IsNone) return counted ? NoneAcceptedCounted : NoneAccepted;
 
         // R10.82, R10.85: the post the acceptance names, as this line calls it. A literal for every value the Forum supplied (R10.63). The kind
         // is the Forum's metadata beside the digest and survives a post it does not serve (9b): a revision is told by its kind, an answer is told as
@@ -55,15 +124,16 @@ public static class AnswerStanding
             ? string.Empty
             : isRevision ? " (a revision)" : unknownKind ? " (kind NOT STATED: the Forum served the accepted post without saying whether it is an answer or a revision)" : string.Empty;
         if (member.PostId is null && unknownKind) kindTag = " (kind NOT STATED: the Forum did not say whether it is an answer or a revision)";
+        var at = AcceptedAt(member.AcceptedAt);
 
-        // An empty list changes nothing, byte for byte (the G36 literal); an absent one is said, since silence reads as "not revised".
+        // An empty list changes nothing but the instant; an absent one is said, since silence reads as "not revised".
         if (member.SupersededBy.IsDefault)
-            return new OwnText($"accepted: {named}{kindTag}, chosen by the thread's asker {Basis}; {Supersession.NotStatedShort} (the Forum served the member without a word on whether the answer has been revised, so do not take it as unrevised)");
+            return $"accepted: {named}{kindTag}{at}, chosen by the thread's asker {Basis}; {Supersession.NotStatedShort} (the Forum served the member without a word on whether the answer has been revised, so do not take it as unrevised)";
 
         if (member.SupersededBy.IsEmpty)
-            return new OwnText($"accepted: {named}{kindTag}, chosen by the thread's asker {Basis}");
+            return $"accepted: {named}{kindTag}{at}, chosen by the thread's asker {Basis}";
 
-        return new OwnText($"accepted: {named}{kindTag}, which its author has since revised: {RevisionStatement(named, member.SupersededBy).Text} {Basis}");
+        return $"accepted: {named}{kindTag}{at}, {RevisionOrder(member.FirstRevision)}: {RevisionStatement(named, member.SupersededBy).Text} {Basis}";
     }
 
     /// <summary>

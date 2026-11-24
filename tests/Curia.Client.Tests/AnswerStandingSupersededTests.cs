@@ -140,7 +140,8 @@ public sealed class AnswerStandingSupersededLineTests
         var absent = PassageLine(new AcceptedAnswerMember(Digest, AnswerId, default, "answer"));
 
         // The G36 literal, byte for byte: an empty list adds no word.
-        Assert.Equal($"answers  accepted: post {DisplayLiteral.Of(AnswerId)}, chosen by the thread's asker {Basis}", empty);
+        // Ruling 8 (R10.100, ruling 27): the line now says the count first (NOT STATED: this member is built with none) and the acceptance's instant fragment (NOT STATED: the member carries none); nothing else is added.
+        Assert.Equal($"answers  NOT STATED (no count; not 0), accepted: post {DisplayLiteral.Of(AnswerId)} (accepted at NOT STATED), chosen by the thread's asker {Basis}", empty);
 
         var notStated = PublishedReadersWords.R1082Tokens()[1];
         Assert.Contains("revision " + notStated, absent, StringComparison.Ordinal);

@@ -42,21 +42,11 @@ public sealed class InboxAdmissionSpecTests : IDisposable
         return new ForumTools(_log.Client(), MarkingMode.None, new HeadStore(_home), writer);
     }
 
-    /// <summary>R11.30 (rev.) is annotated more than once in the errata; the paragraph read is the one under that anchor that states the third arm (see the Client suite's twin).</summary>
-    private static string ThirdArm()
-    {
-        var found = PublishedAcceptBudget.ReadErrata().Split("\n\n", StringSplitOptions.None)
-            .Where(p => p.StartsWith("**R11.30 (rev.)**", StringComparison.Ordinal) && p.Contains("defined by what the caller has already done", StringComparison.Ordinal))
-            .Select(p => string.Join(' ', p.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)))
-            .ToArray();
-        return found.Length == 1 ? found[0] : throw new InvalidOperationException($"the errata holds {found.Length} paragraphs under **R11.30 (rev.)** that state the third arm, expected one");
-    }
-
-    /// <summary>INX7, the paragraph half: R11.30 (rev.)'s third arm is the one sentence, quoted, and G11's decision 3 is said to be superseded. Green once G76 is pasted.</summary>
+    /// <summary>INX7, the paragraph half: R11.30 (rev. 2)'s third arm is the one sentence, quoted, and G11's decision 3 is said to be superseded. Green once G76 is pasted.</summary>
     [Fact]
     public void R11_30_INX7_TheThirdArmIsStatedWhereTheAdmissionTestIsRead()
     {
-        var arm = ThirdArm();
+        var arm = PublishedAcceptBudget.Paragraph("**R11.30 (rev. 2)**");
 
         Assert.Contains("A tool is also admitted where it is a read whose result is defined by what the caller has already done, which a model with no memory between sessions cannot supply to any other read.", arm, StringComparison.Ordinal);
         Assert.Contains("`curia_inbox` is admitted on that arm and on no other", arm, StringComparison.Ordinal);

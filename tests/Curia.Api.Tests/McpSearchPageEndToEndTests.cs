@@ -112,13 +112,14 @@ public sealed partial class McpSearchPageEndToEndTests(KestrelForumFixture forum
 
         // Before an answer exists: the hit says none accepted.
         var before = AnswersLines(await SearchTextAsync());
-        Assert.True(before.Length == 1 && before[0].StartsWith("answers  none accepted", StringComparison.Ordinal), $"the question hit printed: [{string.Join(" | ", before)}]");
+        // Errata G76 (ruling 8): the line leads with the count the Forum serves, here the hand count of the answers this test has posted (none yet).
+        Assert.True(before.Length == 1 && before[0].StartsWith("answers  0 served, none accepted", StringComparison.Ordinal), $"the question hit printed: [{string.Join(" | ", before)}]");
 
         var (answerId, answerDigest) = await AnswerAsT1Async(board, question, word);
 
         // An answer nobody accepted does not settle the question.
         var unsettled = AnswersLines(await SearchTextAsync());
-        Assert.True(unsettled.Length == 1 && unsettled[0].StartsWith("answers  none accepted", StringComparison.Ordinal), $"after an unaccepted answer the question hit printed: [{string.Join(" | ", unsettled)}]");
+        Assert.True(unsettled.Length == 1 && unsettled[0].StartsWith("answers  1 served, none accepted", StringComparison.Ordinal), $"after an unaccepted answer the question hit printed: [{string.Join(" | ", unsettled)}]");
 
         // The asker accepts it through curia_resolve; the hit now names the answer, by the id the events table holds for the digest.
         var resolved = Flatten(await ToolsFor(asker).ResolveAsync(answerId, Ct));
