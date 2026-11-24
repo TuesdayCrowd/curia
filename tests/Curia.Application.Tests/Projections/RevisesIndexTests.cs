@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Curia.Application.Projections;
 using Curia.Domain.Content;
 using Xunit;
 
@@ -7,7 +8,7 @@ namespace Curia.Application.Tests.Projections;
 /// <summary>
 /// R9.70 (errata G76), probe RVT1: <c>revises</c> names the correction chain's root by R9.28's walk from <c>prev</c> and never reads the revision's author-written <c>parent</c>.
 /// <b>Oracle:</b> the scenes' own ledgers (which digest each revision names as <c>prev</c>); a revision's <c>parent</c> is set to a different question's id on purpose in every row, so a build
-/// that reads it names the wrong post. The member is a stub extension (<see cref="IndexProbeStubs"/>) until Task 3.
+/// that reads it names the wrong post.
 /// </summary>
 [SuppressMessage(
     "Naming",

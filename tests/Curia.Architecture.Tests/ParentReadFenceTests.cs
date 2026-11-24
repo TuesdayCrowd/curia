@@ -25,9 +25,9 @@ public sealed partial class ParentReadFenceTests
     [
         ("src/Curia.Application/Ingest/IngestPipeline.cs", 3, "ADMIT parses the submitted parent as a reference (two reads on one line), and PERSIST copies it into the event payload; neither decides a thread"),
         ("src/Curia.Application/Projections/PostProjection.cs", 1, "placement of a post of any kind but a revision (R9.48): the one place a parent places a post"),
-        ("src/Curia.Application/Projections/AcceptedAnswerIndex.cs", 1, "ThreadOf: the question an answer is attached to, read from the chain root's parent, never from a revision's"),
+        ("src/Curia.Application/Projections/AcceptedAnswerIndex.cs", 2, "ThreadOf: the question an answer is attached to, read from the chain root's parent, never from a revision's; and QuestionIdOfAnswer: an answer's own attachment, the one read the served-answer count and question_revised both make (answers only, G76, R9.69 and R9.71)"),
         ("src/Curia.Application/Projections/InboxSelection.cs", 1, "the inbox counts the answers whose parent is a question; answers only"),
-        ("src/Curia.Api/ForumEndpoints.cs", 4, "the existence check of a submitted answer or comment, G38 (944), the accept route reading the chain root's parent (1760), the duplicate refusal's filter on answers (1923), the wire copy (2582)"),
+        ("src/Curia.Api/ForumEndpoints.cs", 3, "PersistSubmissionAsync: the existence check of a submitted answer or comment (G38); AcceptAnswerAsync: the chain root's parent, read for the accept route; ToResponse: the wire copy of the author's parent. The duplicate refusal's filter on answers is gone: it lists them from AcceptedAnswerIndex.ServedAnswersOf (G76)"),
         ("src/Curia.Client/TitledIndex.cs", 1, "prints the author's parent beside a title, escaped, as the author's word"),
         ("src/Curia.Client/Passage.cs", 1, "prints the author's parent as a line, escaped, as the author's word"),
         ("src/Curia.Client/SubmissionBuilder.cs", 1, "writes the draft's parent into the envelope being signed"),

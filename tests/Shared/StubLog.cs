@@ -885,7 +885,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"{{AnswerSupersededByJson()}} },
+        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"{{AnswerSupersededByJson()}}{{QuestionRevisedJson()}} },
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? canonical)}},"signature":"{{Answer.Signature}}",
@@ -1106,7 +1106,42 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal Dictionary<string, string> ServedThreads { get; } = new(StringComparer.Ordinal);
 
-    private string AcceptedAnswerKindJson() => AcceptedAnswerKind is null ? string.Empty : ",\"kind\":" + JsonString(AcceptedAnswerKind);
+    /// <summary>
+    /// PR 9 (errata G76, R9.71 (a)): the <c>accepted_at</c> the Forum serves inside <c>accepted_answer</c>, in the receipt's form. Null (the default) serves the member without
+    /// it, as a Forum that predates R9.71 does. The stub writes it as this Forum does (<c>StubFidelityTests</c> holds it to the route).
+    /// </summary>
+    internal string? AcceptedAnswerAt { get; set; }
+
+    /// <summary>R9.71 (a): the <c>first_revision</c> word (<c>before_acceptance</c> or <c>after_acceptance</c>, or any other word a fact serves to be refused) inside <c>accepted_answer</c>; null (the default) serves none.</summary>
+    internal string? AcceptedAnswerFirstRevision { get; set; }
+
+    private string AcceptedAnswerKindJson() =>
+        (AcceptedAnswerKind is null ? string.Empty : ",\"kind\":" + JsonString(AcceptedAnswerKind))
+        + (AcceptedAnswerAt is null ? string.Empty : ",\"accepted_at\":" + JsonString(AcceptedAnswerAt))
+        + (AcceptedAnswerFirstRevision is null ? string.Empty : ",\"first_revision\":" + JsonString(AcceptedAnswerFirstRevision));
+
+    /// <summary>
+    /// PR 9 (errata G76, R9.69): the number of answers the Forum serves the stub's question, as <c>provenance.answers</c> <c>{"served": n}</c>. Null (the default) serves no member,
+    /// as a Forum that predates it does. The stub writes it as this Forum does.
+    /// </summary>
+    internal int? AnswersServed { get; set; }
+
+    private string AnswersServedJson() => AnswersServed is { } n ? ",\"answers\":{\"served\":" + n.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}" : string.Empty;
+
+    /// <summary>
+    /// PR 9 (R9.71 (b)): what the stub's answer carries as <c>provenance.question_revised</c>: not at all (the default, a Forum that predates it), <c>null</c>
+    /// (<see cref="StubQuestionRevised.None"/>), or the relation to a first revision (<see cref="StubQuestionRevised.Before"/>, <see cref="StubQuestionRevised.After"/>).
+    /// </summary>
+    internal StubQuestionRevised QuestionRevised { get; set; }
+
+    private string QuestionRevisedJson() => QuestionRevised switch
+    {
+        StubQuestionRevised.Absent => string.Empty,
+        StubQuestionRevised.None => ",\"question_revised\":null",
+        StubQuestionRevised.Before => ",\"question_revised\":{\"first_revision\":{\"digest\":" + JsonString(Submission.PrefixedDigest) + ",\"post_id\":" + JsonString(SubmittedPostId) + "},\"answer_posted\":\"before\"}",
+        StubQuestionRevised.After => ",\"question_revised\":{\"first_revision\":{\"digest\":" + JsonString(Submission.PrefixedDigest) + ",\"post_id\":" + JsonString(SubmittedPostId) + "},\"answer_posted\":\"after\"}",
+        _ => throw new ArgumentOutOfRangeException(nameof(QuestionRevised), QuestionRevised, "not a state of the member"),
+    };
 
     private string AcceptedAnswerJson() => AcceptedAnswer switch
     {
@@ -1160,14 +1195,15 @@ internal sealed class StubLog : IDisposable
     /// PR 2: serves <paramref name="signed"/> as post <paramref name="postId"/> of kind <paramref name="draft"/>'s, with the Forum's
     /// <c>superseded_by</c> beside it (R9.32; unset leaves the member out, <c>[]</c> states none). <paramref name="servedDigest"/> is the digest
     /// served beside the canonical form, so a fact can serve a post whose digest is not its form's, and <paramref name="servedCanonical"/> a canonical form the signature does not cover.
+    /// <paramref name="revises"/> (errata G76, R9.70) is the member a revision of a question carries; null serves none.
     /// </summary>
-    internal void ServePost(string postId, PostDraft draft, SignedSubmission signed, ImmutableArray<Successor> supersededBy = default, string? servedDigest = null, string? servedCanonical = null) =>
+    internal void ServePost(string postId, PostDraft draft, SignedSubmission signed, ImmutableArray<Successor> supersededBy = default, string? servedDigest = null, string? servedCanonical = null, RevisesMember? revises = null) =>
         ServedPosts[postId] = $$"""
         {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
         "author":{{JsonString(Author)}},"owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{(supersededBy.IsDefault ? string.Empty : ",\"superseded_by\":" + SuccessorsJson(supersededBy))}} },
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{(supersededBy.IsDefault ? string.Empty : ",\"superseded_by\":" + SuccessorsJson(supersededBy))}}{{(revises is null ? string.Empty : ",\"revises\":{" + (revises.PostId is null ? string.Empty : "\"post_id\":" + JsonString(revises.PostId) + ",") + "\"kind\":" + JsonString(revises.Kind) + "}")}} },
         "post_id":{{JsonString(postId)}},"board":"b","kind":{{JsonString(PostKinds.Wire(draft.Kind))}},"parent":{{(draft.Parent is null ? "null" : JsonString(draft.Parent))}},
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":{{JsonString(servedDigest ?? signed.PrefixedDigest)}},
         "canonical":{{JsonString(servedCanonical ?? Encoding.UTF8.GetString(signed.Canonical.Span))}},"signature":{{JsonString(signed.Signature)}},
@@ -1271,7 +1307,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{ServedAs ?? Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{SupersededByJson()}}{{AcceptedAnswerJson()}} },
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{SupersededByJson()}}{{AcceptedAnswerJson()}}{{AnswersServedJson()}} },
         "post_id":"{{PostId}}","board":{{JsonString(ServedBoard)}},"kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{ServedDigest ?? Submission.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{ServedSignature ?? Submission.Signature}}",
@@ -2240,6 +2276,22 @@ internal sealed class StubLog : IDisposable
         return key.ExportSubjectPublicKeyInfo();
     }
 
+}
+
+/// <summary>R9.71 (b): how <see cref="StubLog"/> serves <c>provenance.question_revised</c> on its answer.</summary>
+internal enum StubQuestionRevised
+{
+    /// <summary>The member is not served (a Forum that predates it).</summary>
+    Absent,
+
+    /// <summary>The member is <c>null</c>: the answer's question has no revision.</summary>
+    None,
+
+    /// <summary>The answer was posted before the question's first revision.</summary>
+    Before,
+
+    /// <summary>The answer was posted after the question's first revision.</summary>
+    After,
 }
 
 /// <summary>R9.36: how <see cref="StubLog"/> serves <c>provenance.accepted_answer</c> on its question.</summary>

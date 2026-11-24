@@ -7,8 +7,7 @@ namespace Curia.Application.Tests.Projections;
 
 /// <summary>
 /// R9.69 (errata G76), probes ANC1 and ANC6: the number of answers the Forum serves to a question. <b>Oracle:</b> the scene each fact builds (post by post: id, kind, parent,
-/// author, <c>prev</c>, and the serving filter the fact chooses), tabulated by hand beside R9.69's sentence; never the index's own report. The member is a stub extension
-/// (<see cref="IndexProbeStubs"/>) until Task 3 builds it, so a probe is red by its assertion.
+/// author, <c>prev</c>, and the serving filter the fact chooses), tabulated by hand beside R9.69's sentence; never the index's own report.
 /// </summary>
 [SuppressMessage(
     "Naming",

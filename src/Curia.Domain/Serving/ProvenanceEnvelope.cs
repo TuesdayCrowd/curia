@@ -40,13 +40,39 @@ public sealed record Successor(string Digest, string? PostId);
 /// <see cref="AcceptedAnswerMember"/> at all is a Forum that did not say, which is a third state and not "none".
 /// <paramref name="Kind"/> is R9.46's (errata G44): <c>answer</c> or <c>revision</c>, the kind of the post the acceptance names; null is a Forum that did not say.
 /// </summary>
-public sealed record AcceptedAnswerMember(string? Digest, string? PostId, ImmutableArray<Successor> SupersededBy, string? Kind = null)
+/// <param name="AcceptedAt">
+/// R9.71 (errata G76): the instant of the acceptance event that stands, as the accept receipt writes it; null is a Forum that did not say.
+/// </param>
+/// <param name="FirstRevision">
+/// R9.71: <c>before_acceptance</c> or <c>after_acceptance</c>, where the post the acceptance names has a correction; null where it has none or the Forum did not say. Decided by the log's
+/// order and not by comparing instants.
+/// </param>
+public sealed record AcceptedAnswerMember(string? Digest, string? PostId, ImmutableArray<Successor> SupersededBy, string? Kind = null, string? AcceptedAt = null, string? FirstRevision = null)
 {
     /// <summary>No acceptance stands.</summary>
     public static AcceptedAnswerMember None { get; } = new(null, null, ImmutableArray<Successor>.Empty);
 
     /// <summary>True when no acceptance stands.</summary>
     public bool IsNone => Digest is null;
+}
+
+/// <summary>R9.69 (errata G76): the number of answers the Forum serves to a question; the Forum's word and a count of posts, not a judgement of them.</summary>
+public sealed record AnswersMember(int Served);
+
+/// <summary>R9.70: the question a revision's correction chain ends at; <paramref name="PostId"/> is null where the Forum does not serve the root (R10.36).</summary>
+public sealed record RevisesMember(string Kind, string? PostId);
+
+/// <summary>
+/// R9.71 (b): an answer's relation to its question's first revision, or <see cref="None"/> where the question has no revision (<c>null</c> on the wire). A <see cref="Provenance"/>
+/// that carries no <see cref="QuestionRevisedMember"/> at all is a Forum that did not say, which is a third state.
+/// </summary>
+public sealed record QuestionRevisedMember(string? FirstRevisionDigest, string? FirstRevisionPostId, string? AnswerPosted)
+{
+    /// <summary>The question has no revision.</summary>
+    public static QuestionRevisedMember None { get; } = new(null, null, null);
+
+    /// <summary>True when the question has no revision.</summary>
+    public bool IsNone => FirstRevisionDigest is null;
 }
 
 /// <summary>
@@ -85,6 +111,9 @@ public sealed record AcceptedAnswerMember(string? Digest, string? PostId, Immuta
 /// absent); <see cref="AcceptedAnswerMember.None"/> means the member was <c>null</c>. The Forum's word, outside the signed bytes and the
 /// leaf, so a reader prints it as such (R10.81) and never as a verdict on the post or on the answer.
 /// </param>
+/// <param name="Answers">R9.69 (errata G76): on a question, the number of answers the Forum serves; null is a post that carries none or a Forum that did not say.</param>
+/// <param name="Revises">R9.70: on a revision of a question, the question it revises; null otherwise or where the Forum did not say.</param>
+/// <param name="QuestionRevised">R9.71 (b): on an answer, <see cref="QuestionRevisedMember.None"/> or the relation; null is a Forum that did not say.</param>
 /// <param name="Marking">
 /// Which marking was applied, so a client can strip it after its model has consumed the marked form
 /// (R10.14). Reported even when <see cref="MarkingMode.None"/>: "no marking" is information too, and
@@ -109,7 +138,10 @@ public sealed record Provenance(
     string KeyStatus = "active",
     long? DisputedByLogIndex = null,
     ImmutableArray<Successor> SupersededBy = default,
-    AcceptedAnswerMember? AcceptedAnswer = null)
+    AcceptedAnswerMember? AcceptedAnswer = null,
+    AnswersMember? Answers = null,
+    RevisesMember? Revises = null,
+    QuestionRevisedMember? QuestionRevised = null)
 {
     /// <summary>
     /// R10.17's exact wording, and it is a constant rather than a template because the sentence is

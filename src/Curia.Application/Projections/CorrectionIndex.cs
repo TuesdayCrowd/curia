@@ -93,6 +93,17 @@ public sealed class CorrectionIndex
     }
 
     /// <summary>
+    /// Errata G76 (R9.71): the first correction of <paramref name="original"/> in log order, the fork not picked: the head of the list <see cref="For"/> returns, as a post
+    /// (so its log position can be read), or <see langword="null"/> when nothing corrects it. Served or not: a withheld revision is still the first.
+    /// </summary>
+    public PostView? FirstCorrectionOf(PostView original)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+
+        return _revisionsByPrev[original.Digest].FirstOrDefault(p => IsCorrection(p, original));
+    }
+
+    /// <summary>
     /// R9.43's <c>fork</c>: where <paramref name="post"/> is a correction (<see cref="IsCorrection"/>) of the post its
     /// <c>prev</c> names and that post has more than one successor, the other successors, in log order, the post's own excluded;
     /// otherwise empty. It is computed through <see cref="For"/> and <see cref="IsCorrection"/>, not a second filter, so

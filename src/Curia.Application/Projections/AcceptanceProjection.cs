@@ -40,27 +40,16 @@ public static class AcceptanceProjector
     /// <summary>
     /// The acceptance that stands in one thread root's own stream (R8.68): the answer the fold ends on and the
     /// <c>server_ts</c> of the event that named it, or null when nothing has been accepted. It is the same last-wins
-    /// reading as <see cref="Fold"/>, kept with its event so a replay can answer the first time.
+    /// reading as <see cref="Fold"/>, <see cref="LatestWins"/>, over one stream and not a keyed list (errata G76, R9.71: one rule), kept with its event
+    /// so a replay can answer the first time.
     /// </summary>
     public static StandingAcceptance? Standing(IReadOnlyList<AppendedEvent> rootStreamInSeqOrder)
     {
         ArgumentNullException.ThrowIfNull(rootStreamInSeqOrder);
 
-        StandingAcceptance? standing = null;
-
-        foreach (var appended in rootStreamInSeqOrder)
-        {
-            if (appended.Event.Type.Value != AnswerAcceptedType) continue;
-            if (appended.Event.Payload is not JsonValue.Object payload) continue;
-
-            string? answer = null;
-            foreach (var member in payload.Members)
-                if (member.Key == AnswerIdField && member.Value is JsonValue.String s) answer = s.Value;
-
-            if (answer is not null) standing = new StandingAcceptance(answer, appended.ServerTimestamp.Value);
-        }
-
-        return standing;
+        // The stream is one root's, so every acceptance in it is the same thread whatever its thread_root member says: the key is a constant.
+        var latest = LatestWins(rootStreamInSeqOrder, static a => a.AnswerId is null ? null : string.Empty);
+        return latest.TryGetValue(string.Empty, out var standing) ? standing : null;
     }
 
     /// <summary>
@@ -96,15 +85,22 @@ public static class AcceptanceProjector
     /// Folds a seq-ordered event list into the accepted answer per thread root.
     ///
     /// <para>A thread nobody has resolved is absent rather than present-and-null, which is what the
-    /// serving path already means by "no accepted answer".</para>
+    /// serving path already means by "no accepted answer". It is <see cref="FoldWithInstants"/> with the instants dropped, so the
+    /// answer a thread's acceptance names and the instant it was recorded at are one reading (errata G76, R9.71).</para>
     /// </summary>
-    public static ImmutableDictionary<string, string> Fold(IReadOnlyList<AppendedEvent> eventsInSeqOrder)
+    public static ImmutableDictionary<string, string> Fold(IReadOnlyList<AppendedEvent> eventsInSeqOrder) =>
+        FoldWithInstants(eventsInSeqOrder).ToImmutableDictionary(kv => kv.Key, kv => kv.Value.AnswerId, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Errata G76 (R9.71): the standing acceptance per thread root with the instant and the log position of the event that made it stand. Latest wins, the position
+    /// being the event's <c>seq</c>, the one total order the store offers; the instant is carried to be printed and is never compared (register D94). A thread whose acceptance
+    /// event names no root or no answer is absent, as <see cref="Fold"/> always has.
+    /// </summary>
+    public static ImmutableDictionary<string, StandingAcceptance> FoldWithInstants(IReadOnlyList<AppendedEvent> eventsInSeqOrder)
     {
         ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
 
-        var accepted = new Dictionary<string, string>(StringComparer.Ordinal);
         var lastSeq = EventSequence.Zero;
-
         foreach (var appended in eventsInSeqOrder)
         {
             if (appended.Seq < lastSeq)
@@ -115,7 +111,19 @@ public static class AcceptanceProjector
                     nameof(eventsInSeqOrder));
 
             lastSeq = appended.Seq;
+        }
 
+        return LatestWins(eventsInSeqOrder, static a => a.Root is not null && a.AnswerId is not null ? a.Root : null)
+            .ToImmutableDictionary(StringComparer.Ordinal);
+    }
+
+    /// <summary>The one rule: of the acceptance events in order, the last one a thread's key names stands. <paramref name="keyOf"/> returns null for an event that names no thread.</summary>
+    private static Dictionary<string, StandingAcceptance> LatestWins(IReadOnlyList<AppendedEvent> events, Func<ParsedAcceptance, string?> keyOf)
+    {
+        var standing = new Dictionary<string, StandingAcceptance>(StringComparer.Ordinal);
+
+        foreach (var appended in events)
+        {
             if (appended.Event.Type.Value != AnswerAcceptedType) continue;
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
 
@@ -129,13 +137,16 @@ public static class AcceptanceProjector
                 else if (member.Key == AnswerIdField) answer = s.Value;
             }
 
-            // Last writer wins: a later acceptance on the same thread replaces the earlier one.
-            if (root is not null && answer is not null) accepted[root] = answer;
+            var parsed = new ParsedAcceptance(root, answer);
+            if (keyOf(parsed) is { } key && answer is not null)
+                standing[key] = new StandingAcceptance(answer, appended.ServerTimestamp.Value, appended.Seq);
         }
 
-        return accepted.ToImmutableDictionary(StringComparer.Ordinal);
+        return standing;
     }
+
+    private readonly record struct ParsedAcceptance(string? Root, string? AnswerId);
 }
 
 /// <summary>The acceptance that stands in a thread: the answer and the instant the Forum recorded naming it.</summary>
-public sealed record StandingAcceptance(string AnswerId, DateTimeOffset AcceptedAt);
+public sealed record StandingAcceptance(string AnswerId, DateTimeOffset AcceptedAt, EventSequence Seq = default);

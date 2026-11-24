@@ -798,6 +798,7 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
         _stub.AcceptedAnswer = StubAcceptedAnswer.Standing;
         _stub.AcceptedAnswerKind = PublishedReadersWords.R946KindWords()[0];
         _stub.AcceptedAnswerSupersededBy = [];
+        _stub.AcceptedAnswerAt = "2026-11-23T12:00:00.0000000+00:00"; // R9.71 (a), errata G76: the Forum serves the acceptance's instant inside the member.
         var stubMember = JsonNode.Parse(_stub.PostJson())!["provenance"]!["accepted_answer"]!.AsObject().Select(p => p.Key).Order(StringComparer.Ordinal).ToArray();
         var realMember = AcceptedAnswerMember(await PostJsonAsync(scene.Question.PostId)).EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).ToArray();
 

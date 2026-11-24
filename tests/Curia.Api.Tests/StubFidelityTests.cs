@@ -53,6 +53,9 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
     {
         var problem = await RealDuplicateRefusalAsync(TestContext.Current.CancellationToken);
 
+        // R9.71 (b), errata G76: the Forum serves question_revised on every answer, a present null where the question has no revision, so the stub's answer does too.
+        _stub.QuestionRevised = StubQuestionRevised.None;
+
         AssertSameMembers(
             "the duplicate refusal",
             Paths(JsonNode.Parse(problem)!),
@@ -121,6 +124,9 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
 
             // R9.46 (errata G44): and the kind of the post the acceptance names, always, so the stub serves the Forum's shape.
             _stub.AcceptedAnswerKind = "answer";
+
+            // R9.71 (a) (errata G76): and the acceptance's instant, always; the order only where the post named has a revision, which the scene's has not.
+            _stub.AcceptedAnswerAt = "2026-11-23T12:00:00.0000000+00:00";
             var provenance = JsonNode.Parse(_stub.PostJson())!["provenance"]!.AsObject();
             return provenance.ContainsKey("accepted_answer") ? Describe(provenance["accepted_answer"]) : "absent";
         }
@@ -131,8 +137,8 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         Assert.Equal(["accepted_answer", "digest", "post_id"], names);
         var listed = PublishedReadersWords.R941Member();
         const string Null = "null";
-        var servedShape = $"object{{digest:String,kind:String,post_id:String,{listed}:Array}}";
-        var unservedShape = $"object{{digest:String,kind:String,{listed}:Array}}";
+        var servedShape = $"object{{accepted_at:String,digest:String,kind:String,post_id:String,{listed}:Array}}";
+        var unservedShape = $"object{{accepted_at:String,digest:String,kind:String,{listed}:Array}}";
 
         var mismatches = new List<string>();
 
@@ -159,6 +165,7 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         _stub.AcceptedAnswer = StubAcceptedAnswer.Standing;
         _stub.AcceptedAnswerSupersededBy = default;
         _stub.AcceptedAnswerKind = null;
+        _stub.AcceptedAnswerAt = null;
         var older = Describe(JsonNode.Parse(_stub.PostJson())!["provenance"]!["accepted_answer"]);
         if (older != "object{digest:String,post_id:String}") mismatches.Add($"an unset list: the stub serves {older}, an older Forum served the object without {listed}");
 
@@ -191,6 +198,9 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
 
         // R9.36: the Forum serves the member on a question (null, no acceptance stands), so the stub does too.
         _stub.AcceptedAnswer = StubAcceptedAnswer.None;
+
+        // R9.69 (errata G76): and the count of answers it serves, which is none yet.
+        _stub.AnswersServed = 0;
         using var stubHttp = _stub.RawClient();
         var served = await BatchAsync(http, digest, unknown, "nope");
         var stubbed = await BatchAsync(stubHttp, _stub.Submission.PrefixedDigest, unknown, "nope");
