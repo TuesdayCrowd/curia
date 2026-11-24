@@ -139,6 +139,8 @@ internal static partial class LifecycleCases
             BindingStatementNotText(k1, k2),
             UnrelatedStatementTypDuplicateMember(k1, k2),
             RotationAuthorizationMadeByTheNewKey(k1, k2),
+            RotationNamesRetiredKeyBytesThenPost(k1, k2),
+            RotationKidAlreadyBoundUnderOtherBytesThenPost(k1, k2),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -531,6 +533,33 @@ internal static partial class LifecycleCases
         return new Case("rotation-authorization-made-by-the-new-key", "R6.54",
             "The rotation's authorization names the enrolled key in its header and carries the rotation header typ, but was made by the key being bound; the possession is genuine. A key does not authorize its own binding by signing under another key's kid.",
             log, post, [0, 1, 2], "failed", "rotation-unauthorized");
+    }
+
+    // Errata G78 (R4.45, R6.54 (add.)): the readers fail at a rotation that names the bytes of a key already bound, and at a kid reused for new bytes.
+
+    private static Case RotationNamesRetiredKeyBytesThenPost(Key k1, Key k2)
+    {
+        var rebound = Ed("conformance-ed25519-reborn", k1.Signing);
+        var log = EnrolledAndBound(k1);
+        AddRotation(log, new Rot(k1, k2, Prev: 1));
+        AddRetirement(log, new Ret(k1, k1, Prev: 2));
+        AddRotation(log, new Rot(k2, rebound, Prev: 3));
+        var post = AddPost(log, rebound, "39");
+        return new Case("rotation-names-retired-key-bytes-then-post", "R6.54 (add.)",
+            "The enrolled key rotates to a second key at 2 and retires itself at 3; the second key authorizes a rotation at 4 to the retired key's own public key under a new kid, and the post at 5 is signed by it: the row binds bytes already bound, so the lifecycle fails at it (R4.45).",
+            log, post, [0, 1, 2, 3, 4], "failed", "statement-mismatch");
+    }
+
+    private static Case RotationKidAlreadyBoundUnderOtherBytesThenPost(Key k1, Key k2)
+    {
+        var otherBytes = Ed(k2.Kid, Enumerable.Repeat((byte)0x04, 32).ToArray());
+        var log = EnrolledAndBound(k1);
+        AddRotation(log, new Rot(k1, k2, Prev: 1));
+        AddRotation(log, new Rot(k1, otherBytes, Prev: 2));
+        var post = AddPost(log, otherBytes, "40");
+        return new Case("rotation-kid-already-bound-under-other-bytes-then-post", "R6.54 (add.)",
+            "A second rotation at 3, authorized by the enrolled key, names the second key's kid again with a different public key, and the post at 4 is signed by it: a kid is bound once, so the lifecycle fails at the row; the bytes are new, so only the reader's kid rule fails it.",
+            log, post, [0, 1, 2, 3], "failed", "statement-mismatch");
     }
 
     private static Case UnrelatedStatementTypInBound(Key k1, Key k2)

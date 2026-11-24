@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "The enrolled key authorizes a ninth key at 2 (below from_index) and the second key at 3 (at from_index); the declaration key is published at 4 and a log key at 5; a declaration at 6 from index 3 names the enrolled key and the cascade, the second key, and the ninth key stays active; the ninth key then authorizes a rotation at 7, prev 6, to the second key's public key under a new kid: a key compromised only by the cascade is a key the identity bound, and it is bound once (R4.45). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

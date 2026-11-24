@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "The enrolled key is a P-256 key (x begins with 0x00); it authorizes a rotation at 2, prev 1, to its own public key under a new kid, signed by the same private key. The pair states the key as a closed JWK and the rotation as a statement: one key, two constructions, and the second is skipped (R4.45). The two ES256 signatures are randomized and were generated once; they are kept. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

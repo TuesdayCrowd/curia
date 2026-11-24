@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.54 (add.)",
+  "note": "The enrolled key rotates to a second key at 2 and retires itself at 3; the second key authorizes a rotation at 4 to the retired key's own public key under a new kid, and the post at 5 is signed by it: the row binds bytes already bound, so the lifecycle fails at it (R4.45). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 5,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}
