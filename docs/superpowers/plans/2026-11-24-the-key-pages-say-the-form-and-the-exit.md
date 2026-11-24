@@ -342,3 +342,45 @@ Index rows (Task 1, unchanged from the plan): `| R11.105 | … | G77 |`, `| R11.
 - **WRD9** carries the extended clause (the `Past the wait ...` sentence); **FWRD9** is unchanged.
 - **CRW-a2** (ruling 1) is added; CRW-a's gate is unchanged but its scene is the first failure only.
 - **Open risks gain one:** the rebinding of a retired key's bytes (ruling 2) is a lead outside the PR; and a seventh, that CRW-a2 may show a stderr-alone reader missing a `dropped` line the paragraph only names as a parenthesis; the lead is then the line's stream, a published span.
+
+## As run
+
+Written by Task 7 from the task records in `.superpowers/sdd/2026-11-24-key-pages-say-the-form/` (`task-0-report.md`, `task-2-report.md`, `task-3-4-report.md`, `task-5-report.md`, `cold/cold-read-words.md`); the amendment above is not edited. A field no record holds is written "not run". Commits are `git log --oneline 15eb6cab..key-pages-say-the-form` on the branch `key-pages-say-the-form`, from `main` 15eb6cab; no commit is unmatched.
+
+### The tasks, in the order run
+
+| Task | Commit | What it did | Record |
+|---|---|---|---|
+| plan | b87bce67 | the plan, provisional G77, R11.105, `curia-mcp` 0.12.7 | this file |
+| 0 | none (no tracked file changed) | operated the unmodified tree on an export: K1 to K9 | `task-0-report.md` |
+| Amendment 1 | 7353bca5 | rulings from Task 0: the exit-8 sentence keyed to what the retry prints; permanence stated for the kid; `curia verify --help` cited; the overview's `verify` entry in scope; two probe comments corrected, not three; the full corrected G77 | above |
+| 1 | 84f5dca8 | G77 pasted from Amendment 1's corrected block (status specified; not built), index rows | none |
+| 2 | 62dd573d | the probes written red first (WRD1 to WRD11, with WRD4 and WRD8 as green controls); `UKA11` and `UDO8` re-pointed at G77's revised spans through `KeyPagesWords`; two comments corrected | `task-2-report.md` |
+| 3, 4 | 6beb5dfb | the words and the version: `curia-mcp` 0.12.7 | `task-3-4-report.md` |
+| 5 | none (no tracked file changed) | falsification, 26 rows | `task-5-report.md` |
+| 6 | none | the cold read, one round, from the in-process rigs; **no live run** | `cold/cold-read-words.md` |
+| 7 | the commit of this section | errata G77's Status; CLAUDE.md's G77 paragraph; this section; the register patch `impl-plan-words.md`; the PR body | none |
+
+### No live run, and why
+
+Task 6 of the earlier plans ran the Forum against a throwaway database because a wire, a fold or a tool moved. Nothing here does: no route, member, fold, column or tool changed, the one `curia_keys` change is a line of text, and every sentence is checked against what the client already holds. The cold read's pages were captured from the in-process doubles Task 0 and the probes use (a real `curia` over a double that records every request, on a manual clock), which `StubFidelityTests` hold to the Forum for the key set and the lifecycle routes. So the words are not discharged against a real Forum, and the errata says so. The omission is a reported choice, not an oversight.
+
+### The amendment, and what it ruled on
+
+No stop rule fired. **Amendment 1** (Task 0): (1) the exit-8 sentence is keyed to what the retry prints, because K3's fourth path (a retry past the wait that finds no such act) makes a second act and exits 8 for it, which made the draft's "nothing was signed or sent" false; (2) permanence is stated for the kid, because K5 found a retired key's bytes can be rebound under a new kid and honoured; (3) R11.105 cites `curia verify --help`, because `curia help verify` prints the overview (K9), and the overview's `verify` entry begins with the form; (4) two probe comments are corrected, not three (K8: `UDO3`'s and `UDO5`'s; `UDO4`'s and the Mcp `UDO9`'s name no row); the rebinding of key bytes is a register lead offered to the cybersecurity agent.
+
+### What the run found that reading did not
+
+- **Task 0:** the banner (`KeysReport.cs:69`) was held by no probe, only a prefix check, so it was an unpublished sentence; exit 8 is also what a second act's unheard send gives (K3, fourth path); retirement is permanent for the kid and not for its bytes (K5), with no conformance vector for a rotation naming a retired kid; `curia help verify` prints the overview, byte-identical to `curia help rotate` (K9); `UDO5`'s comment is the second wrong one, not `UDO4`'s (K8).
+- **Task 2, three predictions the plan got wrong** (trap 268): `UKA11`, `UDO8` and `UDO12` were predicted red from the errata edit alone and were green, because G77 revises R11.99 words and R11.101 words in separate `(rev.)` paragraphs and a probe that reads the old paragraph stays green; `UKA11` and `UDO8` were re-pointed at the revised spans (red as predicted afterwards) and `UDO12`, which reads two spans G77 does not revise, was left. The errata's "in each of its four places" for the retirement was a miscount (the rotation text holds `rotation` three times) and the wording says "wherever it occurs". The errata publishes no words for the withheld form of the keys command, so `WRD3c` holds a hand literal for it.
+- **Task 3:** `WRD3c`'s premise (a slug with a space is unprintable) contradicts R10.65 as implemented, so the probe's slug became `"ab`; `WRD2a` and `WRD3c` compared an actual that carried trailing output and were fixed; `HelpTextTests.D37` rule (iv) gained one reasoned row (the keys help names `use-key`'s flags); `UDO16`'s expectation was extended for the skipped sentence.
+- **Task 5:** 26 of 26 rows killed, each for its own reason, none survived; several rows were red at more probes than the plan named (FWRD3e and FWRD3e2 at `WRD3a` too, FWRD4 at `WRD3c`, FWRD7 and FWRD7b at `UDO16`, FWRD1 and FWRD2 at `WRD1`, FWRD10 at 22 version probes), all for their own reason.
+- **Task 6, cold read:** 24 of 24 gated readers in one round, no gate corrected; CRW-a2 on stderr alone 1 of 3, the observation Amendment 1 predicted; all three CRW-a readers inferred the missing `--agent` from the retry line; on `main`, the CRW-b CLI reader could not tell what arguments `curia verify` takes (item 327's defect, seen) and the CRW-e reader declined to retire from the absence of an undo and not from a stated fact.
+
+### Gates run, with counts
+
+From the task reports (Release, `Curia.sln` 0 warnings, 0 errors at each task): Task 0 baseline: Client 1,960, Mcp 1,067 passed and 6 skipped, Architecture 149 (Release and Debug). Task 2 on the unfixed tree: Client 1,967 passed and 22 failed (all named), Mcp 1,047 passed, 6 skipped and 22 failed (21 version probes and WRD1m), Application 943, Architecture 149. Tasks 3 and 4: Client 1,989, Mcp 1,069 passed and 6 skipped, Application 943, Domain 1,079, Architecture 149 (Release and Debug), the Api classes that drive the CLI's key words (13 passed), `api-legs.py check` and `check-spec.py` clean, `falsify-spec-checks.py` all 4 red naming their cell. Task 5 after the table: all patched files byte-equal to their kept originals, `--no-incremental` build 0 warnings, Client 1,989, Mcp 1,069 passed and 6 skipped, Application 943, Architecture 149. Task 7: `check-spec.py` and `falsify-spec-checks.py` exit 0 after the Status edit. `python3 tools/preflight/preflight.py`: the PR body's, not run here. The full Api suite is CI's.
+
+### The PR body's items
+
+The PR body (`pr-body-words.md`, outside the tracked files) states: that it touches no `.github/`, `db/`, `rust/` or `conformance/` (`git diff --stat 15eb6cab..key-pages-say-the-form` over those is empty), that the approval record reads `{"version":1,"approved":[]}` and the guard is not lifted, and that there is no live run and why; the four states with falsification counts by outcome and the CLI and MCP copies separate; why `curia-mcp` moves to 0.12.7; K1 to K9 and each sentence changed with the reader's act that gated it; the cold read by page and gate with the controls; and the register items closed, narrowed and left open with the reason.
