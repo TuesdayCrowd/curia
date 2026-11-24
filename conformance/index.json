@@ -80,7 +80,7 @@
       "profiles": [
         "lifecycle-log"
       ],
-      "count": 87
+      "count": 88
     },
     {
       "name": "merkle",

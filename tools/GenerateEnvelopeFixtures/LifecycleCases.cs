@@ -39,6 +39,7 @@ internal static partial class LifecycleCases
     private const string RotationTyp = "curia.key-rotation/1";
     private const string RetirementTyp = "curia.key-retirement/1";
     private const string FrozenCase = "rotation-es256-then-post";
+    private const string NegatedCase = "rotation-es256-negated-key-then-post";
 
     private sealed record Key(string Kid, string Alg, byte[] Signing, JsonValue Jwk);
 
@@ -160,6 +161,17 @@ internal static partial class LifecycleCases
         else
         {
             Write(root, Es256ThenPost(), logSeed, logPublic);
+            written++;
+        }
+
+        // The negation case is ES256 too, so it is generated once and kept for the same reason.
+        if (File.Exists(Path.Combine(root, NegatedCase, "expected.json")))
+        {
+            Console.WriteLine($"  kept lifecycle/{NegatedCase} (ES256 signatures are randomized; generated once)");
+        }
+        else
+        {
+            Write(root, Es256NegatedKeyThenPost(), logSeed, logPublic);
             written++;
         }
 
@@ -608,6 +620,21 @@ internal static partial class LifecycleCases
             log, post, [0, 1, 2], "verified", "verified");
     }
 
+    // Errata G78 (R4.45): a key and its negation share x and differ in y, so they are two keys; the rotation to the negation binds bytes never bound.
+    private static Case Es256NegatedKeyThenPost()
+    {
+        var a = P256Key("conformance-es256-x00", skip: 0);
+        var b = NegatedP256Key(a, "conformance-es256-x00-negated");
+        var log = new Log();
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(a.Kid))));
+        AddBinding(log, a);
+        AddRotation(log, new Rot(a, b, Prev: 1));
+        var post = AddPost(log, b, "41");
+        return new Case(NegatedCase, "R6.54 (add.)",
+            "A P-256 key rotates to its own negation (the same x coordinate, the point's y negated, the private scalar n minus d): two keys that share x and differ in y. The rotation binds a key never bound, so it is honoured and the post signed by the negation verifies (R4.45). The signatures are randomized and were generated once; they are kept.",
+            log, post, [0, 1, 2], "verified", "verified");
+    }
+
     // ---- entries -------------------------------------------------------------------------------
 
     private static Log EnrolledAndBound(Key k1)
@@ -861,6 +888,36 @@ internal static partial class LifecycleCases
         }
 
         throw new InvalidOperationException("no P-256 key with a leading-zero x coordinate within the search bound");
+    }
+
+    /// <summary>The negation of a P-256 key: the same x, y replaced by p minus y, the private scalar replaced by n minus d.</summary>
+    private static Key NegatedP256Key(Key key, string kid)
+    {
+        var p = System.Numerics.BigInteger.Parse("0FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+        var n = System.Numerics.BigInteger.Parse("0FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+
+        using var original = ECDsa.Create();
+        original.ImportECPrivateKey(key.Signing, out _);
+        var parameters = original.ExportParameters(includePrivateParameters: true);
+        var d = Fixed32(n - new System.Numerics.BigInteger(parameters.D!, isUnsigned: true, isBigEndian: true));
+        var y = Fixed32(p - new System.Numerics.BigInteger(parameters.Q.Y!, isUnsigned: true, isBigEndian: true));
+        var x = parameters.Q.X!;
+
+        using var negated = ECDsa.Create(new ECParameters
+        {
+            Curve = ECCurve.NamedCurves.nistP256,
+            D = d,
+            Q = new ECPoint { X = x, Y = y },
+        });
+        return new Key(kid, "ES256", negated.ExportECPrivateKey(), Obj(
+            ("alg", Str("ES256")), ("crv", Str("P-256")), ("kid", Str(kid)), ("kty", Str("EC")),
+            ("x", Str(Jwk.Base64UrlEncode(x))), ("y", Str(Jwk.Base64UrlEncode(y)))));
+    }
+
+    private static byte[] Fixed32(System.Numerics.BigInteger value)
+    {
+        var bytes = value.ToByteArray(isUnsigned: true, isBigEndian: true);
+        return bytes.Length == 32 ? bytes : [.. new byte[32 - bytes.Length], .. bytes];
     }
 
     private static CanonicalBytes Canon(JsonValue value) =>

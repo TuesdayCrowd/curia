@@ -562,7 +562,7 @@ The cases are **proposals**, as `acta/`'s lifecycle entries are: `dotnet run --p
 tools/GenerateEnvelopeFixtures -- --lifecycle-cases` regenerates them, deterministically, until the
 owner's lift record pins their digests. The one exception is `rotation-es256-then-post`, whose P-256
 keys begin with the byte 0x00 and whose ES256 signatures are randomized: it was generated once, and
-a rerun keeps it.
+a rerun keeps it. So is `rotation-es256-negated-key-then-post` (errata G78, R4.45): a P-256 key rotates to its own negation, which shares its x coordinate and differs in y, so it is another key, and the rotation is honoured; it holds a reader that compares an ES256 key on x alone.
 
 ## The `honoured/` family
 

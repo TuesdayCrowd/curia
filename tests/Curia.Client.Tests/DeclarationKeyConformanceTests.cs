@@ -48,14 +48,14 @@ public sealed class DeclarationKeyConformanceTests
     }
 
     /// <summary>
-    /// HSU18 (this reader's half). The family holds the 87 lifecycle cases (Amendment 1 ruling 26's 58, the control of HSU22, the six of HSU44, the six of HSU49, the four of HSU51, the six of HSU52, the three of Amendment 7, the 1 of item 288 and the 2 of errata G78) and the 12 acta cases, and the index declares
+    /// HSU18 (this reader's half). The family holds the 88 lifecycle cases (Amendment 1 ruling 26's 58, the control of HSU22, the six of HSU44, the six of HSU49, the four of HSU51, the six of HSU52, the three of Amendment 7, the 1 of item 288 and the 3 of errata G78) and the 12 acta cases, and the index declares
     /// what the directories hold. Red on the seam: <c>lifecycle 53</c>. (Every case reaching its own expected verdict is the existing <c>R6_54_EveryLifecycleCaseReachesItsVerdictAndNamesItsPredicate</c>.)
     /// </summary>
     [Fact]
     public void R6_62_HSU18_TheFamiliesHoldTheCountsOfTheDeclarationKeyVectors()
     {
         Assert.Equal(
-            "lifecycle 87 (index 87); acta 12 (index 12)",
+            "lifecycle 88 (index 88); acta 12 (index 12)",
             $"lifecycle {DirectoryCount("lifecycle")} (index {IndexCount("lifecycle")}); acta {DirectoryCount("acta")} (index {IndexCount("acta")})");
     }
 

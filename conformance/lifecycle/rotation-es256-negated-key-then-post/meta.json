@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.54 (add.)",
+  "note": "A P-256 key rotates to its own negation (the same x coordinate, the point's y negated, the private scalar n minus d): two keys that share x and differ in y. The rotation binds a key never bound, so it is honoured and the post signed by the negation verifies (R4.45). The signatures are randomized and were generated once; they are kept. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 3,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}
