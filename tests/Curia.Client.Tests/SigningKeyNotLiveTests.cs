@@ -718,7 +718,7 @@ public sealed class SigningKeyNotLiveUseKeyTests
     /// <summary>
     /// UDO16 (Amendment 5 ruling 3): the second form of <c>use-key</c>'s result. (a) K1 adopted while K0 is also held and served live: the plain result, then the errata's second form filled (K0 a display literal, the agent
     /// a shell word, <c>&lt;that kid&gt;</c> left). (b) The key set serves only one held public half: the plain result exactly, nothing after it. (c) Two others: both listed in the key set's order, the key just adopted not
-    /// among them. (d) The command the form prints, with <c>&lt;that kid&gt;</c> replaced by an other key's kid, is a plain <c>curia retire --agent &lt;slug&gt; --kid &lt;kid&gt;</c>; it is not run.
+    /// among them. Errata G77 (R11.105): (a) and (c) are scenes whose key set lists a skipped row, so each result ends with R11.105's skipped sentence (a reasoned edit of the expectation); (b) lists none and ends where it did. (d) The command the form prints, with <c>&lt;that kid&gt;</c> replaced by an other key's kid, is a plain <c>curia retire --agent &lt;slug&gt; --kid &lt;kid&gt;</c>; it is not run.
     /// </summary>
     [Fact]
     public async Task UDO16_TheResultNamesTheOtherLiveKeysAndOnlyThen()
@@ -740,7 +740,8 @@ public sealed class SigningKeyNotLiveUseKeyTests
         many.Double.KeySet = KeyActDouble.KeySetJson([m1.Served(2), mx.Served(4), m0.Served(1)], [0, 1, 2, 4], skipped: [(3, "agent.key-bound", "broken-link")]);
         var (_, c, cError) = await UseKeyAsync(many, m1.Kid);
 
-        var secondForm = PublishedClientWords.Fold(a);
+        // The skipped sentence of R11.105 follows the second form in (a); it is not part of the command (d) reads.
+        var secondForm = PublishedClientWords.Fold(a).Replace(PublishedClientWords.Fold(KeyPagesWords.UseKeySkippedSentence()), string.Empty, StringComparison.Ordinal);
         const string Marker = "once a token works: ";
         var at = secondForm.IndexOf(Marker, StringComparison.Ordinal);
         var printed = at < 0 ? "<no second form>" : secondForm[(at + Marker.Length)..].Trim().TrimEnd('.').Replace("<that kid>", k0.Kid, StringComparison.Ordinal);
@@ -748,8 +749,8 @@ public sealed class SigningKeyNotLiveUseKeyTests
         var asWords = words is null ? "not plain shell words" : string.Join(" ", words);
 
         string Exact(string text, string expected) => PublishedClientWords.Fold(text).Trim() == PublishedClientWords.Fold(expected).Trim() ? "exact" : "different";
-        var actual = $"(a) the result with K0 named: {Exact(a, SigningKeyNotLiveKit.ResultWithOthers(k1.Kid, k0.Kid))}; (b) one held key, the plain result: {Exact(b, SigningKeyNotLiveKit.PlainResult(s0.Kid))}; "
-            + $"(c) two others, in the key set's order: {Exact(c, SigningKeyNotLiveKit.ResultWithOthers(m1.Kid, m0.Kid, mx.Kid))}; (d) the printed command as words: {asWords}";
+        var actual = $"(a) the result with K0 named: {Exact(a, SigningKeyNotLiveKit.ResultWithOthers(k1.Kid, k0.Kid) + "\n" + KeyPagesWords.UseKeySkippedSentence())}; (b) one held key, the plain result: {Exact(b, SigningKeyNotLiveKit.PlainResult(s0.Kid))}; "
+            + $"(c) two others, in the key set's order: {Exact(c, SigningKeyNotLiveKit.ResultWithOthers(m1.Kid, m0.Kid, mx.Kid) + "\n" + KeyPagesWords.UseKeySkippedSentence())}; (d) the printed command as words: {asWords}";
         var expected = $"(a) the result with K0 named: exact; (b) one held key, the plain result: exact; (c) two others, in the key set's order: exact; (d) the printed command as words: curia retire --agent {SigningKeyNotLiveKit.Slug} --kid {k0.Kid}";
         SigningKeyNotLiveKit.Red(expected, actual, $"--- (a) ---\n{a}{aError}\n--- (b) ---\n{b}{bError}\n--- (c) ---\n{c}{cError}");
     }

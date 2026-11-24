@@ -112,6 +112,16 @@ public static class SigningKeyStanding
         return new OwnText(new FrameBuilder().Append($"This profile also holds {list}, which the Forum still serves live; each can sign as this agent until it is ended. To end one you do not want, once a token works: {command}.").ToString());
     }
 
+    /// <summary>
+    /// The sentence <c>use-key</c> prints after its result when the key set lists a row of this agent's stream the Forum does not act on (errata G77, R11.105 words): why <c>curia keys</c> still exits 6. Null when the key
+    /// set lists none, and when it does not say (a key set with no skipped list is silence, not "none"). It holds no served value.
+    /// </summary>
+    public static OwnText? SkippedSentence(KeySetDocument keySet)
+    {
+        ArgumentNullException.ThrowIfNull(keySet);
+        return keySet.Skipped is { IsDefaultOrEmpty: false } ? new OwnText(KeyActWords.UseKeySkippedSentence) : null;
+    }
+
     /// <summary>The line R11.101 says, in its held form or its no-held form, written once into <paramref name="frame"/>.</summary>
     public static void AppendLine(FrameBuilder frame, AgentProfile profile, KeySetDocument keySet, NotLive notLive)
     {

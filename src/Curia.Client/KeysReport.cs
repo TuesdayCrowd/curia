@@ -66,7 +66,7 @@ public static class KeysReport
         ArgumentNullException.ThrowIfNull(keySet);
 
         var frame = new FrameBuilder();
-        frame.Line("these lines are the Forum's word: its key set as served; only a signed head, checked by curia verify, anchors a key's binding");
+        frame.Line(KeyActWords.KeysFirstLine);
         foreach (var key in SigningKeyStanding.Sorted(keySet))
         {
             // The status is the Forum's word: its own four are written as they are, and any other is quoted.

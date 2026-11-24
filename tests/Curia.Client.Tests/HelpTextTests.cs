@@ -523,7 +523,9 @@ public sealed class HelpTextTests
 
             // (iv) only flags the verb accepts.
             onlyAccepted.Add(method[verb]);
-            foreach (var named in Regex.Matches(usage, "--([a-z][a-z-]*)").Select(m => m.Groups[1].Value).Where(n => n != "help"))
+            // One reasoned row: R11.101 words (rev.) (errata G77): the keys help gives use-key's own form, whose flags are use-key's, not the verb's; the form is taken out of the text this rule reads, and nothing else is.
+            var flagsScanned = verb == "keys" ? usage.Replace("curia use-key --agent <slug> --kid <kid>", string.Empty, StringComparison.Ordinal) : usage;
+            foreach (var named in Regex.Matches(flagsScanned, "--([a-z][a-z-]*)").Select(m => m.Groups[1].Value).Where(n => n != "help"))
                 Assert.True(accepted.Contains(named), $"'{verb}''s usage names --{named}, which '{verb}' refuses (it accepts {string.Join(", ", accepted)})");
 
             // (v) every flag the verb accepts.

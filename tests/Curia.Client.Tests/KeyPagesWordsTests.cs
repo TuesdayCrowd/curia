@@ -46,7 +46,7 @@ public sealed class KeyPagesBannerTests
         var (_, stdout, _) = await SigningKeyNotLiveKit.CliAsync(rig, "keys", "--agent", SigningKeyNotLiveKit.Slug);
         var line = FirstLineOf(stdout);
 
-        SigningKeyNotLiveKit.Red($"the first line of curia keys holds \"{form}\": yes", $"the first line of curia keys holds \"{form}\": {(line.Contains(form, StringComparison.Ordinal) ? "yes" : "no")}\nfirst line: {line}", stdout);
+        SigningKeyNotLiveKit.Red($"the first line of curia keys holds \"{form}\": yes", $"the first line of curia keys holds \"{form}\": {(line.Contains(form, StringComparison.Ordinal) ? "yes" : "no")}", $"first line: {line}\n{stdout}");
     }
 
     /// <summary>
@@ -187,7 +187,7 @@ public sealed class KeyPagesExitEightTests
     }
 
     /// <summary>
-    /// WRD3c: a slug that is not a shell word (one with a space, which the command quotes and so cannot print: R10.65) leaves the keys command unprinted, and the paragraph says where the value is instead. Hand literal for the
+    /// WRD3c: a slug that is not a shell word as R10.65 writes one (one that begins with a quotation mark; a slug with a space is a shell word, which the command quotes, as `curia rotate`'s does) leaves the keys command unprinted, and the paragraph says where the value is instead. Hand literal for the
     /// words the paragraph says in its place: the errata publishes no words for this form (R11.99 words (rev.): "the paragraph says where the value is"), so the probe holds the property it does publish, that no
     /// <c>curia keys --agent</c> command is printed and a withheld marker is, and that the sentence it ends is still the keys sentence. Red on the tree: <c>a withheld marker: not there</c>.
     /// </summary>
@@ -195,17 +195,18 @@ public sealed class KeyPagesExitEightTests
     public async Task WRD3c_ASlugThatIsNotAShellWordLeavesTheKeysCommandUnprinted()
     {
         var clock = new ManualTimeProvider(Sent);
-        using var rig = KeyActRig.Create(slug: "a b", clock: clock);
+        using var rig = KeyActRig.Create(slug: "\"ab", clock: clock);
         rig.Double.LifecycleAnswers.Enqueue((HttpStatusCode.ServiceUnavailable, KeyActDouble.Problem("curia/store/unavailable", "store unavailable")));
 
         var (exit, stdout, stderr) = await KeyActRig.CaptureAsync(() => Program.RotateKeyAsync(rig.Client, rig.Session, rig.Agent, rig.Store, null, Ct));
 
         var folded = PublishedClientWords.Fold(stderr);
         string Is(bool value) => value ? "yes" : "no";
-        WholeText.Same(
+        SigningKeyNotLiveKit.Red(
             "exit 8; a curia keys --agent command printed: no; a withheld marker (\"not written as a command\"): yes; the sentence ends reads the same key set and writes nothing.: yes",
             $"exit {exit}; a curia keys --agent command printed: {Is(folded.Contains("curia keys --agent", StringComparison.Ordinal))}; a withheld marker (\"not written as a command\"): {Is(folded.Contains("not written as a command", StringComparison.Ordinal))}; "
-            + $"the sentence ends reads the same key set and writes nothing.: {Is(folded.Contains("reads the same key set and writes nothing.", StringComparison.Ordinal))}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}");
+            + $"the sentence ends reads the same key set and writes nothing.: {Is(folded.Contains("reads the same key set and writes nothing.", StringComparison.Ordinal))}",
+            $"--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}");
     }
 
     private sealed record Run(string Label, int Exit, string Stdout, string Stderr, int LifecyclePosts, int TokenPosts, string Pending, string KeyFiles, string SigningKid);

@@ -56,16 +56,25 @@ public static class NotInForceReport
     /// The command that completes a rotation this profile sent and did not hear an answer to, as <c>curia keys</c> prints it (errata G74, R11.100 words): the agent goes in as a bare word when it is made of letters, digits, dots,
     /// underscores and hyphens (a word no shell reads as anything but itself), as a shell word (R10.65, R10.66) otherwise, and the command is not printed when it is neither.
     /// </summary>
-    public static OwnText RotateCommand(string slug)
+    public static OwnText RotateCommand(string slug) => AgentCommand("rotate", slug);
+
+    /// <summary>
+    /// The command that reads the key set, as the first-failure paragraph prints it (errata G77, R11.99 words (rev.)): <c>curia keys --agent</c> and the slug, written as <see cref="RotateCommand"/> writes its own and
+    /// withheld the same way.
+    /// </summary>
+    public static OwnText KeysCommand(string slug) => AgentCommand("keys", slug);
+
+    private static OwnText AgentCommand(string verb, string slug)
     {
         ArgumentNullException.ThrowIfNull(slug);
 
+        var head = new OwnText("curia " + verb);
         if (slug.Length > 0 && slug[0] != '-' && slug.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-'))
-            return new OwnText("curia rotate --agent " + slug);
+            return new OwnText($"curia {verb} --agent " + slug);
 
         return TryName(slug, out var agent)
-            ? new OwnText(new FrameBuilder().Append($"curia rotate --agent {agent}").ToString())
-            : new OwnText(new FrameBuilder().Append($"curia rotate and the agent named above ({new OwnText(PrintedCommand.Withheld)})").ToString());
+            ? new OwnText(new FrameBuilder().Append($"{head} --agent {agent}").ToString())
+            : new OwnText(new FrameBuilder().Append($"{head} and the agent named above ({new OwnText(PrintedCommand.Withheld)})").ToString());
     }
 
     /// <summary>
