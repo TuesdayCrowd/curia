@@ -361,3 +361,41 @@ The cybersecurity agent was asked Amendment 1's four questions (section 2). It v
 - **R4.11 is built before beta hosting.** Proof of possession at enrolment becomes a stage on the path to hosting (not a precondition of the guard's lift). Task 8 files it as a register item with that decision; a log-wide refusal of shared key bytes is reconsidered only after it lands.
 
 Nothing in this stage's rules changes: both decisions confirm ruling 20's per-identity scope.
+
+## As run
+
+Written by Task 8 from the task records in `.superpowers/sdd/2026-11-24-key-bytes-bound-once/` (`task-0-report.md`, `task-2-report.md`, `task-3-4-report.md`, `task-5-report.md`, `task-6-report.md` with 6b, `live/kb-live.txt`, `cold/cold-read-kb.md`); the amendments above are not edited. A field no record holds is written "not run". Commits are `git log --oneline 9269c0c4..key-bytes-bound-once` on the branch `key-bytes-bound-once`, from `main` 9269c0c4 (#172); no commit is unmatched.
+
+### The tasks, in the order run
+
+| Task | Commit | What it did | Record |
+|---|---|---|---|
+| plan, Amendments 1 and 2 | b08e6cdd | the plan, provisional G78, R4.45, R11.106; Amendment 1 (rulings 13 to 24, from Task 0) and Amendment 2 (the owner's decisions on ruling 20) | this file |
+| 0 | none (no tracked file changed) | operated the unmodified tree on an export: K1 to K13 | `task-0-report.md` |
+| 1 | c80bb417 | G78 pasted from Amendment 1's corrected block (status specified; not built), non-property (a) with the owner's acceptance, index rows | none |
+| 2 | c176a852 | nine vectors, every pin site moved in the same commit, KBO11 to KBO16 and WRD11 red first | `task-2-report.md` |
+| 3, 4 | 7336d1df | the Forum's half (`LifecycleFold`, `RotateKey`, `KeyActs`, `StatusForKeyAct`) and the readers' half (`LifecycleCheck`, `curia-testis`) | `task-3-4-report.md` |
+| 5 | 21728161 | the client: `ReadLifecycleAsync` returns the key set, the signer check, the words, the helps | `task-5-report.md` |
+| 6, 6b | c207e64d | falsification: 33 rows, 30 killed, 3 survived; 6b closed the three (the negation reader vector, KBO17) | `task-6-report.md` |
+| 7 | none | the live run (LB1 to LB7) and the cold read | `live/kb-live.txt`, `cold/cold-read-kb.md` |
+| 8 | the commit of this section | errata G78's Status; CLAUDE.md's G78 paragraph; this section; the register patch `impl-plan-key-bytes.md`; the PR body | none |
+
+### What the amendments ruled on
+
+No stop rule fired. **Amendment 1** (Task 0): `RotateKey` reads `VerifiedLifecycle.Binding` and no member is added to `Decided`; vectors regenerate in place only (24 ES256 declaration cases re-sign from a clean directory); the pin sites are K5's list, with the partition numbers; the corpus totals are asserted only in `vectors.rs`; WRD11 goes red, and is meant to, when Task 5 changes the code, and G78 carries its words in `R11.106 words`; the status table is `StatusForKeyAct` and the fence is `R4_18_EveryRefusalTheUseCasesReturnIsMappedByTheRoutes`; the bytes refusal precedes the three caps; the rule is per identity (ruling 20), the retired private half in `keys/` is the owner's, and a declaration naming an already-compromised kid is a lead. **Amendment 2** (the owner, 2026-11-24): shared key bytes across identities are accepted as a non-property, and R4.11 is built before beta hosting.
+
+### What the run found that reading did not
+
+- **Task 2:** every harmful-row prediction held (KBO1 to KBO5 and KBO8 red, KBO6, KBO7 and KBO9 green); the first red of each chained pin was recorded (index, then directory count, then partition). KBO11 could not be seeded from the vector files (the in-memory harness signs ES256 with a test crypto and the vectors are Ed25519), so its scenes are hand-built with real ES256 keys; KBO7's exact vector shape (the same kid twice) cannot be sent through `RotateKey`, which counts every row as `kid-taken`, so it is a fold control only; a first draft of KBO11's skipped-row control failed on a scene error (`LatestIndexAsync` counts a skipped row), not on a wrong prediction.
+- **Task 6:** 30 of 33 rows killed for their own reason; the plan's predictions that did not hold, each recorded (trap 268): FKBO13's skipped-row control stays green (a store read can only under-refuse in that direction), FKBO14's route probe stays green (only Application's KBO11 holds "a refusal that registers"), FKBO3 and FKBO8 reach no Api probe, FKBO15 is red at two probes in one run, and three vectors (not one) name a root key's bytes (FKBO8). **Three survivors** (FKBO7c, FKBO7d, FSPEC4) were real gaps: no reader vector paired a key with its negation, and no probe read R4.45's text. 6b closed them with `rotation-es256-negated-key-then-post` and KBO17.
+- **FKBO6 is trap 297's evidence:** with the kid rule deleted, the old vector `rotation-kid-already-bound` stayed green (the bytes rule skips it at the same predicate); KBO6 and KBO9, the vectors that hold the kid rule alone, were red.
+- **Task 7, live:** the harm is honoured on the base and refused on the tip on a real signer (LB1, LB2); a log the base wrote is skipped by the tip, and **a post signed under a base-written rebound key no longer verifies** (LB3, alpha); `curia verify` does not name the skipped row, and `curia-testis` says "bound at leaf 3" for the retirement row (LB4); a second declaration of an already-compromised kid is still honoured (LB6).
+- **Cold read:** 9 of 9 gated readers in one round, no gate corrected; the SKIPPED page was not a gate, 3 of 3 acted sensibly and 3 of 3 found `statement-mismatch` unexplained (item 363's evidence).
+
+### Gates run, with counts
+
+From the task reports (Release, `Curia.sln` 0 warnings, 0 errors at each task): after 6b, `--no-incremental`: Client 2005, Application 955, Canon 338, Mcp 1069 passed and 6 skipped, the Api key-act and lifecycle classes 139, `cargo test --locked` 291, Architecture 149 (Release; 149 in Debug at Task 5), `check-spec.py` and `falsify-spec-checks.py` exit 0; `cargo fmt --check` and `clippy --all-targets --locked -D warnings` clean at Tasks 2 to 4; the differential gate exit 0 at Tasks 3 and 4 (it reads neither family); `api-legs.py check` clean. Task 8: `check-spec.py` and `falsify-spec-checks.py` exit 0 after the Status edit. `python3 tools/preflight/preflight.py`: the PR body's, not run here. The full Api suite is CI's.
+
+### The PR body's items
+
+The PR body (`pr-body-kb.md`, outside the tracked files) states: that it touches no `.github/` and no `db/`, that it does touch `conformance/` (new cases only; the existing 139 byte-identical) and `rust/curia-testis` (loose until beta), that the approval record reads `{"version":1,"approved":[]}` and the guard is not lifted (it was lifted only in the live run's exports), that logs already holding a rebind row are skipped from this build on with no migration, the four states with falsification counts by outcome, K1 to K13, LB1 to LB7, the cold read by page and gate with the controls, the non-properties (a) to (i), and the register items filed (362 to 369, trap 297) with item 361 closed.
