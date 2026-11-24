@@ -137,6 +137,6 @@ public sealed class SearchWordingSpecTests
             "the count line before the served model's limits (R11.93) and those limits whole",
             "SHALL say that `limit` moves membership",
             "not a shorter set",
-            "`curia-mcp` is 0.12.5");
+            $"`curia-mcp` is {PublishedReadersLastWords.Version()}");
     }
 }

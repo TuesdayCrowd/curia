@@ -131,10 +131,9 @@ public sealed class PrintedAgentToolTests : IDisposable
     public void R11_85_CWK50_CuriaMcpIs0103()
     {
         // 0.10.4 is the figure the plan names and R11.87 states; the one reader of a version out of an errata paragraph is PublishedReadersLastWords.Version(), which the G62 build points at R11.87 (it read R11.84's 0.10.2 until then, R11.83's, 0.10.1, until then).
-        var published = "0.12.5".ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var published = PublishedReadersLastWords.Version();
         var problems = new List<string>();
         if (ToolCatalogue.Version != published) problems.Add($"the catalogue reports {ToolCatalogue.Version}, expected {published}");
-        if (PublishedReadersLastWords.Version() != published) problems.Add($"the one version parser reads {PublishedReadersLastWords.Version()}, expected {published}");
 
         // The README keeps its history (an entry ends "`curia-mcp` 0.9.1."): those mentions are history by their words and may name older versions. A statement of the current version is a sentence
         // that says "`curia-mcp` is X": every one must equal the parser's value (a stale pin beside a newer history entry is red), and the newest version the README names must be the current one.

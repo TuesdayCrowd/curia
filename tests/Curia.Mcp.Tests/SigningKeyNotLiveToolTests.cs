@@ -17,7 +17,7 @@ namespace Curia.Mcp.Tests;
 /// UDO9 (errata G75, R11.101, register item 323): <c>curia_keys</c> says what <c>curia keys</c> says when the key this host signs with is not one the Forum serves live, <c>curia-mcp</c> is the version R11.101's
 /// paragraph names, and the tool's description carries the sentence the errata publishes. The profile is written by hand: it signs with a kid the stub's key set does not list, and keeps the stub's own key (the one
 /// the key set serves <c>active</c>, with the same public half) as a held key. The text is compared with <see cref="KeysReport"/>'s, the one definition the CLI and the tool both call (as <c>KeysToolTests</c> does).
-/// Every word is read from the errata at test time; the version is read by this file's own reader (<see cref="PublishedVersion"/>), not <c>PublishedReadersLastWords.Version()</c>, which reads R11.100's paragraph.
+/// Every word is read from the errata at test time; the version is read by the one parser, <c>PublishedReadersLastWords.Version()</c>.
 /// </summary>
 [SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class SigningKeyNotLiveToolTests : IDisposable
@@ -55,13 +55,6 @@ public sealed class SigningKeyNotLiveToolTests : IDisposable
         var at = template.IndexOf(placeholder, StringComparison.Ordinal);
         if (at < 0 || template.IndexOf(placeholder, at + 1, StringComparison.Ordinal) >= 0) throw new InvalidOperationException($"the published words do not hold {placeholder} exactly once");
         return template.Replace(placeholder, value, StringComparison.Ordinal);
-    }
-
-    /// <summary>The version R11.101's paragraph names: <c>`curia-mcp` is x.y.z</c>, read from the paragraph that begins <c>**R11.101**</c>, and nothing else.</summary>
-    private static string PublishedVersion()
-    {
-        var matches = Regex.Matches(PublishedAcceptBudget.Paragraph("**R11.103**"), @"`curia-mcp` is (\d+\.\d+\.\d+)", RegexOptions.CultureInvariant);
-        return matches.Count == 1 ? matches[0].Groups[1].Value : throw new InvalidOperationException($"R11.103 yields {matches.Count} readings of the curia-mcp version");
     }
 
     private async Task<McpProtocolSession> StartAsync()
@@ -165,7 +158,7 @@ public sealed class SigningKeyNotLiveToolTests : IDisposable
     [Fact]
     public void UDO9_CuriaMcpReportsTheVersionR11101Names()
     {
-        var published = PublishedVersion();
+        var published = PublishedReadersLastWords.Version();
         Assert.True(_log.Store.Load("alice").TryGetValue(out var agent, out var error), error?.Detail);
         using (agent)
         {

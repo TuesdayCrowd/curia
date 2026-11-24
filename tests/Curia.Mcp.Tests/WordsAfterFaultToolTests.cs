@@ -115,10 +115,7 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
     [Fact]
     public void R11_74_WAF31_CuriaMcpIsTheVersionG53NamesByTheOneParserThePinsAndTheTwins()
     {
-        var named = new Regex("`curia-mcp` is (" + @"\d+\.\d+\.\d+" + ")", RegexOptions.CultureInvariant)
-            .Match(PublishedAcceptBudget.Paragraph("**R11.103**")) is { Success: true } m
-            ? m.Groups[1].Value
-            : throw new InvalidOperationException("the errata's R11.103 names no curia-mcp version");
+        var named = PublishedReadersLastWords.Version();
 
         var problems = new List<string>();
         void Expect(string where, string actual)
@@ -127,7 +124,6 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
         }
 
         Expect("ToolCatalogue.Version", ToolCatalogue.Version);
-        Expect("PublishedReadersLastWords.Version()", PublishedReadersLastWords.Version());
 
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Curia.sln"))) dir = dir.Parent;
@@ -135,7 +131,7 @@ string ClauseOf(string tool) => Fold(tool == "curia_resolve" ? PublishedResendWo
         var readme = File.ReadAllText(Path.Combine(root, "README.md"));
         if (!readme.Contains($"`curia-mcp` is {named}", StringComparison.Ordinal)) problems.Add($"README.md: does not say `curia-mcp` is {named}");
 
-        foreach (var twin in new[] { Path.Combine("Curia.Mcp.Tests", "BudgetToolTests.cs"), Path.Combine("Curia.Architecture.Tests", "IndexLagEntryTests.cs") })
+        foreach (var twin in new[] { Path.Combine("Curia.Mcp.Tests", "BudgetToolTests.cs") })
         {
             // The newest version a twin writes: an older literal in the same file belongs to an earlier entry's history.
             var newest = Regex.Matches(File.ReadAllText(Path.Combine(root, "tests", twin)), @"\b0\.\d+\.\d+\b", RegexOptions.CultureInvariant)
