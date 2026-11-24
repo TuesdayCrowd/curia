@@ -20,8 +20,8 @@ internal static class SigningKeyNotLiveWords
     /// <summary>The rotation <c>NOW IN FORCE</c> line while the signing key is not live, with <c>&lt;i&gt;</c> and <c>&lt;new kid&gt;</c> left in.</summary>
     internal static string RotationLineWhileNotLive() => Span("R11.101 words", "The rotation NOW IN FORCE line while the signing key is not live");
 
-    /// <summary>The clause <c>curia keys --help</c> gains.</summary>
-    internal static string KeysHelpClause() => Span("R11.101 words", "The added clause of keys help");
+    /// <summary>The clause <c>curia keys --help</c> gains, as <c>R11.101 words (rev.)</c> (errata G77) revises it: the first span of the revising paragraph (it then names <c>curia use-key</c> in a span of its own), which supersedes the one in R11.101 words.</summary>
+    internal static string KeysHelpClause() => Span("R11.101 words (rev.)", "The added clause of keys help", firstOfMany: true, anchor: "**R11.101 words (rev.)**");
 
     /// <summary>The clause row 6 of the exit table gains.</summary>
     internal static string ExitSixClause() => Span("R11.101 words", "The added clause of exit 6");
@@ -29,8 +29,8 @@ internal static class SigningKeyNotLiveWords
     /// <summary>The usage line of <c>curia use-key --help</c>.</summary>
     internal static string UseKeyUsage() => Span("R11.101 words", "The usage line of use-key help");
 
-    /// <summary>The paragraph of <c>curia use-key --help</c>.</summary>
-    internal static string UseKeyParagraph() => Span("R11.101 words", "The paragraph of use-key help");
+    /// <summary>The paragraph of <c>curia use-key --help</c>, as <c>R11.101 words (rev.)</c> (errata G77) revises it.</summary>
+    internal static string UseKeyParagraph() => Span("R11.101 words (rev.)", "The paragraph of use-key help", firstOfMany: true, anchor: "**R11.101 words (rev.)**");
 
     /// <summary>What <c>curia use-key</c> prints when it has made the profile sign with the key, with <c>&lt;kid&gt;</c> left in.</summary>
     internal static string UseKeyResult() => Span("R11.101 words", "The result of use-key");
@@ -48,9 +48,9 @@ internal static class SigningKeyNotLiveWords
             : throw new InvalidOperationException($"{Errata}'s R11.96 (add.) (rev.): {spans.Length} spans, expected 1");
     }
 
-    private static string Span(string paragraphName, string label, bool firstOfMany = false)
+    private static string Span(string paragraphName, string label, bool firstOfMany = false, string? anchor = null)
     {
-        var paragraph = PublishedAcceptBudget.Paragraph($"**{paragraphName}.**");
+        var paragraph = PublishedAcceptBudget.Paragraph(anchor ?? $"**{paragraphName}.**");
         var marker = $"*{label}:*";
         var at = paragraph.IndexOf(marker, StringComparison.Ordinal);
         if (at < 0 || paragraph.IndexOf(marker, at + 1, StringComparison.Ordinal) >= 0)

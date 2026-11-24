@@ -54,6 +54,7 @@ internal static class UnheardWords
         }
 
         Put("<the rotate command>", slug is null ? null : $"curia rotate --agent {slug}");
+        Put("<slug>", slug);
         Put("<the retire command for <kid>>", slug is null || kid is null ? null : Hints.Retire(slug, kid).Text);
         Put("<new kid>", newKid is null ? null : NotHonouredKit.Kid(newKid));
         Put("<kid>", kid is null ? null : NotHonouredKit.Kid(kid));
@@ -794,7 +795,7 @@ public sealed class UnheardKeyActTests
             var run = rotation ? await scene.RotateAsync(Ct) : await scene.RetireAsync(Ct);
             output = run.Stdout + "\n" + run.Stderr;
             newKid = rotation ? NotHonouredKit.ReceivedBy(scene.Rig.Double).Kid : null;
-            template = UnheardWords.Span(UnheardWords.Settling, rotation ? "After a rotation not heard from" : "After a retirement not heard from");
+            template = KeyPagesWords.AfterNotHeard(rotation);
             var failureWords = Filled(template, Sent, index, newKid, kid, scene.Rig.Slug);
             WholeText.Same(Said(true, failureWords), Said(PublishedClientWords.Says(output, failureWords), failureWords));
             return;
@@ -849,7 +850,7 @@ public sealed class UnheardKeyActTests
     [InlineData("retire", "Help, retire")]
     public void UKA11_TheHelpCarriesTheClause(string verb, string label)
     {
-        var clause = UnheardWords.Span(UnheardWords.Settling, label);
+        var clause = KeyPagesWords.HelpClause(verb == "rotate", label);
         var help = PublishedClientWords.Fold(Help.For(verb) ?? string.Empty);
 
         WholeText.Same($"curia help {verb} carries \"{clause}\"", help.Contains(PublishedClientWords.Fold(clause), StringComparison.Ordinal) ? $"curia help {verb} carries \"{clause}\"" : $"curia help {verb} does not carry it");

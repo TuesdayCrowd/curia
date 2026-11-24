@@ -367,7 +367,7 @@ public sealed class SigningKeyNotLiveKeysTests
 
     /// <summary>
     /// UDO3 (control, the vacuity row): the signing key is listed <c>active</c> and K1 is kept (G73's scene): no line, exit 6 and G73's words unedited. Green on the tree for the wrong reason: the line does not exist, so it
-    /// is not printed. It carries information only through FUDO2 and FUDO1, which print the line when they should not.
+    /// is not printed. It carries information only through FUDO11 (the detection ignores the signing key's standing and prints the line whenever a retained key's rotation is not in force); FUDO12 carries UDO3b, not this probe.
     /// </summary>
     [Fact]
     public async Task UDO3_AnActiveSigningKeyPrintsNoLineAndG73sWordsStand_Control()
@@ -588,7 +588,8 @@ public sealed class SigningKeyNotLiveUseKeyTests
     /// UDO5: every refusal of <c>use-key</c> writes nothing and sends nothing, and is answered by <c>use-key</c> itself (not the unknown-verb usage). Rows: a kid not held (exit 6); a kid held and served <c>active</c>
     /// with a different public half (exit 6; red for a kid-only reading); a kid held and served <c>retired</c>, then <c>compromised</c> (exit 6); a signing key that is live (exit 1); an unreadable key set (exit 8); no
     /// <c>--kid</c> (exit 1). On the tree every row reads the same unknown-verb answer (exit 1, usage): a row that expects exit 1 is kept red by the third part of its text, the answer being use-key's; the rows carry
-    /// information beyond the verb's absence only through FUDO3 (the kid-only comparison) and FUDO4 (proceeding while the signing key is live).
+    /// information beyond the verb's absence through, among others, FUDO3 (the kid-only comparison), FUDO4 (proceeding while the signing key is live) and FUDO14 (the cached token deleted before anything is checked): the
+    /// falsification records name more rows than these.
     /// </summary>
     [Theory]
     [InlineData("not-held", 6)]
