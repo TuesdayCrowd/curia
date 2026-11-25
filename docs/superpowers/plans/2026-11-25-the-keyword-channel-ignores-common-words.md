@@ -446,3 +446,59 @@ The sorted block's SHA-256, over its words joined by one line feed with no trail
 - the gloss's strength ("weak evidence, not none" becomes "does not show").
 
 Nothing else in the plan changes. No `.github/`, `db/`, `rust/` or wire vector is touched; the approval record stays `{"version":1,"approved":[]}`.
+
+## Amendment 2 (2026-11-25, from Task 6)
+
+Written by `curia-architect` after reading `falsification.md` (FKWC9, FKWC15, FKWC17 and the diagnostic table), `STOPWORD-RULE.md`, `RESULTS.md`, Amendment 1 and the G81 entry. It is appended to the plan before Task 7. **It edits no rule, no list and no committed number.** Where it and the plan disagree, it governs.
+
+### 0. What Task 6 found, and whose error it is
+
+FKWC17 (the list plus the ten highest-document-frequency unlisted words) leaves the verdict at Ships, and so do +20, +40 and +80 words. Amendment 1 ruling 1 said the Keep "looks at where the real find stands, not whether it is listed", and rejected Task 0's candidate fix 1 because "*kept* = *base* by definition". **The same defect survived in the definition I ruled.** *Real find* is defined relative to the **candidate** list: a target the candidate stops finding is reclassified `stopword-only` and leaves *base*, so *kept* equals *base* whatever the list's content. What the ruled Keep can still see is a **rank demotion among survivors**, and removing a query's terms promotes survivors, so the MRR rises. Amendment 1 saw vacuity question 4 in the proposal it refused and missed it in the definition it wrote. That is recorded here as mine.
+
+### 1. Does Ships stand? Yes. Not an owner question.
+
+**Ruling: the verdict stands under the rule as committed, and what it is evidence of is narrowed.** The second reading (a gate shown vacuous means the rule did not decide) is refused, for four reasons.
+
+1. **The rule decides by its text.** It says that if Removal and both Keeps hold the list ships, and that nothing is retuned after the data. Every condition held. A rule that is voided when its data is read, in the direction that withholds, is a rule that can be rewritten in either direction after the data: the freedom the pre-commitment was written to remove.
+2. **The vacuity is about power against other lists, not about this list's numbers.** For the shipped list the candidate and the reference are the same list, so *stopword-only relative to the candidate* and *relative to the shipped list* are the same set: the Keep's numbers for this run are what a sound definition measured against the shipped list would give. (That identity is also why that definition cannot be applied here as new evidence: it derives from the same artifact. Vacuity question 4.) The flaw bites only when a candidate differs from a reference, that is for a future list.
+3. **One gate discriminates, and what the Keep cannot bound is published as a number.** Removal moved from 10 of 30 to 30 of 30. The findability cost the Keep fails to bound is counted directly and not gated: **6 of 120** on-topic targets are `stopword-only` (listed by the keyword channel only through a listed word), and 1 of 40 hazard targets is lost. The vector channel runs unchanged on the whole text for all of them (live recall at 10 is LV4).
+4. **What carries "the list is function words only" is not the measurement.** FKWC17 shows no gate separates the shipped list from the list plus 80 content words (hazard loss reaches only 4 of 8 allowed). The claim rests on the list's composition: seven closed classes, fixed and hashed before any query existed, readable in `STOPWORD-RULE.md`, with `python`, `run`, `go`, `one`, `need` and the like deliberately absent. That is an argument from a different artifact than the data, and it is the honest basis. The measurement shows the list **helps** (Removal) and states its **cost** (6 of 120, 1 of 40). It does not show the cost is the least possible, and no sentence may say it does.
+
+**Owner:** nothing to ask. The ship is reversible (a list in code and one page member, alpha, no frozen format, no stored data), and no reserved item is touched. The owner meets the limitation in the PR body below, where it is stated in the first paragraph and not buried.
+
+### 2. Exact text
+
+**Errata G81, Status line, appended after the sentence that says the rule's verdict is Ships:**
+
+> The verdict stands, and the on-topic Keep is **non-discriminating for the content of a list**: it defines a *real find* relative to the candidate list, so a target a larger list stops finding leaves the baseline and the ratio kept to base is 1 whatever the list holds (the list enlarged by the 10, 20, 40 and 80 highest-document-frequency unlisted words still ships: stopword-only 8, 12, 14 and 22 of 120 against 6, hazard lost 1, 3, 4 and 4 of 8 allowed, the MRR a gain each time). Task 6's falsification found it (FKWC17); only the byte pins on the runner's output go red under it. What the measurement shows of this list is that Removal holds and what it costs, **6 of 120 on-topic targets and 1 of 40 hazard targets no longer listed by the keyword channel**, published and not bounded by any gate. That the list holds function words only rests on its composition, fixed before the material existed, and not on the Keep. A sound Keep is register item <N> for a future rule and was not applied to this run.
+
+**RESULTS.md, a paragraph after the "Each condition, value against threshold" paragraph and outside the runner's markers:**
+
+> What the Keep did not measure. The on-topic Keep counts a real find relative to the list under test, so a target the list stops finding is counted `stopword-only` and leaves the baseline, and kept equals base whatever the list holds. It would pass a list enlarged by content words. Diagnostic, read after the verdict and changing nothing: with the list plus the 10, 20, 40 and 80 highest-document-frequency words it does not hold, the runner gives real finds 108, 104, 102 and 94 of 120 (stopword-only 8, 12, 14, 22), hazard lost 1, 3, 4 and 4 of 8 allowed, the MRR a gain each time, and the verdict Ships each time. So the Keep's 84 of 84 is no evidence that the list costs little. The cost of this list is the 6 `stopword-only` of 120 and the hazard loss of 1 of 40 above, which are counted and gate nothing; the case that the list holds function words only is its composition (fixed before the material), not this run.
+
+**PR body, first paragraph under "What this does not show":**
+
+> The measurement that shipped the list is weaker than it looks. Its on-topic Keep (84 of 84) cannot go red for what a list contains: a target a larger list stops finding is reclassified as not-a-find and leaves the baseline (shown by falsification: the list plus 80 content words still ships). What the evidence supports is Removal (off-topic pages at most a quarter of the board for 30 of 30 queries against 10 of 30) and the cost counted directly: 6 of 120 on-topic targets and 1 of 40 hazard targets are no longer listed by the keyword channel (the vector channel still runs on the whole text; live recall at 10 is in the live record). That the list holds only function words rests on its composition, fixed before the data. The rule was not changed after the data; Amendment 2 records this.
+
+### 3. A sound Keep: a register item for a future rule, not applied now
+
+**Yes, record it**, as a register item (number allocated when written, after re-reading the register), "the stopword rule's Keep cannot see a harmful list". Content:
+
+- *Reference independent of the candidate.* *Findable* must be defined against a fixed reference the candidate cannot move: for a **change** to the shipped list, the shipped list; for a **new** list, the keyword channel without a list, with the cost counted as targets listed without the list and not with it (as the hazard gate already does), under a numeric ceiling set before the data. "Fixed relative to the shipped list" is informative only for a *different* candidate; for the shipped list itself it reproduces this run (see 1.2).
+- *Both Keeps count a lost target against the ceiling*, so a larger list cannot buy a pass by reclassification. The hazard ceiling (`ceil(0.20 x m)` = 8) is itself too generous to trip at +80 words: a future rule sizes it so that a stated enlargement trips it.
+- *Teeth before the verdict.* The rule names, before the material exists, a **must-fail input** (the list plus k highest-DF unlisted words, or a list of content words) and the gate that must go red on it; the machinery is run on that input and shown red before the real run is read. A gate with no must-fail input is a gate nobody has seen move.
+- Add to the plan's "Traps" list (Task 8): *a gate whose population is defined by the outcome it tests* (here, *real find*, defined by being listed by the candidate), shown by a falsification row the plan itself predicted and that came back green.
+
+### 4. Probes
+
+- **FKWC15: add the probe now.** It is tooling, not a rule or a number. Add `--rule <path>` to `tools/retrieval/lexical-measure.py` (default the committed rule file, so every existing output stays byte-identical and `lexical-stopwords.reference.jsonl` does not change). Probe, beside KWC2: copy the rule to a temporary file, remove one word from its block, run `--print-list --rule <copy>` and assert the word is absent and the other 110 are present; assert the default call still prints the committed 111. Then **re-run FKWC15 and show it red**: a probe that has only been written is not falsified. If the script verifies the block's hash, the probe also fixes the hash line in the copy or asserts the refusal, whichever the script does, and says which.
+- **FKWC17: record it as a "survived as a gate, reason recorded" row; add no verdict-asserting probe.** A probe asserting `No` for list + 10 would fail against the rule as committed, and one asserting `Ships` would pin the vacuity green forever, a test that is quiet by construction. Asserting that +10 raises the hazard loss is false (1 stays 1) and pins a diagnostic. What kills a changed list is already there: the byte pins in KWC14 (the runner's block against RESULTS.md, Python against C#), KWC1's hash of the block against the rule, and KWC2. The row says: killed by KWC14 only; Keep and MRR survived by construction; see Amendment 2.
+- **FKWC9: keep as "equivalent on the product path, held by the runner's without-the-list column"** (KWC14, KWC17). Say so in the row; no product probe can exist.
+- KWC11, KWC16, KWC12: the row names the probe that killed it, as Task 6 listed.
+
+### 5. What changes in Tasks 7, 7b and 8
+
+- **Task 6 (close before 7):** add the `--rule` flag and its probe, re-run FKWC15 red, restore (plain copy, rebuild, run unpatched once). No other code.
+- **Task 7:** LV4 is now the only direct measure of findability on the fused page, and the gates cannot supply one, so it must be reported in full and not summarised: per target by id, first page on `c` and on `t`; the 6 `stopword-only` targets and `kh-03` named singly with what the vector channel did for each. It stays **report-only, with no threshold set now** (a threshold chosen after the data is the retune the rule forbids; a fall is read by the owner). Every sentence of the PR body about what an agent sees or loses is a line of this record, as the plan already requires.
+- **Task 7b:** unchanged.
+- **Task 8:** the G81 Status, RESULTS.md paragraph and PR body text in section 2; the register item and the trap in section 3; FKWC17 and FKWC9 rows as in section 4. **No sentence in the errata, `CLAUDE.md`, the plan or the PR may say the Keep "held" as evidence of low cost**, nor that the list was "measured not to harm"; the wording is "Removal holds, the cost is counted at 6 of 120 and 1 of 40, and the Keep cannot bound it". `CLAUDE.md`'s status paragraph carries the same limit in one clause. Item 342 closes with the register item above open beside it.
