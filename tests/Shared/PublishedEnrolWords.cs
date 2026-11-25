@@ -19,6 +19,8 @@ internal static partial class PublishedEnrolWords
 
     internal static string Continuing => Span("Continuing");
 
+    internal static string ProofNonceStale => Span("Proof, nonce stale");
+
     internal static string ProofOther => Span("Proof, other");
 
     internal static string NotContinuable => Span("Not continuable");

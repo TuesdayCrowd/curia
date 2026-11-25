@@ -22,6 +22,9 @@ public static class EnrolWording
     private const string NonceAbsent =
         "this Forum does not offer an enrollment nonce, so it predates proof of possession at enrollment. Nothing was sent.";
 
+    private const string ProofNonceStale =
+        "nothing was registered: the Forum's enrollment nonce was not current when the proof arrived, after one retry with a fresh nonce. Run the same command again; it continues this enrollment.";
+
     private const string ProofOther =
         "the Forum refused the proof (<type>); nothing was registered. This is a defect of this client or of its signer.";
 
@@ -56,6 +59,7 @@ public static class EnrolWording
                 "curia/enroll/proof-window" => ProofWindow,
                 "curia/enroll/proof-not-possessed" => ProofNotPossessed,
                 "curia/enroll/proof-required" => ProofRequired,
+                "curia/enroll/proof-nonce-stale" => ProofNonceStale,
                 _ => Fill(ProofOther, type, profileDirectory),
             };
         }

@@ -85,7 +85,7 @@ public sealed class EnrolProofClientTests
         Assert.NotEqual(EnrolForum.JtiOf(forum.Proofs[0]!), EnrolForum.JtiOf(forum.Proofs[1]!));
     }
 
-    /// <summary>EPP16, the stop: a second <c>proof-nonce-stale</c> ends the run with the <c>Proof, other</c> words, two signatures in all, and the exit every <c>400</c> has (3).</summary>
+    /// <summary>EPP16, the stop: a second <c>proof-nonce-stale</c> ends the run with the <c>Proof, nonce stale</c> words (F1 of the live run: not <c>Proof, other</c>, which blames the client), two signatures in all, and the exit every <c>400</c> has (3).</summary>
     [Fact]
     public async Task R11_107_EPP16_ASecondStaleNonceStopsTheRunAndSaysSo()
     {
@@ -99,7 +99,33 @@ public sealed class EnrolProofClientTests
         Assert.Equal(3, run.Exit);
         Assert.Equal(2, run.Requests.Count(r => r.Method == "POST"));
         Assert.Equal(2, signer.Signatures);
-        AssertSays(run, Words(PublishedEnrolWords.ProofOther, "curia/enroll/proof-nonce-stale"));
+        AssertSays(run, PublishedEnrolWords.ProofNonceStale);
+    }
+
+    /// <summary>
+    /// EPP16 (F1): the double answers <c>proof-nonce-stale</c> to both <c>POST</c>s. The client prints the errata's <c>Proof, nonce stale</c> span and not the <c>Proof, other</c> words, exits 3, sends two
+    /// <c>POST</c>s, and leaves the profile continuable: no <c>enrolled_at</c>, key files unchanged.
+    /// </summary>
+    [Fact]
+    public async Task R11_107_EPP16_AStaleNonceThatSurvivesTheRetryIsNotWordedAsADefectOfTheClient()
+    {
+        using var host = new AgentHost();
+        var forum = new EnrolForum().Refuse(400, "curia/enroll/proof-nonce-stale").Refuse(400, "curia/enroll/proof-nonce-stale");
+        host.OnOther = forum.Handle;
+
+        var run = await host.RunAsync(Enrol("epp16f1"));
+
+        Assert.Equal(3, run.Exit);
+        Assert.Equal(2, run.Requests.Count(r => r.Method == "POST"));
+        AssertSays(run, PublishedEnrolWords.ProofNonceStale);
+        Assert.False(PublishedClientWords.Says(run.Text, Words(PublishedEnrolWords.ProofOther, "curia/enroll/proof-nonce-stale")), $"the run blamed the client: {run.Text}");
+        Assert.DoesNotContain("defect", run.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("enrolled_at", Identity(host, "epp16f1"), StringComparison.Ordinal);
+        var keys = KeyBytes(host, "epp16f1");
+
+        var again = await host.RunAsync(Enrol("epp16f1"));
+        Assert.Equal(0, again.Exit);
+        Assert.Equal(keys, KeyBytes(host, "epp16f1"));
     }
 
     /// <summary>EPP16, no other retry: every other refusal of the proof, and a <c>503</c>, sends exactly one <c>POST</c> after one nonce fetch.</summary>
