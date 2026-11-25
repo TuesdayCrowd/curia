@@ -126,6 +126,10 @@ pub enum Profile {
     /// A small whole log of events and, for each operator-act row of one stream, the verdict R6.67's
     /// procedure must reach, with the state the honoured rows decide (errata G70).
     OperatorActsLog,
+    /// A request to enrol a key and the context the Forum decides it in (the clock, the URL it received the request at, the nonces its
+    /// store reports current, the `jti`s spent), with the verdict R4.46's seven steps must reach (errata G79). The loader reads what
+    /// selects the case; `input.json` and `expected.json` stay on disk, in the case directory, for whatever judges them.
+    EnrollProof,
 }
 
 impl Profile {
@@ -145,6 +149,7 @@ impl Profile {
             "lifecycle-log" => Ok(Profile::LifecycleLog),
             "honoured-log" => Ok(Profile::HonouredLog),
             "operator-acts-log" => Ok(Profile::OperatorActsLog),
+            "enroll-proof" => Ok(Profile::EnrollProof),
             other => Err(LoaderError::UnknownProfile {
                 path: path.to_path_buf(),
                 profile: other.to_string(),
@@ -165,6 +170,7 @@ impl Profile {
             Profile::LifecycleLog => "lifecycle-log",
             Profile::HonouredLog => "honoured-log",
             Profile::OperatorActsLog => "operator-acts-log",
+            Profile::EnrollProof => "enroll-proof",
         }
     }
 }
@@ -299,6 +305,18 @@ pub struct OperatorActsVector {
     pub subject: String,
 }
 
+/// A case from the `enroll-proof/` family: `conformance/README.md`, "The `enroll-proof/` family". The documents (`input.json`,
+/// `expected.json`) stay on disk, in `dir`; the loader reads what selects the case.
+#[derive(Debug, Clone)]
+pub struct EnrollProofVector {
+    pub case: String,
+    pub requirement: String,
+    pub note: Option<String>,
+    pub dir: PathBuf,
+    /// `meta.json`'s `step`: the step of R4.46 the case targets (`1` to `7`, or `all`).
+    pub step: String,
+}
+
 /// The whole loaded corpus, one field per top-level `conformance/` directory.
 #[derive(Debug, Clone, Default)]
 pub struct Corpus {
@@ -316,6 +334,7 @@ pub struct Corpus {
     pub lifecycle: Vec<LifecycleVector>,
     pub honoured: Vec<HonouredVector>,
     pub operator_acts: Vec<OperatorActsVector>,
+    pub enroll_proof: Vec<EnrollProofVector>,
 }
 
 /// Every family name this loader enumerates, in the order [`Corpus::load`]
@@ -342,6 +361,7 @@ pub const LOADED_FAMILIES: &[&str] = &[
     "lifecycle",
     "honoured",
     "operator-acts",
+    "enroll-proof",
 ];
 
 impl Corpus {
@@ -362,6 +382,7 @@ impl Corpus {
             lifecycle: load_lifecycle_family(root)?,
             honoured: load_honoured_family(root)?,
             operator_acts: load_operator_acts_family(root)?,
+            enroll_proof: load_enroll_proof_family(root)?,
         })
     }
 
@@ -387,6 +408,7 @@ impl Corpus {
             + self.lifecycle.len()
             + self.honoured.len()
             + self.operator_acts.len()
+            + self.enroll_proof.len()
     }
 
     /// Whether the corpus holds `<family>/<case>` — the shape
@@ -406,6 +428,7 @@ impl Corpus {
             "lifecycle" => Some(self.lifecycle.iter().any(|v| v.case == case)),
             "honoured" => Some(self.honoured.iter().any(|v| v.case == case)),
             "operator-acts" => Some(self.operator_acts.iter().any(|v| v.case == case)),
+            "enroll-proof" => Some(self.enroll_proof.iter().any(|v| v.case == case)),
             other => self
                 .directory_family(other)
                 .map(|vectors| vectors.iter().any(|v| v.case == case)),
@@ -540,6 +563,11 @@ pub enum LoaderError {
         path: PathBuf,
         problem: String,
     },
+    /// An `enroll-proof/` case's `meta.json` is well-formed JSON with the wrong shape: no `step`.
+    MalformedEnrollProofVector {
+        path: PathBuf,
+        problem: String,
+    },
     /// A `conformance/rfc8785/input-<name>.json` has no matching
     /// `output-<name>.json`, or vice versa.
     UnpairedRfc8785Vector {
@@ -592,7 +620,7 @@ impl fmt::Display for LoaderError {
                     "{}: unknown profile `{profile}` (expected one of: rfc8785, \
                      canonicalize-with-nfc, admit, admit-accept, envelope, merkle-tree, \
                      acta-leaf, display-literal, lifecycle-log, honoured-log, \
-                     operator-acts-log)",
+                     operator-acts-log, enroll-proof)",
                     path.display()
                 )
             }
@@ -626,6 +654,9 @@ impl fmt::Display for LoaderError {
                 write!(f, "{}: {problem}", path.display())
             }
             LoaderError::MalformedOperatorActsVector { path, problem } => {
+                write!(f, "{}: {problem}", path.display())
+            }
+            LoaderError::MalformedEnrollProofVector { path, problem } => {
                 write!(f, "{}: {problem}", path.display())
             }
             LoaderError::UnpairedRfc8785Vector { path, name } => {
@@ -1217,6 +1248,51 @@ fn load_operator_acts_family(root: &Path) -> Result<Vec<OperatorActsVector>, Loa
     Ok(vectors)
 }
 
+fn load_enroll_proof_family(root: &Path) -> Result<Vec<EnrollProofVector>, LoaderError> {
+    let family_dir = root.join("enroll-proof");
+    let mut vectors = Vec::new();
+    for path in list_dir_sorted(&family_dir)? {
+        if !path.is_dir() {
+            continue;
+        }
+        let case = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or(LoaderError::NotUtf8 { path: path.clone() })?
+            .to_string();
+
+        let meta_path = path.join("meta.json");
+        let meta = load_meta(&meta_path)?;
+        match Profile::parse(&meta.profile, &meta_path)? {
+            Profile::EnrollProof => {}
+            _ => {
+                return Err(LoaderError::UnknownProfile {
+                    path: meta_path,
+                    profile: meta.profile,
+                })
+            }
+        }
+        let meta_value = parse_meta_value(&read_file(&meta_path)?, &meta_path)?;
+        let step = meta_value
+            .get("step")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| LoaderError::MalformedEnrollProofVector {
+                path: meta_path.clone(),
+                problem: "missing string `step`".to_string(),
+            })?;
+
+        vectors.push(EnrollProofVector {
+            case,
+            requirement: meta.requirement,
+            note: meta.note,
+            dir: path.clone(),
+            step,
+        });
+    }
+    Ok(vectors)
+}
+
 fn load_display_family(root: &Path) -> Result<Vec<DisplayVector>, LoaderError> {
     let family_dir = root.join("display");
     let mut vectors = Vec::new();
@@ -1532,7 +1608,7 @@ impl Index {
         let shape = entry.shape.as_deref().unwrap_or_default();
         let actual = match shape {
             "directory" | "envelope" | "merkle" | "display" | "lifecycle" | "honoured"
-            | "operator-acts" => {
+            | "operator-acts" | "enroll-proof" => {
                 let cases: Vec<PathBuf> = list_dir_sorted(dir)?
                     .into_iter()
                     .filter(|p| p.is_dir())
@@ -1577,7 +1653,7 @@ impl Index {
             other => {
                 problems.push(format!(
                     "`{name}` declares unknown shape `{other}` (expected one of: \
-                     directory, file-pairs, envelope, merkle, display, lifecycle, honoured, operator-acts)"
+                     directory, file-pairs, envelope, merkle, display, lifecycle, honoured, operator-acts, enroll-proof)"
                 ));
                 return Ok(());
             }

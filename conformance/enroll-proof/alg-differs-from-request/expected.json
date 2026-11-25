@@ -1,0 +1,5 @@
+{
+  "verdict": "refused",
+  "type": "curia/enroll/proof-mismatch",
+  "detail": "claim=alg"
+}

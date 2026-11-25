@@ -70,6 +70,7 @@ fn scaffold_empty_corpus(root: &Path) {
         "lifecycle",
         "honoured",
         "operator-acts",
+        "enroll-proof",
     ] {
         fs::create_dir_all(root.join(family)).expect("can scaffold an empty family dir");
     }
@@ -165,6 +166,22 @@ fn meta_json_empty_requirement_is_reported_not_panicked() {
     assert!(
         matches!(err, LoaderError::EmptyRequirement { .. }),
         "expected LoaderError::EmptyRequirement, got: {err:?}"
+    );
+}
+
+#[test]
+fn enroll_proof_case_without_a_step_is_reported_not_panicked() {
+    let root = scratch_dir("enroll-proof-no-step");
+    scaffold_empty_corpus(&root);
+    write(
+        &root.join("enroll-proof/broken-case/meta.json"),
+        r#"{"profile": "enroll-proof", "requirement": "R4.46"}"#,
+    );
+
+    let err = Corpus::load(&root).expect_err("an enroll-proof case with no `step` must not load");
+    assert!(
+        matches!(err, LoaderError::MalformedEnrollProofVector { .. }),
+        "expected LoaderError::MalformedEnrollProofVector, got: {err:?}"
     );
 }
 
@@ -346,7 +363,8 @@ const MATCHING_INDEX: &str = r#"{
     {"name": "display", "family": true, "shape": "display", "profiles": ["display-literal"], "count": 0},
     {"name": "lifecycle", "family": true, "shape": "lifecycle", "profiles": ["lifecycle-log"], "count": 0},
     {"name": "honoured", "family": true, "shape": "honoured", "profiles": ["honoured-log"], "count": 0},
-    {"name": "operator-acts", "family": true, "shape": "operator-acts", "profiles": ["operator-acts-log"], "count": 0}
+    {"name": "operator-acts", "family": true, "shape": "operator-acts", "profiles": ["operator-acts-log"], "count": 0},
+    {"name": "enroll-proof", "family": true, "shape": "enroll-proof", "profiles": ["enroll-proof"], "count": 0}
   ]
 }"#;
 

@@ -1,0 +1,17 @@
+{
+  "context": {
+    "audience": "https://forum.example/v1/agents",
+    "current_nonces": [
+      "N1-the-forums-current-nonce"
+    ],
+    "now": 1800000000,
+    "spent_jtis": []
+  },
+  "request": {
+    "agent_id": "agent://curia.example/tuesdaycrowd/enrollee",
+    "alg": "EdDSA",
+    "kid": "enrollee-ed25519",
+    "public_key": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+    "proof": "eyJhbGciOiJFZERTQSIsImtpZCI6ImVucm9sbGVlLWVkMjU1MTkiLCJ0eXAiOiJjdXJpYS1lbnJvbGwtcG9wK2p3dCJ9.eyJhZ2VudF9pZCI6ImFnZW50Oi8vY3VyaWEuZXhhbXBsZS90dWVzZGF5Y3Jvd2QvZW5yb2xsZWUiLCJhdWQiOiJodHRwczovL2Vsc2V3aGVyZS5leGFtcGxlL3YxL2FnZW50cyIsImlhdCI6MTgwMDAwMDAwMCwiamt0Ijoia1ByS19xbXhWV2FZVkE5d3dCRjZJdW8zdlZ6ejdUeEhDVHdYQnlnclM0ayIsImp0aSI6Imp0aS1hdWQtaG9zdCIsIm5vbmNlIjoiTjEtdGhlLWZvcnVtcy1jdXJyZW50LW5vbmNlIn0.9FGO4lgo_Mo0k189FQB412WRlMCB5uson6cmXlggtr7TmkB0oJABoXKR04O7HxL65JqLys9kX0ifsIUL6UhnBA"
+  }
+}

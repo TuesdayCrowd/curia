@@ -66,6 +66,12 @@ internal enum VectorProfile
     /// honoured rows decide (errata G70, R6.67): run by the Forum's act fold and by <c>curia-testis</c>, never by <see cref="VectorLoader.Load"/>.
     /// </summary>
     OperatorActsLog,
+
+    /// <summary>
+    /// <c>enroll-proof</c> -- a request to enrol a key and the context the Forum decides it in (its clock, the URL it received the request at, the nonces its store reports current, the
+    /// <c>jti</c>s spent), with the verdict R4.46's seven steps must reach (errata G79): run by the Forum's enrollment-proof validator, never by <see cref="VectorLoader.Load"/>.
+    /// </summary>
+    EnrollProof,
 }
 
 internal sealed record Vector(
@@ -112,6 +118,7 @@ internal static class VectorLoader
         "lifecycle-log" => VectorProfile.LifecycleLog,
         "honoured-log" => VectorProfile.HonouredLog,
         "operator-acts-log" => VectorProfile.OperatorActsLog,
+        "enroll-proof" => VectorProfile.EnrollProof,
         _ => throw new InvalidOperationException(
             $"unrecognized conformance profile \"{value}\" -- R6.44 requires a runner to fail rather than skip"),
     };
@@ -130,6 +137,7 @@ internal static class VectorLoader
         VectorProfile.LifecycleLog => "lifecycle-log",
         VectorProfile.HonouredLog => "honoured-log",
         VectorProfile.OperatorActsLog => "operator-acts-log",
+        VectorProfile.EnrollProof => "enroll-proof",
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "not a conformance profile"),
     };
 

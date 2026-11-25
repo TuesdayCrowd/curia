@@ -54,6 +54,12 @@ if (args.Contains("--honoured-cases", StringComparer.Ordinal))
 if (args.Contains("--operator-acts-cases", StringComparer.Ordinal))
     return LifecycleCases.RunOperatorActs(repoRoot);
 
+// `--enroll-proof-cases` writes conformance/enroll-proof/ (errata G79, R4.46): one request and its context per verdict the proof of possession of an enrollment request can reach.
+// Deterministic (Ed25519 from fixed seeds and the RFC 8037 key) but for the ES256 signatures, which are pinned on first generation and kept. Each case's expected.json is a literal
+// of EnrollProofCases, written from the case's construction; this tool references no validator.
+if (args.Contains("--enroll-proof-cases", StringComparer.Ordinal))
+    return EnrollProofCases.Run(repoRoot);
+
 Directory.CreateDirectory(outputRoot);
 
 // `--only a,b` regenerates named cases alone. Every case signs with a key drawn fresh at run

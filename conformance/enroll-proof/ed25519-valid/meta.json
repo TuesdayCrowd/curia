@@ -1,0 +1,8 @@
+{
+  "profile": "enroll-proof",
+  "requirement": "R4.46",
+  "step": "all",
+  "note": "The RFC 8037 Appendix A key signs a proof that names every claim as the request has it; the jkt is the thumbprint that RFC prints. expected.json is written from this construction and the R4.46 step it targets, never by running a validator. A proposal: it may be regenerated until beta.",
+  "jkt": "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k",
+  "jkt-source": "RFC 8037 Appendix A (the thumbprint of the Appendix A key, as the RFC prints it)"
+}
