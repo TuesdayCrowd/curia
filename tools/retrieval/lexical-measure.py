@@ -2,7 +2,7 @@
 """The Python reference of the stopword rule (item 342, errata G81): conformance/retrieval/STOPWORD-RULE.md.
 
 Usage:
-  python3 tools/retrieval/lexical-measure.py --print-list
+  python3 tools/retrieval/lexical-measure.py --print-list [--rule FILE]
   python3 tools/retrieval/lexical-measure.py [--queries FILE] [--out FILE]
   python3 tools/retrieval/lexical-measure.py --measures [--queries FILE]
 
@@ -329,14 +329,15 @@ def main(argv=None):
     ap.add_argument("--measures", action="store_true", help="print the rule's numbers and verdict as JSON")
     ap.add_argument("--queries", default=QUERIES)
     ap.add_argument("--out")
+    ap.add_argument("--rule", default=RULE, help="the rule file the list and the parameters are read from (default: the committed one)")
     args = ap.parse_args(argv)
 
     if args.print_list:
-        sys.stdout.write("\n".join(load_list()))
+        sys.stdout.write("\n".join(load_list(args.rule)))
         return 0
-    records = run(queries_path=args.queries)
+    records = run(queries_path=args.queries, rule_path=args.rule)
     if args.measures:
-        print(json.dumps(measures(records, load_params()), sort_keys=True))
+        print(json.dumps(measures(records, load_params(args.rule)), sort_keys=True))
         return 0
     if args.out:
         with open(args.out, "w", encoding="utf-8", newline="\n") as f:

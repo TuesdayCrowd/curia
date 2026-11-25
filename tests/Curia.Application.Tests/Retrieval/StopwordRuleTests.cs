@@ -115,6 +115,36 @@ public sealed partial class StopwordRuleTests
         Assert.Equal(Block, printed);
     }
 
+    /// <summary>
+    /// KWC2 (Python, --rule). The reference reads the list from the rule file it is given and from nothing else (FKWC15: a reference reading the C# list instead passes the probe above while the two lists agree). The
+    /// probe copies the rule file to a temporary directory, removes one word from the copied block and lowers that group's stated size by one, because the script checks each group's size and not the block's digest, then
+    /// runs <c>--print-list --rule &lt;copy&gt;</c>. It asserts the word is absent and the other words are present, and that the default call still prints the committed block.
+    /// </summary>
+    [Fact]
+    public void KWC2_ThePythonReferenceReadsTheRuleFileItIsGiven()
+    {
+        const string Group = "- determiners (7): `a an the this that these those`";
+        var text = StopwordMeasure.RuleText;
+        Assert.Contains(Group, text, StringComparison.Ordinal);
+        var edited = text.Replace(Group, "- determiners (6): `a an this that these those`", StringComparison.Ordinal);
+
+        var directory = Directory.CreateTempSubdirectory("kwc2-rule-").FullName;
+        try
+        {
+            var copy = Path.Combine(directory, "rule.md");
+            File.WriteAllText(copy, edited, new UTF8Encoding(false));
+            var printed = Python("--print-list", "--rule", copy).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+            Assert.DoesNotContain("the", printed);
+            Assert.Equal(Block.Where(w => w != "the"), printed);
+            Assert.Equal(Block, Python("--print-list").Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>KWC2 (errata). The digest R9.72 states is the SHA-256 of the block's words joined by one line feed with no trailing one (the G66 / NDT13 form: the errata is parsed at test time).</summary>
     [Fact]
     public void KWC2_TheDigestTheErrataStatesIsTheBlocksSha256()

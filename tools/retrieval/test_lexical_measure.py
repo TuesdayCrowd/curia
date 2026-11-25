@@ -9,7 +9,10 @@ It reads no blind text.
 """
 import hashlib
 import importlib.util
+import io
+import contextlib
 import os
+import tempfile
 import unittest
 from fractions import Fraction
 
@@ -51,6 +54,32 @@ class TheList(unittest.TestCase):
         self.assertEqual(9, len(params))
         self.assertEqual(Fraction(1, 4), params["removal_page_share_most"])
         self.assertEqual(25, params["keep_window"])
+
+
+class TheRuleFlag(unittest.TestCase):
+    def _print_list(self, *args):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(0, lm.main(["--print-list", *args]))
+        return out.getvalue().split("\n")
+
+    def test_the_default_prints_the_committed_list(self):
+        self.assertEqual(lm.load_list(), self._print_list())
+
+    def test_a_rule_file_with_a_word_removed_prints_one_word_fewer(self):
+        with open(lm.RULE, encoding="utf-8") as f:
+            text = f.read()
+        edited = text.replace("- determiners (7): `a an the this that these those`",
+                              "- determiners (6): `a an this that these those`", 1)
+        self.assertNotEqual(text, edited)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "rule.md")
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(edited)
+            words = self._print_list("--rule", path)
+        self.assertEqual(110, len(words))
+        self.assertNotIn("the", words)
+        self.assertIn("an", words)
 
 
 class TheTokenizer(unittest.TestCase):
