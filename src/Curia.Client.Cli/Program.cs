@@ -1126,7 +1126,7 @@ internal static class Program
         var found = await client.SearchAsync(request, marking, ct).ConfigureAwait(false);
         if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
 
-        Output.Line($"{new OwnText(Help.SearchBannerFor(page!.Model))}");
+        Output.Line($"{new OwnText(Help.SearchBannerFor(page!.Model, page.KeywordIgnored is not null))}");
         Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); {new OwnText(NameWording.FloorTestedSentence(page.Floor.AppliesTo, page.Floor.NotApplicableTo))}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
         Output.Line($"clamp     {ClampWords(page.Floor)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");

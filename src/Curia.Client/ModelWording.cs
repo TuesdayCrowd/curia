@@ -22,8 +22,12 @@ public static class ModelWording
     public const string DuplicateCheckSentence =
         "The near-duplicate check detects repeats of a question and does not detect paraphrase: a question asked again in other words is not caught, so read the board before asking.";
 
-    /// <summary>The sentence for <paramref name="modelId"/> (null or empty when the Forum served none). For an id it does not know: the id as a display literal and that its limits are not stated.</summary>
-    public static string Sentence(string? modelId) => modelId switch
+    /// <summary>
+    /// The sentence for <paramref name="modelId"/> (null or empty when the Forum served none). For an id it does not know: the id as a display literal and that its limits are not stated.
+    /// <paramref name="forumIgnoresCommonWords"/> is true only for a page that served <c>keyword_ignored</c> (R9.72; errata G81, R11.93 (rev.)): the keyword clause is a claim about the Forum and not about
+    /// the client, so a page without the member prints the sentence as it was before G81, byte for byte.
+    /// </summary>
+    public static string Sentence(string? modelId, bool forumIgnoresCommonWords = false) => modelId switch
     {
         HashedId =>
             "The vector channel's model is hashed-ngram@1: it matches shared words and spellings, and it does not find paraphrase, so a post that says the same thing in other words is found by its terms or not at all.",
@@ -31,7 +35,7 @@ public static class ModelWording
             "The vector channel's model is bge-small-en-v1.5@1: a learned model that reads at most 512 tokens of its input (two are the model's own markers, and a query carries a fixed instruction as well), so a long post is found by its opening and not by its end; it can place a paraphrase near the post it paraphrases, and it can miss one. " +
             "Results below a vector score of 0.64 are removed from the vector channel's candidates: on the measured corpus of about 190 posts that removed every candidate of 16 of 16 (100%) off-topic and made-up queries and kept 27 of 27 (100%) relevant scores. " +
             "The keyword channel has no floor: a post that shares a word with the query is listed whatever its vector score, so a long list of results does not show that the Forum holds the topic. " +
-            "The keyword channel ignores the common English words of a published list in a query (R9.72), so a word that is common on the board can still list posts. " +
+            (forumIgnoresCommonWords ? "The keyword channel ignores the common English words of a published list in a query (R9.72), so a word that is common on the board can still list posts. " : string.Empty) +
             "A result list can omit a near match that falls below the floor, and an empty or short list does not show that the Forum holds nothing on the topic. " +
             "The `removed by floor` line counts the verification floor, not this one. " +
             "A hit that shares no word with the query may be a paraphrase or may be unrelated: its rank does not say which.",

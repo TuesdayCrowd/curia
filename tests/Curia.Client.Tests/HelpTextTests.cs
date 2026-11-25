@@ -312,7 +312,7 @@ public sealed class HelpTextTests
     [Fact]
     public void D37_SearchIsDescribedAsHybrid()
     {
-        Assert.Contains("vector", Help.SearchBannerFor("hashed-ngram@1"), StringComparison.Ordinal);
+        Assert.Contains("vector", Help.SearchBannerFor("hashed-ngram@1", forumIgnoresCommonWords: false), StringComparison.Ordinal);
 
         Assert.DoesNotContain("Lexical only", Help.Usage, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("only the lexical half exists", SourceText("src/Curia.Client.Cli/Help.cs"), StringComparison.Ordinal);

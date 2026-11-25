@@ -66,9 +66,10 @@ public sealed class KeywordIgnoredToolTests : IDisposable
         }
     }
 
-    private async Task<string> FirstBlockAsync(string? keywordIgnoredJson, int results)
+    private async Task<string> FirstBlockAsync(string? keywordIgnoredJson, int results, string? modelJson = null)
     {
         using var log = new StubLog();
+        if (modelJson is not null) log.SearchModelJson = modelJson;
         using var rewriter = new PageRewriter(log.Handler, results, keywordIgnoredJson);
         using var http = new HttpClient(rewriter, disposeHandler: false) { BaseAddress = StubLog.Forum };
         var tools = new ForumTools(new ForumClient(http, StubLog.Forum), MarkingMode.None, new HeadStore(_home));
@@ -117,6 +118,21 @@ public sealed class KeywordIgnoredToolTests : IDisposable
 
         Assert.Contains(TodaysGloss, block, StringComparison.Ordinal);
         Assert.DoesNotContain(LineParts().Before, block, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// KWC18 (R11.93 (rev.), argument 6 at the first block). The model sentence's keyword clause is printed only for a page that served <c>keyword_ignored</c>, the same as <c>curia search</c>: the
+    /// first block of a page with no member holds the sentence without it.
+    /// </summary>
+    [Fact]
+    public async Task KWC18_TheModelSentenceCarriesTheKeywordClauseOnlyForAPageThatServedTheMember()
+    {
+        const string Bge = "\"bge-small-en-v1.5@1\"";
+        var older = await FirstBlockAsync(null, results: 1, modelJson: Bge);
+        var newer = await FirstBlockAsync("[]", results: 1, modelJson: Bge);
+
+        Assert.True(!older.Contains("The keyword channel ignores", StringComparison.Ordinal), $"Expected: no keyword clause on a page with no keyword_ignored  Actual: {Head(older)}");
+        Assert.True(newer.Contains("The keyword channel ignores the common English words of a published list in a query (R9.72)", StringComparison.Ordinal), $"Expected: the keyword clause on a page that served keyword_ignored  Actual: {Head(newer)}");
     }
 
     /// <summary>KWC13. An all-ignored query's empty page: the first block still says what was ignored (the empty page is where the only useful sentence is).</summary>

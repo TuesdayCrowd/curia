@@ -55,9 +55,10 @@ public sealed class KeywordIgnoredWordingTests
         }
     }
 
-    private static async Task<string> SearchAsync(string? keywordIgnoredJson, int results = 1)
+    private static async Task<string> SearchAsync(string? keywordIgnoredJson, int results = 1, string? modelJson = null)
     {
         using var log = new StubLog();
+        if (modelJson is not null) log.SearchModelJson = modelJson;
         using var rewriter = new PageRewriter(log.Handler, results, keywordIgnoredJson);
         using var http = new HttpClient(rewriter, disposeHandler: false) { BaseAddress = StubLog.Forum };
         var args = Args.Parse(["search", "x"], 1);
@@ -67,6 +68,33 @@ public sealed class KeywordIgnoredWordingTests
 
         Assert.True(exit is 0 or 9, $"curia search exited {exit}");
         return stdout;
+    }
+
+    /// <summary>The keyword clause of R11.93 (rev.), and the sentence of the model without it, as main printed it before G81.</summary>
+    private const string KeywordClause = "The keyword channel ignores the common English words of a published list in a query (R9.72), so a word that is common on the board can still list posts. ";
+
+    private const string BgeSentenceOnMain =
+        "The vector channel's model is bge-small-en-v1.5@1: a learned model that reads at most 512 tokens of its input (two are the model's own markers, and a query carries a fixed instruction as well), so a long post is found by its opening and not by its end; it can place a paraphrase near the post it paraphrases, and it can miss one. " +
+        "Results below a vector score of 0.64 are removed from the vector channel's candidates: on the measured corpus of about 190 posts that removed every candidate of 16 of 16 (100%) off-topic and made-up queries and kept 27 of 27 (100%) relevant scores. " +
+        "The keyword channel has no floor: a post that shares a word with the query is listed whatever its vector score, so a long list of results does not show that the Forum holds the topic. " +
+        "A result list can omit a near match that falls below the floor, and an empty or short list does not show that the Forum holds nothing on the topic. " +
+        "The `removed by floor` line counts the verification floor, not this one. " +
+        "A hit that shares no word with the query may be a paraphrase or may be unrelated: its rank does not say which.";
+
+    /// <summary>
+    /// KWC18 (errata G81, R11.93 (rev.), argument 6 at the banner). A page with no <c>keyword_ignored</c> prints the model sentence as main printed it, without the keyword clause: an older Forum is not made
+    /// to claim an ignoring it does not do. A page that served the member, even <c>[]</c>, prints the sentence with the clause.
+    /// </summary>
+    [Fact]
+    public async Task KWC18_TheBannerCarriesTheKeywordClauseOnlyForAPageThatServedTheMember()
+    {
+        var older = await SearchAsync(null, modelJson: "\"bge-small-en-v1.5@1\"");
+        var newer = await SearchAsync("[]", modelJson: "\"bge-small-en-v1.5@1\"");
+        static string Folded(string text) => System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
+
+        Assert.True(Folded(older).Contains(BgeSentenceOnMain, StringComparison.Ordinal), $"Expected: the banner holds main's sentence byte for byte  Actual: {Head(older, 6)}");
+        Assert.True(!older.Contains("keyword channel ignores", StringComparison.Ordinal), $"Expected: no keyword clause on a page with no keyword_ignored  Actual: {Head(older, 6)}");
+        Assert.True(Folded(newer).Contains(KeywordClause, StringComparison.Ordinal), $"Expected: the keyword clause on a page that served keyword_ignored  Actual: {Head(newer, 6)}");
     }
 
     private static string[] Lines(string stdout) => stdout.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');

@@ -644,7 +644,7 @@ internal sealed partial class ForumTools(
         }
 
         // R11.103: the served model's limits (R11.93) whole and last, so a reader that cuts a long block short loses the end of it and not the count line.
-        frame.Line($"{new OwnText(ModelWording.Sentence(page.Model))}");
+        frame.Line($"{new OwnText(ModelWording.Sentence(page.Model, page.KeywordIgnored is not null))}");
 
         return frame.ToString();
     }
