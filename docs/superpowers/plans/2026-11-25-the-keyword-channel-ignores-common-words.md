@@ -502,3 +502,89 @@ FKWC17 (the list plus the ten highest-document-frequency unlisted words) leaves 
 - **Task 7:** LV4 is now the only direct measure of findability on the fused page, and the gates cannot supply one, so it must be reported in full and not summarised: per target by id, first page on `c` and on `t`; the 6 `stopword-only` targets and `kh-03` named singly with what the vector channel did for each. It stays **report-only, with no threshold set now** (a threshold chosen after the data is the retune the rule forbids; a fall is read by the owner). Every sentence of the PR body about what an agent sees or loses is a line of this record, as the plan already requires.
 - **Task 7b:** unchanged.
 - **Task 8:** the G81 Status, RESULTS.md paragraph and PR body text in section 2; the register item and the trap in section 3; FKWC17 and FKWC9 rows as in section 4. **No sentence in the errata, `CLAUDE.md`, the plan or the PR may say the Keep "held" as evidence of low cost**, nor that the list was "measured not to harm"; the wording is "Removal holds, the cost is counted at 6 of 120 and 1 of 40, and the Keep cannot bound it". `CLAUDE.md`'s status paragraph carries the same limit in one clause. Item 342 closes with the register item above open beside it.
+
+## Amendment 3 (2026-11-25, from the cold read)
+
+### 0. What the cold read found, and whose error it is
+
+CR-d (`not`: an empty page, the whole query ignored) passed its acts 3 of 3 and its "ignored whole" clause 1 of 3. Two readers said the page "does not show what the rest of the query was". They are right about the page: it never prints the query, and the ignored line names the words removed without saying whether any word was left. The error is the entry's: R10.102 was written for the case where the reader knows the query is only the listed words ("an empty page after an all-ignored query is read as nothing held"), and then specified a line that cannot tell that case from a query that kept a word the vector channel also missed. The same empty page, with the same ignored line, is what `the pool` would print if its one remaining word listed nothing. A line that is the same in two states carries no information about which state it is in (vacuity question 1). It is a fault of the spec, not of the readers.
+
+### 1. Ruling: (a), a new integer member `keyword_terms`, stated by the Forum
+
+**Why not derive it in the client.** The client can know that no term remained in only two ways: tokenize the query itself (a second implementation of `LexicalSearch.Tokenize` and the list, which is what G81 forbids by having one list and one tokenizer, and which `don't` makes visible: the Forum says `don` and `t` were ignored, and a client tokenizing on its own would have to agree), or infer it from what is served. Nothing served settles it: `by_channel.words = 0` and an empty page are equally true of a query that kept a word and listed nothing, and R9.72 already requires `matched_by` and `by_channel` for an all-ignored query, so their presence says nothing.
+
+**Why not (b), print the query.** It leaves the inference to the reader, who must compare two lines: that is the failure, relocated. It states nothing the Forum decided (the Forum's tokenizer, not the reader's eye, says what a term is: `not?`, `don't`, `NOT`). It echoes caller-supplied text into every search banner, which for `curia-mcp` is a model's text of any length, and it changes every page, so CR-a and CR-c and every existing page pin would move. (a) changes one line of one class of page.
+
+**Why an integer, and why not a boolean.** An integer states what R9.72 already computes (the terms) and is the shape the wire already uses (`_bp`, `_micro`, counts: wire numbers are integers). A boolean `keyword_ignored_all` names a conclusion; the count names the fact and the client's rule (`0` and a non-empty `keyword_ignored`) is one comparison a probe can pin. It carries no content: a count cannot carry a caller's or an author's text.
+
+**Alpha.** No reader of the older form, no migration (CLAUDE.md, "Release stage"). A Forum that applies the list states both members or neither; a client that meets `keyword_ignored` without `keyword_terms` prints no clause and never guesses one. The member joins R9.72 (this entry is unmerged, and the member is the same obligation as `keyword_ignored`: the Forum states what it did to the query); no new requirement number is taken. No conformance vector, no log row and no `curia-testis` path reads a search page; `db/` is untouched; `stopwords.txt` and its digest do not move.
+
+### 2. The errata edit, verbatim
+
+**R9.72.** In the sentence "A page of a Forum that applies the list SHALL carry `keyword_ignored`: the tokens the list removed, lower-case, in the query's order, first occurrence only, each a member of the list, `[]` where none and for a listing; a Forum that does not apply the list SHALL NOT carry it." replace the closing clause, so that the sentence reads:
+
+> A page of a Forum that applies the list SHALL carry `keyword_ignored`: the tokens the list removed, lower-case, in the query's order, first occurrence only, each a member of the list, `[]` where none and for a listing; and SHALL carry `keyword_terms`: an integer, the number of distinct terms the keyword channel took from the query, `0` for a listing and for a query of only listed words (so `keyword_terms` is `0` and `keyword_ignored` is not empty exactly when every token of the query was on the list); a Forum that does not apply the list SHALL NOT carry either.
+
+And append to R9.72's reason: "`keyword_terms` is stated because an empty page after `not` and an empty page after a query that kept a word the channel did not find are otherwise the same page, and only the Forum's tokenizer knows which it is."
+
+**R10.102.** Insert, after the sentence that ends "...the array bounded as every served list is;" the clause below, so that the first obligation reads in full:
+
+> A client's default form of a search SHALL, for a page that served `keyword_ignored`, state before the count line and on an empty page as on any other, when the member is not empty: `the keyword channel ignored these common English words of the query: <words> (a published list; it matches no post by them)`, each word written as a display literal (R10.64), the array bounded as every served list is; SHALL end that line, when the page served `keyword_terms` as `0`, with `. The whole query was made of them, so the keyword channel took no term and matched no post by words; search again with a word that names the subject`, and SHALL NOT end it so when the page served any other value or did not serve `keyword_terms`; SHALL, for such a page, say of a result marked `words` ...
+
+(the rest of R10.102 unchanged). Append to R10.102's reason: "The closing clause is the Forum's statement and not the client's inference: a reader that must work out from two lines that no word was left reads an empty page as a Forum with nothing on the topic or as a query that kept a word, and the cold read showed two of three doing the first."
+
+For the all-ignored `not` against a Forum of this build the line is, in full:
+
+`the keyword channel ignored these common English words of the query: "not" (a published list; it matches no post by them). The whole query was made of them, so the keyword channel took no term and matched no post by words; search again with a word that names the subject`
+
+**R11.108.** Replace "SHALL carry R10.102's line and gloss from the one definition `curia` prints them from, byte for byte" with "SHALL carry R10.102's line (its closing clause included) and gloss from the one definition `curia` prints them from, byte for byte". `curia-mcp` stays 0.12.8: no tool, argument or description moves (0.12.8 is this stage's own, unreleased).
+
+**Non-properties.** Add to G81: "(j) `keyword_terms` is a count and says nothing of which terms were taken or of whether any matched: a page with `keyword_terms` above 0 and no `words` result is a query that kept a word and listed nothing, and is not said to be anything more. (k) A Forum that applies the list and an older client print the ignored line without the clause; a newer client and an older Forum print neither. (l) The clause is printed for a page that has vector results too (an all-ignored query still runs the vector channel on its whole text): it says only what the keyword channel did."
+
+**Where the code changes** (for the implementer; nothing is edited here): `ForumEndpoints.cs`'s search page record gains `keyword_terms` beside `keyword_ignored`, filled from the `SearchTerms` result `HybridSearch` already computes (the distinct terms, never a second tokenization); `ForumDocuments.cs`'s `SearchPage` gains a nullable `KeywordTerms`, read by a reader that fails a non-integer or negative value as `ResponseMalformed` exactly as `ReadKeywordIgnored` does; `SearchWording.IgnoredLine` appends one constant when `KeywordTerms == 0`; `curia-mcp` calls the same function and changes nothing.
+
+### 3. Probe KWC19 (the member and the clause, in five pieces)
+
+Oracles are hand tables beside the sentences above and the errata parsed at test time, none derived from the implementation. Predicted red is on the tree as it stands after Task 5 and before this amendment's code.
+
+- **KWC19a** *(Api, in process, the hashed adapter, the route)* over a three-post corpus, `GET /v1/search?q=`: `the` gives `keyword_terms` 0 and `keyword_ignored` `["the"]`; `the pool` gives 1 and `["the"]`; `pool pool` gives 1 (distinct) and `[]`; `how do i` gives 0 and `["how","do","i"]`; `don't` gives 0 and `["don","t"]`; a listing (no `q`) gives 0 and `[]`; `???` (a query with no token) gives 0 and `[]`. The member is a JSON integer in every row (the wire-number rule). Red: the member is absent from every row. **The `the pool` row is the one that matters**: a Forum that always states 0 makes the clause a false claim about a query that kept a word, and only this route test can see it, because the client's tests build their pages by hand.
+- **KWC19b** *(Client, `SearchWording`, both directions, trap 185)* ignored `["not"]` and terms 0: the line ends with R10.102's clause, byte for byte; ignored `["the"]` and terms 1: the line is byte-identical to what Task 5 printed, no clause; ignored `["not"]` and terms not stated: no clause; ignored `[]` and terms 0 (a listing): no line at all; ignored with more than the printed bound and terms 0: the clause follows "and N more not printed"; a hostile ignored word (ESC, a line feed, a right-to-left override, a closing quote) is a display literal, the clause is a constant after it, and nothing printed after the word is built from it. Red: no clause.
+- **KWC19c** *(Client, errata parsed)* R9.72 states `keyword_terms` and R10.102 states the clause; the clause the client prints equals the one the errata quotes between its backticks (the G64Words form), and the "SHALL NOT end it so" sentence is quoted by hand beside the rows that pin it. Red: the errata has neither.
+- **KWC19d** *(Mcp)* the first block of `curia_search` for the all-ignored page equals `curia`'s ignored line byte for byte, clause included, and for an ordinary page equals it with no clause. Red: no clause.
+- **KWC19e** *(end to end, `curia` against the in-process Forum, the real route)* `curia search not` prints the full line above and `no results.`; `curia search "the pool"` prints no clause. The pair is the probe that cannot be satisfied from one side: a Forum that states 0 always fails the second, a client that prints the clause on its own fails the second, a Forum that states a count of tokens fails the first.
+- **KWC19f** *(Client, the reader of the member)* a page stating `keyword_terms` as `1.0`, `-1`, `"0"` or `null` is `ResponseMalformed`, naming the member and no value; absent is null and prints no clause. Red: no member.
+
+### 4. Falsification rows (FKWC20 onward; FKWC18 and FKWC19 are the other amendment's)
+
+Each is applied alone to the built tree and must turn the named probe red for its own reason; the restore is a plain copy and a rebuild (mtime).
+
+- **FKWC20** the Forum states the count of tokens, not of terms (`the` gives 1). Expected red: KWC19a (`the`, `how do i`, `don't`) and KWC19e (`not` prints no clause). Harm: the cold-read failure, reproduced on the Forum side.
+- **FKWC21** the Forum states 0 always. Expected red: KWC19a (`the pool`, `pool pool`) and KWC19e's second half. The harm: the page tells an agent whose query kept a word that the whole query was ignored. KWC19b is green under it; this row is why KWC19a and KWC19e exist.
+- **FKWC22** the Forum states the number of terms counting repeats (`pool pool` gives 2). Expected red: KWC19a (`pool pool`). The client reads only zero, so on the product path it is equivalent; it is held by the wire row, not by a behaviour (recorded as such).
+- **FKWC23** the client treats a not-stated `keyword_terms` as 0. Expected red: KWC19b (terms not stated) and KWC19f.
+- **FKWC24** the client prints the clause on a listing (the clause moved out of the guard that needs a non-empty `keyword_ignored`). Expected red: KWC19b (listing row) and KWC19e if it lists.
+- **FKWC25** the client prints the clause whenever terms is 0, without the list non-empty, in a separate line. Expected red: KWC19b (listing) and the `???` row of KWC19a read through the client.
+- **FKWC26** the clause is built from the printed words (a word reaches the sentence). Expected red: KWC19b's hostile row.
+- **FKWC27** `curia-mcp` builds its own line without the clause. Expected red: KWC19d.
+- **FKWC28** the errata's clause is reworded and the code is not (and the reverse). Expected red: KWC19c in both directions.
+- **FKWC29** the member reader accepts a float or a negative integer. Expected red: KWC19f.
+
+An expected survivor, if any, is recorded with its reason as FKWC9 and FKWC17 were; FKWC22 is the candidate, and KWC19a's `pool pool` row is meant to kill it.
+
+### 5. Round 2 (Task 7b)
+
+- **Capture first.** Round 2 reads pages captured after both this amendment and the other agent's (the ModelWording clause printed only for a page that served `keyword_ignored`) are built into the tip and the live Forum of the same corpus is restarted; a page captured before either is not evidence of the other. The captured page is the CLI's, by `curia search not`, as in round 1, with the MCP block beside it.
+- **CR-d: three fresh readers**, the same situation text and the same one page, told nothing of what is tested. Gate, on acts and with the sentence quoted (trap 289): the reader (1) says the query was made only of the ignored word, so the keyword channel took nothing from it, and quotes the clause or says it in its own words; (2) does not conclude the Forum holds nothing on any topic, and says why; (3) rewrites the query with a word that names a subject. **Pass is 3 of 3 on (1), (2) and (3)**; the round-1 clause was 1 of 3 and (3) was already 3 of 3. A reader that says "my query was just `not`" without the clause is a pass on (1) only if it says the keyword channel matched nothing by words because of it.
+- **CR-b: three fresh readers, re-run.** `how do i` is an all-ignored query: its page now carries the clause, and the clause says "matched no post by words" on an empty page, which is the sentence most likely to move an agent toward "the board is empty", the very conclusion CR-b gates against. This is a regression read, not a new gate: CR-b's round-1 gate (adds a content word and searches again; does not conclude the board is empty) at 3 of 3.
+- **CR-a and CR-c are not re-run.** Their queries keep a term, so `keyword_terms` is above 0 and their pages are byte-identical except where the other amendment moves the banner. The check that carries this is a diff of the freshly captured CR-a and CR-c page files against the round-1 files, line by line, expected empty apart from the lines the other amendment is stated to change. If the diff shows any other line, they are re-run.
+- Controls (main) are recorded and not gated, as before. Two rounds, then stop and report to the owner (unchanged): if CR-d or CR-b is below 3 of 3 here, the report says so and no third round is run.
+
+### 6. `curia-mcp`'s empty page and `no results.` (live finding 2): stays recorded as a difference
+
+Not built. `no results.` is the CLI's own rendering of an empty list (`SearchWording.PageLines` says "the readers' own 'no results' says it"), not a G81 line: the MCP block states `results=0` in its first line and carries the ignored line, and under this amendment the clause as well, so an all-ignored query's MCP page is not short of a statement. Adding the sentence to the MCP block changes every empty MCP search page (the one a query with no match prints too), moves tests that pin that block outside this stage's files, and would need R11.108's "byte for byte" to say "except". Register it as an item: the CLI and MCP empty pages differ by `no results.`; fix by a shared `EmptyLine` in `SearchWording` when a stage touches the MCP's empty block for its own reason. Say so in G81's Status and the PR body. One caveat to state with it: the cold read gated CLI pages; the MCP page of CR-d was captured and not read by a fresh reader, and round 2 does not change that.
+
+### 7. What this changes in the tasks
+
+- A **Task 5b** (code and probes KWC19a to KWC19f, then FKWC20 to FKWC29) after Task 6's result, before round 2; the other agent's KWC18/FKWC18/19 precede it so the captured page is one page.
+- Task 7b: CR-d's gate is as in section 5; CR-b joins round 2; the "Two rounds, then stop" sentence stands.
+- The PR body states: the wire gained one integer member after the cold read, why the client does not infer it, and that CR-d's "ignored whole" was 1 of 3 before and the round-2 number after.
