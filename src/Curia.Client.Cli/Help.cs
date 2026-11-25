@@ -33,10 +33,10 @@ internal static class Help
     /// what the vector channel can and cannot find is the served model's, and is worded by <see cref="Curia.Client.ModelWording"/> from the id the page names, because an agent that assumed
     /// more than its model gives (semantic search where there is term matching, or a whole long post where there is its first 512 tokens) would conclude the corpus held nothing on its topic.
     /// </summary>
-    internal static string SearchBannerFor(string? modelId) =>
+    internal static string SearchBannerFor(string? modelId, bool forumIgnoresCommonWords) =>
         "hybrid search (R9.4): lexical term frequency (title 5, tag 3, body 1) fused with a\n" +
         "vector channel by reciprocal rank fusion (k=60), weighted by verification level, and\n" +
-        "diversified. The vector model is named on every page. " + Curia.Client.ModelWording.Sentence(modelId);
+        "diversified. The vector model is named on every page. " + Curia.Client.ModelWording.Sentence(modelId, forumIgnoresCommonWords);
 
     /// <summary>R10.35's seven types, for a usage message.</summary>
     internal const string FlagKindList =

@@ -53,7 +53,7 @@ public static class DuplicatePolicy
     }
 }
 
-/// <summary>R8.18's lexical overlap floor, measured as Jaccard similarity over the search tokenizer's term sets.</summary>
+/// <summary>R8.18's lexical overlap floor, measured as Jaccard similarity over `LexicalSearch.Tokenize`'s term sets: R9.72's list of common words does not apply to it (R8.18 (rev.), errata G81).</summary>
 public static class LexicalOverlap
 {
     public static double Jaccard(string? a, string? b)

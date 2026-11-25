@@ -608,7 +608,13 @@ public sealed record SearchResponse(
     ByChannelResponse? ByChannel,
 
     /// <summary>R9.68: how many posts of the whole list diversification moved to a later window, equal on every page of one query; always an integer.</summary>
-    [property: JsonPropertyName("diversified")] int Diversified);
+    [property: JsonPropertyName("diversified")] int Diversified,
+
+    /// <summary>R9.72 (errata G81): the query's tokens the keyword channel ignored (the published list), lower-case, in the query's order, once each; always present, <c>[]</c> where none and for a listing.</summary>
+    [property: JsonPropertyName("keyword_ignored")] ImmutableArray<string> KeywordIgnored,
+
+    /// <summary>R9.72 (errata G81, Amendment 3): the number of distinct terms the keyword channel took from the query, an integer; <c>0</c> for a listing and for a query of only listed words. Always present, with <c>keyword_ignored</c>.</summary>
+    [property: JsonPropertyName("keyword_terms")] int KeywordTerms);
 
 /// <summary>
 /// R8.18 / R8.19's 409, errata G10: an RFC 9457 problem carrying the canonical thread, its
@@ -2850,7 +2856,9 @@ public static class ForumEndpoints
             // R9.55: judged on each filter alone, from the projection already folded for this request; no read is added.
             NamedFilters.Unmatched(views, servable, boardWire, authorWire),
             page.ByChannel is { } counts ? (matchesNothing ? new ByChannelResponse(0, 0, 0) : new ByChannelResponse(counts.Words, counts.Meaning, counts.WordsAndMeaning)) : null,
-            matchesNothing ? 0 : page.Diversified));
+            matchesNothing ? 0 : page.Diversified,
+            matchesNothing ? [] : page.IgnoredTerms,
+            matchesNothing ? 0 : page.KeywordTerms));
     }
 
     private static string MarkWire(ChannelMark mark) => mark switch

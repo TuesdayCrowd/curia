@@ -96,7 +96,7 @@ public sealed partial class ModelWordingTests
     [InlineData(null)]
     public void R11_93_SEM42_TheBannerIsComposedFromTheServedModel(string? modelId)
     {
-        var banner = Help.SearchBannerFor(modelId);
+        var banner = Help.SearchBannerFor(modelId, forumIgnoresCommonWords: false);
 
         var folded = Regex.Replace(banner, @"\s+", " ");
         Assert.DoesNotContain("until an ONNX model is configured", folded, StringComparison.Ordinal);

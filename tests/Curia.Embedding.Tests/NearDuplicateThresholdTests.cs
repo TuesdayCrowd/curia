@@ -428,6 +428,14 @@ public sealed class RetrievalRuleTests
         Assert.True(outcome is "true" or "false", "Expected: RESULTS.md's bge section names the floor's outcome  Actual: none");
 
         var wording = ClientWording();
+
+        // Errata G81, R11.93 (rev.): where the keyword channel ignores a published list, the sentence says so and keeps its verb ("does not show") for a long list of results.
+        var keywordRevision = File.ReadAllText(Path.Combine(ModelDirectory.RepositoryRoot(), "curia-whitepaper-ERRATA-AND-ADDENDUM.md")).Split("\n\n")
+            .Single(p => p.StartsWith("**R11.93 (rev.)** Where the list ships, the keyword clause gains:", StringComparison.Ordinal));
+        Assert.Contains("the keyword channel ignores the common English words of a published list in a query (R9.72)", keywordRevision, StringComparison.Ordinal);
+        Assert.Contains("The keyword channel ignores the common English words of a published list in a query (R9.72)", wording, StringComparison.Ordinal);
+        Assert.Contains("a long list of results does not show that the Forum holds the topic", wording, StringComparison.Ordinal);
+
         const string Clause = "no evidence that the Forum holds anything on the topic";
         if (outcome == "true")
         {

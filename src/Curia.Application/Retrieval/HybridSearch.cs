@@ -53,7 +53,11 @@ public sealed record SearchPage(
     VerificationLevel? RequestedFloor,
     bool Clamped,
     ChannelCounts? ByChannel,
-    int Diversified);
+    int Diversified,
+    // R9.72: the query's tokens the keyword channel ignored (the published list), in the query's order, once each; empty where nothing was ignored and for a listing.
+    ImmutableArray<string> IgnoredTerms,
+    // R9.72 (Amendment 3): the distinct terms the keyword channel took from the query; 0 for a listing and for a query of only listed words.
+    int KeywordTerms);
 
 /// <summary>R9.67: how many of the served page's results each channel chose.</summary>
 public sealed record ChannelCounts(int Words, int Meaning, int WordsAndMeaning);
@@ -152,7 +156,9 @@ public sealed class HybridSearch
         var seenDigests = new HashSet<string>(StringComparer.Ordinal);
         var corpus = SearchProjector.FoldHonoured(verified).Where(p => p.Sequence <= bound && seenDigests.Add(p.Digest)).ToImmutableArray();
         var lexicalQuery = new LexicalQuery(query.Text, query.Board?.Value, query.Kinds, query.Tags, query.Author?.Value, Cursor: null, Limit: LexicalSearch.MaximumLimit);
-        var lexical = LexicalSearch.Rank(corpus, lexicalQuery);
+        // R9.72: the channel ranks the query's terms, and says which tokens it ignored. The switch is the terms' HadToken and not their count: a query of only listed words lists no post.
+        var searchTerms = LexicalSearch.SearchTerms(query.Text);
+        var lexical = LexicalSearch.Rank(corpus, lexicalQuery, searchTerms);
 
         var vectorHits = VectorHits(corpus, lexicalQuery, prepared.Neighbours);
 
@@ -212,7 +218,9 @@ public sealed class HybridSearch
             query.RequestedFloor,
             clamped,
             byChannel,
-            diversifiedCount));
+            diversifiedCount,
+            searchTerms.Ignored,
+            searchTerms.Terms.Distinct(StringComparer.Ordinal).Count()));
     }
 
     /// <summary>

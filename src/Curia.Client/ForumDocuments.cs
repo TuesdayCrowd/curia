@@ -180,7 +180,11 @@ public sealed record SearchPage(
     StatedInstant? VectorCheckDueAt = null,
     ImmutableArray<string>? UnmatchedFilters = null,
     ChannelCounts? ByChannel = null,
-    int? Diversified = null);
+    int? Diversified = null,
+    // R9.72: the words the keyword channel ignored, as served. Null is a Forum that does not state the member (it does not apply the list); an empty array is one that applies it and ignored nothing.
+    ImmutableArray<string>? KeywordIgnored = null,
+    // R9.72: the distinct terms the keyword channel took, as served: null where the Forum states none (an older one), never a guess. 0 with a non-empty KeywordIgnored says the whole query was listed words.
+    int? KeywordTerms = null);
 
 /// <summary>How a Forum stated one of R9.53's instants: not at all (an older Forum), as JSON <c>null</c> (no check is owed; the due member only), or as an instant.</summary>
 public enum StatedKind
@@ -680,6 +684,12 @@ internal static class ForumDocuments
         if (!PageCount(o, "diversified").TryGetValue(out var diversified, out var diversifiedError))
             return Result<SearchPage>.Fail(diversifiedError!);
 
+        if (!ReadKeywordIgnored(o).TryGetValue(out var keywordIgnored, out var keywordIgnoredError))
+            return Result<SearchPage>.Fail(keywordIgnoredError!);
+
+        if (!ReadKeywordTerms(bytes, o).TryGetValue(out var keywordTerms, out var keywordTermsError))
+            return Result<SearchPage>.Fail(keywordTermsError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -702,8 +712,33 @@ internal static class ForumDocuments
             checkDueAt,
             unmatched,
             byChannel,
-            diversified));
+            diversified,
+            keywordIgnored,
+            keywordTerms));
     }
+
+    /// <summary>
+    /// R9.72: <c>keyword_ignored</c> is absent (an older Forum: null, which says the Forum does not apply the list, and is never an empty list) or an array of strings. Anything else
+    /// (a string, an object, null, an array holding a non-string) is a malformed page and not an empty list. The words are the Forum's and are printed as display literals, bounded
+    /// when printed (<see cref="SearchWording"/>).
+    /// </summary>
+    private static Result<ImmutableArray<string>?> ReadKeywordIgnored(JsonValue.Object page) =>
+        ClientJson.Member(page, "keyword_ignored") switch
+        {
+            null => Result<ImmutableArray<string>?>.Ok(null),
+            JsonValue.Array array when array.Items.All(item => item is JsonValue.String) =>
+                Result<ImmutableArray<string>?>.Ok([.. array.Items.Cast<JsonValue.String>().Select(item => item.Value)]),
+            _ => Result<ImmutableArray<string>?>.Fail(ClientErrors.ResponseMalformed("search page states keyword_ignored as something that is not an array of strings (R9.72)")),
+        };
+
+    /// <summary>
+    /// R9.72 (Amendment 3): <c>keyword_terms</c> is absent (an older Forum: null, and the reader prints no closing clause and never guesses one) or a non-negative whole number written as an integer (R6.33: <c>1.0</c> parses to 1 and is not one). A float, a negative
+    /// number, a string or JSON <c>null</c> is a malformed page and is not read as 0.
+    /// </summary>
+    private static Result<int?> ReadKeywordTerms(byte[] bytes, JsonValue.Object page) =>
+        ClientJson.Member(page, "keyword_terms") is null || TopLevelNumberIsInteger(bytes, "keyword_terms")
+            ? PageCount(page, "keyword_terms", "R9.72")
+            : Result<int?>.Fail(ClientErrors.ResponseMalformed("search page states keyword_terms as something that is not a count (R9.72)"));
 
     /// <summary>
     /// R9.67: <c>by_channel</c> is absent (null: not stated), or an object whose members are each absent (not stated) or a non-negative whole number that fits an int. A <c>by_channel</c> that is
@@ -726,14 +761,14 @@ internal static class ForumDocuments
     }
 
     /// <summary>R9.68: a count of the page itself, absent (null: not stated) or a non-negative whole number that fits an int; anything else present is malformed.</summary>
-    private static Result<int?> PageCount(JsonValue.Object page, string name)
+    private static Result<int?> PageCount(JsonValue.Object page, string name, string rule = "R9.68")
     {
         if (ClientJson.Member(page, name) is null)
             return Result<int?>.Ok(null);
 
         return ClientJson.WholeNumber(page, name) is >= 0 and <= int.MaxValue and var count
             ? Result<int?>.Ok((int)count)
-            : Result<int?>.Fail(ClientErrors.ResponseMalformed($"search page states {name} as something that is not a count (R9.68)"));
+            : Result<int?>.Fail(ClientErrors.ResponseMalformed($"search page states {name} as something that is not a count ({rule})"));
     }
 
     /// <summary>

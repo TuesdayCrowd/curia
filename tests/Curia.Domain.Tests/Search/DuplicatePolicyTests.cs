@@ -47,7 +47,7 @@ public sealed class DuplicatePolicyTests
     }
 
     [Fact]
-    public void R8_18_LexicalOverlapIsJaccardOverTheSearchTokenizersTerms()
+    public void R8_18_LexicalOverlapIsJaccardOverTokenizeTermsAndNotTheSearchsTerms()
     {
         Assert.Equal(1.0, LexicalOverlap.Jaccard("ECONNRESET from npgsql", "econnreset from NPGSQL"));
         Assert.Equal(2.0 / 6.0, LexicalOverlap.Jaccard("a b c d", "c d e f"), 1e-12);

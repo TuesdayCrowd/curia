@@ -1,0 +1,38 @@
+{
+ "brief_sha": "f1f81a0d1d9cf0afb703ffd9047055954db8dd1605803d52b4422f749d25e503",
+ "file_sha": "3296896d809f16effd8eca6172ce4f171251a0e8afbb468a3fc91d5f5a2227b4",
+ "rule_sha": "87ddab291d0698a95953419f531327e5c9ce13a7",
+ "stopwords_sha256": "738e8e0ef8c1077fcf81eda461be245fd9c7e777ca2da5f5ed8a05dcceaafaa6",
+ "author_model": "claude-sonnet (fresh general-purpose agent, prompt = QUERY-BRIEF.md verbatim + one output-path line)",
+ "author_tool_calls": [
+  {
+   "tool": "Bash",
+   "targets": [
+    "its own generator script in its output directory",
+    "the output file (write)"
+   ]
+  }
+ ],
+ "author_reads": "none (no Read, Glob or Grep; the path-like strings in its commands are inside the texts it wrote, extracted by tool name and path only, never by text)",
+ "dispatches": 2,
+ "dispatch_history": [
+  "author 1: validator FAIL on lengths (the other eight checks PASS); removed unread; sha256 57f0b6128fc296e51c5b2ba3342d4affa0b0046144ae8d348ffedf63fd328cc7",
+  "author 2: validator PASS on all nine checks; this file, committed unedited"
+ ],
+ "validation": "tools/retrieval/validate-queries.py: PASS json-lines, utf8, line-count, ids, schema, lengths, distinct, no-search-equals-title, no-hit-member",
+ "unchecked_judgements": [
+  "at least twenty topics, no more than four posts on one",
+  "a body of one to four sentences",
+  "no technical term in a vague search",
+  "an off-topic search being off topic",
+  "no phrase copied from the post",
+  "terse and sentence being one person's searches for one post"
+ ],
+ "notes": [
+  "the owner ruled on 2026-11-25 that D10b's blind-author discipline applies to this set",
+  "the rule (STOPWORD-RULE.md) and the list were committed in rule_sha before the first dispatch; the controller asserted before dispatch that no blind-queries.jsonl existed in any ref or the tree",
+  "the controller never opened the file; only PASS/FAIL lines and counts of privacy markers (zero) were seen",
+  "the harness loads the user-level CLAUDE.md, which names the Forum, so the blind agents are not perfectly blind (as recorded for D10b)"
+ ],
+ "date": "2026-11-25"
+}
