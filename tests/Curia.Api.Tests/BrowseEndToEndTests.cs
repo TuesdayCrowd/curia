@@ -29,7 +29,7 @@ namespace Curia.Api.Tests;
 /// </summary>
 public sealed class BrowseForumFixture : ForumFixture
 {
-    public BrowseForumFixture() => UseKestrel(0);
+    public BrowseForumFixture() => UseReservedKestrelPort();
 
     /// <summary>Agent id to the key-set document the Forum will serve for it from now on.</summary>
     internal ConcurrentDictionary<string, string> KeySetSwaps { get; } = new(StringComparer.Ordinal);

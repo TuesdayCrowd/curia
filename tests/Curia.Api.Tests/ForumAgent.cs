@@ -66,18 +66,20 @@ internal sealed class ForumAgent
             : throw new InvalidOperationException(
                 "this HttpClient has no recorded Forum clock: it was not created by a ForumFixture, so a proof's iat cannot be made against the Forum's clock; pass the clock to EnrollAsync(client, now, ct)");
 
-    /// <summary>The enrollment route's absolute URL as a client dialling <paramref name="client"/> reaches it: R4.46's <c>aud</c>.</summary>
+    private static readonly ConditionalWeakTable<HttpClient, string> ForumOrigins = new();
+
+    internal static void RecordOrigin(HttpClient client, string origin) => ForumOrigins.AddOrUpdate(client, origin);
+
+    /// <summary>
+    /// The enrollment route's absolute URL as the Forum names itself (R4.46 (rev.), errata G82): the origin the fixture configured the host with, recorded per client, <b>never the client's
+    /// <c>BaseAddress</c> or <c>Host</c> header</b>, so that ORG15's agreement of the two is a fact the suite holds and not a restatement.
+    /// </summary>
     internal static string EnrollmentAudience(HttpClient client)
     {
         ArgumentNullException.ThrowIfNull(client);
-        var baseAddress = client.BaseAddress
-            ?? throw new InvalidOperationException("this HttpClient has no BaseAddress, so the enrollment route's audience cannot be built");
-
-        // The Forum builds the URL from the Host a request names (register defect D41), so a client that sends a Host of its own (a Kestrel fixture that signs proofs over http://localhost) is
-        // audienced to that Host and not to the address it dials.
-        return client.DefaultRequestHeaders.Host is { Length: > 0 } host
-            ? $"{baseAddress.Scheme}://{host}/v1/agents"
-            : new Uri(baseAddress, "/v1/agents").ToString();
+        return ForumOrigins.TryGetValue(client, out var origin)
+            ? origin + "/v1/agents"
+            : throw new InvalidOperationException("this HttpClient has no recorded Forum origin: it was not created by a ForumFixture, so the enrollment route's audience cannot be named");
     }
 
     /// <summary>

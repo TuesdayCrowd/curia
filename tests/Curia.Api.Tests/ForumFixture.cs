@@ -74,13 +74,60 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
     internal DateTimeOffset Now => Clock.GetUtcNow();
 
-    internal HttpClient Client => CreateClient();
+    internal virtual HttpClient Client => CreateClient();
 
-    /// <summary>Every client this fixture hands out is recorded against its clock, so that <see cref="ForumAgent.EnrollAsync(HttpClient, CancellationToken)"/> can make a proof's <c>iat</c> at the Forum's time (R4.46).</summary>
+    private string? _reservedOrigin;
+    private int _reservedPort;
+
+    /// <summary>
+    /// D41 (errata G82): the one name this fixture's Forum is configured with (<c>Curia:PublicOrigin</c>) and the one its clients dial: <c>http://localhost</c>, which is what the in-process test
+    /// server addresses and what the suite's literals already say. A Kestrel fixture that signs over its own address reserves a port first (<see cref="UseReservedKestrelPort"/>) and its origin
+    /// is that address; a fixture whose clients force a <c>Host</c> overrides this. <b>A fixture whose clients dial one name and whose host is configured with another is the defect the stage
+    /// closes</b>: ORG15 holds the two equal for every fixture.
+    /// </summary>
+    internal virtual string PublicOrigin => _reservedOrigin ?? "http://localhost";
+
+    /// <summary>
+    /// D41 (ruling 8, amendment 1 #3): the Forum on a real socket at a port taken from the system, closed, and then bound by <c>UseKestrel(port)</c>, with <see cref="PublicOrigin"/> built from it. A
+    /// bind failure fails by name (<see cref="CreateHost"/>); there is no retry, because a <c>WebApplicationFactory</c> cannot be rebuilt with another origin after its configuration is read.
+    /// </summary>
+    protected void UseReservedKestrelPort(Func<int, string>? originOf = null)
+    {
+        using var probe = new System.Net.Sockets.Socket(
+            System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);
+        probe.Bind(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+        _reservedPort = ((System.Net.IPEndPoint)probe.LocalEndPoint!).Port;
+        _reservedOrigin = originOf is null ? $"http://127.0.0.1:{_reservedPort}" : originOf(_reservedPort);
+        UseKestrel(_reservedPort);
+    }
+
+    /// <summary>A reserved port taken before the bind fails the fixture by name and never by a hang.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Any start failure of a reserved-port host is re-thrown naming the port.")]
+    protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder)
+    {
+        try
+        {
+            return base.CreateHost(builder);
+        }
+        catch (Exception e) when (_reservedPort != 0)
+        {
+            throw new InvalidOperationException($"port {_reservedPort} was reserved and taken before the bind; re-run ({e.GetType().Name}: {e.Message})", e);
+        }
+    }
+
+    /// <summary>How this fixture's host is told its name: <c>Curia:PublicOrigin</c> set to <see cref="PublicOrigin"/>. A fixture that probes the start (ORG1 to ORG3) overrides it to say something else, or nothing.</summary>
+    protected virtual void ConfigureOrigin(IWebHostBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.UseSetting("Curia:PublicOrigin", PublicOrigin);
+    }
+
+    /// <summary>Every client this fixture hands out is recorded against its clock, so that <see cref="ForumAgent.EnrollAsync(HttpClient, CancellationToken)"/> can make a proof's <c>iat</c> at the Forum's time (R4.46), and against the origin the host was configured with, so that a proof's <c>aud</c> is the Forum's name and never the address the client happens to dial.</summary>
     protected override void ConfigureClient(HttpClient client)
     {
         base.ConfigureClient(client);
         ForumAgent.RecordClock(client, Clock);
+        ForumAgent.RecordOrigin(client, PublicOrigin);
     }
 
     /// <summary>
@@ -488,6 +535,9 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.UseSetting("ConnectionStrings:Events", HostConnectionString);
+
+        // D41 (errata G82): the Forum's one name. The unmodified Forum ignores this key (it builds every URL from the request); the build that closes D41 reads it and nothing else.
+        ConfigureOrigin(builder);
 
         // The issuer signing key is configuration, not something the host generates (see
         // Curia.Api.Issuer.IssuerSigningKey). One PEM per fixture, held for the fixture's whole

@@ -52,7 +52,7 @@ public class ConfirmFixture : CommittedPostFixture
 /// <summary>The same fixture on a real socket (Kestrel): for the probes that run the real <c>curia</c> and for the confirm over a socket.</summary>
 public sealed class ConfirmKestrelFixture : ConfirmFixture
 {
-    public ConfirmKestrelFixture() => UseKestrel(0);
+    public ConfirmKestrelFixture() => UseReservedKestrelPort();
 }
 
 /// <summary>One stored <c>post.accepted</c> as the events table holds it: the oracle of every probe (read by SQL on the fixture's own connection string, by digest, never through the Forum).</summary>

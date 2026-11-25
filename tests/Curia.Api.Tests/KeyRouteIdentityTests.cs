@@ -17,6 +17,9 @@ internal sealed class RequestRecorder
     internal volatile string? RawTarget;
     internal volatile string? Url;
 
+    /// <summary>D41 (errata G82): the Forum's configured origin, which every URL the Forum compares is built from; the request's own scheme and host are not part of it.</summary>
+    internal string Origin { get; set; } = string.Empty;
+
     /// <summary>When set, the raw target the pipeline sees after this filter: a host whose raw target and routed path disagree at equal segment count.</summary>
     internal volatile string? RawTargetOverride;
 
@@ -40,7 +43,7 @@ internal sealed class RecordingStartupFilter(RequestRecorder recorder) : IStartu
             recorder.RawTarget = feature?.RawTarget;
             if (feature is not null && recorder.RawTargetOverride is { } forced) feature.RawTarget = forced;
             var request = context.Request;
-            recorder.Url = $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
+            recorder.Url = recorder.Origin + request.Path;
             await pipeline();
         });
         next(app);
@@ -54,13 +57,14 @@ internal sealed class RecordingStartupFilter(RequestRecorder recorder) : IStartu
 /// </summary>
 public sealed class KeyRouteKestrelFixture : ForumFixture
 {
-    public KeyRouteKestrelFixture() => UseKestrel(0);
+    public KeyRouteKestrelFixture() => UseReservedKestrelPort();
 
     internal RequestRecorder Recorder { get; } = new();
 
     protected override void ConfigureFuzz(IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        Recorder.Origin = PublicOrigin;
         services.AddSingleton(Recorder);
         services.AddTransient<IStartupFilter, RecordingStartupFilter>();
     }
@@ -69,7 +73,7 @@ public sealed class KeyRouteKestrelFixture : ForumFixture
 /// <summary>The Forum as <c>Program.cs</c> composes it (the guard on), on a real socket.</summary>
 public sealed class KeyRouteGuardedKestrelFixture : ForumFixture
 {
-    public KeyRouteGuardedKestrelFixture() => UseKestrel(0);
+    public KeyRouteGuardedKestrelFixture() => UseReservedKestrelPort();
 
     protected override bool ComposesPermissiveLifecycleGate => false;
 }

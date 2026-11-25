@@ -18,7 +18,7 @@ namespace Curia.Api.Tests.Fuzz;
 /// </summary>
 public sealed class KestrelForumFixture : ForumFixture
 {
-    public KestrelForumFixture() => UseKestrel(0);
+    public KestrelForumFixture() => UseReservedKestrelPort();
 }
 
 /// <summary>
@@ -151,7 +151,7 @@ public sealed class RequestFuzzKestrelTests(KestrelForumFixture forum) : IClassF
         [
             .. Encoding.ASCII.GetBytes(method + " "),
             .. path,
-            .. Encoding.ASCII.GetBytes(" HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+            .. Encoding.ASCII.GetBytes($" HTTP/1.1\r\nHost: {address.Authority}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
         ];
         await stream.WriteAsync(request, ct);
 

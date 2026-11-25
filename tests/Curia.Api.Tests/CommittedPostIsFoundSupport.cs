@@ -49,7 +49,7 @@ public class CommittedPostFixture : FaultableForumFixture
 /// <summary>The same decorated Forum on a real socket (Kestrel): for the probe that runs the real <c>curia</c> against it.</summary>
 public sealed class CommittedPostKestrelFixture : CommittedPostFixture
 {
-    public CommittedPostKestrelFixture() => UseKestrel(0);
+    public CommittedPostKestrelFixture() => UseReservedKestrelPort();
 }
 
 /// <summary>One host of <see cref="CommittedPostFixture"/> and what a probe reaches on it.</summary>

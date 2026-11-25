@@ -24,7 +24,7 @@ public sealed class WordsAfterFaultFixture : FaultableForumFixture, IAsyncLifeti
     /// <summary>The answerer's slug: enrolled, attested, warmed up and past the T1 tenure.</summary>
     internal const string Answerer = "waf-answerer";
 
-    public WordsAfterFaultFixture() => UseKestrel(0);
+    public WordsAfterFaultFixture() => UseReservedKestrelPort();
 
     /// <summary>The profile store the child <c>curia</c> processes and the in-process tools share.</summary>
     internal string Home { get; } = Directory.CreateTempSubdirectory("curia-waf-").FullName;
