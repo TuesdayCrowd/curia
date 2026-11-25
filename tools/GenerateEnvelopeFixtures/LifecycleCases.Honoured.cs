@@ -146,6 +146,11 @@ internal static partial class LifecycleCases
             HRotationNamesAnEs256KeysBytes(root, kEs, kEsReborn),
             HRotationKidAlreadyBoundUnderOtherBytes(k0, k1, k1OtherBytes),
             HRotationNamesBytesOnlyASkippedRowStated(k0, k1),
+            HSecondEnrolmentAfterPair(k0, k1),
+            HSecondEnrolmentNamesAnotherAgent(k0),
+            HSecondEnrolmentPayloadNotAnObject(k0),
+            HSecondEnrolmentInARootlessStream(k0),
+            HSecondEnrolmentBetweenRootAndPair(k0),
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -175,8 +180,64 @@ internal static partial class LifecycleCases
         log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(k1.Kid))));
         AddBinding(log, k1);
         return new HCase("second-enrolment-then-binding",
-            "A second agent.enrolled at 2 is not a row and binds nothing; the statement-less binding of the second key at 3 is not in the pair's position, so it is skipped.",
-            log, Agent_(rows: [HRow.Skipped(3, KeyBound, "broken-link")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+            "A second agent.enrolled at 2 is a row, decided by R6.64's steps 1 and 4 and then skipped as broken-link (errata G80, R4.48), and binds nothing; the statement-less binding of the second key at 3 is not in the pair's position (the second enrolment counts as a lifecycle entry), so it is skipped too.",
+            log, Agent_(rows: [HRow.Skipped(2, "agent.enrolled", "broken-link"), HRow.Skipped(3, KeyBound, "broken-link")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+    }
+
+    /// <summary>Errata G80 (R4.48, R6.64 (rev.)): a skipped later enrolment moves no prev; a genuine rotation after it, naming the pair at 1, is honoured.</summary>
+    private static HCase HSecondEnrolmentAfterPair(Key k0, Key k1)
+    {
+        var log = EnrolledAndBound(k0);
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(k1.Kid))));
+        AddRotation(log, new Rot(k0, k1, Prev: 1));
+        return new HCase("second-enrolment-after-pair",
+            "The enrolment and its pair at 0 and 1, a second agent.enrolled (the stream's agent, a new kid) at 2, and a genuine rotation from the first key to the second at 3 whose prev names the pair at 1. The second enrolment is skipped as broken-link and is never the previous honoured entry, so the rotation's prev 1 is right and the rotation is honoured: both keys are active.",
+            log, Agent_(rows: [HRow.Skipped(2, "agent.enrolled", "broken-link"), HRow.Honoured(3, KeyBound)],
+                keys: [(k0.Kid, "active"), (k1.Kid, "active")], bound: [k0.Kid, k1.Kid]));
+    }
+
+    /// <summary>Errata G80 (R4.48): the row S2 of the plan's Task 0 planted in another identity's stream; step 4 is decided before the later-root step.</summary>
+    private static HCase HSecondEnrolmentNamesAnotherAgent(Key k0)
+    {
+        var log = EnrolledAndBound(k0);
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(OtherAgent)), ("kid", Str(k0.Kid))));
+        return new HCase("second-enrolment-names-another-agent",
+            "The enrolment and its pair at 0 and 1, and at 2 a later agent.enrolled in this stream whose agent_id is another agent's: the row a forger plants in one identity's stream to reach another's standing (Task 0, S2). Step 4 is decided before the later-root step, so the row is skipped as statement-mismatch and not broken-link; it binds nothing.",
+            log, Agent_(rows: [HRow.Skipped(2, "agent.enrolled", "statement-mismatch")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+    }
+
+    /// <summary>Errata G80 (R4.48): step 1 is decided before the later-root step.</summary>
+    private static HCase HSecondEnrolmentPayloadNotAnObject(Key k0)
+    {
+        var log = EnrolledAndBound(k0);
+        log.Add("agent.enrolled", Agent, Agent, Str("not-an-enrolment"));
+        return new HCase("second-enrolment-payload-not-an-object",
+            "The enrolment and its pair at 0 and 1, and at 2 a later agent.enrolled whose payload is a JSON string. Step 1 is decided before the later-root step, so the row is skipped as statement-mismatch; it binds nothing.",
+            log, Agent_(rows: [HRow.Skipped(2, "agent.enrolled", "statement-mismatch")], keys: [(k0.Kid, "active")], bound: [k0.Kid]));
+    }
+
+    /// <summary>Errata G80 (R6.64 (rev.)): a later enrolment is a later root whether or not the first was honoured, and is never the root.</summary>
+    private static HCase HSecondEnrolmentInARootlessStream(Key k0)
+    {
+        var log = new Log();
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(OtherAgent)), ("kid", Str(k0.Kid))));
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(k0.Kid))));
+        AddBinding(log, k0);
+        return new HCase("second-enrolment-in-a-rootless-stream",
+            "The stream's first agent.enrolled at 0 names another agent and is skipped as statement-mismatch, so the stream has no root. A later agent.enrolled at 1 names the stream's agent and its key: it is a later enrolment of the stream, so it is skipped as broken-link and is never the root. The pair at 2 is skipped as broken-link and nothing is bound.",
+            log, Agent_(rows: [HRow.Skipped(0, "agent.enrolled", "statement-mismatch"), HRow.Skipped(1, "agent.enrolled", "broken-link"), HRow.Skipped(2, KeyBound, "broken-link")], keys: [], bound: []));
+    }
+
+    /// <summary>Errata G80 (R6.64 (rev.), ruling 6): a skipped later enrolment still counts as a lifecycle entry for the position of the enrolment's pair.</summary>
+    private static HCase HSecondEnrolmentBetweenRootAndPair(Key k0)
+    {
+        var log = new Log();
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(k0.Kid))));
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(k0.Kid))));
+        AddBinding(log, k0);
+        return new HCase("second-enrolment-between-root-and-pair",
+            "The enrolment at 0, a second agent.enrolled (the stream's agent and key) at 1, and the pair's binding at 2. The second enrolment is skipped as broken-link and counts as a lifecycle entry, so the binding is not in the pair's position and is skipped as broken-link: nothing is bound.",
+            log, Agent_(rows: [HRow.Skipped(1, "agent.enrolled", "broken-link"), HRow.Skipped(2, KeyBound, "broken-link")], keys: [], bound: []));
     }
 
     private static HCase HBindingWithoutStatementAfterHistory(Key k0, Key k1, Key k2)

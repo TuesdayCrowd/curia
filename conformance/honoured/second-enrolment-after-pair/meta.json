@@ -1,0 +1,6 @@
+{
+  "profile": "honoured-log",
+  "requirement": "R6.64",
+  "note": "The enrolment and its pair at 0 and 1, a second agent.enrolled (the stream's agent, a new kid) at 2, and a genuine rotation from the first key to the second at 3 whose prev names the pair at 1. The second enrolment is skipped as broken-link and is never the previous honoured entry, so the rotation's prev 1 is right and the rotation is honoured: both keys are active. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the keys the case publishes are its own log.key and log.declaration-key entries. expected.json is written from this construction and never by running a verifier. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

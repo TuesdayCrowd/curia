@@ -71,7 +71,7 @@
       "profiles": [
         "honoured-log"
       ],
-      "count": 61
+      "count": 66
     },
     {
       "name": "operator-acts",
@@ -89,7 +89,7 @@
       "profiles": [
         "lifecycle-log"
       ],
-      "count": 88
+      "count": 90
     },
     {
       "name": "merkle",

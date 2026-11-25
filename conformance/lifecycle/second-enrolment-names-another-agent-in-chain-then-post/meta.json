@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.54",
+  "note": "The chain holds the enrolment and its pair, then at 2 a second agent.enrolled that names another agent, then a post by the key. A reader decides the entry's step 4 (the payload's agent_id is not the author's) before it asks whether the enrolment is the chain's first: failed, statement-mismatch. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 3,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

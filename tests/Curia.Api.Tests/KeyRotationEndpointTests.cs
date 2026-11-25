@@ -345,8 +345,9 @@ public sealed class KeyRotationEndpointTests(ForumFixture forum) : IClassFixture
     /// is the same, R5.12), so: the second key, rotated in under the first, requests a token and is served (the control: it is a key the Forum honours); it retires itself; its next request is
     /// <c>401</c> <c>invalid_client</c>, byte for byte the refusal of a bad signature, and the log's one event 5001 for it names <c>curia/keys/retired</c>; the first key, still live, is served. No
     /// other test requests a token after a retirement, and the reorder moves this refusal after the signature and after both <c>jti</c>s are consumed. The second key requests through
-    /// <c>DpopClient.For(second, ...)</c> and never <c>AuthenticateAsync</c>, which enrols and would write a second <c>agent.enrolled</c> row for the identity (item 299: a genuine agent's token request
-    /// then answers <c>500</c>). It would fail at the <c>curia/keys/retired</c> line, and at the second key's <c>401</c>, if the status switch treated a retired key as active.
+    /// <c>DpopClient.For(second, ...)</c> and never <c>AuthenticateAsync</c>, which enrols through the route and asserts <c>201</c>: a second key for an enrolled identity answers <c>409</c>
+    /// <c>already-enrolled</c> (R4.31, G14), so it would fail there and never reach the retirement. It would fail at the <c>curia/keys/retired</c> line, and at the second key's <c>401</c>, if the status
+    /// switch treated a retired key as active.
     /// </summary>
     [Fact]
     public async Task R5_25_VBR5b_ARetiredKeyRequestsATokenAndIsRefusedAsRetiredWhileTheLiveKeyIsServed()

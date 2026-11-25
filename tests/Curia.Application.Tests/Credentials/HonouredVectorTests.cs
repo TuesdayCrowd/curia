@@ -64,7 +64,8 @@ public sealed class HonouredVectorTests
         var actualKeys = keys.Keys.ToDictionary(k => k, k => Word(verified.Honoured.StatusNow(k)), StringComparer.Ordinal);
         // The enrolment names a kid and binds none (ruling 55): a key an honoured row names is one a pair, a rotation, a retirement or a declaration names. The enrolment's own entry is dropped for the one vector that
         // has an enrolment with no pair after it (vector 50); every other vector's enrolment is followed by its pair, which names the same kid, and dropping it there changes nothing a present vector can see (FLRV-N1 (b), Task 7); it is kept to the one vector so that a later vector whose enrolment and pair disagree is compared (Amendment 7, ruling 88).
-        var pairless = log.Name == "enrolment-without-its-pair";
+        // Errata G80 adds a second such vector, second-enrolment-between-root-and-pair: its pair is skipped (a skipped later enrolment counts as an entry), so its honoured enrolment binds nothing either.
+        var pairless = log.Name is "enrolment-without-its-pair" or "second-enrolment-between-root-and-pair";
         var named = verified.Honoured.Entries.Where(e => !pairless || e.Type != AgentStandingProjector.EnrolledType).SelectMany(e => e.Kid is null ? [] : new[] { e.Kid }).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (!keys.OrderBy(k => k.Key, StringComparer.Ordinal).SequenceEqual(actualKeys.OrderBy(k => k.Key, StringComparer.Ordinal)) || !keys.Keys.Order(StringComparer.Ordinal).SequenceEqual(named))
             yield return $"{log.Name} keys: Expected: {{{string.Join(", ", keys.OrderBy(k => k.Key, StringComparer.Ordinal).Select(k => k.Key + " " + k.Value))}}}  Actual: {{{string.Join(", ", named.Select(k => k + " " + Word(verified.Honoured.StatusNow(k))))}}}";
@@ -100,7 +101,7 @@ public sealed class HonouredVectorTests
     {
         var failures = new List<string>();
         var cases = ConformanceLog.Names("honoured");
-        Assert.True(cases.Length == 61, $"Expected: 61 honoured vectors  Actual: {cases.Length} (the pin is counted in six places: conformance/index.json, the README, HonouredFamilyTests, here, vectors.rs and honoured.rs)");
+        Assert.True(cases.Length == 66, $"Expected: 66 honoured vectors  Actual: {cases.Length} (the pin is counted in six places: conformance/index.json, the README, HonouredFamilyTests, here, vectors.rs and honoured.rs)");
         Assert.Contains("enrolment-without-its-pair", cases);
         foreach (var name in cases)
         {

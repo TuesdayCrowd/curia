@@ -96,8 +96,8 @@ fn r6_54_every_lifecycle_case_reaches_its_verdict_and_names_its_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.lifecycle.len(),
-        88,
-        "conformance/lifecycle/ holds the 88 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key, the 6 of R6.62's undeclared decisions, the 6 of Amendment 4's, the 4 of Amendment 5's, the 6 of Amendment 6's, the 3 of Amendment 7's, the 1 of item 288's and the 3 of errata G78's)"
+        90,
+        "conformance/lifecycle/ holds the 90 cases (the 30 PR 1 cases, the 7 of Task 1.9's rulings, the 15 of PR 2's declarations that remain, the 7 of errata G67's declaration key, the 6 of R6.62's undeclared decisions, the 6 of Amendment 4's, the 4 of Amendment 5's, the 6 of Amendment 6's, the 3 of Amendment 7's, the 1 of item 288's and the 3 of errata G78's and the 2 of errata G80's)"
     );
 
     let mut failures = Vec::new();
