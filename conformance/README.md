@@ -144,6 +144,7 @@ the mistake this section exists to prevent.
 | `lifecycle-log` | `LifecycleCheck.Verify` (C#), `lifecycle::verify_lifecycle` (Rust) | A small whole log, a signed head over it and the log's key set: the verdict and predicate a reader that folds the post author's key lifecycle (R6.54 (add.)) must reach, in `expected.json`. See "The `lifecycle/` family" below.
 | `honoured-log` | the Forum's lifecycle verifier (errata G68, R6.64) | A small whole log of events: the verdict (`honoured`, or `skipped` and its predicate) of every lifecycle row of the agent under test, the status of every key an honoured row names, and the kids the honoured prefix binds. See "The `honoured/` family". |
 | `operator-acts-log` | the Forum's operator-act fold (errata G70, R6.67) | A small whole log of events: the verdict (`honoured`, or `skipped` and its predicate) of every operator-act row of the stream under test, and the state the honoured rows decide (an agent's owner and whether it is verified, or whether a post is served). See "The `operator-acts/` family" below. |
+| `enroll-proof` | the Forum's enrollment-proof validator (errata G79, R4.46) | A request to enrol a key (`agent_id`, `alg`, `kid`, `public_key`, `proof`) and the context the Forum decides it in: its clock, the URL it received the request at, the nonces its store reports current and the `jti`s already spent. The verdict R4.46's seven steps must reach, in `expected.json`: `ok`, or the refusal's type and, where the construction fixes it, the member or claim it names. See "The `enroll-proof/` family" below. |
 | `acta-leaf` | `Canonicalize` (pure RFC 8785), then `MerkleTree.LeafHash` | The input is a log entry document (R6.46); it must canonicalize to `expected.canonical` (digest `expected.digest`), and `SHA-256(0x00 ‖ canonical)` must equal `expected.leaf`. **Pure** canonicalization, never the NFC profile: hashing is not signing. See "The `acta/` family" below.
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
@@ -190,6 +191,7 @@ get the count up will look like it is converging. It is not.
   small whole log in, the verdict a reader must reach out. See below.
 - `honoured/` — which lifecycle rows the Forum acts on (errata G68, R6.64): a
   small whole log of events in, the verdict of every row of the agent's stream out. See below.
+- `enroll-proof/` — the proof of possession of an enrollment request (errata G79, R4.46): a request and its context in, `ok` or the refusal's type out. See below.
 
 `red-team/` is **not** a vector family — it is the detector corpus behind R10.11's
 measurement (Appendix L), and `index.json` records that with a reason. Neither is
@@ -693,3 +695,46 @@ row member whose number is spelled differently from the statement's (`0.0` and `
 The cases are **proposals**, as `honoured/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --operator-acts-cases` regenerates them until the owner's
 lift record pins their digests.
 
+## The `enroll-proof/` family
+
+R4.46 (errata G79) makes an enrollment request carry a `proof`: a compact JWS, signed by the key being enrolled, over claims that name the identity, the key's
+thumbprint, the Forum's URL, a nonce the Forum chose and a single-use `jti`. The Forum decides it in seven steps and refuses, with status `400`, at the first that applies.
+This family pins each step, and the order of the steps, with one case that breaks one thing. The Forum's validator reads it (the EPP1 probe), as does any implementation of
+the rule; **a runner that has not read it has not checked the rule**.
+
+Its shape is its own (`"shape": "enroll-proof"` in `index.json`, profile `enroll-proof`, requirement `R4.46`). A case is a directory holding
+
+- `input.json`, fed to the validator as written:
+
+```json
+{"request": {"agent_id": "...", "alg": "EdDSA", "kid": "...", "public_key": "<base64 of the stored form>", "proof": "<compact JWS>"},
+ "context": {"now": 1800000000, "audience": "https://forum.example/v1/agents", "current_nonces": ["..."], "spent_jtis": ["..."]}}
+```
+
+  `public_key` is standard base64 of the key's stored form (R4.28): the 32 raw bytes for `EdDSA`, the 91-byte SubjectPublicKeyInfo for `ES256`. `proof` is absent in one case
+  (`proof-absent`). `now` is the Forum's clock in whole seconds since the epoch; `audience` is the absolute URL of the enrollment route as the Forum received the request;
+  `current_nonces` are the values its nonce store reports current (a nonce is accepted if and only if it is in the list: the family holds the store's answer as data, and
+  so cannot say what the store accepts, which an Application probe asserts); `spent_jtis` are the `jti`s the replay cache already holds;
+- `meta.json` -- `profile`, `requirement`, `step` (the step of R4.46 the case targets: `1` to `7`, or `all` for an accepted proof) and `note`. The two cases that sign with an
+  anchor key from outside this repository also carry `jkt`, `jkt-source` and, for ES256, `jkt-method`;
+- `expected.json`, written by the generator **from the case's construction and the step it targets, and never by running a validator**: `{"verdict": "ok"}`, or
+  `{"verdict": "refused", "type": "curia/enroll/proof-...", "detail": "claim=aud"}`. `type` is one of the seven slugs of R4.46 and `detail`, where present, names the member
+  (`member=jkt`) or the claim (`claim=agent_id`) the refusal names, which the construction fixes; a runner compares it when it is present and never a value.
+
+**R4.46's order.** (1) no proof or an empty one: `proof-required`; (2) a proof over 8,192 characters, not three unpadded base64url segments, whose header is not an object, whose
+`typ` is not `curia-enroll-pop+jwt`, whose `alg` is outside the allow-list or which has no `kid`: `proof-malformed`; (3) a header `alg` or `kid` that is not the request's:
+`proof-mismatch`; (4) a signature that does not verify under the **request's** key (the verifier chosen by the request's `alg`, never by the proof): `proof-not-possessed`; (5)
+the payload: a claim that does not read (`agent_id`, `jkt`, `aud`, `iat`, `jti`) is `proof-malformed`, then `agent_id`, `jkt` and `aud` in that order that are not the request's
+are `proof-mismatch`, then an `iat` further than 30 seconds from `now` is `proof-window`; (6) a `nonce` that is absent, not a string or not in `current_nonces`:
+`proof-nonce-stale`; (7) a `jti` in `spent_jtis`: `proof-replayed`. The signature is decided before the payload is read. Cases named `*-before-*` pin one pair of adjacent
+decisions (the case breaks both, and says which one decides).
+
+**Anchors from outside this repository.** `ed25519-valid` signs with the RFC 8037 Appendix A key and its `jkt` is the thumbprint that RFC prints,
+`kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k`; `es256-valid` signs with the RFC 7515 Appendix A.3 key, whose RFC 7638 thumbprint, `oKIywvGUpTVTyxMQ3bwIIeQUudfr_CkLMjCE19ECD-U`,
+was computed independently in Python (the method is in each case's `jkt-method`). Every other Ed25519 key is a fixed seed (`0x41` and `0x42` repeated 32 times; the RFC key's
+`d` for the rest), so every Ed25519 byte is reproducible. **ES256 signing is randomized**: the signatures of `es256-valid` and `alg-differs-from-request` were produced once and are
+kept, and the generator reuses a signature already on disk when its signing input is the same and it verifies. A regeneration over the existing directory is byte-identical;
+one from a clean directory is not, and would replace those two signatures.
+
+The cases are **proposals**, as `honoured/` is: `dotnet run --project tools/GenerateEnvelopeFixtures -- --enroll-proof-cases` regenerates them (the tool references no validator).
+**The cases are an artifact both readers derive from**: the independent anchors for the rule are the errata's sentence, the two RFC keys above and a real client and Forum.

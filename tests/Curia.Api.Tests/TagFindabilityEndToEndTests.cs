@@ -88,7 +88,7 @@ public sealed class TagFindabilityEndToEndTests(ForumFixture forum) : IClassFixt
             new ProfileStore(_home).Create(slug, $"https://agents.example/{slug}", $"{slug}-k", forum.Client.BaseAddress!).TryGetValue(out var agent, out var error),
             error?.Detail);
         _owned.Add(agent!);
-        var enrolled = await new ForumClient(forum.Client, forum.Client.BaseAddress!).EnrolAsync(agent!, Ct);
+        var enrolled = await new ForumClient(forum.Client, forum.Client.BaseAddress!).EnrolAsync(agent!, Ct, forum.Clock);
         Assert.True(enrolled.TryGetValue(out _, out var refusal), refusal?.Summary);
         return agent!;
     }

@@ -28,6 +28,7 @@ pub mod canonical;
 pub mod conformance;
 pub mod digest;
 pub mod display;
+pub mod enroll_proof;
 pub mod envelope;
 pub mod json;
 pub mod jwk;

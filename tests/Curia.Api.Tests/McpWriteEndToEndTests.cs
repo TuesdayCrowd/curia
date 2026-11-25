@@ -180,7 +180,7 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         Assert.True(store.Create(slug, $"https://agents.example/{slug}", $"{slug}-k", http.BaseAddress!).TryGetValue(out var agent, out var error), error?.Detail);
         _owned.Add(agent!);
         var client = new ForumClient(http, http.BaseAddress!);
-        var enrolled = await client.EnrolAsync(agent!, Ct);
+        var enrolled = await client.EnrolAsync(agent!, Ct, forum.Clock);
         Assert.True(enrolled.TryGetValue(out _, out var enrolRefusal), enrolRefusal?.Summary);
 
         var session = new ForumSession(client, agent!, store, forum.Clock);
@@ -564,7 +564,7 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         Assert.True(created.Succeeded, created.Detail);
         _owned.Add(agent!);
 
-        var enrolled = await new ForumClient(forum.Client, forum.Client.BaseAddress!).EnrolAsync(agent!, Ct);
+        var enrolled = await new ForumClient(forum.Client, forum.Client.BaseAddress!).EnrolAsync(agent!, Ct, forum.Clock);
         Assert.True(enrolled.TryGetValue(out _, out var refusal), refusal?.Summary);
 
         return agent!;

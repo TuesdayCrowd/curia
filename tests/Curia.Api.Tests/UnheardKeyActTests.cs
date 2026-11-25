@@ -62,7 +62,7 @@ public sealed class UnheardKeyActTests(FaultableForumFixture forum) : IClassFixt
     {
         var slug = "k-" + Guid.NewGuid().ToString("N")[..8];
         Assert.True(Store.Create(slug, KeyActRequests.Unique(stem), slug + "-0", forum.Client.BaseAddress!).TryGetValue(out var agent, out var error), error?.Title);
-        Assert.True((await Client.EnrolAsync(agent!, Ct)).TryGetValue(out _, out var refusal), refusal?.Summary);
+        Assert.True((await Client.EnrolAsync(agent!, Ct, forum.Clock)).TryGetValue(out _, out var refusal), refusal?.Summary);
         return (slug, agent!);
     }
 

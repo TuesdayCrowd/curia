@@ -38,7 +38,7 @@ namespace Curia.Api;
 public sealed record Problem(string Type, string Title, string? Detail);
 
 /// <summary>
-/// What an agent sends to enroll: an identity and the public key it will sign with -- and nothing
+/// What an agent sends to enroll: an identity, the public key it will sign with and the proof that it holds that key's private half (R4.46, errata G79) -- and nothing
 /// about its owner. It used to carry <c>owner_verified</c>, which made Table 11's one Sybil cost a
 /// value the enrolling party supplied (errata G5); R4.30 puts that fact behind an operator's
 /// attestation, out of band. A body that still carries the member is accepted and the member is
@@ -48,7 +48,8 @@ public sealed record EnrollRequest(
     [property: JsonPropertyName("agent_id")] string AgentId,
     [property: JsonPropertyName("kid")] string Kid,
     [property: JsonPropertyName("alg")] string Alg,
-    [property: JsonPropertyName("public_key")] string PublicKeyBase64);
+    [property: JsonPropertyName("public_key")] string PublicKeyBase64,
+    [property: JsonPropertyName("proof")] string? Proof = null);
 
 /// <summary>
 /// What an agent sends to flag a post. R10.35: typed, and with a rationale that is required rather
@@ -656,6 +657,9 @@ public static class ForumEndpoints
         // that serve agent-authored content are exactly the seven that reach ToResponse.
         app.MapPost("/v1/agents", EnrollAsync).Serves(ServedContent.None);
 
+        // R4.47 (errata G79): the nonce an enrollment proof carries. Anonymous: there is no identity yet. It reads no query name (a route that takes no parameter has no parameter to be mistaken for a filter), so a query string is ignored.
+        app.MapGet("/v1/enroll/nonce", GetEnrollmentNonceAsync).Serves(ServedContent.None);
+
         // R4.18 (rev.), R4.39: an identity's own key acts. Each handler's first act is the guard's gate
         // (R4.38 (add.)), so a Forum that has not lifted the guard answers 403 before anything else.
         app.MapPost("/v1/agents/{id}/keys", RotateKeyAsync).Serves(ServedContent.None);
@@ -692,9 +696,10 @@ public static class ForumEndpoints
     /// no tier yet, and <see cref="AccessPolicy"/> reports that row as a failure rather than a
     /// denial precisely so a caller cannot mistake it for one.
     ///
-    /// <para><b>What is missing and is not pretended otherwise:</b> §4.3's owner authentication,
-    /// and R4.11's proof of possession. This endpoint trusts what it is told, which is acceptable
-    /// because nothing downstream trusts an agent's *claim* -- authorship is established by
+    /// <para><b>What is missing and is not pretended otherwise:</b> §4.3's owner authentication.
+    /// R4.11's proof of possession is built (errata G79, R4.46): a request carries a proof signed by the key
+    /// it enrols, checked below before the log is read. Until it was, this endpoint trusted what it was told,
+    /// which was acceptable because nothing downstream trusts an agent's *claim* -- authorship is established by
     /// signature against the key registered here, so a false enrollment can only impersonate an
     /// agent whose private key the caller already holds. Each half of that sentence has been false.
     /// Its premise was false for as long as the request carried <c>owner_verified</c>, which Table
@@ -735,8 +740,12 @@ public static class ForumEndpoints
     /// </summary>
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
+        HttpRequest http,
         EnrollIdentity enroll,
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
+        IDpopNonceStore nonces,
+        IReplayCache replay,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(request.AgentId) || string.IsNullOrEmpty(request.Kid))
@@ -804,6 +813,19 @@ public static class ForumEndpoints
             || !Kid.Parse(request.Kid, "kid").TryGetValue(out var kid, out _))
             return Results.BadRequest(new Problem("curia/enroll/invalid", "agent_id and kid are required", null));
 
+        // R4.46 (errata G79): the proof that the submitter holds the key, asked after every check of the request's own text and before anything is read from the log. Steps 1 to 5 read nothing, step 6 asks
+        // the nonce store, step 7 consumes the jti; the use case below reads the log only after that, so a proof that does not verify touches neither, and a fault of the log spends the proof. The audience is the
+        // URL as the Forum received it, built by the token endpoint's builder (register defect D41: three sites build it from the request's Host and a closure must find them all).
+        var proven = await new EnrollmentProofValidator(verifiers, nonces, replay)
+            .ValidateAsync(
+                new EnrollmentProofRequest(request.AgentId, request.Alg, request.Kid, publicKey, request.Proof),
+                Curia.Api.Issuer.TokenEndpoint.TokenEndpointUrl(http),
+                clock.GetUtcNow(),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!proven.TryGetValue(out _, out var proofError))
+            return Problem(StatusForEnrollmentProof(proofError!), proofError!);
+
         // R4.31 and R4.32 (errata G14), in EnrollIdentity: the log's binding, then the key store's,
         // then the log's record. Standing goes into the event log, never into process memory -- a
         // repeat enrollment appends nothing, so Table 11's tenure clock cannot be restarted by
@@ -842,6 +864,36 @@ public static class ForumEndpoints
             owner_verified = enrollment.OwnerVerified,
         });
     }
+
+    /// <summary>
+    /// R4.47 (errata G79): the Forum's nonce for the current epoch and the instant that epoch ends, to any caller. Never cached: a proof made with a stale value is refused, and an intermediary's copy would hand
+    /// out one. The body is exactly <c>nonce</c> and <c>expires_at</c>.
+    /// </summary>
+    private static async Task<IResult> GetEnrollmentNonceAsync(HttpResponse response, IDpopNonceStore nonces, CancellationToken cancellationToken)
+    {
+        var issued = await nonces.IssueAsync(cancellationToken).ConfigureAwait(false);
+        if (!issued.TryGetValue(out var nonce, out var nonceError))
+            return Problem(StatusCodes.Status500InternalServerError, nonceError!);
+
+        response.Headers.CacheControl = "no-store";
+        return Results.Ok(new { nonce = nonce!.Value.Value, expires_at = nonce.ExpiresAt });
+    }
+
+    /// <summary>
+    /// The status an enrollment proof's refusal reports (R4.46): each of the seven types answers <c>400</c>; a refusal this table does not list is a fault of the Forum, <c>500</c>, never a <c>4xx</c> that tells an
+    /// agent its request was at fault (as <see cref="StatusForKeyAct"/> treats one). A store fault is made <c>503</c> by <see cref="Problem(int, Error)"/> whatever status is passed.
+    /// </summary>
+    private static int StatusForEnrollmentProof(Error error) => error.Type switch
+    {
+        EnrollmentProofErrors.RequiredType
+            or EnrollmentProofErrors.MalformedType
+            or EnrollmentProofErrors.MismatchType
+            or EnrollmentProofErrors.NotPossessedType
+            or EnrollmentProofErrors.WindowType
+            or EnrollmentProofErrors.NonceStaleType
+            or EnrollmentProofErrors.ReplayedType => StatusCodes.Status400BadRequest,
+        _ => StatusCodes.Status500InternalServerError,
+    };
 
     /// <summary>
     /// The refusal for an identifier an enrollment would carry into a public leaf, or null. First

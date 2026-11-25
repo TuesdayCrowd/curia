@@ -29,7 +29,11 @@ internal static class FaultSweep
         ("GET " + Curia.Domain.Serving.ReaderContract.WellKnownPath, "the Reader Contract is a constant document"),
         ("GET /oauth/jwks", "the issuer's public key, from configuration"),
         ("GET /.well-known/oauth-authorization-server", "OAuth metadata, from configuration"),
+        (NonceRoute, "it issues the Forum's nonce (R4.47): it reads no log and asks the nonce store alone, which the ULG3 sweep of that store faults"),
     ];
+
+    /// <summary>R4.47's anonymous route: the one route in <see cref="ReadsNoLog"/> that does read a store, the nonce store.</summary>
+    internal const string NonceRoute = "GET /v1/enroll/nonce";
 
     /// <summary>The token endpoint, which answers a fault with RFC 6749's code and not a problem document.</summary>
     internal const string TokenRoute = "POST /oauth/token";

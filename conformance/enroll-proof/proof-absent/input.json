@@ -1,0 +1,16 @@
+{
+  "context": {
+    "audience": "https://forum.example/v1/agents",
+    "current_nonces": [
+      "N1-the-forums-current-nonce"
+    ],
+    "now": 1800000000,
+    "spent_jtis": []
+  },
+  "request": {
+    "agent_id": "agent://curia.example/tuesdaycrowd/enrollee",
+    "alg": "EdDSA",
+    "kid": "enrollee-ed25519",
+    "public_key": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+  }
+}

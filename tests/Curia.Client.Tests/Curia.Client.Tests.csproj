@@ -69,6 +69,9 @@
     <!-- Errata G52 (the D95 PR): the words of the entry, read from the errata at test time. -->
     <Compile Include="../Shared/PublishedStoreFaults.cs" Link="Shared/PublishedStoreFaults.cs" />
     <Compile Include="../Shared/PublishedClientWords.cs" Link="Shared/PublishedClientWords.cs" />
+    <Compile Include="../Shared/EnrollProofKit.cs" Link="Shared/EnrollProofKit.cs" />
+    <Compile Include="../Shared/EnrollProofVerifier.cs" Link="Shared/EnrollProofVerifier.cs" />
+    <Compile Include="../Shared/PublishedEnrolWords.cs" Link="Shared/PublishedEnrolWords.cs" />
     <Compile Include="../Shared/PublishedConfirmWords.cs" Link="Shared/PublishedConfirmWords.cs" />
     <Compile Include="../Shared/PublishedResendWords.cs" Link="Shared/PublishedResendWords.cs" />
     <Compile Include="../Shared/KeptActFiles.cs" Link="Shared/KeptActFiles.cs" />

@@ -47,6 +47,15 @@
       "count": 16
     },
     {
+      "name": "enroll-proof",
+      "family": true,
+      "shape": "enroll-proof",
+      "profiles": [
+        "enroll-proof"
+      ],
+      "count": 56
+    },
+    {
       "name": "envelope",
       "family": true,
       "shape": "envelope",

@@ -1,0 +1,6 @@
+{
+  "profile": "enroll-proof",
+  "requirement": "R4.46",
+  "step": "5",
+  "note": "Two claims no step names (code, extra) are in the payload; they are ignored (R4.46: the enrollment code is not built, so a claim named code is read by nothing). expected.json is written from this construction and the R4.46 step it targets, never by running a validator. A proposal: it may be regenerated until beta."
+}

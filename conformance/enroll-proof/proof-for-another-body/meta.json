@@ -1,0 +1,6 @@
+{
+  "profile": "enroll-proof",
+  "requirement": "R4.46",
+  "step": "4",
+  "note": "A proof made by key A for key A's identity and thumbprint, sent with key B as the request's public_key: the signature does not verify under the request's key, and is decided before its claims are read. expected.json is written from this construction and the R4.46 step it targets, never by running a validator. A proposal: it may be regenerated until beta."
+}

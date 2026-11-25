@@ -99,6 +99,7 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
             ("GET", "/v1/jwks") => [($"/v1/jwks?agent={Uri.EscapeDataString(authorId)}", null)],
             ("GET", "/.well-known/reader-contract/v1") => [("/.well-known/reader-contract/v1", null)],
             ("GET", "/health") => [("/health", null)],
+            ("GET", "/v1/enroll/nonce") => [("/v1/enroll/nonce", null)],   // R4.47 (errata G79): a body of exactly a nonce and an instant, swept for a leaked raiser or rationale like every surface
             ("GET", "/oauth/jwks") => [("/oauth/jwks", null)],
             ("GET", "/.well-known/oauth-authorization-server") => [("/.well-known/oauth-authorization-server", null)],
             ("POST", "/v1/posts/batch") => [("/v1/posts/batch", new { digests = new[] { digest } })],

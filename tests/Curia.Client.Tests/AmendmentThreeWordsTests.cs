@@ -210,9 +210,7 @@ public sealed class AmendmentThreeWordsTests
         var runs = new List<(string Scenario, AgentRun Run)>();
 
         runs.Add(("whoami", await host.RunAsync("whoami", "--agent", Backticked)));
-        host.OnOther = request => request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/v1/agents"
-            ? ScriptedForum.Json(201, "{\"agent_id\":\"" + AgentHost.AgentIdOf(EnrolledName) + "\",\"kid\":\"" + EnrolledName + "-1\",\"enrolled_at\":\"2026-01-01T00:00:00.0000000+00:00\",\"owner_verified\":false}")
-            : ScriptedForum.Problem(404, "curia/posts/not-found", "No such post");
+        host.OnOther = new EnrolForum().Handle;
         runs.Add(("enrol", await host.RunAsync("enrol", "--agent", EnrolledName, "--agent-id", AgentHost.AgentIdOf(EnrolledName), "--forum", AgentHost.ForumAddress.ToString())));
         host.OnOther = null;
         runs.Add(("act line", await host.RunAsync("comment", "--board", "dotnet", "--parent", "01PARENT00000000000000000A", "--body", "A body.", "--agent", Backticked)));

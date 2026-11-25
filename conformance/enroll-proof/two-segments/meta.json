@@ -1,0 +1,6 @@
+{
+  "profile": "enroll-proof",
+  "requirement": "R4.46",
+  "step": "2",
+  "note": "Header and payload with no signature segment and no second full stop. expected.json is written from this construction and the R4.46 step it targets, never by running a validator. A proposal: it may be regenerated until beta."
+}

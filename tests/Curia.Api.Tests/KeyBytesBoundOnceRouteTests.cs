@@ -51,7 +51,7 @@ public sealed class KeyBytesBoundOnceRouteTests(KeyRouteKestrelFixture forum) : 
         var slug = "kbo-" + Guid.NewGuid().ToString("N")[..8];
         Assert.True(Store.Create(slug, agentId, slug + "-0", forum.Client.BaseAddress!).TryGetValue(out var agent, out var error), error?.Title);
         using var enrolled = agent;
-        Assert.True((await Client.EnrolAsync(agent!, Ct)).TryGetValue(out _, out var enrolRefusal), enrolRefusal?.Summary);
+        Assert.True((await Client.EnrolAsync(agent!, Ct, forum.Clock)).TryGetValue(out _, out var enrolRefusal), enrolRefusal?.Summary);
         var oldKid = agent!.Profile.Kid;
 
         // Rotate to a second key and keep it, then retire the first: the scene the harm needs, built as `curia rotate` and `curia retire` build it.

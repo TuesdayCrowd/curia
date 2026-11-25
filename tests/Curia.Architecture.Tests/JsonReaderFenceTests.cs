@@ -222,6 +222,8 @@ public sealed class JsonReaderFenceTests
             "reads after CompactJws's guarded parse"),
         ("Curia.AuthN.Dpop.DpopProofClaims", "Parse", "System.Text.Json.JsonElement::GetString",
             "reads after CompactJws's guarded parse"),
+        ("Curia.AuthN.EnrollmentProofValidator", "ReadClaims", "System.Text.Json.JsonElement::GetString",
+            "reads after CompactJws's guarded parse"),
         ("Curia.Api.ActaEndpoints", "PublicKeyOf", "System.Text.Json.JsonDocument::Parse",
             "parses the Forum's own log bytes: a log key's JWK, canonicalized from the Acta's own key set"),
         ("Curia.Infrastructure.Embedder.EmbeddingManifest", "Parse", "System.Text.Json.JsonDocument::Parse",

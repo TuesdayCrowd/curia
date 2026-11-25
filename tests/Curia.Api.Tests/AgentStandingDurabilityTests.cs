@@ -250,6 +250,7 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
             kid = agent.Kid,
             alg = "ES256",
             public_key = agent.PublicKeyBase64,
+            proof = await agent.ProofAsync(http, forum.Now, ct),
             owner_verified = true,
         }, ct);
 

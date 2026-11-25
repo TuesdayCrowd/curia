@@ -110,6 +110,7 @@ public sealed class ConformanceIndexTests
     /// against the index), and <c>lifecycle/</c> by <c>Curia.Client.Tests</c>' <c>LifecycleConformanceTests</c>, which needs
     /// the client's reader (whose count <c>R6_45_ThisRunnerLoadsEveryLifecycleCaseTheIndexDeclares</c> checks against
     /// the index), and <c>honoured/</c> (errata G68) by <see cref="HonouredFamilyTests"/> for its shape and count and by the Forum's lifecycle verifier's
+    /// tests for its verdicts, and <c>enroll-proof/</c> (errata G79) by <see cref="EnrollProofFamilyTests"/> for its shape and count and by the Forum's enrollment-proof validator's
     /// tests for its verdicts, none through <c>VectorLoader.Load</c>.
     /// </summary>
     [Fact]
@@ -144,7 +145,7 @@ public sealed class ConformanceIndexTests
 
     /// <summary>
     /// Vector names within a family, by the shape the index declares: one subdirectory per
-    /// vector for <c>directory</c>, <c>envelope</c>, <c>merkle</c>, <c>display</c>, <c>lifecycle</c>, <c>honoured</c> and <c>operator-acts</c>, one <c>input-*.json</c>
+    /// vector for <c>directory</c>, <c>envelope</c>, <c>merkle</c>, <c>display</c>, <c>lifecycle</c>, <c>honoured</c>, <c>operator-acts</c> and <c>enroll-proof</c>, one <c>input-*.json</c>
     /// per vector for <c>file-pairs</c>. An unrecognized shape fails rather than silently
     /// counting nothing.
     /// </summary>
@@ -153,7 +154,7 @@ public sealed class ConformanceIndexTests
         var dir = Path.Combine(VectorLoader.ConformanceRoot, entry.Name);
         return entry.Shape switch
         {
-            "directory" or "envelope" or "merkle" or "display" or "lifecycle" or "honoured" or "operator-acts" => [.. Directory.EnumerateDirectories(dir)
+            "directory" or "envelope" or "merkle" or "display" or "lifecycle" or "honoured" or "operator-acts" or "enroll-proof" => [.. Directory.EnumerateDirectories(dir)
                 .Select(d => Path.GetFileName(d))
                 .Order(StringComparer.Ordinal)],
             "file-pairs" => [.. Directory.EnumerateFiles(dir, "input-*.json")

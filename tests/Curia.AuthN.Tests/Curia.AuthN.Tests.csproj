@@ -16,6 +16,9 @@
     <PackageReference Include="NSec.Cryptography" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../Shared/EnrollProofKit.cs" Link="Shared/EnrollProofKit.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../src/Curia.AuthN/Curia.AuthN.csproj" />
     <ProjectReference Include="../../src/Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />
   </ItemGroup>

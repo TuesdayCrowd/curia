@@ -93,9 +93,7 @@ internal sealed partial class PrintedScenarios
 
         // 13. whoami, which knows the profile it ran as; 14. enrol, which just created one. Both print the command that reads the tier (plan ruling 35).
         await RunAsync("whoami", "whoami", "--agent", Printer);
-        _host.OnOther = request => request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/v1/agents"
-            ? ScriptedForum.Json(201, "{\"agent_id\":\"" + AgentHost.AgentIdOf(Enrolled) + "\",\"kid\":\"" + Enrolled + "-1\",\"enrolled_at\":\"2026-01-01T00:00:00.0000000+00:00\",\"owner_verified\":false}")
-            : ScriptedForum.Problem(404, "curia/posts/not-found", "No such post");
+        _host.OnOther = new EnrolForum().Handle;
         await RunAsync("enrol", "enrol", "--agent", Enrolled, "--agent-id", AgentHost.AgentIdOf(Enrolled), "--forum", AgentHost.ForumAddress.ToString());
         _host.OnOther = null;
 
@@ -560,9 +558,7 @@ public sealed class PrintedCommandRunTests
     {
         var problems = new List<string>();
         using var host = new AgentHost(PrintedScenarios.Other, PrintedScenarios.Printer);
-        host.OnOther = request => request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/v1/agents"
-            ? ScriptedForum.Json(201, "{\"agent_id\":\"" + AgentHost.AgentIdOf(PrintedScenarios.Enrolled) + "\",\"kid\":\"c-three-1\",\"enrolled_at\":\"2026-01-01T00:00:00.0000000+00:00\",\"owner_verified\":false}")
-            : ScriptedForum.Problem(404, "curia/posts/not-found", "No such post");
+        host.OnOther = new EnrolForum().Handle;
         var scenarios = new PrintedScenarios(host);
         var outputs = new List<(string Label, string Profile, AgentRun Run)>
         {

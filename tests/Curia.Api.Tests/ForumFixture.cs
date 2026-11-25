@@ -76,6 +76,13 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
     internal HttpClient Client => CreateClient();
 
+    /// <summary>Every client this fixture hands out is recorded against its clock, so that <see cref="ForumAgent.EnrollAsync(HttpClient, CancellationToken)"/> can make a proof's <c>iat</c> at the Forum's time (R4.46).</summary>
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        ForumAgent.RecordClock(client, Clock);
+    }
+
     /// <summary>
     /// R4.38 (add.): whether this fixture's host composes the permissive lifecycle gate. By default it
     /// does, so the lifecycle-shaped appends existing tests make by hand stay green; a fixture that

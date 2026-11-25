@@ -1,0 +1,6 @@
+{
+  "profile": "enroll-proof",
+  "requirement": "R4.46",
+  "step": "3",
+  "note": "The request says EdDSA; the proof is a well-formed ES256 proof signed by an ES256 key: refused at the header, before any signature is checked. expected.json is written from this construction and the R4.46 step it targets, never by running a validator. A proposal: it may be regenerated until beta."
+}

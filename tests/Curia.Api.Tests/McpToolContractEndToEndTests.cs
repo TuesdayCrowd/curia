@@ -421,7 +421,7 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
             error?.Detail);
         _owned.Add(agent!);
 
-        var enrolled = await new ForumClient(forum.Client, forum.Client.BaseAddress!).EnrolAsync(agent!, Ct);
+        var enrolled = await new ForumClient(forum.Client, forum.Client.BaseAddress!).EnrolAsync(agent!, Ct, forum.Clock);
         Assert.True(enrolled.TryGetValue(out _, out var refusal), refusal?.Summary);
         return agent!;
     }

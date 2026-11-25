@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
@@ -50,14 +51,68 @@ internal sealed class ForumAgent
 
     private SigningKey SigningKey => new("ES256", Kid, _key.ExportPkcs8PrivateKey());
 
-    internal Task<HttpResponseMessage> EnrollAsync(HttpClient client, CancellationToken ct) =>
-        client.PostAsJsonAsync("/v1/agents", new
+    /// <summary>
+    /// The Forum's clock for each client the fixture handed out (R4.46: a proof's <c>iat</c> is judged by the Forum's clock, which a test moves and which is not the wall clock). Filled by
+    /// <see cref="ForumFixture"/> for every client it creates; <see cref="EnrollAsync(HttpClient, CancellationToken)"/> reads it. A client with no clock recorded is refused, never given the wall clock:
+    /// a fallback would fail forty tests with a proof out of its window and read as forty defects of the Forum.
+    /// </summary>
+    private static readonly ConditionalWeakTable<HttpClient, TimeProvider> ForumClocks = new();
+
+    internal static void RecordClock(HttpClient client, TimeProvider clock) => ForumClocks.AddOrUpdate(client, clock);
+
+    private static DateTimeOffset ClockOf(HttpClient client) =>
+        ForumClocks.TryGetValue(client, out var clock)
+            ? clock.GetUtcNow()
+            : throw new InvalidOperationException(
+                "this HttpClient has no recorded Forum clock: it was not created by a ForumFixture, so a proof's iat cannot be made against the Forum's clock; pass the clock to EnrollAsync(client, now, ct)");
+
+    /// <summary>The enrollment route's absolute URL as a client dialling <paramref name="client"/> reaches it: R4.46's <c>aud</c>.</summary>
+    internal static string EnrollmentAudience(HttpClient client)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        var baseAddress = client.BaseAddress
+            ?? throw new InvalidOperationException("this HttpClient has no BaseAddress, so the enrollment route's audience cannot be built");
+
+        // The Forum builds the URL from the Host a request names (register defect D41), so a client that sends a Host of its own (a Kestrel fixture that signs proofs over http://localhost) is
+        // audienced to that Host and not to the address it dials.
+        return client.DefaultRequestHeaders.Host is { Length: > 0 } host
+            ? $"{baseAddress.Scheme}://{host}/v1/agents"
+            : new Uri(baseAddress, "/v1/agents").ToString();
+    }
+
+    /// <summary>
+    /// Enrolls this agent, with the proof of R4.46 signed by its own key: fetches the Forum's nonce from <c>GET /v1/enroll/nonce</c> and sends the request with a proof made at the clock the fixture
+    /// recorded for <paramref name="client"/>. Throws if none is recorded (see <see cref="ForumClocks"/>).
+    /// </summary>
+    internal Task<HttpResponseMessage> EnrollAsync(HttpClient client, CancellationToken ct) => EnrollAsync(client, ClockOf(client), ct);
+
+    /// <summary>Enrolls with a proof made at <paramref name="now"/>, which must be the Forum's clock (R4.46 allows 30 s): <see cref="AuthenticateAsync"/> passes the instant it signs the token request at.</summary>
+    internal async Task<HttpResponseMessage> EnrollAsync(HttpClient client, DateTimeOffset now, CancellationToken ct) =>
+        await client.PostAsJsonAsync("/v1/agents", new
         {
             agent_id = AgentId,
             kid = Kid,
             alg = "ES256",
             public_key = PublicKeyBase64,
+            proof = await ProofAsync(client, now, ct),
         }, ct);
+
+    /// <summary>The proof of R4.46 for this agent's own request, signed by its registered key, with the nonce the Forum serves now.</summary>
+    internal Task<string> ProofAsync(HttpClient client, DateTimeOffset now, CancellationToken ct) =>
+        ProofForAsync(client, now, AgentId, Kid, Convert.FromBase64String(PublicKeyBase64), ct);
+
+    /// <summary>
+    /// A proof, signed by this agent's key, for an enrollment request that names <paramref name="agentId"/>, <paramref name="kid"/> and <paramref name="publicKey"/> (stored form): the raw-body sites that send an
+    /// identifier a test chose, not the agent's own.
+    /// </summary>
+    internal async Task<string> ProofForAsync(HttpClient client, DateTimeOffset now, string agentId, string kid, byte[] publicKey, CancellationToken ct)
+    {
+        using var response = await client.GetAsync(new Uri("/v1/enroll/nonce", UriKind.Relative), ct);
+        Assert.True(response.IsSuccessStatusCode, $"GET /v1/enroll/nonce answered {(int)response.StatusCode}");
+        var nonce = System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!["nonce"]!.GetValue<string>();
+        return Curia.Tests.Shared.EnrollProofKit.Build(
+            "ES256", agentId, kid, publicKey, EnrollmentAudience(client), now, nonce, Curia.Tests.Shared.EnrollProofKit.NewJti(), Curia.Tests.Shared.EnrollProofKit.SignWith(_key));
+    }
 
     internal byte[] SignQuestion(
         string board, string body, string title, DateTimeOffset createdAt, string[]? tags = null) =>
@@ -206,7 +261,7 @@ internal sealed class ForumAgent
     internal async Task<(DpopClient Client, string Token)> AuthenticateAsync(
         HttpClient http, string tokenEndpoint, DateTimeOffset now, CancellationToken ct)
     {
-        var response = await EnrollAsync(http, ct);
+        var response = await EnrollAsync(http, now, ct);
         Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode);
 
         var client = DpopClient.For(this, AssertionKey);

@@ -1,0 +1,6 @@
+{
+  "profile": "enroll-proof",
+  "requirement": "R4.46",
+  "step": "4",
+  "note": "A proof signed by key B whose protected header carries a jwk member holding B's public key (an unknown header member, ignored by R4.46 step 2); the request submits key A, and every claim is A's. The verifier is chosen by the request's alg and the key by the request's public_key, never by the proof (step 4), so the signature does not verify and the proof is not possessed. expected.json is written from this construction and the R4.46 step it targets, never by running a validator. A proposal: it may be regenerated until beta."
+}

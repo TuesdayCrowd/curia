@@ -1,0 +1,9 @@
+{
+  "profile": "enroll-proof",
+  "requirement": "R4.46",
+  "step": "all",
+  "note": "The RFC 7515 Appendix A.3 key signs the same shape under ES256 (raw R||S, 64 bytes); the signature is pinned. expected.json is written from this construction and the R4.46 step it targets, never by running a validator. A proposal: it may be regenerated until beta.",
+  "jkt": "oKIywvGUpTVTyxMQ3bwIIeQUudfr_CkLMjCE19ECD-U",
+  "jkt-source": "RFC 7515 Appendix A.3 key; the thumbprint was computed independently in Python",
+  "jkt-method": "RFC 7638: SHA-256 over {\"crv\",\"kty\",\"x\"[,\"y\"]} sorted, no whitespace, base64url unpadded; computed in Python (hashlib, base64, json.dumps sort_keys separators (',', ':')), not by this repository's code"
+}

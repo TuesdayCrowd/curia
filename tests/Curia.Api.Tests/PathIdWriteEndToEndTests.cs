@@ -50,7 +50,7 @@ public sealed class PathIdWriteEndToEndTests(KeyRouteKestrelFixture forum) : ICl
         var slug = "p-" + Guid.NewGuid().ToString("N")[..8];
         Assert.True(Store.Create(slug, $"https://agents.example/{slug}", slug + "-0", forum.Client.BaseAddress!).TryGetValue(out var agent, out var error), error?.Title);
         _owned.Add(agent!);
-        var enrolled = await Client.EnrolAsync(agent!, Ct);
+        var enrolled = await Client.EnrolAsync(agent!, Ct, forum.Clock);
         Assert.True(enrolled.TryGetValue(out _, out var refusal), refusal?.Summary);
         return agent!;
     }
