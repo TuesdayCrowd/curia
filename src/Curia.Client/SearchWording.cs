@@ -29,10 +29,33 @@ public static class SearchWording
     /// <summary>R10.99: the beginning of the one line that says the marks tally differently from the counts served.</summary>
     public const string TallyClause = "the marks on this page tally differently from the counts served:";
 
-    /// <summary>R10.99: what a mark means, said once for a page. A <c>words</c> result shares a whole word, a common word included; a meaning-only result shares none and its relation to the topic is not stated.</summary>
+    /// <summary>
+    /// R10.99: what a mark means, said once for a page of a Forum that does not state <c>keyword_ignored</c> (it does not apply R9.72's list). A <c>words</c> result shares a whole word, a common
+    /// word included; a meaning-only result shares none and its relation to the topic is not stated.
+    /// </summary>
     public const string Gloss =
         "A result marked words shares a whole word with the query, a common word such as 'the' or 'of' included, so a page of only words results is what an unrelated query shows. " +
+        MeaningGloss;
+
+    /// <summary>
+    /// R10.102: the gloss of a page that served <c>keyword_ignored</c> (a Forum that applies R9.72's list). A <c>words</c> result shares a whole word other than the common English words the
+    /// keyword channel ignores; a word common on this board can still match, so a page of only words results does not show that the Forum holds the topic.
+    /// </summary>
+    public const string KeywordGloss =
+        "A result marked words shares a whole word with the query other than the common English words the keyword channel ignores; a word that is common on this board can still match, so a page of only words results does not show that the Forum holds the topic. " +
+        MeaningGloss;
+
+    private const string MeaningGloss =
         "A result marked meaning only shares no whole word with the query: the vector channel chose it, and its relation to the topic is not stated.";
+
+    /// <summary>R10.102: the words before the ignored words of the one line that says what the keyword channel ignored.</summary>
+    public const string IgnoredLead = "the keyword channel ignored these common English words of the query:";
+
+    /// <summary>R10.102: the words after them.</summary>
+    public const string IgnoredTail = "(a published list; it matches no post by them)";
+
+    /// <summary>R10.102: the most ignored words a reader prints. The Forum's list holds 111 words, so a longer array is not a list this Forum's R9.72 could have served; the rest is counted and not printed.</summary>
+    public const int IgnoredPrintedMost = 111;
 
     /// <summary>R10.99: what the score is.</summary>
     public const string ScoreSentence =
@@ -98,20 +121,41 @@ public static class SearchWording
     }
 
     /// <summary>
-    /// What a page says once, before its first result (R10.99): the count line, the tally line when it applies, the diversified line, the gloss and the score sentence; a page with no
-    /// result has nothing to mark and says none of it (the readers' own "no results" says it). A reader writes each as one line (the CLI) or one run of text (the MCP block).
+    /// R10.102: the one line that says which common English words the keyword channel ignored, or null when the page served none (an older Forum, an empty array). Each word is a display
+    /// literal (R10.64) and at most <see cref="IgnoredPrintedMost"/> are printed, the rest being counted.
+    /// </summary>
+    public static string? IgnoredLine(SearchPage page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+
+        if (page.KeywordIgnored is not { IsDefaultOrEmpty: false } words) return null;
+
+        var shown = string.Join(", ", words.Take(IgnoredPrintedMost).Select(DisplayLiteral.Of));
+        var more = words.Length > IgnoredPrintedMost
+            ? string.Create(CultureInfo.InvariantCulture, $", and {words.Length - IgnoredPrintedMost} more not printed")
+            : string.Empty;
+        return $"{IgnoredLead} {shown}{more} {IgnoredTail}";
+    }
+
+    /// <summary>
+    /// What a page says once, before its first result (R10.99, R10.102): the ignored-words line when the page served some, the count line, the tally line when it applies, the diversified line,
+    /// the gloss (R10.102's for a page that served <c>keyword_ignored</c>, R10.99's otherwise) and the score sentence. A page with no result has nothing to mark and says none of that (the
+    /// readers' own "no results" says it), except the ignored-words line, the one thing a page after an all-ignored query has to say. A reader writes each as one line (the CLI) or one run of
+    /// text (the MCP block).
     /// </summary>
     public static ImmutableArray<string> PageLines(SearchPage page)
     {
         ArgumentNullException.ThrowIfNull(page);
 
-        if (page.Results.IsDefaultOrEmpty) return [];
-
         var lines = ImmutableArray.CreateBuilder<string>();
+        if (IgnoredLine(page) is { } ignored) lines.Add(ignored);
+
+        if (page.Results.IsDefaultOrEmpty) return lines.ToImmutable();
+
         lines.Add(CountLine(page));
         if (TallyLine(page) is { } tally) lines.Add(tally);
         lines.Add(DiversifiedLine(page));
-        lines.Add(Gloss);
+        lines.Add(page.KeywordIgnored is null ? Gloss : KeywordGloss);
         lines.Add(ScoreSentence);
 
         return lines.ToImmutable();

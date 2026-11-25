@@ -30,7 +30,7 @@ measures what that adapter does and nothing the deployed model does, and the dep
   that flips, and this table with it.
 - **Known collisions:** none.
 
-Per pair (cosine, Jaccard overlap over the search tokenizer's terms, verdict):
+Per pair (cosine, Jaccard overlap over `LexicalSearch.Tokenize`'s terms, verdict):
 
 ```
 literal-identical          literal    duplicate cosine 1.000 overlap 1.000 -> Refuse
@@ -141,13 +141,13 @@ These numbers are this model's (`bge-small-en-v1.5@1`), on this corpus of about 
 
 ## The keyword channel ignores common words (item 342, errata G81)
 
-The rule is `STOPWORD-RULE.md`; the material is `blind-queries.jsonl` (written blind, never edited); the reference is `measured/lexical-stopwords.reference.jsonl` (Python, byte-identical across runs; the C# runner agrees with it on every integer). Nothing was retuned. The block between the markers is what the runner computes; the MRR fall is its exact fraction, unreduced (its reduced value is -747575202119727174209/6914097838342447552800, a gain of about 0.108 in the mean reciprocal rank).
+The rule is `STOPWORD-RULE.md`; the material is `blind-queries.jsonl` (written blind, never edited); the reference is `measured/lexical-stopwords.reference.jsonl` (Python, byte-identical across runs; the C# runner agrees with it on every integer). Nothing was retuned. The block between the markers is what the runner computes; the MRR fall is a decimal to six places, rounded half away from zero (its exact reduced fraction is -747575202119727174209/6914097838342447552800, a gain of about 0.108 in the mean reciprocal rank).
 
 Parameters of the rule, as applied: list_size 111, removal_page_share_most 0.25, removal_share_least 0.80, removal_improvement_least 0.30, keep_window 25, keep_base_least 30, keep_on_topic_least 0.95, keep_mrr_fall_most 0.02, hazard_lost_share_most 0.20. Corpus: 270 posts.
 
 <!-- lexical-stopwords:begin -->
 Removal: 30 of 30 off-topic queries at most a quarter of the corpus with the list, 10 without; ok True.
-Keep, on-topic: real 110 of 120, stopword-only 6, all-ignored 0; base 84, kept 84, MRR fall -3567534720137488048770290499397013602555473240421186599422227572399707576353940335147622495944704000000000000000000000000/32995053911330555541242256856029854121719215365239577496406961666156537360143274026097387031756800000000000000000000000000.
+Keep, on-topic: real 110 of 120, stopword-only 6, all-ignored 0; base 84, kept 84, MRR fall -0.108123 (a decimal to 6 places; negative is a gain).
 Keep, hazard: m 40 of 40, lost 1 (allowed 8), all-ignored 0, with a term of their own 1, stopword-only 1.
 Listings excluded: 0.
 Verdict: Ships.

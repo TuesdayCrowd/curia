@@ -142,7 +142,5 @@ public sealed class KeywordIgnoredToolTests : IDisposable
             $"Expected: curia_search's description says the keyword channel ignores a published list of common English words  Actual: neither \"common English words\" nor \"published list\" in a description of {description.Length} characters");
     }
 
-    /// <summary>KWC13. <c>curia-mcp</c> is 0.12.8 (R11.108), the hand-written twin of the errata's sentence, which moves only when someone means the version to move.</summary>
-    [Fact]
-    public void KWC13_TheVersionIs0128() => Assert.Equal("0.12.8", ToolCatalogue.Version);
+    // KWC13's version half is BudgetToolTests' twin (R11_65_SEB47): VER1 allows one hand-written literal of the current version under tests/, and a second here would be refused.
 }

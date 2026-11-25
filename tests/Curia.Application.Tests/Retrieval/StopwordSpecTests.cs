@@ -25,7 +25,12 @@ public sealed partial class StopwordSpecTests
     private static string Errata => "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
 
     /// <summary>A use deliberately kept as written, by file, with the reason. Task 8 fills it from the sweep; a use not here and not reworded fails <see cref="KWC16_EveryUseOfTheSearchTokenizerIsRewordedOrRecorded"/>.</summary>
-    private static readonly Dictionary<string, string> Kept = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, string> Kept = new(StringComparer.Ordinal)
+    {
+        // D10b's rule was committed before its pairs existed and is cited by its digest and its commit: it is a frozen record of what was derived, and editing it would make the record say what was not
+        // written. Its "search tokenizer" was LexicalSearch.Tokenize when it was written and still is: R8.18 (rev.) says so, and RESULTS.md's per-pair line, which is a measurement and not a rule, was reworded.
+        ["conformance/retrieval/THRESHOLD-RULE.md"] = "a rule committed before its data; its tokenizer is Tokenize, as R8.18 (rev.) states",
+    };
 
     private static string Python(string script)
     {

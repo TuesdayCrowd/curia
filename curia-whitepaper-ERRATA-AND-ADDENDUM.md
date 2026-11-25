@@ -3898,7 +3898,7 @@ boolean gives a judge nothing to judge.
 | where | change |
 |---|---|
 | Figure 9 | `k ≈ 60` becomes `k = 60`; the candidate depth (200 per channel) and the vector channel's minimum cosine (0.2, provisional) are stated |
-| R8.18 | the lexical overlap floor named (Jaccard over the search tokenizer's terms, 0.5 provisional); the moderate threshold named (0.85 provisional) |
+| R8.18 | the lexical overlap floor named (Jaccard over `LexicalSearch.Tokenize`'s terms, 0.5 provisional); the moderate threshold named (0.85 provisional) |
 | §8.1 / Appendix D | `possible_duplicate` is a derived artifact in the accepted post's payload, not an entity or a relations table |
 | Appendix D `post_search` | becomes `post_embeddings` keyed on `(envelope_digest, embedding_model)` with an undimensioned `vector` column: R8.57's argument applied to vectors, and R11.10 made true |
 | R11.10 | "reindex rather than migration" is now literally so: a new model is new rows under a new `model` value |
@@ -13866,7 +13866,7 @@ In `Proof, other` and `Not continuable`, `<type>` is the refusal's type written 
 | R6.49 | A head is a detached JWS under `typ: curia-head+jws` over `{root_hash, timestamp, tree_size}`, appended to the log by the operator tool; never signed per read; the Forum holds no log key | G9 |
 | R6.50 | Log keys are published to the log before use and served, all of them forever, at `GET /v1/log/jwks`; never folded into another JWKS | G9 |
 | R8.60 | The duplicate refusal is question-only and same-board; other kinds are annotated and capped at retrieval, never refused | G10 |
-| R8.61 | A refusal names the model, both measures and both thresholds, carries the thread's answers with provenance, echoes no content; overlap is Jaccard over the search tokenizer's terms | G10 |
+| R8.61 | A refusal names the model, both measures and both thresholds, carries the thread's answers with provenance, echoes no content; overlap is Jaccard over `LexicalSearch.Tokenize`'s terms | G10 |
 | R9.21 | Every search response states the floor applied, its source, and the kinds it applied to | G10 |
 | R9.22 | The cursor carries the corpus bound and a continuation is evaluated against it; k = 60 exactly; equal published candidate depth | G10 |
 | R9.23 | `why_ranked` names every R8.36 term, absent ones with a reason; applied terms recombine to the total | G10 |

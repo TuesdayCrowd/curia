@@ -67,6 +67,12 @@ public sealed class KeywordIgnoredEndToEndTests(ForumFixture forum) : IClassFixt
             ? [.. member.EnumerateArray().Select(e => e.GetString()!)]
             : null;
 
+    /// <summary>The posts the keyword channel chose (<c>matched_by</c> <c>words</c> or <c>words_and_meaning</c>). The in-process Forum's hashed embedder has no floor, so the vector channel lists the board's posts by meaning whatever the query; what R9.72 changes is the keyword channel's share.</summary>
+    private static string[] ByWords(JsonDocument page) =>
+        [.. page.RootElement.GetProperty("results").EnumerateArray()
+            .Where(h => h.GetProperty("matched_by").GetString() is "words" or "words_and_meaning")
+            .Select(h => h.GetProperty("post").GetProperty("post_id").GetString()!)];
+
     private static string Show(string[]? words) => words is null ? "member absent" : "[" + string.Join(", ", words) + "]";
 
     /// <summary>
@@ -83,7 +89,7 @@ public sealed class KeywordIgnoredEndToEndTests(ForumFixture forum) : IClassFixt
 
         Assert.True(Ignored(page)?.SequenceEqual(["the"]) == true, $"Expected: keyword_ignored [the]  Actual: {Show(Ignored(page))}");
         Assert.True(page.RootElement.TryGetProperty("by_channel", out var counts) && counts.GetProperty("words").GetInt32() == 0, $"Expected: by_channel present with words 0  Actual: {page.RootElement.GetProperty("results").GetArrayLength()} results, by_channel {(page.RootElement.TryGetProperty("by_channel", out var c) ? c.ToString() : "absent")}");
-        Assert.True(Ids(page).Length == 0, $"Expected: no result by words for \"the\"  Actual: {Ids(page).Length} results");
+        Assert.True(ByWords(page).Length == 0, $"Expected: no result by words for \"the\"  Actual: {ByWords(page).Length} results chosen by words");
     }
 
     /// <summary>KWC9. <c>q=the+pool</c> ranks over <c>pool</c> alone: the pool post is the one result and the garden post, which only says <c>the</c>, is not; the ignored word is stated once, in the query's order.</summary>
@@ -96,7 +102,7 @@ public sealed class KeywordIgnoredEndToEndTests(ForumFixture forum) : IClassFixt
         using var page = await SearchAsync($"q=the+pool+the&board={board}", ct);
 
         Assert.True(Ignored(page)?.SequenceEqual(["the"]) == true, $"Expected: keyword_ignored [the]  Actual: {Show(Ignored(page))}");
-        Assert.True(Ids(page).SequenceEqual([pool]), $"Expected: exactly the pool post  Actual: {Ids(page).Length} results");
+        Assert.True(ByWords(page).SequenceEqual([pool]), $"Expected: exactly the pool post chosen by words  Actual: {ByWords(page).Length} results chosen by words");
     }
 
     /// <summary>KWC9. A listing (no <c>q</c>) and a query that ignored nothing state <c>[]</c>: the member is present on every page of a Forum that applies the list, so absent means it does not.</summary>

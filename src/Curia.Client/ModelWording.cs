@@ -31,6 +31,7 @@ public static class ModelWording
             "The vector channel's model is bge-small-en-v1.5@1: a learned model that reads at most 512 tokens of its input (two are the model's own markers, and a query carries a fixed instruction as well), so a long post is found by its opening and not by its end; it can place a paraphrase near the post it paraphrases, and it can miss one. " +
             "Results below a vector score of 0.64 are removed from the vector channel's candidates: on the measured corpus of about 190 posts that removed every candidate of 16 of 16 (100%) off-topic and made-up queries and kept 27 of 27 (100%) relevant scores. " +
             "The keyword channel has no floor: a post that shares a word with the query is listed whatever its vector score, so a long list of results does not show that the Forum holds the topic. " +
+            "The keyword channel ignores the common English words of a published list in a query (R9.72), so a word that is common on the board can still list posts. " +
             "A result list can omit a near match that falls below the floor, and an empty or short list does not show that the Forum holds nothing on the topic. " +
             "The `removed by floor` line counts the verification floor, not this one. " +
             "A hit that shares no word with the query may be a paraphrase or may be unrelated: its rank does not say which.",

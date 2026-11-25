@@ -190,6 +190,13 @@ public sealed record SearchCursor(int AfterScore, long AfterSequence)
     }
 }
 
+/// <summary>
+/// What a query text means to the keyword channel (R9.72): <paramref name="Terms"/>, the tokens not on the list, in the query's order and with repeats;
+/// <paramref name="Ignored"/>, the tokens the list removed, once each in the query's order; and <paramref name="HadToken"/>, whether the text had any token at all.
+/// A listing is a text with no token, <b>not</b> a text with no term: a text whose every token was ignored lists no post.
+/// </summary>
+public sealed record QueryTerms(ImmutableArray<string> Terms, ImmutableArray<string> Ignored, bool HadToken);
+
 /// <summary>Why a result ranked where it did. R9.8 requires this breakdown be exposable.</summary>
 public sealed record RankExplanation(int TitleMatches, int BodyMatches, int TagMatches, int Score);
 
@@ -207,7 +214,9 @@ public sealed record SearchHit(SearchablePost Post, int Score, RankExplanation W
 /// an addition rather than a rewrite.</para>
 ///
 /// <para><b>Ranking is deliberately crude and says so.</b> Term frequency weighted by field, with
-/// title and tags worth more than body. No TF-IDF, no stemming, no stop-word list. A more
+/// title and tags worth more than body. No TF-IDF, no stemming. The one list it has is on the
+/// <i>query</i>: R9.72's published list of common English words (<see cref="StopWords"/>) is removed from a
+/// query's terms and never from a post's text (errata G81). A more
 /// sophisticated ranker is easy to add and hard to justify before there is a corpus to measure it
 /// against -- and R8.36's <c>why_ranked</c> obligation is far easier to keep honest when the
 /// explanation is three integers rather than a model's opinion.</para>
@@ -251,7 +260,23 @@ public static class LexicalSearch
         ArgumentNullException.ThrowIfNull(corpus);
         ArgumentNullException.ThrowIfNull(query);
 
-        var terms = Tokenize(query.Text);
+        return Rank(corpus, query, SearchTerms(query.Text));
+    }
+
+    /// <summary>
+    /// The ordering for terms already chosen. <see cref="Rank(IReadOnlyList{SearchablePost}, LexicalQuery)"/> passes <see cref="SearchTerms(string?)"/>' result; a measurement
+    /// that wants the channel without the list passes <c>new QueryTerms(Tokenize(text), [], true)</c>. The switch is <paramref name="terms"/>' <c>HadToken</c> and its terms, never
+    /// <c>terms.Length &gt; 0</c> alone: a text whose every token was ignored has no term and is not a listing (R9.72).
+    /// </summary>
+    public static ImmutableArray<SearchHit> Rank(IReadOnlyList<SearchablePost> corpus, LexicalQuery query, QueryTerms terms)
+    {
+        ArgumentNullException.ThrowIfNull(corpus);
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(terms);
+
+        // A text of only ignored words lists no post: not a listing, and not a fallback to its tokens.
+        if (terms.HadToken && terms.Terms.IsEmpty) return [];
+
         var hits = ImmutableArray.CreateBuilder<SearchHit>();
 
         foreach (var post in corpus)
@@ -261,12 +286,12 @@ public static class LexicalSearch
             // the defect. It is applied below, after the sort.
             if (!Matches(post, query)) continue;
 
-            var why = Explain(post, terms);
+            var why = Explain(post, terms.Terms);
 
             // A query with no text is a filter, not a search: every post surviving the filters is a
             // hit at score zero, in seq order. That is what `list this board` means, and refusing it
             // would make the filter-only case need a second endpoint.
-            if (terms.Length > 0 && why.Score == 0) continue;
+            if (terms.HadToken && why.Score == 0) continue;
 
             hits.Add(new SearchHit(post, why.Score, why));
         }
@@ -349,16 +374,30 @@ public static class LexicalSearch
     }
 
     /// <summary>
-    /// Lower-cases and splits on non-alphanumerics.
+    /// R9.72: the terms the keyword channel uses for a query text and the words it ignored. The terms are <see cref="Tokenize"/>'s tokens that are not on <see cref="StopWords"/>;
+    /// the ignored words are the tokens the list removed, once each, in the query's order. Applied to a query's text only: <see cref="Explain"/> tokenizes a post with
+    /// <see cref="Tokenize"/>, unchanged.
+    /// </summary>
+    public static QueryTerms SearchTerms(string? text)
+    {
+        var tokens = Tokenize(text);
+        var ignored = ImmutableArray.CreateBuilder<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var token in tokens)
+            if (StopWords.Contains(token) && seen.Add(token)) ignored.Add(token);
+
+        return new QueryTerms([.. tokens.Where(t => !StopWords.Contains(t))], ignored.ToImmutable(), !tokens.IsEmpty);
+    }
+
+    /// <summary>
+    /// Lower-cases and splits on non-alphanumerics: maximal runs of letters and digits, lower-cased.
     ///
     /// <para>Invariant lower-casing, not the current culture's: a Turkish operator's dotless i would
     /// otherwise make the same query return different results on different machines, which is the
     /// kind of defect that survives years because nobody runs the tests in Istanbul.</para>
-    /// </summary>
-    /// <summary>
-    /// The one tokenizer: maximal runs of letters and digits, lower-cased. Public because the
-    /// dedupe's lexical-overlap floor (R8.18) is measured over the same terms search matches on --
-    /// a second tokenizer would be a second opinion about what a word is.
+    ///
+    /// <para>Public because the dedupe's lexical-overlap floor (R8.18) is measured over these tokens (errata G81's
+    /// R8.18 (rev.): R9.72's list does not apply to it); a second tokenizer would be a second opinion about what a word is.</para>
     /// </summary>
     public static ImmutableArray<string> Tokenize(string? text)
     {

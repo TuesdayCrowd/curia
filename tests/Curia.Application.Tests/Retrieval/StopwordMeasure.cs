@@ -67,10 +67,9 @@ internal sealed record StopwordMeasures(
 /// The C# artifact of the stopword rule (errata G81, <c>conformance/retrieval/STOPWORD-RULE.md</c>): the rule's corpus in the rule's order, each query run through
 /// <see cref="LexicalSearch.Rank"/> with and without the list, and the rule's numbers. <c>tools/retrieval/lexical-measure.py</c> is the other artifact; they share only the committed files.
 ///
-/// <para><b>Where "with the list" comes from before the stage is built.</b> <c>LexicalSearch.SearchTerms</c> does not exist yet, so <see cref="Run"/> removes the list's words from a query's
-/// tokens here and hands the remaining terms to the unmodified <see cref="LexicalSearch.Rank"/> as text (a term is a token, so it tokenizes to itself). A query with a token and no term
-/// left lists nothing: that is the rule's state (ii), written here because the unmodified <c>Rank</c> would answer it with a listing. Task 5 replaces the two lines that do this with
-/// <c>LexicalSearch.SearchTerms</c> and the product's own switch, and this file then measures the product and not a copy of it.</para>
+/// <para><b>Both columns are the product's.</b> "With the list" is <see cref="LexicalSearch.SearchTerms"/> and <see cref="LexicalSearch.Rank(IReadOnlyList{SearchablePost}, LexicalQuery)"/>
+/// as the Forum runs them, its own switch included (a query of only listed words lists nothing). "Without" is the same <c>Rank</c> handed every token as the terms
+/// (<see cref="QueryTerms"/> with nothing ignored), which is the channel as it was before the stage. The runner holds no copy of either.</para>
 /// </summary>
 internal static partial class StopwordMeasure
 {
@@ -209,26 +208,24 @@ internal static partial class StopwordMeasure
 
     // ----- one query, both ways -----
 
-    private static ImmutableArray<(long Seq, int Score)> Hits(IReadOnlyList<SearchablePost> corpus, string text) =>
-        [.. LexicalSearch.Rank(corpus, new LexicalQuery(Text: text)).Select(h => (h.Post.Sequence, h.Score))];
+    private static ImmutableArray<(long Seq, int Score)> Hits(IReadOnlyList<SearchablePost> corpus, string text, QueryTerms terms) =>
+        [.. LexicalSearch.Rank(corpus, new LexicalQuery(Text: text), terms).Select(h => (h.Post.Sequence, h.Score))];
 
-    internal static ImmutableArray<QueryOutcome> Run(IReadOnlyList<SearchablePost> corpus, IEnumerable<MaterialQuery> queries, IReadOnlyDictionary<string, long> targetSeq, ISet<string> list)
+    internal static ImmutableArray<QueryOutcome> Run(IReadOnlyList<SearchablePost> corpus, IEnumerable<MaterialQuery> queries, IReadOnlyDictionary<string, long> targetSeq)
     {
         var outcomes = ImmutableArray.CreateBuilder<QueryOutcome>();
         foreach (var q in queries)
         {
             var tokens = LexicalSearch.Tokenize(q.Text);
-            var terms = tokens.Where(t => !list.Contains(t)).ToImmutableArray();
-            var ignored = tokens.Where(list.Contains).Distinct(StringComparer.Ordinal).ToImmutableArray();
-            var hadToken = !tokens.IsEmpty;
+            var searchTerms = LexicalSearch.SearchTerms(q.Text);
 
-            // Without the list: the unmodified ranking over every token. A query with no token is a listing and measures nothing.
-            var without = hadToken ? Hits(corpus, q.Text) : [];
+            // Without the list: every token is a term. A query with no token is a listing and measures nothing.
+            var without = searchTerms.HadToken ? Hits(corpus, q.Text, new QueryTerms(tokens, [], true)) : [];
 
-            // With the list: the remaining terms, as text; nothing left (state ii) lists nothing.
-            var with = hadToken && !terms.IsEmpty ? Hits(corpus, string.Join(' ', terms)) : [];
+            // With the list: the product's terms and its own switch (nothing left to match, state ii, lists nothing).
+            var with = searchTerms.HadToken ? Hits(corpus, q.Text, searchTerms) : [];
 
-            outcomes.Add(new QueryOutcome(q, tokens, terms, ignored, hadToken, q.TargetId is { } t ? targetSeq[t] : null, without, with));
+            outcomes.Add(new QueryOutcome(q, tokens, searchTerms.Terms, searchTerms.Ignored, searchTerms.HadToken, q.TargetId is { } t ? targetSeq[t] : null, without, with));
         }
 
         return outcomes.ToImmutable();
@@ -247,6 +244,21 @@ internal static partial class StopwordMeasure
         public int CompareTo(Rational other) => (Num * other.Den).CompareTo(other.Num * Den);
 
         public Rational Over(long n) => new(Num, Den * n);
+
+        /// <summary>
+        /// The value as a decimal with exactly <paramref name="places"/> digits after the point, rounded half away from zero, so the same fraction always prints the same text (an unreduced
+        /// fraction of products of denominators is not readable). A value that rounds to zero keeps its sign out of the text.
+        /// </summary>
+        public string Decimal(int places)
+        {
+            var scale = BigInteger.Pow(10, places);
+            var magnitude = BigInteger.Abs(Num) * scale;
+            var denominator = BigInteger.Abs(Den);
+            var rounded = ((magnitude * 2) + denominator) / (denominator * 2);
+            var negative = (Num.Sign * Den.Sign) < 0 && !rounded.IsZero;
+            var text = rounded.ToString(CultureInfo.InvariantCulture).PadLeft(places + 1, '0');
+            return (negative ? "-" : string.Empty) + text[..^places] + "." + text[^places..];
+        }
 
         public override string ToString() => $"{Num}/{Den}";
     }
@@ -322,16 +334,19 @@ internal static partial class StopwordMeasure
         return new StopwordMeasures(
             listings,
             new RemovalMeasure(off.Count, narrowWith, narrowWithout, removalOk),
-            new KeepOnTopicMeasure(on.Count, real, stopwordOnly, baseCount, kept, on.Count(o => o.AllIgnored), mrrFall.ToString(), baseOk, keptOk, mrrOk),
+            new KeepOnTopicMeasure(on.Count, real, stopwordOnly, baseCount, kept, on.Count(o => o.AllIgnored), mrrFall.Decimal(MrrFallPlaces), baseOk, keptOk, mrrOk),
             new KeepHazardMeasure(haz.Count, m, lost, allowed, lostAllIgnored, lostOwnTerm, lost, hazardOk),
             verdict);
     }
+
+    /// <summary>The MRR fall is printed as a decimal with this many digits after the point (rounded half away from zero); a negative fall is a gain.</summary>
+    internal const int MrrFallPlaces = 6;
 
     /// <summary>The text RESULTS.md carries between the <c>lexical-stopwords</c> markers: numbers with their denominators, and the verdict the rule gives.</summary>
     internal static string Render(StopwordMeasures m) =>
         string.Join('\n',
             $"Removal: {m.Removal.With} of {m.Removal.Queries} off-topic queries at most a quarter of the corpus with the list, {m.Removal.Without} without; ok {m.Removal.Ok}.",
-            $"Keep, on-topic: real {m.KeepOnTopic.Real} of {m.KeepOnTopic.Queries}, stopword-only {m.KeepOnTopic.StopwordOnly}, all-ignored {m.KeepOnTopic.AllIgnored}; base {m.KeepOnTopic.Base}, kept {m.KeepOnTopic.Kept}, MRR fall {m.KeepOnTopic.MrrFall}.",
+            $"Keep, on-topic: real {m.KeepOnTopic.Real} of {m.KeepOnTopic.Queries}, stopword-only {m.KeepOnTopic.StopwordOnly}, all-ignored {m.KeepOnTopic.AllIgnored}; base {m.KeepOnTopic.Base}, kept {m.KeepOnTopic.Kept}, MRR fall {m.KeepOnTopic.MrrFall} (a decimal to {MrrFallPlaces} places; negative is a gain).",
             $"Keep, hazard: m {m.KeepHazard.M} of {m.KeepHazard.Queries}, lost {m.KeepHazard.Lost} (allowed {m.KeepHazard.Allowed}), all-ignored {m.KeepHazard.LostAllIgnored}, with a term of their own {m.KeepHazard.LostWithOwnTerm}, stopword-only {m.KeepHazard.StopwordOnly}.",
             $"Listings excluded: {m.Listings.Length}.",
             $"Verdict: {m.Verdict}.");

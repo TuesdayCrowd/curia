@@ -135,7 +135,7 @@ public sealed partial class StopwordRuleTests
     private static (ImmutableArray<SearchablePost> Corpus, ImmutableArray<QueryOutcome> Outcomes) CSharp()
     {
         var (corpus, queries, targets) = StopwordMeasure.Build(Retrieval, QueriesPath);
-        return (corpus, StopwordMeasure.Run(corpus, queries, targets, List));
+        return (corpus, StopwordMeasure.Run(corpus, queries, targets));
     }
 
     private static string Flat(ImmutableArray<(long Seq, int Score)> hits) => string.Join(',', hits.Select(h => $"{h.Seq}:{h.Score}"));
@@ -247,7 +247,7 @@ public sealed partial class StopwordRuleTests
     private static MaterialQuery Target(string id, string text, string target) => new(id, "target", "terse", text, target);
 
     private static ImmutableArray<QueryOutcome> Outcomes(IEnumerable<MaterialQuery> queries) =>
-        StopwordMeasure.Run(SixPosts(), queries, Enumerable.Range(0, 6).ToDictionary(i => "p" + i.ToString(CultureInfo.InvariantCulture), i => (long)i), List);
+        StopwordMeasure.Run(SixPosts(), queries, Enumerable.Range(0, 6).ToDictionary(i => "p" + i.ToString(CultureInfo.InvariantCulture), i => (long)i));
 
     private static RuleParams Parameters => StopwordMeasure.Params(StopwordMeasure.RuleText).With("keep_window", 2);
 
