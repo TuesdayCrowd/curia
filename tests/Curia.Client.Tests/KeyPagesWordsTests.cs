@@ -421,8 +421,8 @@ public sealed class KeyPagesHelpTests
     }
 
     /// <summary>
-    /// WRD11 (item 330 (e), Amendment 1 ruling 2): <c>curia retire --help</c> says a retirement is permanent for the key's kid: the errata's sentence, which cites the errata's own number (errata G68, R6.64) and is
-    /// said of the kid, not of the key's bytes. Red on the tree: <c>... said  Actual: ... not said</c>.
+    /// WRD11 (item 330 (e), Amendment 1 ruling 2; re-pointed by errata G78, <c>R11.105 (rev.)</c>): <c>curia retire --help</c> says a retirement is permanent for the key itself: the span of <c>R11.106 words</c>, which replaces
+    /// the sentence of <c>R11.105 words</c> that says it of the key's kid. Red on the tree until the code's sentence is the revised one: <c>... said  Actual: ... not said</c>.
     /// </summary>
     [Fact]
     public void WRD11_TheRetireHelpSaysARetirementIsPermanentForTheKid()

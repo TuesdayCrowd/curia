@@ -245,6 +245,10 @@ internal sealed class LifecycleFold
 
         if (_bound.ContainsKey(statement.Kid)) return LifecyclePredicates.StatementMismatch;
 
+        // R4.45: a key's bytes are bound once. Any key bound in the honoured prefix, in any standing, names the same bytes (algorithm and complete public key, never the kid).
+        // A bound key with no material (an off-curve root) names none, so it is skipped.
+        if (_bound.Values.Any(b => b.Material is { } held && KeyEnrollment.SameMaterial(held, newKey!))) return LifecyclePredicates.StatementMismatch;
+
         Honour(index, appended);
         _bound[statement.Kid] = new Bound(index, newKey);
         _rotations.Add((index, statement.AuthorizedBy, statement.Kid));

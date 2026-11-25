@@ -166,8 +166,18 @@ public static class KeyActWords
     /// <summary>R11.99 words, Help, retire: the clause <c>curia retire --help</c> carries, with R11.105's added sentence (errata G77).</summary>
     public const string HelpRetire = "A retirement that was sent and not heard from is kept as not yet known: run curia retire again, no sooner than the time curia keys prints, and it settles that retirement from the Forum's key set before it sends another. Until then this profile still lists the key as live and has not recorded it retired.";
 
-    /// <summary>R11.105 words, Help, retire, permanence: the sentence <c>curia retire --help</c> gains after <see cref="HelpRetire"/> (a statement about the kid, not about key material: non-property (d)).</summary>
-    public const string RetirePermanence = "A retirement is permanent for the key's kid: the Forum never lists it live again and skips a rotation that names a kid it has already bound (errata G68, R6.64). To have a key again, rotate to a new one.";
+    /// <summary>R11.106 words, Help, retire, permanence (rev.): the sentence <c>curia retire --help</c> gains after <see cref="HelpRetire"/>; it replaces R11.105's, which said it of the kid (errata G78).</summary>
+    public const string RetirePermanence = "A retirement is permanent for the key itself, not only its name: the Forum never binds a retired key's public key again under any kid, so to have a key again, make a new one.";
+
+    /// <summary>R11.106 words, Help, rotate, new key: the sentence <c>curia rotate --help</c> gains after <see cref="HelpRotate"/> (errata G78).</summary>
+    public const string RotateNewKey = "A rotation needs a key never bound to this identity under any name.";
+
+    /// <summary>
+    /// R11.106 words, the refusal: the first line <c>curia rotate --signer</c> prints when the key set lists the signer's key. <paramref name="kid"/> and <paramref name="status"/> are the Forum's words, written as display
+    /// literals (R10.65); the rest is the errata's text.
+    /// </summary>
+    public static FrameBuilder KeyAlreadyBound(string kid, string status) =>
+        new FrameBuilder().Line($"error: the signer's key is the key the Forum's key set lists as {kid}, {status}: a rotation needs a key that was never bound to this identity under any name, and the Forum refuses this one under any kid. Nothing was signed or sent; make or obtain a new key.");
 
     /// <summary>R11.105 words, the first line of <c>curia keys</c> and <c>curia_keys</c>.</summary>
     public const string KeysFirstLine = "these lines are the Forum's word: its key set as served; only a signed head, checked by curia verify <post-id> [--forum <url>] (the tool curia_verify takes a post id), anchors a key's binding";

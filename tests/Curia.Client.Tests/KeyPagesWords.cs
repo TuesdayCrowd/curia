@@ -14,6 +14,9 @@ internal static class KeyPagesWords
     private const string Added = "R11.105 words";
     private const string Revised = "R11.99 words (rev.)";
 
+    /// <summary>Errata G78's words paragraph: the refusal of a signer whose key is already bound and the two help sentences (R11.106, R11.105 (rev.)).</summary>
+    private const string KeyBytes = "R11.106 words";
+
     /// <summary>The first line of <c>curia keys</c> and <c>curia_keys</c>.</summary>
     internal static string FirstLine() => Spans(Added, "The first line").Single();
 
@@ -46,8 +49,22 @@ internal static class KeyPagesWords
     /// <summary>The sentence <c>use-key</c> prints after its result while the key set lists a skipped row.</summary>
     internal static string UseKeySkippedSentence() => Spans(Added, "The result of use-key while the key set lists a skipped row").Single();
 
-    /// <summary>The sentence <c>curia retire --help</c> gains.</summary>
-    internal static string RetirePermanence() => Spans(Added, "Help, retire, permanence").Single();
+    /// <summary>
+    /// The sentence <c>curia retire --help</c> says of a retirement's permanence: the span of errata G78's <c>R11.106 words</c> (<c>R11.105 (rev.)</c> replaces G77's, which says it of the key's kid and is read by no probe).
+    /// </summary>
+    internal static string RetirePermanence() => Spans(KeyBytes, "Help, retire, permanence (rev.)").Single();
+
+    /// <summary>The sentence <c>curia rotate --help</c> gains (<c>R11.105 (rev.)</c>): the first span of its section, the prose after it quoting the refusal's placeholders.</summary>
+    internal static string RotateNewKey() => Spans(KeyBytes, "Help, rotate, new key").First();
+
+    /// <summary>
+    /// The refusal of a signer whose key the key set lists (<c>R11.106 words</c>), with <c>&lt;kid&gt;</c> and <c>&lt;status&gt;</c> replaced by the display literals of the Forum's two words, as the errata says it is
+    /// written (R10.65).
+    /// </summary>
+    internal static string KeyAlreadyBoundRefusal(string kid, string status) =>
+        Spans(KeyBytes, "The refusal").Single()
+            .Replace("<kid>", Curia.Canon.Json.DisplayLiteral.Of(kid), StringComparison.Ordinal)
+            .Replace("<status>", Curia.Canon.Json.DisplayLiteral.Of(status), StringComparison.Ordinal);
 
     /// <summary>The first word of a published line (a line begins with the word that names it: <c>refused</c>, <c>dropped</c>).</summary>
     internal static string LineWord(string label)

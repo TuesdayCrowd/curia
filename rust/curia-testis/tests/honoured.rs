@@ -122,8 +122,8 @@ fn r6_64_every_honoured_case_reaches_its_rows_keys_and_bound() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.honoured.len(),
-        54,
-        "conformance/honoured/ holds 54 cases"
+        61,
+        "conformance/honoured/ holds 61 cases"
     );
 
     let mut failures = Vec::new();
@@ -279,12 +279,12 @@ fn head_key_is_no_declaration_key(case: &str, dir: &Path) -> Result<(), String> 
 /// declaration, which sits after the post, so "no row below the post" would let a fold that skipped a genuine declaration
 /// agree (Amendment 8, ruling 95).
 ///
-/// Every vector is classified: 63 compared, 18 whose verdict is about the post or the document and names no row, and the
-/// four of `NOT_A_ROW_OF_THE_STREAM`. The C# runner's partition is the same (57 and 6 compared, 18, 4).
+/// Every vector is classified: 66 compared, 18 whose verdict is about the post or the document and names no row, and the
+/// four of `NOT_A_ROW_OF_THE_STREAM`. The C# runner's partition is the same (60 and 6 compared, 18, 4).
 #[test]
 fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
-    assert_eq!(corpus.lifecycle.len(), 85);
+    assert_eq!(corpus.lifecycle.len(), 88);
 
     for (case, _) in NOT_A_ROW_OF_THE_STREAM {
         assert!(
@@ -296,7 +296,7 @@ fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_p
     let mut not_compared = 0;
     let mut failures = Vec::new();
     for vector in &corpus.lifecycle {
-        // Over all 85, asked or not.
+        // Over all 88, asked or not.
         if let Err(e) = head_key_is_no_declaration_key(&vector.case, &vector.dir) {
             failures.push(e);
         }
@@ -349,8 +349,8 @@ fn r6_64_the_forum_agrees_with_the_reader_vectors_where_the_reader_names_a_row_p
     }
     // An exact number (Amendment 7, ruling 88): twelve vectors could stop being comparable by a change to `predicate::ALL` and a floor of 40 would not notice.
     assert_eq!(
-        checked, 63,
-        "reader vectors compared with the Forum's fold (85, less the NOT_A_ROW_OF_THE_STREAM ones, less those whose verdict names no row and is neither verified nor disputed)"
+        checked, 66,
+        "reader vectors compared with the Forum's fold (88, less the NOT_A_ROW_OF_THE_STREAM ones, less those whose verdict names no row and is neither verified nor disputed)"
     );
     assert_eq!(
         not_compared, 18,

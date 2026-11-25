@@ -74,6 +74,15 @@ internal static partial class LifecycleCases
         var kz = Ed("conformance-ed25519-stranger", Enumerable.Repeat((byte)0x09, 32).ToArray());
         var ky = Ed("conformance-ed25519-other-identity", Enumerable.Repeat((byte)0x0A, 32).ToArray());
 
+        // Errata G78 (R4.45, R6.64 (add.)): keys whose bytes another key already bound, under another kid. A relabelled key signs with the original's seed.
+        var k0Seed = Jwk.Base64UrlDecode(firstJwk.GetProperty("d").GetString()!);
+        var k0Reborn = Ed("conformance-ed25519-reborn", k0Seed);
+        var k1Reborn = Ed("conformance-ed25519-second-relabelled", Enumerable.Repeat((byte)0x02, 32).ToArray());
+        var k1OtherBytes = Ed(k1.Kid, Enumerable.Repeat((byte)0x04, 32).ToArray());
+        var k9 = Ed("conformance-ed25519-ninth", Enumerable.Repeat((byte)0x0B, 32).ToArray());
+        var kEs = P256Key("conformance-es256-x00", skip: 0);
+        var kEsReborn = Relabel(kEs, "conformance-es256-x00-relabelled");
+
         var cases = new List<HCase>
         {
             HEnrolmentPairOnly(k0),
@@ -130,6 +139,13 @@ internal static partial class LifecycleCases
             HEnrolmentNamesAnotherAgent(k0),
             HEnrolmentPayloadNotAnObject(k0),
             HRotationAuthorizationMadeByTheNewKey(k0, k1),
+            HRotationNamesRetiredKeyBytes(k0, k1, k0Reborn),
+            HRotationNamesCompromisedKeyBytes(root, k0, k1, k0Reborn),
+            HRotationNamesCascadedKeyBytes(root, k0, k1, k9, k1Reborn),
+            HRotationNamesActiveKeyBytes(k0, k1, k1Reborn),
+            HRotationNamesAnEs256KeysBytes(root, kEs, kEsReborn),
+            HRotationKidAlreadyBoundUnderOtherBytes(k0, k1, k1OtherBytes),
+            HRotationNamesBytesOnlyASkippedRowStated(k0, k1),
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -713,6 +729,128 @@ internal static partial class LifecycleCases
         return new HCase("malformed-key-entry-does-not-list-the-genuine-keys-kid",
             "A log.declaration-key entry at 2 carrying the declaration key's kid and no jwk (no key, no position), the genuine declaration key under that kid at 3, a log key at 4, and a declaration signed by the genuine key at 5: the entry at 2 is no key and lists nothing, so the genuine key is the earliest listing of its kid and the declaration is honoured (ruling 57, T12). The other reading, in which the malformed entry displaces the genuine key, would skip it as declaration-key-unpublished and hand a credential holder a silencing primitive.",
             log, Agent_(rows: [HRow.Honoured(5, KeyCompromised)], keys: [(k0.Kid, "compromised")], bound: [k0.Kid]));
+    }
+
+    // ---- errata G78 (R4.45, R6.64 (add.)): a key's bytes are bound once -----------------------------
+
+    /// <summary>KBO1: the enrolled key is retired; a live key authorizes a rotation that names the retired key's bytes under a new kid.</summary>
+    private static HCase HRotationNamesRetiredKeyBytes(Key k0, Key k1, Key k0Reborn)
+    {
+        var log = RotatedOnce(k0, k1);
+        AddRetirement(log, new Ret(k0, k0, Prev: 2));
+        AddRotation(log, new Rot(k1, k0Reborn, Prev: 3));
+        return new HCase("rotation-names-retired-key-bytes",
+            "The enrolled key is rotated away from at 2 and retires itself at 3 (both honoured); the second key, live, authorizes a rotation at 4, prev 3, to the retired key's own public key under a new kid, and the new key signs possession: every signature holds and the kid is new, but the key was bound at 1 and a key is bound once (R4.45).",
+            log, Agent_(rows: [HRow.Honoured(2, KeyBound), HRow.Honoured(3, KeyRetired), HRow.Skipped(4, KeyBound, "statement-mismatch")],
+                keys: [(k0.Kid, "retired"), (k1.Kid, "active")], bound: [k0.Kid, k1.Kid]));
+    }
+
+    /// <summary>KBO2: the declared key's bytes come back; the second key is outside the cascade because its binding is below from_index.</summary>
+    private static HCase HRotationNamesCompromisedKeyBytes(string root, Key k0, Key k1, Key k0Reborn)
+    {
+        var log = EnrolledAndBound(k0);
+        AddRotation(log, new Rot(k0, k1, Prev: 1));
+        PublishDeclarationKey(log, ConformanceLogKeys.Declaration);
+        PublishLogKey(log, ConformanceLogKeys.Log);
+        AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid], FromIndex: 3, Prev: 2), root, "rotation-names-compromised-key-bytes");
+        AddRotation(log, new Rot(k1, k0Reborn, Prev: 5));
+        return new HCase("rotation-names-compromised-key-bytes",
+            "The enrolled key authorizes the second at 2; the declaration key is published at 3 and a log key at 4; a declaration of the enrolled key alone from index 3 at 5 is honoured (the rotation at 2 is below from_index, so the second key is outside the cascade and stays active); the second key then authorizes a rotation at 6, prev 5, to the declared key's public key under a new kid: a declaration ends a key, not a name (R4.45).",
+            log, Agent_(rows: [HRow.Honoured(2, KeyBound), HRow.Honoured(5, KeyCompromised), HRow.Skipped(6, KeyBound, "statement-mismatch")],
+                keys: [(k0.Kid, "compromised"), (k1.Kid, "active")], bound: [k0.Kid, k1.Kid]));
+    }
+
+    /// <summary>KBO3: a key compromised by cascade alone, never named by the operator, is also bound once.</summary>
+    private static HCase HRotationNamesCascadedKeyBytes(string root, Key k0, Key k1, Key k9, Key k1Reborn)
+    {
+        var log = EnrolledAndBound(k0);
+        AddRotation(log, new Rot(k0, k9, Prev: 1));
+        AddRotation(log, new Rot(k0, k1, Prev: 2));
+        PublishDeclarationKey(log, ConformanceLogKeys.Declaration);
+        PublishLogKey(log, ConformanceLogKeys.Log);
+        AddHonouredDeclaration(log, new HonouredDeclaration(ConformanceLogKeys.Declaration, [k0.Kid, k1.Kid], FromIndex: 3, Prev: 3), root, "rotation-names-cascaded-key-bytes");
+        AddRotation(log, new Rot(k9, k1Reborn, Prev: 6));
+        return new HCase("rotation-names-cascaded-key-bytes",
+            "The enrolled key authorizes a ninth key at 2 (below from_index) and the second key at 3 (at from_index); the declaration key is published at 4 and a log key at 5; a declaration at 6 from index 3 names the enrolled key and the cascade, the second key, and the ninth key stays active; the ninth key then authorizes a rotation at 7, prev 6, to the second key's public key under a new kid: a key compromised only by the cascade is a key the identity bound, and it is bound once (R4.45).",
+            log, Agent_(rows: [HRow.Honoured(2, KeyBound), HRow.Honoured(3, KeyBound), HRow.Honoured(6, KeyCompromised), HRow.Skipped(7, KeyBound, "statement-mismatch")],
+                keys: [(k0.Kid, "compromised"), (k9.Kid, "active"), (k1.Kid, "compromised")], bound: [k0.Kid, k9.Kid, k1.Kid]));
+    }
+
+    /// <summary>KBO4: a live key's bytes bound again under a new kid, the rotation-bound key's own pair of bytes (not only the enrolment's).</summary>
+    private static HCase HRotationNamesActiveKeyBytes(Key k0, Key k1, Key k1Reborn)
+    {
+        var log = RotatedOnce(k0, k1);
+        AddRotation(log, new Rot(k0, k1Reborn, Prev: 2));
+        return new HCase("rotation-names-active-key-bytes",
+            "The enrolled key authorizes the second at 2 (honoured); it authorizes a second rotation at 3, prev 2, to the second key's public key under a new kid, and the new key signs possession: a live duplicate of a rotation-bound key, skipped (R4.45).",
+            log, Agent_(rows: [HRow.Honoured(2, KeyBound), HRow.Skipped(3, KeyBound, "statement-mismatch")],
+                keys: [(k0.Kid, "active"), (k1.Kid, "active")], bound: [k0.Kid, k1.Kid]));
+    }
+
+    /// <summary>
+    /// KBO5: the representation control. The enrolment's pair holds an ES256 key's material as the closed form states it and a rotation as its statement does, two
+    /// constructions of one key. ES256 signing is randomized, so the two signatures are pinned on first generation and kept (as the declarations' are).
+    /// </summary>
+    private static HCase HRotationNamesAnEs256KeysBytes(string root, Key kEs, Key kEsReborn)
+    {
+        var log = EnrolledAndBound(kEs);
+        var rotation = PinnedRotation(new Rot(kEs, kEsReborn, Prev: 1), root, "rotation-names-an-es256-keys-bytes");
+        AddRotation(log, rotation);
+        return new HCase("rotation-names-an-es256-keys-bytes",
+            "The enrolled key is a P-256 key (x begins with 0x00); it authorizes a rotation at 2, prev 1, to its own public key under a new kid, signed by the same private key. The pair states the key as a closed JWK and the rotation as a statement: one key, two constructions, and the second is skipped (R4.45). The two ES256 signatures are randomized and were generated once; they are kept.",
+            log, Agent_(rows: [HRow.Skipped(2, KeyBound, "statement-mismatch")], keys: [(kEs.Kid, "active")], bound: [kEs.Kid]));
+    }
+
+    /// <summary>KBO6: a kid reused for new bytes. The kid rule alone skips it (the bytes are new), so it holds the kid rule once KBO1 to KBO5 share its predicate.</summary>
+    private static HCase HRotationKidAlreadyBoundUnderOtherBytes(Key k0, Key k1, Key k1OtherBytes)
+    {
+        var log = RotatedOnce(k0, k1);
+        AddRotation(log, new Rot(k0, k1OtherBytes, Prev: 2));
+        return new HCase("rotation-kid-already-bound-under-other-bytes",
+            "A second rotation at 3, authorized by the enrolled key, prev 2, that names the second key's kid again with a different public key: every check holds but that the kid is already bound; the bytes are new, so only the kid rule skips it.",
+            log, Agent_(rows: [HRow.Honoured(2, KeyBound), HRow.Skipped(3, KeyBound, "statement-mismatch")],
+                keys: [(k0.Kid, "active"), (k1.Kid, "active")], bound: [k0.Kid, k1.Kid]));
+    }
+
+    /// <summary>KBO7: the control against the over-broad reading. Bytes stated only by a row the procedure skipped are not bound, so a genuine rotation to them is honoured.</summary>
+    private static HCase HRotationNamesBytesOnlyASkippedRowStated(Key k0, Key k1)
+    {
+        var log = EnrolledAndBound(k0);
+        AddRotation(log, new Rot(k0, k1, Prev: 1) { PossessionText = Garbage });
+        AddRotation(log, new Rot(k0, k1, Prev: 1));
+        return new HCase("rotation-names-bytes-only-a-skipped-row-stated",
+            "A rotation at 2 to the second key whose possession is the string FORGED-NO-VALID-SIGNATURE (skipped, binds nothing); a genuine rotation at 3, prev 1, to the same kid and the same bytes: the skipped row bound no key, so the genuine row is honoured (R6.64: a skipped row binds nothing).",
+            log, Agent_(rows: [HRow.Skipped(2, KeyBound, "lifecycle-typ-mismatch"), HRow.Honoured(3, KeyBound)],
+                keys: [(k0.Kid, "active"), (k1.Kid, "active")], bound: [k0.Kid, k1.Kid]));
+    }
+
+    /// <summary>The same key under another kid: its signing key and its JWK with the kid replaced.</summary>
+    private static Key Relabel(Key key, string kid)
+    {
+        var members = ((JsonValue.Object)key.Jwk).Members
+            .Select(m => m.Key == "kid" ? ("kid", Str(kid)) : (m.Key, m.Value))
+            .ToArray();
+        return new Key(kid, key.Alg, key.Signing, Obj(members));
+    }
+
+    /// <summary>
+    /// A rotation whose randomized (ES256) signatures are the ones an earlier run wrote for this statement, when the case directory holds them: the first run pins them and a later run keeps them.
+    /// </summary>
+    private static Rot PinnedRotation(Rot rotation, string root, string caseName)
+    {
+        var text = Encoding.UTF8.GetString(RotationStatement(rotation).Span);
+        var entries = Path.Combine(root, caseName, "entries");
+        if (!Directory.Exists(entries)) return rotation;
+        foreach (var file in Directory.EnumerateFiles(entries, "*.json"))
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(file));
+            var payload = document.RootElement.GetProperty("entry").GetProperty("payload");
+            if (payload.TryGetProperty("statement", out var statement) && statement.ValueKind == JsonValueKind.String && statement.GetString() == text
+                && payload.TryGetProperty("authorization", out var authorization) && payload.TryGetProperty("possession", out var possession))
+                return rotation with { AuthorizationText = authorization.GetString(), PossessionText = possession.GetString() };
+        }
+
+        return rotation;
     }
 
     // ---- construction helpers ----------------------------------------------------------------------

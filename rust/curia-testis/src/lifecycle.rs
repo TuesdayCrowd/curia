@@ -574,6 +574,18 @@ impl Fold {
         if self.bound.contains_key(kid) {
             return Err(mismatch(index, "the kid is already bound"));
         }
+        // R4.45, R6.54: a key's bytes are bound once; the algorithm and complete public key of
+        // any key bound before, in any standing, never the kid.
+        if self
+            .bound
+            .values()
+            .any(|(set, _)| bytes_bound(set, &new_key))
+        {
+            return Err(mismatch(
+                index,
+                "the key is already bound under another kid",
+            ));
+        }
         self.bound.insert(kid.to_string(), (new_key, index));
         self.rotations
             .push((index, authorized_by.to_string(), kid.to_string()));
@@ -882,6 +894,13 @@ fn alg_of(jwk: &Value) -> Option<&'static str> {
         (Some("EC"), Some("P-256")) => Some("ES256"),
         _ => None,
     }
+}
+
+/// R4.45: whether any key of `held` is `new_key`'s algorithm and complete public key; the kid is never compared.
+fn bytes_bound(held: &JwkSet, new_key: &JwkSet) -> bool {
+    held.keys()
+        .iter()
+        .any(|k| new_key.keys().iter().any(|n| n.key == k.key))
 }
 
 /// A key set holding the one JWK, for verifying under it.
@@ -1429,6 +1448,14 @@ impl Prefix<'_> {
             .map_err(|_| unauthorized)?;
 
         if self.keys_bound.contains_key(kid) {
+            return Err(mismatch);
+        }
+        // R4.45: the same rule, the same predicate, over the bound keys of the honoured prefix.
+        if self
+            .keys_bound
+            .values()
+            .any(|(set, _)| bytes_bound(set, &new_key))
+        {
             return Err(mismatch);
         }
         self.bind(kid.to_string(), new_key, index);

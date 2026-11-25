@@ -10,8 +10,8 @@ namespace Curia.Canon.Tests.Vectors;
 /// </summary>
 public sealed class HonouredFamilyTests
 {
-    /// <summary>The number of cases, counted from the plan's table (vector 49 included); the generator's count is the oracle, and this literal is the control.</summary>
-    private const int Cases = 54;
+    /// <summary>The number of cases, counted from the plan's table (vector 61 included, errata G78); the generator's count is the oracle, and this literal is the control.</summary>
+    private const int Cases = 61;
 
     /// <summary>R6.64's predicates, by the names the Forum publishes and no others.</summary>
     private static readonly string[] Predicates =

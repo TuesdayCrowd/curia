@@ -2151,7 +2151,7 @@ internal static class Program
         if (settled is { } settleExit) return settleExit;
         profile = current;
 
-        var (stopped, prev) = await ReadLifecycleAsync(client, profile, after: null, ct).ConfigureAwait(false);
+        var (stopped, prev, keySet) = await ReadLifecycleAsync(client, profile, after: null, ct).ConfigureAwait(false);
         if (stopped is { } exit) return exit;
 
         using var generated = signerCommand is null ? ECDsa.Create(ECCurve.NamedCurves.nistP256) : null;
@@ -2173,6 +2173,13 @@ internal static class Program
                 if (string.Equals(external!.Kid, profile.Kid, StringComparison.Ordinal)
                     || profile.Retained.Any(k => string.Equals(k.Kid, external.Kid, StringComparison.Ordinal)))
                     return Output.Fail($"error: the signer describes {external.Kid}, a key this profile has already used; a rotation needs a key it has not.", ExitCode.Usage);
+
+                // R11.106: the key itself, not its name. A courtesy before anything is signed; the route (R4.45) is the control.
+                if (ListedKeyOf(external, keySet!) is { } listed)
+                {
+                    Output.Error(KeyActWords.KeyAlreadyBound(listed.Kid, listed.Status ?? "NOT STATED"));
+                    return ExitCode.Usage;
+                }
 
                 next = external;
             }
@@ -2206,7 +2213,7 @@ internal static class Program
 
                 if (refusal.Error.Type == LifecycleMoved && attempt == 0)
                 {
-                    (stopped, prev) = await ReadLifecycleAsync(client, FreshProfile(store, profile), after: prev, ct).ConfigureAwait(false);
+                    (stopped, prev, keySet) = await ReadLifecycleAsync(client, FreshProfile(store, profile), after: prev, ct).ConfigureAwait(false);
                     if (stopped is { } retryExit)
                     {
                         DropPending(store, profile, LifecycleAct.Rotation, next.Kid);
@@ -2426,7 +2433,7 @@ internal static class Program
             return ExitCode.Ok;
         }
 
-        var (stopped, prev) = await ReadLifecycleAsync(client, profile, after: null, ct).ConfigureAwait(false);
+        var (stopped, prev, keySet) = await ReadLifecycleAsync(client, profile, after: null, ct).ConfigureAwait(false);
         if (stopped is { } exit) return exit;
 
         if (!store.LoadRetained(profile, kid).TryGetValue(out var retiring, out var loadError))
@@ -2477,7 +2484,7 @@ internal static class Program
 
                 if (refusal.Error.Type == LifecycleMoved && attempt == 0)
                 {
-                    (stopped, prev) = await ReadLifecycleAsync(client, FreshProfile(store, profile), after: prev, ct).ConfigureAwait(false);
+                    (stopped, prev, keySet) = await ReadLifecycleAsync(client, FreshProfile(store, profile), after: prev, ct).ConfigureAwait(false);
                     if (stopped is { } retryExit)
                     {
                         DropPending(store, profile, LifecycleAct.Retirement, kid);
@@ -2566,6 +2573,22 @@ internal static class Program
             : loaded;
 
     /// <summary>
+    /// R11.106: the first key of the identity's key set, in whatever standing the Forum states, whose public key is the one <paramref name="signer"/> describes. Compared on <c>kty</c>, <c>crv</c>, <c>x</c> and <c>y</c>, never the
+    /// <c>kid</c>; a signer whose key cannot be rendered as a public key is compared with nothing, and the Forum's route decides.
+    /// </summary>
+    private static ForumJwk? ListedKeyOf(ExternalSigner signer, KeySetDocument keySet)
+    {
+        if (!PublicJwk.Of(new PublicKeyMaterial(signer.Alg, signer.Kid, signer.PublicKey.ToArray())).TryGetValue(out var jwk, out _)) return null;
+
+        string? Member(string name) => jwk!.Members.FirstOrDefault(m => string.Equals(m.Key, name, StringComparison.Ordinal)).Value is JsonValue.String text ? text.Value : null;
+        var (kty, crv, x, y) = (Member("kty"), Member("crv"), Member("x"), Member("y"));
+
+        return keySet.Keys.FirstOrDefault(k =>
+            string.Equals(k.Kty, kty, StringComparison.Ordinal) && string.Equals(k.Crv, crv, StringComparison.Ordinal)
+            && string.Equals(k.X, x, StringComparison.Ordinal) && string.Equals(k.Y, y, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Reads the identity's key set and decides whether an act may be signed over it (spec sections 4.9 and 4.12): a
     /// foreign entry (one this profile did not make) ends the verb, prints FOREIGN for each and exits 6,
     /// signing nothing; a key set that names no lifecycle ends it too, since an absence is not an empty
@@ -2573,11 +2596,11 @@ internal static class Program
     /// retry's, and only entries after the <c>prev</c> the refused statement signed count: those before it were
     /// compared when the verb began.
     /// </summary>
-    private static async Task<(int? Stopped, long Prev)> ReadLifecycleAsync(
+    private static async Task<(int? Stopped, long Prev, KeySetDocument? KeySet)> ReadLifecycleAsync(
         ForumClient client, AgentProfile profile, long? after, CancellationToken ct)
     {
         var read = await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var keySet, out var refusal)) return (Output.Fail(refusal), 0);
+        if (!read.TryGetValue(out var keySet, out var refusal)) return (Output.Fail(refusal), 0, null);
 
         var foreign = LifecycleWatch.Compare(profile, keySet)
             .Where(f => f.Foreign && (after is null || f.LogIndex > after))
@@ -2585,13 +2608,13 @@ internal static class Program
         if (foreign.Count > 0)
         {
             Output.Error(KeysReport.ForeignLines(foreign));
-            return (ExitCode.Unverified, 0);
+            return (ExitCode.Unverified, 0, null);
         }
 
         if (keySet.Lifecycle is not { IsEmpty: false } lifecycle)
         {
             var absent = ClientErrors.KeySetNamesNoLifecycle();
-            return (Output.Fail($"error: {absent.Title}", ExitCode.ForumFault), 0);
+            return (Output.Fail($"error: {absent.Title}", ExitCode.ForumFault), 0, null);
         }
 
         // A lifecycle with no key naming its binding leaves the foreign scan nothing to compare against: no finding
@@ -2599,10 +2622,10 @@ internal static class Program
         if (!keySet.Keys.Any(k => k.LogIndex is not null))
         {
             var unbound = ClientErrors.KeySetNamesNoBinding();
-            return (Output.Fail($"error: {unbound.Title}", ExitCode.ForumFault), 0);
+            return (Output.Fail($"error: {unbound.Title}", ExitCode.ForumFault), 0, null);
         }
 
-        return (null, lifecycle.Max());
+        return (null, lifecycle.Max(), keySet);
     }
 
     // ---- shared -------------------------------------------------------------------------
