@@ -324,3 +324,41 @@ Task 0's measurements were not re-run; I read the report and `raw/` listing, the
 ### Files written
 
 One file only: `p299-amendment-1.md` in the session's scratchpad directory. No tracked file edited, no version-control command run, no state-changing command run beyond that write.
+
+## As run
+
+Written by Task 8 from the task records in `.superpowers/sdd/2026-11-25-a-second-root-is-skipped/` (`task-0-report.md`, `task-2-report.md`, `task-3-5-report.md`, `task-6-report.md` with 6b, `live/s299-live.txt`, `cold/cold-read-299.md`); the plan and Amendment 1 above are not edited. A field no record holds is written "not run". Commits are `git log --oneline a0d7bdc1..a-second-root-is-skipped` on the branch `a-second-root-is-skipped`, from `main` a0d7bdc1 (#174, the enrolment merge); no commit is unmatched. The task reports number tasks as the plan does, except that Tasks 3 to 5 share one report.
+
+### The tasks, in the order run
+
+| Task | Commit | What it did | Record |
+|---|---|---|---|
+| plan, Amendment 1 | 9b56a3c6 | the plan (provisional G80, R4.48) and Amendment 1, the rulings Task 0 made | this file |
+| 0 | none (no tracked file changed) | operated the unmodified tree on an export, with a throwaway prototype of the closure: S1 to S14 | `task-0-report.md` |
+| 1 | 9fd6c60f | G80 pasted from Amendment 1's corrected block (status specified; not built), index rows, `check-spec.py` and `falsify-spec-checks.py` exit 0 | none |
+| 2 | f28202d5 | five honoured vectors and two reader vectors, one regenerated case, every pin moved (honoured 61 to 66, lifecycle 88 to 90, the corpus 373 to 380 directories and 379 to 386 vectors), SRS8 to SRS19 against the unmodified code, FOAS35 recorded | `task-2-report.md` |
+| 3, 4, 5 | cc61d7c4 | `EnrolmentRow.Predicate`, the fold and the feed (C#), the Rust `honoured`, OAS39 edited, the consumers' probes (no source change) | `task-3-5-report.md` |
+| 6, 6b | 9afd3935 | falsification: 29 rows, 26 killed for their own reason, FSRS11 held as designed, FSPEC2 to FSPEC4 survived and closed by SRS20 | `task-6-report.md` |
+| 7 | none (no tracked file changed) | the live run (LS1 to LS6) and the cold read (CRS-a, CRS-a2) | `live/s299-live.txt`, `cold/cold-read-299.md` |
+| 8 | the commit of this section | errata G80's Status; `CLAUDE.md`'s G80 paragraph; this section; the register patch `impl-plan-299.md`; the PR body | none |
+
+### What the amendment ruled on
+
+No stop rule fired. **Amendment 1** (Task 0): ruling 4's wider scope (the cross-stream row) is supported by S2 and S3; the closure is a feed filter shared with the fold's own function and not a second guard in the standing (ruling 1); a later root is decided by steps 1 and 4 and then skipped `broken-link` (ruling 2); no reader code changes (the readers already fail a second root, and their branch is pinned only by new vectors); OAS39's clause (i) is edited after FOAS35 is seen red (ruling 10); the three test comments that said the route can write a second root are corrected (S9).
+
+### What the run found that reading did not
+
+- **Task 0:** S2b, a cross-stream row naming an identity that has not enrolled, locks the identity out for good after a `201` enrolment, with nothing at the route to show it. The plan had read the cross-stream row as already counted by the fold; it is counted only as the first row of a fresh stream (S3), and a same-stream or enrolled-stream row was silent (S5, S10). The route cannot write a second root (S9, twelve concurrent enrolments, one row). `KeysReport.KnownTypes` does not hold `agent.enrolled`, so `curia keys` quotes the type (S14; read correctly by six of six in the cold read). The lifecycle count is pinned at eight sites and the honoured count at six (S7). `tools/ci/` is not in the base. The `Count != 0` branch of both readers was pinned by nothing (S6).
+- **Task 2:** the standing reads no `agent.enrolled` without a `reason`, so the vectors' rows never reached it; SRS8, SRS9 and SRS11 add the route's `reason` before building the log, and SRS14 keeps a reason-less second root as an inert control. SRS8 as the plan wrote it would not have seen the harm to the named agent; it gained the assertion that no identity holds a standing the vector gives no root, which also turns the existing first-root-names-another vectors red. One pin site the amendment did not list (`HonouredFamilyTests`' list of vectors whose `bound` may be empty) was found by the run.
+- **Tasks 3 to 5:** three Api reds in Task 2's probes were expectation errors (a control's `curia_skipped_total` is served as `0`, not absent; one flag raised twice answers `409 already-raised`), not the closure. `EnrolmentRow.Predicate` is called by the fold's `Apply` for the first root too, so one function decides both. No `honoured.rs` exception was needed.
+- **Task 6:** 26 of 29 rows killed for their own reason; FSRS11 is red at the Application probes and green at every Api probe, as designed (a standing-side guard masks the 500, ruling 1), so those probes hold the feed's rule: **trap 299's evidence**. FSPEC2 to FSPEC4 survived (the prose of R4.48, R6.54 (add.) and R6.64 (rev.) is read by nothing) and 6b closed them with `SecondRootSpecTests` (SRS20). A first draft of that probe failed unpatched, because the helper that finds a paragraph takes the first occurrence anywhere and R6.64 (add.) names R6.54 (add.) in running text; the probe splits on blank lines and reads by paragraph start.
+- **Live run:** LS1 to LS6 pass; no finding. O1: the agent a cross-stream row names is told nothing (its `curia keys` exits 0 with nothing), where the holder of the stream sees the SKIPPED line. O2: the same-stream predicate is `broken-link` and the cross-stream one `statement-mismatch`. O3: the re-announcement answers `201` on both builds, so it is no evidence of the lock-out. On the base the fold already counts the fresh-stream row (LS2c); the other three shapes are silent.
+- **Cold read:** one round, 6 of 6 (CRS-a 3 of 3, CRS-a2 3 of 3); none would rotate, retire or re-enrol, all would report the row; `broken-link`'s two causes did not mislead; the control (the base's `curia budget`) leaves a reader unable to say what is wrong.
+
+### Gates run, with counts
+
+From the task reports (Release, `Curia.sln` 0 warnings, 0 errors at each task; Debug also): Canon 343, Domain 1079, Application 966, Client 2098 (2092 before 6b), AuthN 209, Architecture 151 in Release and in Debug, Mcp 1069 passed and 6 skipped as at the base; the Api `rest` leg 1796 of 1796 after the Task 3 expectation fixes (first run 1792, 4 red: 3 of Task 2's expectations and the `R10_73` load flake, green alone); the Api bursts leg 40 of 40 and the fuzz leg 30 of 30 (Task 3 to 5); `cargo fmt --check`, `clippy --all-targets --locked -D warnings` and `cargo test --locked` clean; the differential gate 0 divergence classes; `check-spec.py` clean and `falsify-spec-checks.py` exit 0 (its four checks red as designed). Unpatched after Task 6b: Application 966, Client 2098, Canon 343, Architecture 151, the Api `SecondRootSkipped*` and OAS39 13 of 13, `cargo test --locked` all suites ok. Not run on the tip: the Infrastructure suite (run once on Task 0's prototype, one load flake, `PostgresAppendGuardTests`, green alone), `python3 tools/ci/api-legs.py check` (`tools/ci/` is not in the base), `python3 tools/preflight/preflight.py` (the PR body's).
+
+### The PR body's items
+
+The PR body (`pr-body-299.md`, outside the tracked files) states: that it touches no `.github/` and no `db/` (`git diff --stat a0d7bdc1..a-second-root-is-skipped -- .github db` is empty); that it touches `conformance/` (seven new cases, one regenerated case's `expected.json` and `meta.json`, the existing cases otherwise unchanged) and `rust/curia-testis` (loose until beta), `tools/GenerateEnvelopeFixtures` (the two generator files) and `src/Curia.Application` only under `src/`; that the approval record is `{"version":1,"approved":[]}` and the guard is not lifted; that a log already holding a second root is read with the honoured root from this build on, with no migration (alpha), and that the head timer can stall on one forged row (non-property (b)); the four states, the falsification by outcome and the reverse row; S1 to S14, LS1 to LS6 and the cold read; and the register items filed (377 to 379, trap 299) with item 299 closed.
