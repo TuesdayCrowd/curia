@@ -32,7 +32,7 @@ public static class EnrolWording
         "nothing was registered, and this profile cannot be enrolled as it is: the Forum refused what the profile names (<type>), and the same command would be refused again. Remove <directory>, then enrol again under a different --agent-id or --kid.";
 
     /// <summary>Printed when <c>curia enrol</c> resumes a profile that was created and records no enrollment.</summary>
-    public const string Continuing = "continuing an enrollment that was not completed, with the keys already in this profile.";
+    public const string Continuing = "continuing an enrollment that was not completed, with the keys already in this profile: an earlier attempt the Forum refused registered nothing, and one whose answer was lost is confirmed, not repeated, by this run.";
 
     private static readonly string[] ProofTypes =
     [
