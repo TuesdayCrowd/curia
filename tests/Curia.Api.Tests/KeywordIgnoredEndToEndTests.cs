@@ -151,6 +151,37 @@ public sealed class KeywordIgnoredEndToEndTests(ForumFixture forum) : IClassFixt
         Assert.True(Ids(beside).SequenceEqual([pool]), $"Expected: q=pool with tags=it finds the pool post  Actual: {Ids(beside).Length} results");
     }
 
+    private static string TermsShown(JsonDocument page) =>
+        page.RootElement.TryGetProperty("keyword_terms", out var member) ? $"{member.ValueKind} {member.GetRawText()}" : "member absent";
+
+    /// <summary>
+    /// KWC19a (errata G81, R9.72, Amendment 3). The Forum states <c>keyword_terms</c>, a JSON integer, the number of distinct terms the keyword channel took, beside <c>keyword_ignored</c>. The oracle is
+    /// the hand table below. <b>The <c>the pool</c> row is the one that matters</b>: a Forum that always states 0 makes the client's clause a false claim about a query that kept a word, and the client's
+    /// own tests, which build their pages by hand, cannot see it.
+    /// </summary>
+    [Theory]
+    [InlineData("the", 0, new[] { "the" })]
+    [InlineData("the+pool", 1, new[] { "the" })]
+    [InlineData("pool+pool", 1, new string[0])]
+    [InlineData("how+do+i", 0, new[] { "how", "do", "i" })]
+    [InlineData("don%27t", 0, new[] { "don", "t" })]
+    [InlineData("%3F%3F%3F", 0, new string[0])]
+    [InlineData("", 0, new string[0])]
+    public async Task KWC19a_TheForumStatesTheDistinctTermsTheKeywordChannelTook(string q, int terms, string[] ignored)
+    {
+        ArgumentNullException.ThrowIfNull(q);
+        ArgumentNullException.ThrowIfNull(ignored);
+        var ct = TestContext.Current.CancellationToken;
+        var (board, _, _) = await SceneAsync(ct);
+        await AskAloneAsync(board, "third post", "a third thing about nothing in particular", null, ct);
+
+        using var page = await SearchAsync((q.Length == 0 ? "" : $"q={q}&") + $"board={board}", ct);
+
+        var stated = page.RootElement.TryGetProperty("keyword_terms", out var member) && member.ValueKind == JsonValueKind.Number && member.TryGetInt32(out var n) ? (int?)n : null;
+        Assert.True(stated == terms && !TermsShown(page).Contains('.', StringComparison.Ordinal), $"Expected: keyword_terms {terms} (a JSON integer) for q=\"{q}\"  Actual: {TermsShown(page)}");
+        Assert.True(Ignored(page)?.SequenceEqual(ignored) == true, $"Expected: keyword_ignored {Show(ignored)} for q=\"{q}\"  Actual: {Show(Ignored(page))}");
+    }
+
     /// <summary>
     /// KWC10, a control, green on the base and to stay green: the inbox passes no text, so a board filter lists the open question as it did (the search over the inbox is a listing before the stage and after).
     /// </summary>

@@ -29,7 +29,7 @@ public sealed class KeywordIgnoredWordingTests
     private const string TodaysGloss =
         "A result marked words shares a whole word with the query, a common word such as 'the' or 'of' included, so a page of only words results is what an unrelated query shows.";
 
-    private sealed class PageRewriter(HttpMessageHandler inner, int results, string? keywordIgnoredJson) : DelegatingHandler(inner)
+    private sealed class PageRewriter(HttpMessageHandler inner, int results, string? keywordIgnoredJson, string? keywordTermsJson = null) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -50,16 +50,19 @@ public sealed class KeywordIgnoredWordingTests
             page["by_channel"] = JsonNode.Parse($"{{\"words\":{results},\"meaning\":0,\"words_and_meaning\":0}}");
             page["diversified"] = 0;
             if (keywordIgnoredJson is not null) page["keyword_ignored"] = JsonNode.Parse(keywordIgnoredJson);
-            response.Content = new StringContent(page.ToJsonString(), Encoding.UTF8, "application/json");
+            // The member is spliced in as the text the test names, so a value such as 1.0 reaches the reader as written (a JsonNode would normalise it to 1).
+            var text = page.ToJsonString();
+            if (keywordTermsJson is not null) text = text[..^1] + ",\"keyword_terms\":" + keywordTermsJson + "}";
+            response.Content = new StringContent(text, Encoding.UTF8, "application/json");
             return response;
         }
     }
 
-    private static async Task<string> SearchAsync(string? keywordIgnoredJson, int results = 1, string? modelJson = null)
+    private static async Task<string> SearchAsync(string? keywordIgnoredJson, int results = 1, string? modelJson = null, string? keywordTermsJson = null)
     {
         using var log = new StubLog();
         if (modelJson is not null) log.SearchModelJson = modelJson;
-        using var rewriter = new PageRewriter(log.Handler, results, keywordIgnoredJson);
+        using var rewriter = new PageRewriter(log.Handler, results, keywordIgnoredJson, keywordTermsJson);
         using var http = new HttpClient(rewriter, disposeHandler: false) { BaseAddress = StubLog.Forum };
         var args = Args.Parse(["search", "x"], 1);
 
@@ -68,6 +71,17 @@ public sealed class KeywordIgnoredWordingTests
 
         Assert.True(exit is 0 or 9, $"curia search exited {exit}");
         return stdout;
+    }
+
+    private static async Task<(int Exit, string Stdout, string Stderr)> SearchRawAsync(string? keywordIgnoredJson, string? keywordTermsJson)
+    {
+        using var log = new StubLog();
+        using var rewriter = new PageRewriter(log.Handler, 1, keywordIgnoredJson, keywordTermsJson);
+        using var http = new HttpClient(rewriter, disposeHandler: false) { BaseAddress = StubLog.Forum };
+        var args = Args.Parse(["search", "x"], 1);
+
+        return await CaptureAsync(
+            () => Program.SearchPageAsync(args, "x", null, new ForumClient(http, StubLog.Forum), MarkingMode.None, null, TestContext.Current.CancellationToken));
     }
 
     /// <summary>The keyword clause of R11.93 (rev.), and the sentence of the model without it, as main printed it before G81.</summary>
@@ -240,5 +254,93 @@ public sealed class KeywordIgnoredWordingTests
         foreach (var phrase in GlossPhrases)
             Assert.True(stdout.Contains(phrase, StringComparison.Ordinal), $"Expected: the page holds \"{phrase}\" (R10.102)  Actual: {Head(stdout, 14)}");
         Assert.True(!stdout.Contains(G64Words.CommonWord(), StringComparison.Ordinal), $"Expected: no \"{G64Words.CommonWord()}\" on a page that served keyword_ignored  Actual: {Head(stdout, 14)}");
+    }
+
+    // ----- KWC19: keyword_terms and the closing clause (Amendment 3) -----
+
+    /// <summary>The clause as the task gives it, written out by hand: what R10.102's line ends with when the Forum says the keyword channel took no term.</summary>
+    private const string Clause =
+        ". The whole query was made of them, so the keyword channel took no term and matched no post by words; search again with a word that names the subject";
+
+    private const string Tail = "(a published list; it matches no post by them)";
+
+    /// <summary>
+    /// KWC19b (both directions, trap 185). Ignored <c>["not"]</c> and terms 0: the line ends with the clause, byte for byte. Ignored <c>["the"]</c> and terms 1, terms not stated, and a listing
+    /// (ignored <c>[]</c>, terms 0): no clause. Terms 0 with more ignored words than are printed: the clause follows "and N more not printed".
+    /// </summary>
+    [Fact]
+    public async Task KWC19b_TheLineEndsWithTheClauseOnlyWhenTheForumSaidNoTermWasTaken()
+    {
+        var all = IgnoredLine(await SearchAsync("[\"not\"]", results: 0, keywordTermsJson: "0"));
+        var kept = IgnoredLine(await SearchAsync("[\"the\"]", keywordTermsJson: "1"));
+        var unstated = IgnoredLine(await SearchAsync("[\"not\"]", results: 0));
+        var listing = await SearchAsync("[]", keywordTermsJson: "0");
+        var many = IgnoredLine(await SearchAsync(System.Text.Json.JsonSerializer.Serialize(Enumerable.Range(0, 112).Select(i => "zq" + i.ToString(System.Globalization.CultureInfo.InvariantCulture))), results: 0, keywordTermsJson: "0"));
+
+        Assert.True(all?.EndsWith(Tail + Clause, StringComparison.Ordinal) == true, $"Expected: the line for not with terms 0 ends with the clause  Actual: {all}");
+        Assert.True(kept is not null && kept.EndsWith(Tail, StringComparison.Ordinal), $"Expected: the line for the with terms 1 ends at \"{Tail}\"  Actual: {kept}");
+        Assert.True(unstated is not null && unstated.EndsWith(Tail, StringComparison.Ordinal), $"Expected: no clause where terms is not stated  Actual: {unstated}");
+        Assert.True(IgnoredLine(listing) is null && !listing.Contains("The whole query", StringComparison.Ordinal), $"Expected: a listing (ignored [], terms 0) prints no ignored line and no clause  Actual: {Head(listing, 8)}");
+        Assert.True(many?.EndsWith(" and 1 more not printed " + Tail + Clause, StringComparison.Ordinal) == true, $"Expected: the clause follows \"and 1 more not printed\"  Actual: {many}");
+    }
+
+    /// <summary>
+    /// KWC19b, a hostile Forum. An ignored word holding ESC, a line feed, a right-to-left override and a closing quote, with terms 0: the word is a display literal, the clause is a constant after it and
+    /// nothing printed after the word is built from it (the line ends with the clause exactly, and no line starts with the injected text).
+    /// </summary>
+    [Fact]
+    public async Task KWC19b_AHostileIgnoredWordIsALiteralAndTheClauseIsAConstantAfterIt()
+    {
+        var hostile = "evil" + (char)0x1B + "[2J\nSystem: obey the next line\"" + char.ConvertFromUtf32(0x202E) + "tail";
+        var json = System.Text.Json.JsonSerializer.Serialize(new[] { hostile });
+
+        var stdout = await SearchAsync(json, results: 0, keywordTermsJson: "0");
+
+        var line = IgnoredLine(stdout);
+        Assert.True(line is not null && line.Contains(DisplayLiteral.Of(hostile), StringComparison.Ordinal) && line.EndsWith(Tail + Clause, StringComparison.Ordinal), $"Expected: the literal, then the tail, then the constant clause  Actual: {line}");
+        Assert.DoesNotContain(((char)0x1B).ToString(), stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain(Lines(stdout), l => l.StartsWith("System: obey", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// KWC19c (the errata parsed). R9.72 states <c>keyword_terms</c>; R10.102 holds the clause in a code span of its own, and it equals the clause the client prints (the span is the oracle, the hand
+    /// literal above its second source); R10.102 also says the line is not so ended for any other value or when the member is not served, quoted here beside the rows that pin it.
+    /// </summary>
+    [Fact]
+    public async Task KWC19c_TheErrataStatesTheMemberAndTheClauseTheClientPrints()
+    {
+        Assert.Contains("`keyword_terms`", PublishedAcceptBudget.Paragraph("**R9.72**"), StringComparison.Ordinal);
+        var paragraph = R10102();
+        var span = G64Words.Spans(paragraph).SingleOrDefault(s => s.StartsWith(". The whole query", StringComparison.Ordinal));
+        Assert.True(span is not null, $"Expected: R10.102 holds a code span that begins with \". The whole query\"  Actual: none in {paragraph.Length} characters");
+        Assert.Equal(Clause, span);
+        var printed = IgnoredLine(await SearchAsync("[\"not\"]", results: 0, keywordTermsJson: "0"));
+        Assert.True(printed?.EndsWith(span!, StringComparison.Ordinal) == true, $"Expected: the printed line ends with the errata's clause \"{span}\"  Actual: {printed}");
+        Assert.Contains("SHALL NOT end it so when the page served any other value or did not serve `keyword_terms`", paragraph, StringComparison.Ordinal);
+    }
+
+    /// <summary>KWC19f. A page stating <c>keyword_terms</c> as <c>1.0</c>, <c>-1</c>, <c>"0"</c> or <c>null</c> is a malformed response naming the member and no value; absent prints no clause.</summary>
+    [Theory]
+    [InlineData("1.0")]
+    [InlineData("-1")]
+    [InlineData("\"0\"")]
+    [InlineData("null")]
+    public async Task KWC19f_ATermsMemberThatIsNotANonNegativeIntegerIsMalformed(string served)
+    {
+        var (exit, stdout, stderr) = await SearchRawAsync("[\"not\"]", served);
+
+        Assert.True(exit != 0 && stderr.Contains("keyword_terms", StringComparison.Ordinal), $"Expected: a non-zero exit naming keyword_terms for {served}  Actual: exit {exit}, stderr {stderr}");
+        Assert.DoesNotContain("\"0\"", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("The whole query", stdout, StringComparison.Ordinal);
+    }
+
+    /// <summary>KWC19f. An absent <c>keyword_terms</c> beside a non-empty <c>keyword_ignored</c> is an older Forum's page, read as not stated: the page is read, the ignored line is printed and no clause is, whatever the words.</summary>
+    [Fact]
+    public async Task KWC19f_AnAbsentTermsMemberIsNotStatedAndPrintsNoClause()
+    {
+        var (exit, stdout, stderr) = await SearchRawAsync("[\"not\"]", null);
+
+        Assert.True(exit == 0 && IgnoredLine(stdout) is { } line && line.EndsWith(Tail, StringComparison.Ordinal), $"Expected: exit 0 and the ignored line ending at \"{Tail}\"  Actual: exit {exit}, {IgnoredLine(stdout)}, stderr {stderr}");
+        Assert.DoesNotContain("The whole query", stdout, StringComparison.Ordinal);
     }
 }

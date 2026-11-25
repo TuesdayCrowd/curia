@@ -57,6 +57,10 @@ public static class SearchWording
     /// <summary>R10.102: the most ignored words a reader prints. The Forum's list holds 111 words, so a longer array is not a list this Forum's R9.72 could have served; the rest is counted and not printed.</summary>
     public const int IgnoredPrintedMost = 111;
 
+    /// <summary>R10.102's closing clause: what the ignored line ends with when the Forum stated that the keyword channel took no term. A constant, never built from a served word.</summary>
+    public const string IgnoredWholeQueryClause =
+        ". The whole query was made of them, so the keyword channel took no term and matched no post by words; search again with a word that names the subject";
+
     /// <summary>R10.99: what the score is.</summary>
     public const string ScoreSentence =
         "The score is the fusion score in millionths that orders the page; it is not a cosine and is not comparable with the vector floor.";
@@ -134,7 +138,8 @@ public static class SearchWording
         var more = words.Length > IgnoredPrintedMost
             ? string.Create(CultureInfo.InvariantCulture, $", and {words.Length - IgnoredPrintedMost} more not printed")
             : string.Empty;
-        return $"{IgnoredLead} {shown}{more} {IgnoredTail}";
+        var closing = page.KeywordTerms == 0 ? IgnoredWholeQueryClause : string.Empty;
+        return $"{IgnoredLead} {shown}{more} {IgnoredTail}{closing}";
     }
 
     /// <summary>

@@ -320,7 +320,9 @@ public sealed class SearchReadsAfterWaitTests(ParkingEmbedderForumFixture forum,
          // G64 (R9.67, R9.68): counts over the served page, so the log's and not the process's.
          "by_channel", "diversified",
          // G81 (R9.72): the query's ignored words, a function of the query's text alone.
-         "keyword_ignored"];
+         "keyword_ignored",
+         // G81 (R9.72, Amendment 3): the distinct terms the keyword channel took, a function of the query's text alone.
+         "keyword_terms"];
 
     private static string Normalised(JsonDocument page)
     {

@@ -55,7 +55,9 @@ public sealed record SearchPage(
     ChannelCounts? ByChannel,
     int Diversified,
     // R9.72: the query's tokens the keyword channel ignored (the published list), in the query's order, once each; empty where nothing was ignored and for a listing.
-    ImmutableArray<string> IgnoredTerms);
+    ImmutableArray<string> IgnoredTerms,
+    // R9.72 (Amendment 3): the distinct terms the keyword channel took from the query; 0 for a listing and for a query of only listed words.
+    int KeywordTerms);
 
 /// <summary>R9.67: how many of the served page's results each channel chose.</summary>
 public sealed record ChannelCounts(int Words, int Meaning, int WordsAndMeaning);
@@ -217,7 +219,8 @@ public sealed class HybridSearch
             clamped,
             byChannel,
             diversifiedCount,
-            searchTerms.Ignored));
+            searchTerms.Ignored,
+            searchTerms.Terms.Distinct(StringComparer.Ordinal).Count()));
     }
 
     /// <summary>

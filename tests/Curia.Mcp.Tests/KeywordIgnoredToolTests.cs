@@ -40,7 +40,7 @@ public sealed class KeywordIgnoredToolTests : IDisposable
         "does not show that the Forum holds the topic",
     ];
 
-    private sealed class PageRewriter(HttpMessageHandler inner, int results, string? keywordIgnoredJson) : DelegatingHandler(inner)
+    private sealed class PageRewriter(HttpMessageHandler inner, int results, string? keywordIgnoredJson, string? keywordTermsJson = null) : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -61,16 +61,19 @@ public sealed class KeywordIgnoredToolTests : IDisposable
             page["by_channel"] = JsonNode.Parse($"{{\"words\":{results},\"meaning\":0,\"words_and_meaning\":0}}");
             page["diversified"] = 0;
             if (keywordIgnoredJson is not null) page["keyword_ignored"] = JsonNode.Parse(keywordIgnoredJson);
-            response.Content = new StringContent(page.ToJsonString(), Encoding.UTF8, "application/json");
+            // The member is spliced in as the text the test names, so a value such as 1.0 reaches the reader as written (a JsonNode would normalise it to 1).
+            var text = page.ToJsonString();
+            if (keywordTermsJson is not null) text = text[..^1] + ",\"keyword_terms\":" + keywordTermsJson + "}";
+            response.Content = new StringContent(text, Encoding.UTF8, "application/json");
             return response;
         }
     }
 
-    private async Task<string> FirstBlockAsync(string? keywordIgnoredJson, int results, string? modelJson = null)
+    private async Task<string> FirstBlockAsync(string? keywordIgnoredJson, int results, string? modelJson = null, string? keywordTermsJson = null)
     {
         using var log = new StubLog();
         if (modelJson is not null) log.SearchModelJson = modelJson;
-        using var rewriter = new PageRewriter(log.Handler, results, keywordIgnoredJson);
+        using var rewriter = new PageRewriter(log.Handler, results, keywordIgnoredJson, keywordTermsJson);
         using var http = new HttpClient(rewriter, disposeHandler: false) { BaseAddress = StubLog.Forum };
         var tools = new ForumTools(new ForumClient(http, StubLog.Forum), MarkingMode.None, new HeadStore(_home));
 
@@ -156,6 +159,25 @@ public sealed class KeywordIgnoredToolTests : IDisposable
         Assert.True(
             description.Contains("common English words", StringComparison.Ordinal) && description.Contains("published list", StringComparison.Ordinal),
             $"Expected: curia_search's description says the keyword channel ignores a published list of common English words  Actual: neither \"common English words\" nor \"published list\" in a description of {description.Length} characters");
+    }
+
+    /// <summary>
+    /// KWC19d. The first block for an all-ignored page (ignored <c>["not"]</c>, terms 0) holds <c>curia</c>'s line with the clause, byte for byte, as the task gives it; for an ordinary page (terms 1)
+    /// the same line without it.
+    /// </summary>
+    [Fact]
+    public async Task KWC19d_TheFirstBlockCarriesTheClauseForAnAllIgnoredPageAndNotOtherwise()
+    {
+        const string Line =
+            "the keyword channel ignored these common English words of the query: \"not\" (a published list; it matches no post by them)";
+        const string Clause =
+            ". The whole query was made of them, so the keyword channel took no term and matched no post by words; search again with a word that names the subject";
+
+        var all = await FirstBlockAsync("[\"not\"]", results: 0, keywordTermsJson: "0");
+        var kept = await FirstBlockAsync("[\"not\"]", results: 1, keywordTermsJson: "1");
+
+        Assert.True(all.Contains(Line + Clause, StringComparison.Ordinal), $"Expected: the line with the clause in the first block  Actual: {Head(all)}");
+        Assert.True(kept.Contains(Line, StringComparison.Ordinal) && !kept.Contains("The whole query", StringComparison.Ordinal), $"Expected: the line and no clause for terms 1  Actual: {Head(kept)}");
     }
 
     // KWC13's version half is BudgetToolTests' twin (R11_65_SEB47): VER1 allows one hand-written literal of the current version under tests/, and a second here would be refused.
