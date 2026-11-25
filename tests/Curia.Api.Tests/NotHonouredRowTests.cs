@@ -259,7 +259,7 @@ public sealed class NotHonouredEndToEndTests(NotHonouredKestrelFixture forum) : 
         var slug = "k-" + Guid.NewGuid().ToString("N")[..8];
         Assert.True(Store.Create(slug, agentId, slug + "-0", forum.Client.BaseAddress!).TryGetValue(out var created, out var createError), createError?.Title);
         using var agent = created;
-        Assert.True((await Client.EnrolAsync(agent!, Ct)).TryGetValue(out _, out var refusal), refusal?.Summary);
+        Assert.True((await Client.EnrolAsync(agent!, Ct, forum.Clock)).TryGetValue(out _, out var refusal), refusal?.Summary);
         var session = new ForumSession(Client, agent!, Store, forum.Clock);
 
         forum.Tamper.Clear();

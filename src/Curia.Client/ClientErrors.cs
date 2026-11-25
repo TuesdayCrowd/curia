@@ -24,6 +24,12 @@ public static class ClientErrors
         "An agent by that name is already enrolled; keys are never overwritten",
         slug);
 
+    /// <summary>The signer would not sign the enrollment proof (R11.107); nothing was sent.</summary>
+    public static Error EnrolSignerRefused(string kid, string detail) => new(
+        "curia/jws/signer-refused",
+        "The signer did not produce a signature",
+        $"kid={kid}: {detail}");
+
     public static Error MalformedProfile(string detail) => new(
         "curia/client/malformed-profile",
         "The stored identity could not be read",

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using Curia.Canon.Json;
 using Curia.Domain.Content;
@@ -54,9 +55,35 @@ public sealed class ForumClient
     /// owner verification behind an operator's attestation, so there is no member a client could
     /// send. The receipt reports it, and a fresh enrolment's answer is always <c>false</c>.
     /// </summary>
-    public Task<ForumResult<EnrollmentReceipt>> EnrolAsync(EnrolledAgent agent, CancellationToken ct)
+    public async Task<ForumResult<EnrollmentReceipt>> EnrolAsync(EnrolledAgent agent, CancellationToken ct, TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(agent);
+
+        // R11.107: fetch the nonce, sign the proof once, send once; on proof-nonce-stale alone, a new nonce, a new proof, one more send.
+        var first = await EnrolOnceAsync(agent, clock ?? TimeProvider.System, ct).ConfigureAwait(false);
+        if (first.TryGetValue(out _, out var refusal) || !IsStale(refusal!)) return first;
+
+        return await EnrolOnceAsync(agent, clock ?? TimeProvider.System, ct).ConfigureAwait(false);
+    }
+
+    private static bool IsStale(Refusal refusal) =>
+        refusal.Status == 400 && string.Equals(refusal.Error.Type, "curia/enroll/proof-nonce-stale", StringComparison.Ordinal);
+
+    private async Task<ForumResult<EnrollmentReceipt>> EnrolOnceAsync(EnrolledAgent agent, TimeProvider clock, CancellationToken ct)
+    {
+        var fetched = await GetAsync("/v1/enroll/nonce", ForumDocuments.ReadEnrollmentNonce, ct).ConfigureAwait(false);
+        if (!fetched.TryGetValue(out var nonce, out var nonceRefusal))
+            return ForumResult<EnrollmentReceipt>.Refused(nonceRefusal! with { NothingSent = true });
+
+        string proof;
+        try
+        {
+            proof = EnrollmentProof.Build(agent, UrlFor("/v1/agents"), nonce!, clock.GetUtcNow());
+        }
+        catch (Exception ex) when (ex is CryptographicException or IOException)
+        {
+            return ForumResult<EnrollmentReceipt>.Refused(Refusal.Local(ClientErrors.EnrolSignerRefused(agent.Profile.Kid, ex.Message)) with { NothingSent = true });
+        }
 
         var body = ClientJson.Render(
         [
@@ -64,9 +91,10 @@ public sealed class ForumClient
             new("alg", agent.Profile.Alg.AsJson()),
             new("kid", agent.Profile.Kid.AsJson()),
             new("public_key", agent.PublicKeyBase64.AsJson()),
+            new("proof", proof.AsJson()),
         ]);
 
-        return SendJsonAsync("/v1/agents", body, ForumDocuments.ReadEnrollment, ct);
+        return await SendJsonAsync("/v1/agents", body, ForumDocuments.ReadEnrollment, ct).ConfigureAwait(false);
     }
 
     public async Task<ForumResult<ProvenancePost>> GetPostAsync(

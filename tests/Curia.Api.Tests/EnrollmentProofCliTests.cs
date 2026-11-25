@@ -35,6 +35,8 @@ public sealed class EnrollmentProofCliTests(KestrelForumFixture forum) : IClassF
     [Fact]
     public async Task R11_107_EPP18_CuriaEnrolSucceedsAndTheLogHoldsTheRowsTheBaseWrites()
     {
+        // The child process signs with this host's clock and the fixture's clock starts months back: move it to now, as R11.107's Proof, window words say a clock apart refuses the proof.
+        forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Clock.GetUtcNow());
         var address = forum.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);
         var before = await EventTypesAsync(Ct);
 

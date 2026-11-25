@@ -79,6 +79,9 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// </summary>
     public ActContext Act { get; init; } = ActContext.Other;
 
+    /// <summary>R11.107: true for a refusal of an enrollment that happened before the enrollment was sent (the nonce route, or the signer), so that nothing was sent to the enrollment route.</summary>
+    public bool NothingSent { get; init; }
+
     /// <summary>The kind of the signed act this refusal refused, as its envelope spells it (<c>revision</c> and <c>vote</c> add words to the act line, R11.80); null for a call that signed nothing. Set by the session.</summary>
     public string? ActKind { get; init; }
 

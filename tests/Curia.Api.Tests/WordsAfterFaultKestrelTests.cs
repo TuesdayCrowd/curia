@@ -51,7 +51,7 @@ public sealed class WordsAfterFaultFixture : FaultableForumFixture, IAsyncLifeti
         using (agent)
         {
             var client = new ForumClient(Client, Client.BaseAddress!);
-            Assert.True((await client.EnrolAsync(agent!, CancellationToken.None)).TryGetValue(out _, out var refusal), refusal?.Summary);
+            Assert.True((await client.EnrolAsync(agent!, CancellationToken.None, Clock)).TryGetValue(out _, out var refusal), refusal?.Summary);
             await AttestOwnerAsync(agent!.Profile.AgentId, CancellationToken.None, owner: "owner:waf-answerer");
 
             var session = new ForumSession(client, agent, store, Clock);

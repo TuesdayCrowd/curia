@@ -432,6 +432,12 @@ public sealed record ContractMarking(string TokenMember, string Escape, string R
 /// <summary>Parsers from the wire shapes above. One place, so a field rename fails in one place.</summary>
 internal static class ForumDocuments
 {
+    /// <summary>R4.47: <c>GET /v1/enroll/nonce</c> answers a body of <c>nonce</c> and <c>expires_at</c>; the nonce is what the proof carries.</summary>
+    internal static Result<string> ReadEnrollmentNonce(JsonValue value) =>
+        value is JsonValue.Object o && ClientJson.String(o, "nonce") is { Length: > 0 } nonce
+            ? Result<string>.Ok(nonce)
+            : Result<string>.Fail(ClientErrors.ResponseMalformed("enrollment nonce"));
+
     internal static Result<EnrollmentReceipt> ReadEnrollment(JsonValue.Object o) =>
         ClientJson.String(o, "agent_id") is { } agentId
         && ClientJson.String(o, "kid") is { } kid

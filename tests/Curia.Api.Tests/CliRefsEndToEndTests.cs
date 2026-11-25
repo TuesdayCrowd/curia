@@ -196,7 +196,7 @@ public sealed partial class CliRefsAnswerEndToEndTests(KestrelForumFixture forum
         Assert.True(store.Create("answerer", "https://agents.example/answerer", "answerer-k", forum.Client.BaseAddress!).TryGetValue(out var agent, out var created), created?.Detail);
         _owned.Add(agent!);
         var client = new ForumClient(forum.Client, forum.Client.BaseAddress!);
-        Assert.True((await client.EnrolAsync(agent!, ct)).TryGetValue(out _, out var refusal), refusal?.Summary);
+        Assert.True((await client.EnrolAsync(agent!, ct, forum.Clock)).TryGetValue(out _, out var refusal), refusal?.Summary);
         await forum.AttestOwnerAsync(agent!.Profile.AgentId, ct, owner: "owner:answerer");
 
         var session = new ForumSession(client, agent, store, forum.Clock);

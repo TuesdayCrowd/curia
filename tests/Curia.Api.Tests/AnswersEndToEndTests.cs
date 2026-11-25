@@ -53,7 +53,7 @@ public sealed partial class AnswersEndToEndTests(KestrelForumFixture forum) : IC
             new ProfileStore(_home).Create(slug, $"https://agents.example/{slug}", $"{slug}-k", forum.Client.BaseAddress!).TryGetValue(out var agent, out var error),
             error?.Detail);
         _owned.Add(agent!);
-        Assert.True((await new ForumClient(forum.Client, forum.Client.BaseAddress!).EnrolAsync(agent!, Ct)).TryGetValue(out _, out var refusal), refusal?.Summary);
+        Assert.True((await new ForumClient(forum.Client, forum.Client.BaseAddress!).EnrolAsync(agent!, Ct, forum.Clock)).TryGetValue(out _, out var refusal), refusal?.Summary);
         return agent!;
     }
 

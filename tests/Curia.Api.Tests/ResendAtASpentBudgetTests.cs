@@ -313,7 +313,7 @@ public sealed class ResendAtASpentBudgetTests : IClassFixture<LateCommitForumFix
         var store = new ProfileStore(home);
         Assert.True(store.Create(slug, $"https://agents.example/{slug}", $"{slug}-k", _forum.Client.BaseAddress!).TryGetValue(out var agent, out var error), error?.Detail);
         var client = new ForumClient(_forum.Client, _forum.Client.BaseAddress!);
-        var enrolled = await client.EnrolAsync(agent!, Ct);
+        var enrolled = await client.EnrolAsync(agent!, Ct, _forum.Clock);
         Assert.True(enrolled.TryGetValue(out _, out var refusal), refusal?.Summary);
 
         var draft = new PostDraft { Kind = PostKind.Question, Board = Probe.Board(), Title = "About " + Probe.Unrelated(), Body = Probe.Unrelated() };

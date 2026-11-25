@@ -139,7 +139,13 @@ internal static class Program
         var store = ProfileStore.Default();
 
         Result<EnrolledAgent> created;
-        if (signerCommand is not null)
+        if (ContinuableProfile(store, slug, agentId, forum, args.Value("kid"), signerCommand))
+        {
+            // R11.107: a profile that was created and records no enrollment is continued with its own keys; nothing is generated or replaced.
+            created = store.Load(slug);
+            if (created.IsOk) Output.Line(EnrolWording.Continuing);
+        }
+        else if (signerCommand is not null)
         {
             if (!ExternalSigner.Describe(signerCommand).TryGetValue(out var signer, out var signerError))
                 return Output.Fail($"error: {signerError!.Title}{Detail(signerError.Detail)}", ExitCode.Local);
@@ -160,7 +166,12 @@ internal static class Program
             var client = new ForumClient(http, forum);
 
             var result = await client.EnrolAsync(agent, ct).ConfigureAwait(false);
-            if (!result.TryGetValue(out var receipt, out var refusal)) return Output.Fail(refusal);
+            if (!result.TryGetValue(out var receipt, out var refusal))
+            {
+                return EnrolWording.For(refusal!, store.DirectoryFor(slug)) is { } words
+                    ? Output.Fail($"error: {new OwnText(words)}", ExitCode.For(refusal!))
+                    : Output.Fail(refusal);
+            }
 
             store.RecordEnrollment(agent.Profile, receipt.EnrolledAt);
 
@@ -186,6 +197,22 @@ internal static class Program
             return ExitCode.Ok;
         }
     }
+
+    /// <summary>
+    /// R11.107: whether <c>curia enrol</c> continues the profile of this name: it exists, records no enrollment, and names the same identifier, Forum, kid (when one is given) and signer
+    /// (both or neither) as the request. Any other profile is refused as before, by <c>Create</c>.
+    /// </summary>
+    private static bool ContinuableProfile(ProfileStore store, string slug, string agentId, Uri forum, string? kid, string? signerCommand) =>
+        store.Exists(slug)
+        && store.ReadProfile(slug).TryGetValue(out var profile, out _)
+        && profile!.EnrolledAt is not { Length: > 0 }
+        && profile.Acts.IsEmpty
+        && profile.Retained.IsEmpty
+        && profile.Pending.IsEmpty
+        && string.Equals(profile.AgentId, agentId, StringComparison.Ordinal)
+        && profile.Forum == forum
+        && (kid is null || string.Equals(profile.Kid, kid, StringComparison.Ordinal))
+        && string.Equals(profile.Signer, signerCommand, StringComparison.Ordinal);
 
     /// <summary>A verb's usage when its first argument asks for help, or null.</summary>
     internal static string? HelpRequested(string[] argv) =>

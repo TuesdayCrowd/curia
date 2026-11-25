@@ -146,7 +146,7 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
             using (agent)
             {
                 var client = new ForumClient(forum.Client, forum.Client.BaseAddress!);
-                var enrolled = await client.EnrolAsync(agent!, ct);
+                var enrolled = await client.EnrolAsync(agent!, ct, forum.Clock);
                 Assert.True(enrolled.TryGetValue(out _, out var enrolRefusal), enrolRefusal?.Summary);
 
                 var session = new ForumSession(client, agent!, store, forum.Clock);

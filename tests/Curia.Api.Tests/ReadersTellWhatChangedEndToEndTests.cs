@@ -69,7 +69,7 @@ public sealed partial class ReadersTellWhatChangedEndToEndTests(KestrelForumFixt
         Assert.True(store.Create("helper-" + suffix, $"https://agents.example/helper-{suffix}", $"helper-{suffix}-k", forum.Client.BaseAddress!).TryGetValue(out var helper, out var created), created?.Detail);
         _owned.Add(helper!);
         var client = new ForumClient(forum.Client, forum.Client.BaseAddress!);
-        Assert.True((await client.EnrolAsync(helper!, Ct)).TryGetValue(out _, out var refusal), refusal?.Summary);
+        Assert.True((await client.EnrolAsync(helper!, Ct, forum.Clock)).TryGetValue(out _, out var refusal), refusal?.Summary);
         await forum.AttestOwnerAsync(helper!.Profile.AgentId, Ct, owner: "owner:" + helper.Profile.Slug);
 
         var tools = new ForumTools(client, MarkingMode.Datamark, new HeadStore(_home), new ForumWriter(helper, new ForumSession(client, helper, store, forum.Clock), forum.Clock));

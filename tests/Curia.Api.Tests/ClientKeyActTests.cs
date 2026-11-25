@@ -40,7 +40,7 @@ public sealed class ClientKeyActTests(KeyRouteKestrelFixture forum) : IClassFixt
     {
         var slug = "k-" + Guid.NewGuid().ToString("N")[..8];
         Assert.True(Store.Create(slug, agentId, slug + "-0", forum.Client.BaseAddress!).TryGetValue(out var agent, out var error), error?.Title);
-        var enrolled = await Client.EnrolAsync(agent!, Ct);
+        var enrolled = await Client.EnrolAsync(agent!, Ct, forum.Clock);
         Assert.True(enrolled.TryGetValue(out _, out var refusal), refusal?.Summary);
         return agent!;
     }
@@ -209,7 +209,7 @@ public sealed class GuardedClientRefusalTests(GuardedForumFixture forum) : IClas
         using (agent)
         {
             var client = new ForumClient(forum.Client, forum.Client.BaseAddress!);
-            Assert.True((await client.EnrolAsync(agent!, Ct)).TryGetValue(out _, out var enrolRefusal), enrolRefusal?.Summary);
+            Assert.True((await client.EnrolAsync(agent!, Ct, forum.Clock)).TryGetValue(out _, out var enrolRefusal), enrolRefusal?.Summary);
             var session = new ForumSession(client, agent!, store, forum.Clock);
             var agentId = agent!.Profile.AgentId;
 
