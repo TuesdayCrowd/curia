@@ -13731,6 +13731,7 @@ The proof is a compact JWS of its own `typ`, signed by the key being enrolled, o
 - `Proof, required`: "this Forum requires a proof of possession from the key being enrolled and this client did not send one; update curia. Nothing was registered."
 - `Nonce, absent`: "this Forum does not offer an enrollment nonce, so it predates proof of possession at enrollment. Nothing was sent."
 - `Continuing`: "continuing an enrollment that was not completed, with the keys already in this profile."
+- `Proof, nonce stale`: "nothing was registered: the Forum's enrollment nonce was not current when the proof arrived, after one retry with a fresh nonce. Run the same command again; it continues this enrollment."
 - `Proof, other`: "the Forum refused the proof (<type>); nothing was registered. This is a defect of this client or of its signer."
 - `Not continuable`: "nothing was registered, and this profile cannot be enrolled as it is: the Forum refused what the profile names (<type>), and the same command would be refused again. Remove <directory>, then enrol again under a different --agent-id or --kid."
 
