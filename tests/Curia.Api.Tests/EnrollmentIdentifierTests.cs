@@ -53,20 +53,21 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
     /// reaches the Forum's binder exactly as written. A null <paramref name="alg"/> leaves the member out.
     /// </summary>
     private static Task<string> EnrollRawAsync(
-        HttpClient client, string agentId, string kid, string? alg, string publicKey, CancellationToken ct) =>
-        EnrollWithKeySourceAsync(client, agentId, kid, alg, Literal(publicKey), ct);
+        HttpClient client, string agentId, string kid, string? alg, string publicKey, CancellationToken ct, string? proof = null) =>
+        EnrollWithKeySourceAsync(client, agentId, kid, alg, Literal(publicKey), ct, proof);
 
     /// <summary>
     /// The same, with <c>public_key</c> given as JSON source text: <c>null</c> sends JSON null, and a
     /// null <paramref name="publicKeySource"/> leaves the member out.
     /// </summary>
     private static async Task<string> EnrollWithKeySourceAsync(
-        HttpClient client, string agentId, string kid, string? alg, string? publicKeySource, CancellationToken ct)
+        HttpClient client, string agentId, string kid, string? alg, string? publicKeySource, CancellationToken ct, string? proof = null)
     {
         var body = "{\"agent_id\":" + Literal(agentId)
             + ",\"kid\":" + Literal(kid)
             + (alg is null ? "" : ",\"alg\":" + Literal(alg))
-            + (publicKeySource is null ? "" : ",\"public_key\":" + publicKeySource) + "}";
+            + (publicKeySource is null ? "" : ",\"public_key\":" + publicKeySource)
+            + (proof is null ? "" : ",\"proof\":" + Literal(proof)) + "}";
         using var content = new StringContent(body, Encoding.UTF8, "application/json");
         using var response = await client.PostAsync(new Uri("/v1/agents", UriKind.Relative), content, ct);
         return await AnswerAsync(response, ct);
@@ -74,6 +75,16 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
 
     /// <summary><paramref name="source"/> as a JSON string literal, spliced verbatim.</summary>
     private static string Literal(string source) => "\"" + source + "\"";
+
+    /// <summary>The string a JSON literal spliced from <paramref name="source"/> decodes to: what the Forum's binder reads, and so what a proof (R4.46) must name.</summary>
+    private static string Decoded(string source) => JsonSerializer.Deserialize<string>(Literal(source))!;
+
+    /// <summary>
+    /// A proof of R4.46 for a request naming these identifiers (given as JSON source text), signed by <paramref name="prover"/>'s key, over the strings the Forum will read. Only a row that is accepted
+    /// carries one: a row refused for its text is refused before any proof is read (R4.46, ruling 5), and stays proofless to say so.
+    /// </summary>
+    private Task<string> ProofAsync(ForumAgent prover, string agentId, string kid, CancellationToken ct) =>
+        prover.ProofForAsync(forum.Client, forum.Now, Decoded(agentId), Decoded(kid), Convert.FromBase64String(prover.PublicKeyBase64), ct);
 
     /// <summary>
     /// The status, then a problem's <c>type</c> and <c>detail</c>; <c>enrolled</c> for a success; or
@@ -229,7 +240,9 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
         var agentId = $"https://agents.example/nfd-{suffix}" + (field == "agent_id" ? DecomposedEscape : "");
         var kid = $"nfd-{suffix}" + (field == "kid" ? DecomposedEscape : "");
 
-        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", ForumAgent.Create(agentId, kid).PublicKeyBase64, ct);
+        var prover = ForumAgent.Create(agentId, kid);
+        var proof = field == "kid" ? await ProofAsync(prover, agentId, kid, ct) : null;
+        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", prover.PublicKeyBase64, ct, proof);
 
         Assert.Equal(expected, $"{answer}; {await WrittenAsync(suffix, ct)}");
     }
@@ -267,7 +280,9 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
         var agentId = $"https://agents.example/layout-{suffix}" + (field == "agent_id" ? escape + "x" : "");
         var kid = $"layout-{suffix}" + (field == "kid" ? escape + "x" : "");
 
-        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", ForumAgent.Create(agentId, kid).PublicKeyBase64, ct);
+        var prover = ForumAgent.Create(agentId, kid);
+        var proof = refused is null ? await ProofAsync(prover, agentId, kid, ct) : null;
+        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", prover.PublicKeyBase64, ct, proof);
 
         Assert.Equal(
             refused is null
@@ -433,7 +448,11 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
         using var key = Key.Create(SignatureAlgorithm.Ed25519);
         var raw = key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
 
-        var answer = await EnrollRawAsync(client, agentId, kid, "EdDSA", Convert.ToBase64String(raw), ct);
+        var nonce = await EnrollProofProbe.NonceAsync(client, ct);
+        var proof = EnrollProofKit.Build(
+            "EdDSA", agentId, kid, raw, ForumAgent.EnrollmentAudience(client), forum.Now, nonce, EnrollProofKit.NewJti(),
+            data => SignatureAlgorithm.Ed25519.Sign(key, data));
+        var answer = await EnrollRawAsync(client, agentId, kid, "EdDSA", Convert.ToBase64String(raw), ct, proof);
 
         using var served = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", UriKind.Relative), ct);
         var body = await served.Content.ReadAsStringAsync(ct);
@@ -500,7 +519,9 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
         var kid = field == "kid" ? Long($"long-{suffix}-") : $"long-{suffix}";
         var bytes = asciiBytes + (2 * multiByteChars);
 
-        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", ForumAgent.Create(agentId, kid).PublicKeyBase64, ct);
+        var prover = ForumAgent.Create(agentId, kid);
+        var proof = expected == "201" ? await ProofAsync(prover, agentId, kid, ct) : null;
+        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", prover.PublicKeyBase64, ct, proof);
 
         Assert.Equal(
             expected == "201"

@@ -54,7 +54,7 @@ public sealed class FaultedStoreSweepTests(FaultableForumFixture forum) : IClass
 
         var table = new List<(Func<SweptReply, bool> Matches, string Reason)>
         {
-            (FaultSweep.ReadsNoStore, "it reads no store (FaultSweep.ReadsNoLog gives each its reason)"),
+            (s => FaultSweep.ReadsNoStore(s) && !(store == "nonce" && s.Route == FaultSweep.NonceRoute), "it reads no store (FaultSweep.ReadsNoLog gives each its reason; the nonce route asks the nonce store, so only the nonce sweep reaches it)"),
             (Acta, "the Acta's own reads are public: no token, no DPoP proof, and the key set they verify under is the log's"),
             (Routes(anonymousReads), "an anonymous read serves from the log: it carries no token and no proof, and reads no Registrar key"),
         };
@@ -62,11 +62,11 @@ public sealed class FaultedStoreSweepTests(FaultableForumFixture forum) : IClass
         switch (store)
         {
             case "nonce":
-                table.Add((Routes(["GET /v1/jwks", .. tokenReads, "POST /oauth/token", "POST /v1/agents"]),
-                    "a DPoP nonce is asked of a write; a read, the token endpoint (it checks the proof, not a nonce) and enrolment (anonymous) are not asked one"));
+                table.Add((Routes(["GET /v1/jwks", .. tokenReads, "POST /oauth/token"]),
+                    "a DPoP nonce is asked of a write; a read and the token endpoint (it checks the proof, not a nonce) are not asked one. Enrolment is asked one (R4.46 step 6), and so is the nonce route (R4.47)"));
                 break;
             case "replay":
-                table.Add((Routes("GET /v1/jwks", "POST /v1/agents"), "the key set is a public read and enrolment is anonymous: neither carries a proof or an assertion to remember"));
+                table.Add((Routes("GET /v1/jwks"), "the key set is a public read: it carries no proof or assertion to remember. Enrolment consumes its proof's jti (R4.46 step 7)"));
                 break;
             default:
                 table.Add((Routes(tokenReads), "a token-bearing read is authorised by the token and the log; it resolves no Registrar key"));

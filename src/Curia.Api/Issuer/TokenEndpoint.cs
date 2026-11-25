@@ -229,6 +229,6 @@ public static class TokenEndpoint
     /// unexpected host, and audience binding exists precisely to stop an assertion minted for one
     /// endpoint being replayed at another.</para>
     /// </summary>
-    private static string TokenEndpointUrl(HttpRequest request) =>
+    internal static string TokenEndpointUrl(HttpRequest request) =>
         $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
 }

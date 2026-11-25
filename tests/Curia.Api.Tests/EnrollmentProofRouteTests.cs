@@ -128,7 +128,7 @@ public sealed class EnrollmentProofRouteTests(ForumFixture forum) : IClassFixtur
 
     /// <summary>
     /// EPP9, a proof over a different body: one valid proof, five requests that each change one member. Each is refused by its own name, none <c>201</c>, none <c>500</c>; and the valid request
-    /// still succeeds after them, because the refusals spent nothing. The <c>alg</c> row is refused by the route's own text check before any proof is read (<c>public-key-not-of-its-algorithm</c>), which is
+    /// still succeeds after them, because the refusals spent nothing. The <c>alg</c> row is refused by the route's own text check before any proof is read (<c>invalid-key</c>), which is
     /// ruling 5 step 1's order, stated here.
     /// </summary>
     [Fact]
@@ -142,7 +142,7 @@ public sealed class EnrollmentProofRouteTests(ForumFixture forum) : IClassFixtur
         AssertRefused(await PostAsync(Client, agent, proof, Ct, agentId: agent.AgentId + "-b"), "proof-mismatch", "claim=agent_id");
         AssertRefused(await PostAsync(Client, agent, proof, Ct, kid: agent.Kid + "-b"), "proof-mismatch", "claim=kid");
         var algRefused = await PostAsync(Client, agent, proof, Ct, alg: "EdDSA");
-        Assert.True(algRefused.Status == HttpStatusCode.BadRequest && algRefused.Type == "curia/enroll/public-key-not-of-its-algorithm", $"alg row: {algRefused.Says}");
+        Assert.True(algRefused.Status == HttpStatusCode.BadRequest && algRefused.Type == "curia/enroll/invalid-key", $"alg row: {algRefused.Says}");
         AssertRefused(await PostAsync(Client, agent, proof, Ct, publicKey: otherKey), "proof-not-possessed");
 
         var elsewhere = Proof(agent, "http://elsewhere.example/v1/agents", await NonceAsync(Client, Ct), forum.Now);

@@ -135,10 +135,8 @@ public static class DpopProofValidator
         ArgumentNullException.ThrowIfNull(proof);
         ArgumentNullException.ThrowIfNull(replay);
 
-        // R5.14: a proof is acceptable until iat + MaxSkew (Validate's skew test is |iat - now| <= MaxSkew), so its jti is held at least that long. The second is because PostgresReplayCache readmits a jti whose expires_at <= now, and at exactly iat + MaxSkew Validate still accepts.
-        var proofExpiry = (proof.Claims.Iat > now ? proof.Claims.Iat : now) + AuthNConstants.MaxSkew + TimeSpan.FromSeconds(1);
         var insertResult = await replay
-            .TryInsertAsync(proof.Claims.Jti, proofExpiry, ct)
+            .TryInsertAsync(proof.Claims.Jti, RetainedUntil(proof.Claims.Iat, now), ct)
             .ConfigureAwait(false);
         if (!insertResult.TryGetValue(out var inserted, out var insertError))
             return Result<Unit>.Fail(insertError!);
@@ -148,6 +146,14 @@ public static class DpopProofValidator
 
         return Result<Unit>.Ok(Unit.Value);
     }
+
+    /// <summary>
+    /// How long a proof's <c>jti</c> is held (R5.14): a proof is acceptable until <c>iat + MaxSkew</c> (the skew test is <c>|iat - now| &lt;= MaxSkew</c>), so its <c>jti</c> is held at least that long,
+    /// from the later of <paramref name="iat"/> and <paramref name="now"/>. The extra second is because <c>PostgresReplayCache</c> readmits a <c>jti</c> whose <c>expires_at &lt;= now</c>, and at exactly
+    /// <c>iat + MaxSkew</c> a check still accepts. Shared with <see cref="EnrollmentProofValidator"/> (R5.14 (add.), errata G79), so the two proofs are retained alike.
+    /// </summary>
+    internal static DateTimeOffset RetainedUntil(DateTimeOffset iat, DateTimeOffset now) =>
+        (iat > now ? iat : now) + AuthNConstants.MaxSkew + TimeSpan.FromSeconds(1);
 
     /// <summary>RFC 9449 §4.2's <c>ath</c>: <c>base64url(sha256(access_token))</c>, where
     /// <paramref name="accessToken"/> is the compact access token string Phase 1 extracted (not

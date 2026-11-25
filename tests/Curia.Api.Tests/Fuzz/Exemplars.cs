@@ -49,6 +49,7 @@ internal static class Exemplars
         Anonymous("GET", ReaderContract.WellKnownPath),
         Anonymous("GET", "/oauth/jwks"),
         Anonymous("GET", "/.well-known/oauth-authorization-server"),
+        Anonymous("GET", "/v1/enroll/nonce"),   // R4.47: reads no query name, so the pass sends none
         Anonymous("GET", "/v1/log/head"),
         Anonymous("GET", "/v1/log/jwks"),
         Anonymous("GET", "/v1/log/proof/{index:long}", (m, c) =>
@@ -126,20 +127,26 @@ internal static class Exemplars
         new("POST", "/oauth/token", "urlencoded", (c, _) => Task.FromResult(TokenRequest(c, multipart: false))),
         new("POST", "/oauth/token", "multipart", (c, _) => Task.FromResult(TokenRequest(c, multipart: true))),
         new("POST", "/v1/agents", "plain",
-            (c, _) =>
+            async (c, ct) =>
             {
                 var enrollee = c.Prepared?.Enrollee ?? ForumAgent.Create("https://agents.example/fuzz-enroll", "fuzz-enroll");
                 var m = new RequestModel("POST", "/v1/agents");
+
+                // R4.46 (errata G79): the enrollment carries a proof, made per send with the nonce the Forum serves now and a fresh jti, at the Forum's clock (Prepare has moved it). An offline context
+                // has no Forum to ask, so its exemplar carries a placeholder, which no fact that inspects exemplars without sending them reads.
+                var proof = c.Client is { } client ? await enrollee.ProofAsync(client, c.Now, ct) : "offline-no-forum";
                 Json(m, new JsonObject
                 {
                     ["agent_id"] = enrollee.AgentId,
                     ["kid"] = enrollee.Kid,
                     ["alg"] = "ES256",
                     ["public_key"] = enrollee.PublicKeyBase64,
+                    ["proof"] = proof,
                 });
                 m.Fresh.Add("json:/agent_id");
                 m.Fresh.Add("json:/kid");
-                return Task.FromResult(m);
+                m.Fresh.Add("json:/proof");
+                return m;
             },
             Prepare: (c, _) =>
             {
