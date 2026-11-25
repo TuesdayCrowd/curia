@@ -117,10 +117,13 @@ internal sealed class LifecycleFold
 
         if (string.Equals(type, AgentStandingProjector.EnrolledType, StringComparison.Ordinal))
         {
-            // The stream's first enrolment is decided once, whether or not it is honoured; a later one is no row and binds nothing (R6.64, ruling 79).
-            if (_sawEnrolment) return;
+            // The stream's first enrolment is the root, honoured or not; a later one is no root, binds nothing and is skipped and counted (R6.64 (rev.), R4.48).
+            var isFirst = !_sawEnrolment;
             _sawEnrolment = true;
-            Enrol(index, appended);
+            if (EnrolmentRow.Predicate(appended, _agent, isFirst) is { } rootPredicate)
+                _skipped.Add(new SkippedRow(index, type, appended.AggregateId.Value, rootPredicate));
+            else
+                Enrol(appended, index);
             return;
         }
 
@@ -138,19 +141,12 @@ internal sealed class LifecycleFold
     }
 
     /// <summary>
-    /// The root (R6.64, ruling 79): the stream's first enrolment is decided by steps 1 and 4 as any row is. A payload that is not an object, or whose <c>agent_id</c> is not the stream's agent, is skipped
-    /// as <c>statement-mismatch</c> and the stream has no root: no pair is a pair, nothing is bound. Otherwise the enrolment is honoured; it binds no kid and no key and is the previous honoured entry
-    /// (ruling 55), and the pair or a rotation binds.
+    /// The root (R6.64, ruling 79) once <see cref="EnrolmentRow.Predicate"/> has honoured it: it binds no kid and no key and is the previous honoured entry (ruling 55), and the pair or a rotation binds.
+    /// A first enrolment the predicate skips leaves the stream with no root: no pair is a pair, nothing is bound.
     /// </summary>
-    private void Enrol(long index, AppendedEvent appended)
+    private void Enrol(AppendedEvent appended, long index)
     {
-        if (appended.Event.Payload is not JsonValue.Object o
-            || !string.Equals(Text(o, AgentStandingProjector.AgentIdField), _agent, StringComparison.Ordinal))
-        {
-            _skipped.Add(new SkippedRow(index, appended.Event.Type.Value, appended.AggregateId.Value, LifecyclePredicates.StatementMismatch));
-            return;
-        }
-
+        var o = (JsonValue.Object)appended.Event.Payload;
         _enrolled = true;
         _enrolmentKid = Text(o, AgentStandingProjector.KeyIdField);
         Honour(index, appended);

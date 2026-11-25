@@ -127,8 +127,8 @@ public sealed class VerifiedLog
         [.. _streams.Value.Keys.SelectMany(aggregate => Decided(aggregate).Skipped).OrderBy(r => r.LogIndex)];
 
     /// <summary>
-    /// The log less the operator-act rows the verifier does not honour (R4.43, R6.67), each event with its own <c>Seq</c>: what the raw projectors are fed. Computed once; asking again verifies nothing.
-    /// It is not a log, and <see cref="Skipped()"/> does not list the rows it leaves out (<see cref="ActSkipped"/> does).
+    /// The log less the operator-act rows the verifier does not honour (R4.43, R6.67) and the <c>agent.enrolled</c> rows that are not their stream's honoured root (R4.48), each event with its own <c>Seq</c>: what
+    /// the raw projectors are fed. Computed once; asking again verifies nothing. It is not a log; the rows it leaves out are listed by <see cref="Skipped()"/> (enrolments) and <see cref="ActSkipped"/> (acts).
     /// </summary>
     public HonouredEvents HonouredEvents => _honoured.Value;
 
@@ -161,6 +161,17 @@ public sealed class VerifiedLog
     private HonouredEvents BuildHonoured()
     {
         var skipped = _acts.Value.Where(d => d.Predicate is not null).Select(d => d.LogIndex).ToHashSet();
+
+        // R4.48: the standing reads an agent.enrolled row only if the lifecycle fold honours it as its stream's root, by the one function both ask (a per-stream seen-set; no signature work).
+        var seenRoot = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < _log.Count; i++)
+        {
+            var row = _log[i];
+            if (!string.Equals(row.Event.Type.Value, AgentStandingProjector.EnrolledType, StringComparison.Ordinal)) continue;
+            var aggregate = row.AggregateId.Value;
+            if (EnrolmentRow.Predicate(row, aggregate, seenRoot.Add(aggregate)) is not null) skipped.Add(i);
+        }
+
         return new HonouredEvents([.. _log.Where((_, i) => !skipped.Contains(i))], _log);
     }
 

@@ -407,25 +407,15 @@ public sealed class OperatorActsForgeryTests(ForumFixture forum) : IClassFixture
     // ---- OAS39 (characterization, green by design) ----------------------------------------------
 
     /// <summary>
-    /// OAS39, a characterization of OPEN defects, green on the tree and green after N2 by design (Amendment 1, ruling 28): the unsigned enrolment root is not an operator act, and three effects of it stand as filed.
-    /// Register item 293 (tenure and squatting: a backdated root buys the 48 hours; a root planted before an identity enrols squats it, <c>409</c>) and item 299 (a second <c>agent.enrolled</c> row makes a genuine
-    /// agent's token request <c>500</c>, because the credential state machine has no (Active, SuccessfulEnrollment) transition). The fix of either must edit this probe; it is asserted in the layer where the fix would
-    /// land (the token endpoint and the enrolment route, through the Forum), and FOAS35 applies item 299's closure and shows it red. It is not counted among the probes that must be red.
+    /// OAS39, a characterization of OPEN defects, green on the tree and green after N2 by design (Amendment 1, ruling 28): the unsigned enrolment root is not an operator act, and two effects of it stand as filed.
+    /// Register item 293 (tenure and squatting: a backdated root buys the 48 hours; a root planted before an identity enrols squats it, <c>409</c>). Item 299 (a second <c>agent.enrolled</c> row) is closed by errata G80
+    /// (R4.48): the standing reads only the honoured root, and SRS12 is where its probe lives. The fix of either remaining effect must edit this probe; it is asserted in the layer where the fix would land (the token
+    /// endpoint and the enrolment route, through the Forum). It is not counted among the probes that must be red.
     /// </summary>
     [Fact]
-    public async Task OAS39_TheUnsignedRootsThreeLimitsAreAsFiled()
+    public async Task OAS39_TheUnsignedRootsTwoLimitsAreAsFiled()
     {
         var api = Api;
-
-        // (i) a second agent.enrolled row in a genuine agent's stream: re-announcement unchanged, token request 500 (item 299).
-        var genuine = await api.GenuineAsync("second-root", Ct);
-        var enrolledAt = await api.EnrollBodyMemberAsync(genuine.Agent, "enrolled_at", Ct);
-        var row = $"{{\"agent_id\":\"{genuine.Agent.AgentId}\",\"kid\":\"{genuine.Agent.Kid}\",\"reason\":\"Enrollment accepted: agent key registered with the Registrar\"}}";
-        await api.InsertRowAsync("agent.enrolled", genuine.Agent.AgentId, row, genuine.Agent.AgentId, forum.Now - TimeSpan.FromHours(72), Ct);
-        var token = await api.TokenAsync(genuine, Ct);
-        WholeText.Same(
-            $"re-announce {enrolledAt}; token 500 server_error",
-            $"re-announce {await api.EnrollBodyMemberAsync(genuine.Agent, "enrolled_at", Ct)}; token {token.Reply.Status} {(token.Reply.Type is "server_error" ? "server_error" : token.Reply.Type)}");
 
         // (ii) a root planted before the identity enrols: its genuine enrolment is 409 (item 293, squatting).
         var squatted = ForumAgent.Create($"https://agents.example/planted-{OperatorActsApi.Suffix()}", "k-" + OperatorActsApi.Suffix());

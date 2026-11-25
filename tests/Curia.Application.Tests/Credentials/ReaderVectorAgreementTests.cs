@@ -15,7 +15,7 @@ using static Curia.Application.Tests.Credentials.LifecycleProbeSupport;
 namespace Curia.Application.Tests.Credentials;
 
 /// <summary>
-/// LRV2 and LRV23 (errata G68, R6.64): the verifier agrees with the 88 reader vectors (84 asked: 60 compared, 18 about the post or the document, 6 whose reader verdict is could-not-check by a kind or a reason the Forum names too; 4 not asked) in <c>conformance/lifecycle/</c> wherever a reader's verdict names a row's predicate, and R6.64's
+/// LRV2 and LRV23 (errata G68, R6.64): the verifier agrees with the 90 reader vectors (86 asked: 62 compared, 18 about the post or the document, 6 whose reader verdict is could-not-check by a kind or a reason the Forum names too; 4 not asked) in <c>conformance/lifecycle/</c> wherever a reader's verdict names a row's predicate, and R6.64's
 /// predicate names are the vectors' names. The table of which predicates are row-level is a literal here, checked against R6.64's own text; the vectors' verdicts are another artifact from the verifier.
 /// </summary>
 [SuppressMessage(
@@ -171,7 +171,7 @@ public sealed class ReaderVectorAgreementTests
 
         // Three exact numbers (Amendment 7, ruling 88): a vector that stops being compared, or moves to About, changes one of them. They are counted from conformance/lifecycle/: the vectors the verifier is asked (a row-level
         // verdict, an unknown kind, or a verdict of verified or disputed), the vectors about the post or the document and not a row, and the vectors not asked.
-        Assert.Equal("compared 60; about 18; could not check 6; not asked 4", $"compared {compared}; about {about}; could not check {couldNotCheck}; not asked {notAsked}");
+        Assert.Equal("compared 62; about 18; could not check 6; not asked 4", $"compared {compared}; about {about}; could not check {couldNotCheck}; not asked {notAsked}");
         Assert.True(classified == ConformanceLog.Names("lifecycle").Length, $"every reader vector falls in one category of the table: {classified} of {ConformanceLog.Names("lifecycle").Length} do");
         Assert.True(
             failures.Count == 0,
@@ -183,7 +183,7 @@ public sealed class ReaderVectorAgreementTests
 
     /// <summary>
     /// Amendment 8, ruling 94: this runner moves a key whose stated index an entry holds above every entry, and the Rust runner leaves it where it is stated. In every vector either runner compares, the
-    /// only such key is the head log key, and in all 88 no declaration key is the head log key by <c>kid</c> or by public key. So the two runners' logs differ only in where a key that decides no row sits.
+    /// only such key is the head log key, and in all 90 no declaration key is the head log key by <c>kid</c> or by public key. So the two runners' logs differ only in where a key that decides no row sits.
     /// </summary>
     [Fact]
     public void LRV2_NoKeyThatDecidesARowSitsWhereAnEntryIs()
@@ -195,7 +195,7 @@ public sealed class ReaderVectorAgreementTests
         {
             var log = ConformanceLog.Open("lifecycle", name);
 
-            // Over all 88, asked or not: no declaration key carries the head log key's kid or its x.
+            // Over all 90, asked or not: no declaration key carries the head log key's kid or its x.
             using var jwks = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(log.Directory, "log-jwks.json")));
             var headX = Members(jwks.RootElement, "keys").Where(k => Text(k, "kid") == HeadLogKey).Select(k => Text(k, "x")).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
             foreach (var key in Members(jwks.RootElement, "declaration_keys"))
@@ -221,8 +221,8 @@ public sealed class ReaderVectorAgreementTests
 
         Assert.True(failures.Count == 0, $"{failures.Count} keys differ in placement between the runners and may decide a row. The first: {failures.FirstOrDefault()}{Environment.NewLine}All:{Environment.NewLine}{string.Join(Environment.NewLine, failures)}");
 
-        // The pin looked at something: the 66 vectors LRV2 compares (60 and 6), and in each the head key, displaced once.
-        Assert.Equal("compared 66; the head key displaced in 66", $"compared {compared}; the head key displaced in {headKeyDisplaced}");
+        // The pin looked at something: the 68 vectors LRV2 compares (62 and 6), and in each the head key, displaced once.
+        Assert.Equal("compared 68; the head key displaced in 68", $"compared {compared}; the head key displaced in {headKeyDisplaced}");
     }
 
     /// <summary>The classes of <see cref="LRV2_TheVerifierAgreesWithTheReaderVectors"/> that assert on the fold's rows: a row-level failure, a verdict of verified or disputed, and an unknown kind or reason.</summary>

@@ -1,0 +1,1 @@
+{"log_index":2,"leaf_hash":"sha256:0e94e1983b2a8161c2ac15882e2ded2d42e2292f1c0e98e43e6a2051d86ed026","entry":{"actor_id":"agent://curia.example/tuesdaycrowd/scriptor","aggregate_id":"agent://curia.example/tuesdaycrowd/scriptor","event_id":"01K4CQ4A000000000000000002","event_type":"agent.enrolled","payload":"not-an-enrolment","server_ts":"2026-09-05T10:02:00.000000Z"}}

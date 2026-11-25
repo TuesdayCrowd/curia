@@ -112,6 +112,8 @@ internal static partial class LifecycleCases
             EntryMemberDisagrees(k1, k2, k3),
             SiblingSignedRetirement(k1, k2),
             BrokenLink(k1, k2),
+            SecondEnrolmentInChain(k1, other: false),
+            SecondEnrolmentInChain(k1, other: true),
             LinkAfterPostSkips(k1, k2),
             NoLifecycleSupplied(k1),
             RotationSignedAsPost(k1, k2),
@@ -287,6 +289,19 @@ internal static partial class LifecycleCases
         return new Case("broken-link", "R6.54",
             "The rotation names the enrolment at 0 as the entry before it, and the entry before it is the binding at 1.",
             log, post, [0, 1, 2], "failed", "broken-link");
+    }
+
+    /// <summary>Errata G80 (R6.54 (add.)): a reader fails the chain at an agent.enrolled that is not its first (broken-link), and decides step 4 first (statement-mismatch).</summary>
+    private static Case SecondEnrolmentInChain(Key k1, bool other)
+    {
+        var log = EnrolledAndBound(k1);
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(other ? OtherAgent : Agent)), ("kid", Str(k1.Kid))));
+        var post = AddPost(log, k1, other ? "93" : "92");
+        return new Case(other ? "second-enrolment-names-another-agent-in-chain-then-post" : "second-enrolment-in-chain-then-post", "R6.54",
+            other
+                ? "The chain holds the enrolment and its pair, then at 2 a second agent.enrolled that names another agent, then a post by the key. A reader decides the entry's step 4 (the payload's agent_id is not the author's) before it asks whether the enrolment is the chain's first: failed, statement-mismatch."
+                : "The chain holds the enrolment and its pair, then at 2 a second agent.enrolled that names the author and the key, then a post by the key. An agent.enrolled that is not the chain's first fails the lifecycle, broken-link, though the key was bound and live.",
+            log, post, [0, 1, 2], "failed", other ? "statement-mismatch" : "broken-link");
     }
 
     private static Case LinkAfterPostSkips(Key k1, Key k2)

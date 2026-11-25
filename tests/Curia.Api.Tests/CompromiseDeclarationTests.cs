@@ -105,8 +105,8 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
     /// declaration (from the index the key was bound at) in place of the retirement: the second key is served before the declaration (the control), then <c>401</c> <c>invalid_client</c>, byte for byte
     /// the refusal of a bad signature, with the log's one event 5001 naming <c>curia/keys/compromised</c>; the first key, still live, is served. No other test requests a token after a declaration, and
     /// the reorder moves this refusal after the signature and after both <c>jti</c>s are consumed. The second key requests through <c>DpopClient.For(second, ...)</c> and never
-    /// <c>AuthenticateAsync</c>, which enrols and would write a second <c>agent.enrolled</c> row for the identity (item 299). It would fail at the <c>curia/keys/compromised</c> line, and at the second
-    /// key's <c>401</c>, if the status switch treated a compromised key as active.
+    /// <c>AuthenticateAsync</c>, which enrols through the route and asserts <c>201</c>: a second key for an enrolled identity answers <c>409</c> <c>already-enrolled</c> (R4.31, G14), so it would fail there and
+    /// never reach the declaration. It would fail at the <c>curia/keys/compromised</c> line, and at the second key's <c>401</c>, if the status switch treated a compromised key as active.
     /// </summary>
     [Fact]
     public async Task R5_25_VBR5c_ACompromisedKeyRequestsATokenAndIsRefusedAsCompromisedWhileTheLiveKeyIsServed()
