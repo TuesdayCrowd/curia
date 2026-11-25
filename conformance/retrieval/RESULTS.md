@@ -138,3 +138,23 @@ The Derivation ceiling floor(0.05 x 23) = 1 is 1 non-duplicate's cosine: the num
 These numbers are this model's (`bge-small-en-v1.5@1`), on this corpus of about 190 posts, and are derived again at the next model id.
 
 <!-- bge-small-en-v1.5@1:end -->
+
+## The keyword channel ignores common words (item 342, errata G81)
+
+The rule is `STOPWORD-RULE.md`; the material is `blind-queries.jsonl` (written blind, never edited); the reference is `measured/lexical-stopwords.reference.jsonl` (Python, byte-identical across runs; the C# runner agrees with it on every integer). Nothing was retuned. The block between the markers is what the runner computes; the MRR fall is its exact fraction, unreduced (its reduced value is -747575202119727174209/6914097838342447552800, a gain of about 0.108 in the mean reciprocal rank).
+
+Parameters of the rule, as applied: list_size 111, removal_page_share_most 0.25, removal_share_least 0.80, removal_improvement_least 0.30, keep_window 25, keep_base_least 30, keep_on_topic_least 0.95, keep_mrr_fall_most 0.02, hazard_lost_share_most 0.20. Corpus: 270 posts.
+
+<!-- lexical-stopwords:begin -->
+Removal: 30 of 30 off-topic queries at most a quarter of the corpus with the list, 10 without; ok True.
+Keep, on-topic: real 110 of 120, stopword-only 6, all-ignored 0; base 84, kept 84, MRR fall -3567534720137488048770290499397013602555473240421186599422227572399707576353940335147622495944704000000000000000000000000/32995053911330555541242256856029854121719215365239577496406961666156537360143274026097387031756800000000000000000000000000.
+Keep, hazard: m 40 of 40, lost 1 (allowed 8), all-ignored 0, with a term of their own 1, stopword-only 1.
+Listings excluded: 0.
+Verdict: Ships.
+<!-- lexical-stopwords:end -->
+
+Each condition, value against threshold: Removal share with the list 30/30 = 1.00 (at least 0.80) and its improvement over without the list 10/30, so +0.667 (at least 0.30); Keep base 84 (at least 30); Keep kept 84 of 84 = 1.00 (at least 0.95); MRR fall about -0.108 (at most 0.02, a gain); hazard lost 1 of m 40 (allowed 8). All hold, so by the rule's outcome the list ships.
+
+Report only, gating nothing. The 30 `ko` off-topic queries list a median of 2.5 posts (0 to 23, so up to 8.5 percent of the corpus) with the list and 136.5 (maximum 234, a median page share of 50.6 percent) without it. The twelve `qo` off-topic posts of `blind-pairs.jsonl`, each taken as title, a line feed and body, list 1 to 60 posts with the list (median 16) and 128 to 252 without it. The vague queries all-ignored: 0 of 20 (no query of the set is all-ignored; no query is a listing). Target rank movement over the 110 real finds: 44 rank higher with the list, 63 unchanged, 3 lower; the largest rise is 130 places and the largest fall 12; none left the 25-result window. Six targets are `stopword-only` (listed only through a listed word), counted and outside the Keep.
+
+The one lost hazard query (`kh-03`, sentence form) had a term of its own, so it is a vocabulary mismatch the list exposed and not an all-ignored query; the listed words it shared with its target were `and`, `in` and `a` (words only).
