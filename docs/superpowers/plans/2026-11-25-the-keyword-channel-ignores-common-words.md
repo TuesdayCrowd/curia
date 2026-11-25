@@ -588,3 +588,30 @@ Not built. `no results.` is the CLI's own rendering of an empty list (`SearchWor
 - A **Task 5b** (code and probes KWC19a to KWC19f, then FKWC20 to FKWC29) after Task 6's result, before round 2; the other agent's KWC18/FKWC18/19 precede it so the captured page is one page.
 - Task 7b: CR-d's gate is as in section 5; CR-b joins round 2; the "Two rounds, then stop" sentence stands.
 - The PR body states: the wire gained one integer member after the cold read, why the client does not infer it, and that CR-d's "ignored whole" was 1 of 3 before and the round-2 number after.
+
+## As run
+
+Built 2026-11-25 from `main` 0288eb83 (#175); the rule's verdict is Ships, nothing was retuned. `curia-mcp` 0.12.8. Records are in `.superpowers/sdd/2026-11-25-keyword-channel-ignores-common-words/` (untracked).
+
+| Task | Commit | What | Record |
+|---|---|---|---|
+| plan | 623a1eb2 | this plan | this file |
+| 0 | none | the unmodified tree operated on an export (M1 to M8) | `task-0-report.md` |
+| 1 | 87ddab29 | the rule, the list and the brief, committed before any blind query; G81 specified, not built | none |
+| 2a, 2b | 621072c9, 043bf22d | the brief's validator; the blind query set (attempt 2 of 2, committed unedited; sha256 3296896d) | `blind-provenance.txt` |
+| 3 | 7ec09135 | KWC1 to KWC17 red first; the Python reference and the C# runner agree on every integer | `task-3-record.md` |
+| 4 | 40145804 | the rule decides: Ships (Removal 30 of 30 against 10; Keep 84 of 84, MRR a gain; hazard lost 1 of 40) | RESULTS.md |
+| 5 | 7acb03a2 | the fix: `StopWords`, `SearchTerms`, `keyword_ignored`, the ignored line and the gloss keyed on the member, 0.12.8 | none |
+| Amendment 2 | bada1bd8 | FKWC17 survived as a gate: Ships stands, the limit disclosed; a sound Keep is a register item; FKWC15 closed | this file |
+| 6 | b89906e6 | falsification FKWC1 to FKWC17 | `falsification.md` |
+| 7 (finding 1) | 10dbbf4d | the banner's keyword clause keyed on the page; FKWC18, FKWC19 | `live/kwc-live.md` |
+| Amendment 3 | 3cd80adc | the cold read's CR-d 1 of 3: `keyword_terms` and the closing clause | this file |
+| 5b | cf6bbcc7 | KWC19a to KWC19f, the code, FKWC20 to FKWC29 | `falsification.md` |
+| 7, 7b | none | the live run LV1 to LV8; the cold read, round 1 and round 2 | `live/kwc-live.md`, `cold/cold-read-342.md` |
+| 8 | the commit of this section | errata G81's Status and index rows, RESULTS.md's paragraph, `CLAUDE.md`, `README.md`, this section, the held register patch, the PR body | none |
+
+**Numbers.** Rule sha 87ddab29; material sha256 3296896d; list digest 738e8e0e (111 words). Falsification: FKWC1 to FKWC17, 15 killed, FKWC9 equivalent on the product path, FKWC17 survived as a gate; FKWC18 and FKWC19 killed; FKWC20 to FKWC29 killed (FKWC28 in two directions), no survivor. Live: 27 of 30 off-topic pages shorter, none longer; LV4's 110 of 120 targets on the first page against 104 (report-only). Cold read: round 1 CR-a, CR-b, CR-c 3 of 3 and CR-d 3 of 3 on acts and 1 of 3 on "ignored whole"; round 2 CR-d 3 of 3, CR-b 3 of 3.
+
+**What the run found that the plan did not.** (1) The on-topic Keep cannot go red for a list's content (Task 6); the plan's own predicted-red row came back green and Amendment 2 narrowed what the verdict is evidence of. (2) A new client printed the banner's keyword clause for a Forum that does not apply the list (live finding 1). (3) The ignored line was the same in two states (the cold read; Amendment 3). (4) `curia-mcp`'s empty page lacks `no results.` (live finding 2; item 381, not built).
+
+**Register.** Item 342 closed; items 380 to 387 and traps 300 and 301 are filed in the held patch `impl-plan-342.md`, applied after the second-root patch. First free after: `D125, G82, R4.49, R6.68, R9.73, R10.103, R11.109, item 388, trap 302`.
