@@ -350,9 +350,20 @@ public sealed class Program
                 "does not generate one for you: a per-process key makes every token minted " +
                 "before a restart unverifiable after one.")));
 
+        // R11.109 (errata G82): the Forum's one name, read from Curia:PublicOrigin then CURIA_PUBLIC_ORIGIN, refused when absent or not its own canonical form, and the
+        // replaced Curia:Issuer and Curia:Audience refused when set. Resolved right after Build, below, so a host with no name never serves a request. The issuer is co-hosted, so
+        // iss and aud are both the origin (TokenIssuer's remarks); a split issuer host would need a second setting and none is built.
+        builder.Services.AddSingleton(_ => PublicOrigin.Read(builder.Configuration).Match(
+            origin => origin,
+            error => throw new InvalidOperationException(error.Detail ?? error.Title)));
+
+        // R5.27 (errata G82): first of all, on every route, before a store is read: a request not addressed to the Forum's name is refused in the Forum's own words.
+        // A startup filter, so that it is outside a forwarding middleware registered after it (see HostNotServed.Filter).
+        builder.Services.AddSingleton<IStartupFilter>(sp => new HostNotServed.Filter(sp.GetRequiredService<PublicOrigin>()));
+
         builder.Services.AddSingleton(sp => new TokenIssuer(
-            issuer: builder.Configuration["Curia:Issuer"] ?? "https://forum.local",
-            audience: builder.Configuration["Curia:Audience"] ?? "https://forum.local",
+            issuer: sp.GetRequiredService<PublicOrigin>().Value,
+            audience: sp.GetRequiredService<PublicOrigin>().Value,
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<IssuerSigningKey>()));
 
@@ -381,6 +392,9 @@ public sealed class Program
         builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
 
         var app = builder.Build();
+
+        // R11.109: the Forum's name, before anything else is checked or served; a missing or malformed value stops the start.
+        _ = app.Services.GetRequiredService<PublicOrigin>();
 
         // Lock 2 at startup: the gate is built now, so a refused opt-in fails the start rather than the
         // first append.

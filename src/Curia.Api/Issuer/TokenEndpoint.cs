@@ -52,6 +52,7 @@ public static class TokenEndpoint
 
     private static async Task<IResult> IssueAsync(
         HttpRequest http,
+        PublicOrigin origin,
         TokenIssuer issuer,
         IAgentKeyResolver agentKeys,
         LogBoundKeys keys,
@@ -111,14 +112,14 @@ public static class TokenEndpoint
         if (string.IsNullOrWhiteSpace(proof))
             return new OAuthRefusal("invalid_dpop_proof", OAuthRefusal.ProofNotAccepted, null);
 
-        var proofResult = DpopProofValidator.Validate(proof, new DpopExpectation("POST", TokenEndpointUrl(http), null, null), verifiers, clock.GetUtcNow());
+        var proofResult = DpopProofValidator.Validate(proof, new DpopExpectation("POST", origin.UrlOf(http), null, null), verifiers, clock.GetUtcNow());
         if (!proofResult.TryGetValue(out var validatedProof, out var proofError))
             return new OAuthRefusal("invalid_dpop_proof", OAuthRefusal.ProofNotAccepted, proofError);
 
         // R5.20 (errata G15): the assertion's key is resolved for client_id, and its sub must name it.
         var expectedSubject = AgentId.Parse(clientId, "client_id");
         var context = new ClientAssertionValidationContext(
-            TokenEndpointUrl(http),
+            origin.UrlOf(http),
             ExpectedSubject: expectedSubject,
             agentKeys,
             replayCache,
@@ -220,15 +221,4 @@ public static class TokenEndpoint
         string.Equals(error.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
             ? new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, error)
             : new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, error);
-
-    /// <summary>
-    /// The absolute token-endpoint URL, which the assertion's <c>aud</c> must match.
-    ///
-    /// <para>Built from the request rather than from configuration on purpose: an assertion audience
-    /// checked against a configured value would still pass if the Forum were reached through an
-    /// unexpected host, and audience binding exists precisely to stop an assertion minted for one
-    /// endpoint being replayed at another.</para>
-    /// </summary>
-    internal static string TokenEndpointUrl(HttpRequest request) =>
-        $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
 }

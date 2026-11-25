@@ -821,11 +821,11 @@ public static class ForumEndpoints
 
         // R4.46 (errata G79): the proof that the submitter holds the key, asked after every check of the request's own text and before anything is read from the log. Steps 1 to 5 read nothing, step 6 asks
         // the nonce store, step 7 consumes the jti; the use case below reads the log only after that, so a proof that does not verify touches neither, and a fault of the log spends the proof. The audience is the
-        // URL as the Forum received it, built by the token endpoint's builder (register defect D41: three sites build it from the request's Host and a closure must find them all).
+        // URL as the Forum names itself (R5.26, errata G82): the configured origin and the request's path, the same builder as every htu.
         var proven = await new EnrollmentProofValidator(verifiers, nonces, replay)
             .ValidateAsync(
                 new EnrollmentProofRequest(request.AgentId, request.Alg, request.Kid, publicKey, request.Proof),
-                Curia.Api.Issuer.TokenEndpoint.TokenEndpointUrl(http),
+                AbsoluteUrl(http),
                 clock.GetUtcNow(),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -3449,20 +3449,20 @@ public static class ForumEndpoints
         }
     }
 
-    /// <summary>R10.20's stable well-known URL, so every envelope points a reader at the contract.</summary>
+    /// <summary>R10.20's stable well-known URL, so every envelope points a reader at the contract: the Forum's configured origin (R10.21 (add.), errata G82), never the request's Host.</summary>
     private static string ReaderContractUrl(HttpRequest request) =>
-        $"{request.Scheme}://{request.Host}/.well-known/reader-contract/v1";
+        request.HttpContext.RequestServices.GetRequiredService<PublicOrigin>().ReaderContractUrl();
 
     /// <summary>
-    /// The absolute request URL, which a DPoP proof's <c>htu</c> must match.
+    /// The absolute URL a DPoP proof's <c>htu</c> (and the enrolment proof's <c>aud</c>) must match: the configured origin and the request's path, and nothing the
+    /// request says about its own name (R5.26, errata G82; register defect D41).
     ///
-    /// <para>Built from the request rather than configuration for the same reason the token
-    /// endpoint's audience is: <c>htu</c> binding exists to stop a proof made for one URL being
-    /// replayed at another, and checking it against a configured value would defeat that whenever
-    /// the Forum is reached through an unexpected host.</para>
+    /// <para>Built from configuration on purpose: <c>htu</c> binding exists to stop a proof made for one URL being replayed at another, and a name the caller supplies
+    /// is a name the caller chose, so a relay that signs for itself and forwards under its own name would be answered. A proof made for an unexpected host is a proof
+    /// made for another origin, and refusing it is the binding.</para>
     /// </summary>
     private static string AbsoluteUrl(HttpRequest request) =>
-        $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
+        request.HttpContext.RequestServices.GetRequiredService<PublicOrigin>().UrlOf(request);
 
     /// <summary>
     /// An RFC 9457 problem. A 5xx is served by <see cref="ServerFault"/>, without its detail, which
