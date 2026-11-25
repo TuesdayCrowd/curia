@@ -1020,8 +1020,8 @@ pub enum Verdict {
     Skipped(&'static str),
 }
 
-/// One lifecycle row of the stream: never the honoured enrolment, its pair, or a later `agent.enrolled`; the stream's first
-/// `agent.enrolled` is a row only when steps 1 or 4 skip it.
+/// One lifecycle row of the stream: never the honoured enrolment or its pair; an `agent.enrolled` is a row when it is skipped,
+/// the stream's first by steps 1 or 4 and a later one by steps 1 or 4 and then `broken-link` (errata G80, R4.48).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub log_index: u64,
@@ -1172,44 +1172,47 @@ pub fn honoured(log: &[LogEntry], agent: &str) -> Honoured {
     };
 
     let mut rows = Vec::new();
-    // Lifecycle entries of the stream before the one being decided, a later `agent.enrolled` among them.
+    // Lifecycle entries of the stream before the one being decided, every `agent.enrolled` among them.
     let mut before = 0usize;
     let mut enrolment_kid: Option<String> = None;
     let mut enrolled = false;
-    // The stream's first `agent.enrolled` failed step 1 or step 4: the stream has no root, and a later one is no root either.
-    let mut rootless = false;
+    // The stream's first `agent.enrolled` has been seen, honoured or not: a failed first leaves the stream rootless, and a later one is no root either.
+    let mut saw_enrolment = false;
     for entry in ordered.iter().filter(|e| e.aggregate_id == agent) {
         let kind = match entry.event_type.as_str() {
             ENROLLED => {
-                if !enrolled && !rootless {
-                    // The root is decided as a row is, by steps 1 and 4.
-                    let names_agent = entry
-                        .payload
-                        .as_object()
-                        .and_then(|o| o.get("agent_id"))
-                        .and_then(Value::as_str)
-                        == Some(agent);
-                    if !names_agent {
-                        rootless = true;
-                        before += 1;
-                        rows.push(Row {
-                            log_index: entry.log_index,
-                            event_type: entry.event_type.clone(),
-                            verdict: Verdict::Skipped(predicate::STATEMENT_MISMATCH),
-                        });
-                        continue;
-                    }
-                    enrolled = true;
-                    // The enrolment is honoured and is the previous honoured entry of the next row; a pair
-                    // after it moves `prev` on to the pair's index and binds the key.
-                    prefix.prev = Some(entry.log_index);
-                    enrolment_kid = entry
-                        .payload
-                        .get("kid")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                }
+                // R4.48: the stream's first `agent.enrolled` is the root, honoured or not; a later one is no root and is skipped and counted.
+                // Steps 1 and 4 come first (the payload is an object whose `agent_id` is the stream's agent), then `broken-link` for a later row.
+                let is_first = !saw_enrolment;
+                saw_enrolment = true;
                 before += 1;
+                let names_agent = entry
+                    .payload
+                    .as_object()
+                    .and_then(|o| o.get("agent_id"))
+                    .and_then(Value::as_str)
+                    == Some(agent);
+                if !names_agent || !is_first {
+                    rows.push(Row {
+                        log_index: entry.log_index,
+                        event_type: entry.event_type.clone(),
+                        verdict: Verdict::Skipped(if names_agent {
+                            predicate::BROKEN_LINK
+                        } else {
+                            predicate::STATEMENT_MISMATCH
+                        }),
+                    });
+                    continue;
+                }
+                enrolled = true;
+                // The enrolment is honoured and is the previous honoured entry of the next row; a pair
+                // after it moves `prev` on to the pair's index and binds the key.
+                prefix.prev = Some(entry.log_index);
+                enrolment_kid = entry
+                    .payload
+                    .get("kid")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 continue;
             }
             KEY_BOUND => Kind::Bound,

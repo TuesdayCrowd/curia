@@ -133,7 +133,7 @@ public sealed class SecondRootSkippedEndpointTests
         WholeText.Same(controlSaw, victimSaw);
         Assert.StartsWith("token 200", victimSaw, StringComparison.Ordinal);
         WholeText.Same(
-            $"200 [{index} agent.enrolled broken-link] total 1; control 200 [none] total absent",
+            $"200 [{index} agent.enrolled broken-link] total 1; control 200 [none] total 0",
             $"{await KeySetSkippedAsync(f, victim.Agent.Agent.AgentId)}; control {await KeySetSkippedAsync(f, control.Agent.Agent.AgentId)}");
     }
 
@@ -171,6 +171,8 @@ public sealed class SecondRootSkippedEndpointTests
         await using var f = await VerifiedStopSupport.NewAsync();
         var api = new OperatorActsApi(f);
         var (board, post) = await QuestionAsync(f, api, "srs13o");
+        // A flag is one per raiser per post (R7.22), so the observation after the row flags a second question: the same agent flagging the first again would answer 409 for that reason alone.
+        var (boardAfter, postAfter) = await QuestionAsync(f, api, "srs13p");
         var x = await EnrolledAsync(f, api, "srs13x");
         var y = await EnrolledAsync(f, api, "srs13y");
         var twin = await EnrolledAsync(f, api, "srs13t");
@@ -178,13 +180,13 @@ public sealed class SecondRootSkippedEndpointTests
         var index = await api.EventCountAsync(Ct);
         await api.InsertRowAsync("agent.enrolled", x.Agent.Agent.AgentId, Row(y.Agent.Agent.AgentId, y.Agent.Agent.Kid), x.Agent.Agent.AgentId, f.Now - TimeSpan.FromHours(72), Ct);
 
-        var after = await ObservedAsync(f, api, y.Agent, y.PreToken, y.EnrolledAt, board, post);
-        var twinSaw = await ObservedAsync(f, api, twin.Agent, twin.PreToken, twin.EnrolledAt, board, post);
+        var after = await ObservedAsync(f, api, y.Agent, y.PreToken, y.EnrolledAt, boardAfter, postAfter);
+        var twinSaw = await ObservedAsync(f, api, twin.Agent, twin.PreToken, twin.EnrolledAt, boardAfter, postAfter);
 
         WholeText.Same(before, after);
         WholeText.Same(twinSaw, after);
         WholeText.Same(
-            $"X 200 [{index} agent.enrolled statement-mismatch] total 1; Y 200 [none] total absent",
+            $"X 200 [{index} agent.enrolled statement-mismatch] total 1; Y 200 [none] total 0",
             $"X {await KeySetSkippedAsync(f, x.Agent.Agent.AgentId)}; Y {await KeySetSkippedAsync(f, y.Agent.Agent.AgentId)}");
     }
 
@@ -218,7 +220,7 @@ public sealed class SecondRootSkippedEndpointTests
         WholeText.Same("enrol 201; enrolled_at is the planted instant False; budget 200 ok", twinSaw);
         WholeText.Same(twinSaw, zSaw);
         WholeText.Same(
-            $"X 200 [{index} agent.enrolled statement-mismatch] total 1; Z 200 [none] total absent",
+            $"X 200 [{index} agent.enrolled statement-mismatch] total 1; Z 200 [none] total 0",
             $"X {await KeySetSkippedAsync(f, x.Agent.Agent.AgentId)}; Z {await KeySetSkippedAsync(f, z.AgentId)}");
         _ = (board, post);
     }
