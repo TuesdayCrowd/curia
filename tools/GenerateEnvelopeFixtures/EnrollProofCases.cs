@@ -179,6 +179,8 @@ internal static class EnrollProofCases
             TruncateSignature(rfcEd, "jti-truncated"), Expect.Refused("proof-not-possessed"));
         Add("proof-for-another-body", "4", "A proof made by key A for key A's identity and thumbprint, sent with key B as the request's public_key: the signature does not verify under the request's key, and is decided before its claims are read.", otherEd,
             Valid(rfcEd, "jti-another-body"), Expect.Refused("proof-not-possessed"), kid: Kid);
+        Add("header-carries-its-own-key", "4", "A proof signed by key B whose protected header carries a jwk member holding B's public key (an unknown header member, ignored by R4.46 step 2); the request submits key A, and every claim is A's. The verifier is chosen by the request's alg and the key by the request's public_key, never by the proof (step 4), so the signature does not verify and the proof is not possessed.", rfcEd,
+            Valid(rfcEd, "jti-header-own-key", header: h => h["jwk"] = new JsonObject { ["crv"] = "Ed25519", ["kty"] = "OKP", ["x"] = Jwk.Base64UrlEncode(wrongEd.StoredPublic) }, signedBy: wrongEd), Expect.Refused("proof-not-possessed"));
         Add("wrong-key-and-wrong-claims", "4", "Signed by a stranger and naming another identity: the signature is decided before the payload is read.", rfcEd,
             Valid(rfcEd, "jti-wrong-key-claims", p => p["agent_id"] = OtherAgentId, signedBy: wrongEd), Expect.Refused("proof-not-possessed"));
 

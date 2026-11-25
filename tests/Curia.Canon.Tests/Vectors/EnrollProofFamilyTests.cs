@@ -11,7 +11,7 @@ namespace Curia.Canon.Tests.Vectors;
 public sealed class EnrollProofFamilyTests
 {
     /// <summary>The number of cases the generator writes (<c>--enroll-proof-cases</c>); the generator's count is the oracle, and this literal is the control.</summary>
-    private const int Cases = 55;
+    private const int Cases = 56;
 
     /// <summary>R4.46's seven refusals, by the slugs the Forum publishes and no others.</summary>
     private static readonly string[] Types =

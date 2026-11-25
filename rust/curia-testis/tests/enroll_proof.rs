@@ -27,8 +27,8 @@ fn r4_46_every_enroll_proof_case_reaches_its_verdict() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.enroll_proof.len(),
-        55,
-        "conformance/enroll-proof/ holds 55 cases"
+        56,
+        "conformance/enroll-proof/ holds 56 cases"
     );
 
     let mut failures = Vec::new();
