@@ -57,6 +57,10 @@ internal static class Variations
         foreach (var row in Strings)
             all.Add(new(row.Id, p => p.ValueKind == PartValueKind.String, (p, _) => Render(p, row.Json, row.Encoded, row.Header)));
 
+        // Host (errata G82, ORG12a): the closed set of the origin's own spellings and the values that are not its name, over the Host part alone.
+        foreach (var (id, make) in HostValues)
+            all.Add(new("host-" + id, p => p.Address == "header:Host", (_, own) => new VariedValue.HeaderText(make(own ?? "localhost"))));
+
         all.Add(new("perturbed", p => p.ValueKind == PartValueKind.String, (p, v) => Text(p, Perturb(v ?? string.Empty))));
 
         // The first character too: a base64url value's last character carries padding bits that a strict decoder refuses to see set, so `perturbed` always changes the string but never yields different decoded bytes that a strict decoder accepts; a change at the first position does (Task A5, case 3).
@@ -97,6 +101,16 @@ internal static class Variations
 
         return all;
     }
+
+    /// <summary>
+    /// ORG12a's closed set for <c>Host</c>, each as a function of the exemplar's value: the origin's spelling, its case variant, the default port, a wrong port, an empty value, <c>a@b</c>, a list
+    /// <c>a,b</c>, a 300-byte label and a space. Their verdicts are asserted by <c>HostRefusalTests</c>; here they are sent, and the oracle is the pass's own.
+    /// </summary>
+    internal static readonly (string Id, Func<string, string> Make)[] HostValues =
+    [
+        ("own", own => own), ("case", own => own.ToUpperInvariant()), ("default-port", own => own + ":80"), ("wrong-port", own => own + ":8080"),
+        ("empty", _ => string.Empty), ("userinfo", _ => "a@b"), ("list", _ => "a,b"), ("long-label", _ => new string('a', 300) + ".example"), ("space", _ => "a b"),
+    ];
 
     private static readonly (string Id, string Json)[] Retypes =
     [

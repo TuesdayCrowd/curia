@@ -201,8 +201,10 @@ public sealed class IdnOriginTests(IdnOriginKestrelFixture forum) : IClassFixtur
     }
 
     /// <summary>
-    /// The same host named as a U-label (raw UTF-8 bytes) and an invalid A-label: <b>never admitted and never a 5xx</b>. Kestrel may refuse the first before any Forum code (recorded in the failure text when it
-    /// does); either refusal is a <c>400</c>.
+    /// The same host named as a U-label (raw UTF-8 bytes) and an invalid A-label: <b>never admitted and never a 5xx</b>. The U-label is refused with a <c>400</c>, by Kestrel or by the Forum. The invalid A-label
+    /// (<c>xn--</c>) is refused <b>before any Forum code runs</b> (Task 3's measurement): the hosting layer's request-start logging formats <c>Request.Host</c>, which throws on the IDN decode and closes the
+    /// connection with no response. So this row asserts that the request is never admitted: the connection closes with no status line, or the answer is a <c>400</c>, and it is never a 2xx or a 5xx. It is
+    /// a non-property of the Forum (the refusal is the framework's, not R5.27's), recorded by Task 8.
     /// </summary>
     [Fact]
     public async Task R5_27_ORG20_ANameTheOriginDoesNotSpellIsNeverAdmittedAndNeverAServerFault()
@@ -219,7 +221,8 @@ public sealed class IdnOriginTests(IdnOriginKestrelFixture forum) : IClassFixtur
         {
             byte[] request = [.. Encoding.ASCII.GetBytes("GET /health HTTP/1.1\r\nHost: "), .. host, .. Encoding.ASCII.GetBytes("\r\nConnection: close\r\n\r\n")];
             var reply = await RawAsync(address, request, Ct);
-            Expect(failures, reply.Status == 400, $"{name}: expected 400 (Kestrel's or the Forum's), the Forum answered {reply.Says}");
+            var closedUnanswered = name == "invalid punycode" && reply.Status == 0;
+            Expect(failures, reply.Status == 400 || closedUnanswered, $"{name}: expected 400 (Kestrel's or the Forum's), or for an invalid A-label a closed connection with no response, the Forum answered {reply.Says}");
         }
 
         NoFailures(failures, "R5.27: an internationalized spelling the origin does not use is refused, not mapped");

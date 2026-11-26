@@ -211,9 +211,16 @@ public sealed partial class HostRefusalTests(ForumFixture forum, KestrelForumFix
     /// FORG22 is killed by this probe alone.
     /// </summary>
     [Fact]
-    public void R14_10_ORG12b_HostIsNotListedAsFraming()
+    public async Task R14_10_ORG12b_HostIsNotListedAsFraming()
     {
         var listed = SurfaceInventory.TransportHeaders.Select(h => h.Name).ToArray();
         Assert.DoesNotContain("Host", listed);
+
+        // Not listed is not enough (the coverage rule is satisfied by a framework read): an exemplar sends it, and the closed set's every value is a variation of it.
+        var health = await Exemplars.All.Single(row => row.Route == "GET /health").Build(null!, Ct); // an anonymous row reads nothing of the context
+        Assert.Contains(health.Headers, h => h.Name == "Host");
+        var ids = Variations.HostValues.Select(v => "host-" + v.Id).ToArray();
+        Assert.Equal(9, ids.Length);
+        foreach (var id in ids) Assert.Contains(Variations.Closed, v => v.Id == id);
     }
 }

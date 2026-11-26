@@ -295,8 +295,10 @@ admin-capable server, or run a local one. `Curia.Embedding.Tests` is the one ass
 `python3 tools/model/fetch-model.py`, when the directory is absent; it never skips** (R14.13). The other assemblies need no model: the Api suite replaces the embedder with the hashed test adapter through
 `ForumFixture`'s one explicit door. ONNX Runtime 1.31.0 has no `osx-x64` native, so on Intel macOS that assembly cannot pass.
 
-Running the Forum itself needs `CURIA_EVENTS_POSTGRES`, `CURIA_ISSUER_SIGNING_KEY_PEM` and `CURIA_EMBEDDING_MODEL_DIR`
-(a directory `python3 tools/model/fetch-model.py --out <dir>` filled; errata G65, R11.91);
+Running the Forum itself needs `CURIA_EVENTS_POSTGRES`, `CURIA_ISSUER_SIGNING_KEY_PEM`, `CURIA_EMBEDDING_MODEL_DIR`
+(a directory `python3 tools/model/fetch-model.py --out <dir>` filled; errata G65, R11.91) and `CURIA_PUBLIC_ORIGIN`
+(the configuration key `Curia:PublicOrigin`: the Forum's one name, `scheme://host[:port]`; errata G82, R11.109; the old
+`Curia:Issuer` and `Curia:Audience` are refused at start, not read);
 startup fails loudly without any of them, because R11.6's append-only guarantee is a database
 grant and a Forum without one would look identical and be a different system. The operator's
 out-of-band tool (`src/Curia.Operator`, `curia-operator attest-owner`) needs the first of those:
