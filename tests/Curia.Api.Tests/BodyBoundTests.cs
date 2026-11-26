@@ -9,7 +9,7 @@ namespace Curia.Api.Tests;
 /// Errata G84 (R6.68 (rev.), R10.68 (rev.), R11.33), D125: the Forum bounds a request body at R6.39's size plus one byte, on every route and for every method, by one middleware, so that these probes
 /// run in process and a Kestrel run (<see cref="BodyBoundKestrelTests"/>) holds what only a socket can. Every size is R6.39's number parsed from the white paper (<see cref="BodyBoundKit.Cap"/>)
 /// and never read from the code the probe is about. Each declared-length probe has the twin one byte under it, because a probe that sees only the refusal is satisfied by an unmapped route's 404 (BND1);
-/// each probe of a declared body has a chunked twin, because <c>HttpClient</c>'s default is a declared length and an undeclared body takes the other path (trap 304; BND2).
+/// each probe of a declared body has a chunked twin, because <c>HttpClient</c>'s default is a declared length and an undeclared body takes the other path (trap 304; BND2). In process the twin is still a declared body (<c>TestServer</c> declares a length for the content it is given); the undeclared path is held over a socket by BND6b and BND2k in <see cref="BodyBoundKestrelTests"/>.
 /// </summary>
 [SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 [Collection("forum")]

@@ -48,8 +48,8 @@ bytes**, on every route and for every method: a body whose declared length is la
 passes that count, is the Forum's `413` `curia/request/too-large` before a handler acts on it (at `/oauth/token` RFC 6749's error
 object), and a request the host's own reader rejects while a handler reads (too slow, wrongly framed) is answered as a problem document
 and never reaches the host's own response writer. A bound set only at the edge would disappear on the day the edge does; this one does not,
-and the edge's 1 MiB is a second line in front of it. An edge `413` and the Forum's are the same answer through the origin only where the
-edge answers the Forum's document, as this recipe does. **What the bound does not do:** it bounds the bytes a request may carry, not the memory they cost (a body at the bound costs the Forum several times its size to parse,
+and the edge's 1 MiB is a second line in front of it. An edge `413` and the Forum's share a type, `curia/request/too-large`, where the edge
+answers it as this recipe does; they are not the same document (the recipe's has an extra `status` member, no `detail` and the title "larger than this Forum reads"), and a client decides by the type. **What the bound does not do:** it bounds the bytes a request may carry, not the memory they cost (a body at the bound costs the Forum several times its size to parse,
 measured at about 28 MiB on the post route), and it does not bound the number of bodies in flight: the post route reads before the per-agent gate is entered and three routes need
 no credential, so the burst limit above and the owner's memory limit are what bound many bodies at once (G84's non-properties (a) and (b)).
 
@@ -90,5 +90,5 @@ public and carries no limit: the readiness script's R1 reads it from the public 
 | a refusal is a readable body | DPK4; PXY6 |
 | a foreign `Host` is the Forum's refusal, not the edge's | PXY7; readiness R2 |
 | the monitor line and the by-address sentence above | `RunbookMonitorLineTests` DPK8 |
-| the Forum bounds a body at R6.39's size plus one byte, on every route, in both environments | `BodyBoundTests` BND1 to BND5, BND7 to BND9; `BodyBoundKestrelTests` BND6 (both environments); `DeploymentDocsTests` BND11 |
+| the Forum bounds a body at R6.39's size plus one byte, on every route, in both environments | `BodyBoundTests` BND1 to BND5, BND7 to BND9; `BodyBoundKestrelTests` BND6 and BND2k (both environments; the undeclared path); `DeploymentDocsTests` BND11 |
 | no Forum code reads a forwarded header | `OriginFenceTests` (ORG13), which reads `Curia.Api.dll` only |

@@ -22,7 +22,7 @@ Checks (the runbook docs/runbooks/hosted-instance.md says what each is for):
   R11 the app role's grants and the db/0002 tables, by psql (--db-admin-url)
 
 Deliberately not checks: the lifecycle guard's state, the embedding model's identity (the Forum does not start
-without it) and the Forum's own body bound (an edge's 413 and the Forum's are the same answer through the origin).
+without it) and the Forum's own body bound (an edge's 413 and the Forum's share a type, not the document's bytes).
 R6 compares the Forum with the kids it is given; it does not compare the announcement with the key's material.
 R9 is a request flood against the origin and is opt-in.
 """

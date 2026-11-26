@@ -108,7 +108,7 @@ internal static class Variations
         }));
 
         // Over the Forum's own bound (errata G84, R6.68 (rev.)): one byte past it, R6.39's number from the white paper plus two, declared and then with no declared length. The oracle is R14.10's as written
-        // (no 5xx, every refusal a problem document): the fuzzer discharges R11.33's empty-413 instance, and the figure's VALUE is held by BND1 to BND3, because a 400 for a body one byte past it is a problem document too.
+        // (no 5xx, every refusal a problem document): the fuzzer does NOT discharge R11.33's empty-413 instance (it runs on TestServer, where a chunked body is declared and a thrown BadHttpRequestException is not the host's page; deleting the catch leaves it equal to its control, FBND7f; BND6b to BND6e and BND2k hold the catch), and the figure's VALUE is held by BND1 to BND3, because a 400 for a body one byte past it is a problem document too.
         all.Add(new("body-over-cap", p => p.IsBodyRoot, (_, _) => new VariedValue.Body(OverCapBody(), null)));
         all.Add(new("body-over-cap-chunked", p => p.IsBodyRoot, (_, _) => new VariedValue.Body(OverCapBody(), null, Chunked: true)));
 

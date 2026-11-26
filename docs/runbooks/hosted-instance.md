@@ -42,8 +42,8 @@ issue, a mail, a signed message); **the operator keeps the notes with the announ
 1. **D125 is closed**: the Forum bounds a request body itself (G84, R6.68 (rev.), built), at R6.39's size plus one byte, 1,048,577 bytes, and the
    edge's 1 MiB is a second line in front of it (`docs/runbooks/reverse-proxy.md`). What it does not do is stated there: it bounds bytes and not
    their cost, and not the number of bodies in flight. **How the operator confirms it for itself:** read G84's Status in the errata, and run the
-   tests it names, `BodyBoundTests` (BND1, BND2: every route, declared and chunked) and `BodyBoundKestrelTests` (BND6: the host's own refusals,
-   in Production and in Development), green on the build being deployed.
+   tests it names, `BodyBoundTests` (BND1, BND2: every route, declared; in process a "chunked" body is also declared) and `BodyBoundKestrelTests` (BND2k: a body with no
+   declared length over a socket on five routes; BND6: the host's own refusals, in Production and in Development), green on the build being deployed.
 2. **The database's owner has applied db/0001 to db/0006** on the hosted database (Start order, step 1), and the post-check of
    `docs/runbooks/backup-restore.md` reads green when the operator runs it.
 3. **The three keys are backed up before publication**, each encrypted and off the host in a place of its own (`docs/runbooks/operator-keys.md`); the
