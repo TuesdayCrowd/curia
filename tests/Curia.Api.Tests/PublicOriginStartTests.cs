@@ -208,6 +208,13 @@ public sealed class PublicOriginStartTests
             if (canonical is not null) Expect(failures, message.Contains(canonical, StringComparison.Ordinal), $"refused ({owner}) {value}: expected the refusal to name {canonical}, it says: {message}");
         }
 
+        // Added by Task 6 (FORG11a): a trailing dot is refused for its own reason and says so; the empty-label rule would refuse it too, so refusal alone does not show the dot rule is there.
+        foreach (var value in new[] { "http://forum.example.", "http://forum.example.:8443" })
+        {
+            var (_, _, message) = PublicOriginReflection.Parse(value);
+            Expect(failures, message.Contains("ends in a dot", StringComparison.Ordinal), $"refused (grammar) {value}: expected the refusal to say the host ends in a dot, it says: {message}");
+        }
+
         // Userinfo: refused, and nothing of the value is quoted (R10.27's shape: a configured password must not reach the start log).
         foreach (var value in new[] { "http://svc:s3cretpw@forum.example", "http://svc@forum.example", "http://:@forum.example" })
         {
@@ -255,6 +262,41 @@ public sealed class PublicOriginStartTests
         }
 
         NoFailures(failures, "R11.109: the docs name the origin's setting as the code spells it");
+    }
+
+    /// <summary>
+    /// ORG14b (Task 6, FSPEC): the errata's paragraphs for R5.27 and R11.109 spell what the code does: the refusal's problem type and the rule for an explicit default port, and the two settings and the two
+    /// refused keys. An edit of the text that the code does not follow (or the reverse) was read by no probe before this one (FSPECb, FSPECc and FSPECd survived <c>check-spec.py</c> and every test).
+    /// </summary>
+    [Fact]
+    public void R11_109_ORG14b_TheErrataSpellWhatTheCodeDoes()
+    {
+        var errata = File.ReadAllLines(RepoFile("curia-whitepaper-ERRATA-AND-ADDENDUM.md"));
+        string Paragraph(string id)
+        {
+            var found = errata.Where(l => l.StartsWith($"**{id}** ", StringComparison.Ordinal)).ToArray();
+            Assert.True(found.Length == 1, $"the errata have {found.Length} paragraphs that begin **{id}**, expected one");
+            return found[0];
+        }
+
+        var hostRefusalType = (string?)typeof(Program).Assembly.GetType("Curia.Api.HostNotServed")
+            ?.GetField("Type", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)?.GetRawConstantValue()
+            ?? throw new Xunit.Sdk.XunitException("Curia.Api.HostNotServed.Type does not exist");
+        var key = PublicOriginReflection.Constant("ConfigurationKey");
+        var variable = PublicOriginReflection.Constant("EnvironmentVariable");
+        var failures = new List<string>();
+
+        var host = Paragraph("R5.27");
+        Expect(failures, host.Contains($"`{hostRefusalType}`", StringComparison.Ordinal), $"R5.27 does not name the refusal's type {hostRefusalType}");
+        Expect(failures, host.Contains("ASCII case-insensitively", StringComparison.Ordinal), "R5.27 does not say the comparison is ASCII case-insensitive");
+        Expect(failures, host.Contains("being the same as none", StringComparison.Ordinal), "R5.27 does not say an explicit default port is the same as none");
+
+        var start = Paragraph("R11.109");
+        foreach (var name in new[] { key, variable, "Curia:Issuer", "Curia:Audience" })
+            Expect(failures, start.Contains($"`{name}`", StringComparison.Ordinal), $"R11.109 does not name {name}");
+        Expect(failures, start.IndexOf(key, StringComparison.Ordinal) < start.IndexOf(variable, StringComparison.Ordinal), $"R11.109 does not read {key} before {variable}");
+
+        NoFailures(failures, "R5.27 and R11.109 spell what the code does");
     }
 
     private static string RepoFile(string name)

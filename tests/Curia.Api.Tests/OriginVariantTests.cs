@@ -260,4 +260,18 @@ public sealed class IdnOriginTestServerTests(IdnOriginTestServerFixture forum) :
         Expect(failures, health.Status == 200, $"/health: expected 200, the Forum answered {health.Says}");
         NoFailures(failures, "R5.27: an A-label origin is served in process (what TestServer does with the decode is recorded by this row)");
     }
+
+    /// <summary>
+    /// The origin's host spelled as a U-label (<c>bücher.example</c>), in process, where the header reaches the pipeline as written: <b>refused by the Forum</b>, because the comparison reads the header as received
+    /// and does not map the U-label to the origin's A-label (R5.27, non-property (i)). Added by Task 6: FORG24 (the comparison through <c>HostString.ToUriComponent()</c>, which re-encodes the U-label) was killed
+    /// by the fence alone, and ORG9(ii) stays green under it because the check runs outside a forwarding middleware.
+    /// </summary>
+    [Fact]
+    public async Task R5_27_ORG20_AUnicodeSpellingOfTheOriginsHostIsRefusedNotMapped()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/health");
+        request.Headers.TryAddWithoutValidation("Host", "b\u00FCcher.example");
+        var reply = await ReadAsync(await forum.Client.SendAsync(request, Ct), Ct);
+        Assert.True(reply.IsHostRefusal, $"a U-label spelling of the origin's host: expected the Forum's refusal (400 host-not-served), the Forum answered {reply.Says}");
+    }
 }

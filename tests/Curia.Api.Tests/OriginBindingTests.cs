@@ -48,6 +48,30 @@ public sealed class OriginBindingTests(ForumFixture forum) : IClassFixture<Forum
     }
 
     /// <summary>
+    /// ORG4, the metadata under each <c>Host</c> spelling the Host refusal admits (the case variant and the explicit default port): the document states the origin's issuer, token endpoint and key set whatever
+    /// the request called the Forum. Added by Task 6: FORG16 (the metadata's <c>token_endpoint</c> built from the request) stayed green under ORG4's plain request, which carries the origin's own spelling, and was
+    /// killed by the fence alone.
+    /// </summary>
+    [Fact]
+    public async Task R5_26_ORG4_TheMetadataIsTheOriginsWhateverAdmittedHostAskedForIt()
+    {
+        var failures = new List<string>();
+        foreach (var host in new[] { "localhost", "LOCALHOST", "localhost:80" })
+        {
+            using var client = ClientWith(forum, host);
+            using var metadata = await client.GetAsync("/.well-known/oauth-authorization-server", Ct);
+            Expect(failures, metadata.StatusCode == HttpStatusCode.OK, $"Host {host}: expected 200, the Forum answered {(int)metadata.StatusCode}");
+            if (metadata.StatusCode != HttpStatusCode.OK) continue;
+            var served = JsonNode.Parse(await metadata.Content.ReadAsStringAsync(Ct))!;
+            Expect(failures, (string?)served["issuer"] == Own, $"Host {host}, metadata issuer: expected {Own}, served {served["issuer"]}");
+            Expect(failures, (string?)served["token_endpoint"] == Own + "/oauth/token", $"Host {host}, metadata token_endpoint: expected {Own}/oauth/token, served {served["token_endpoint"]}");
+            Expect(failures, (string?)served["jwks_uri"] == Own + "/oauth/jwks", $"Host {host}, metadata jwks_uri: expected {Own}/oauth/jwks, served {served["jwks_uri"]}");
+        }
+
+        NoFailures(failures, "R5.26: the metadata names the configured origin whatever admitted Host asked for it");
+    }
+
+    /// <summary>
     /// ORG5. A post's provenance envelope names <c>origin + /.well-known/reader-contract/v1</c> whatever <c>Host</c> a reader's request carries: the plain request is the <b>control</b> (green on the tree),
     /// the case variant and the explicit default port, both of which the Host refusal admits, are red on the tree (the URL follows the <c>Host</c>).
     /// </summary>
