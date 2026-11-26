@@ -440,3 +440,15 @@ The figures are **provisional**: they are sized from the nonce route's measured 
 ## Files written
 
 - This amendment, in the architect's scratch area (not a tracked file). No tracked file was edited, no version-control write was made, and no command that changes state was run (only reads: `git log`, `git diff --stat`, `git show`, `git ls-tree`, `git ls-files`, `gh pr view`, `grep`, `sed`, `cat`, `ls`).
+
+---
+
+## As run
+
+Built 2026-11-26 on branch `the-deployment-pack`, from `main` 828f4c94. The errata's G83 Status paragraph is the full record; this section says only what differed from the plan.
+
+- **Tasks and commits.** The plan and its Amendment 1 (c1fd3787, f4c05f69), Task 1 (e478a380), Tasks 2 to 5 (88933cbf), Tasks 6 and 7 (753ee9a1), the cold-read amendment (5b8ca521), Task 8 (this record, the Status, CLAUDE.md). Task 0 and Task 0b changed no tracked file. R6.68 stays specified and not built: D125 is its stage.
+- **Differed from the plan.** The api-legs gate was not available (#161 unmerged); the plan's conditional applied and `api-legs.py check` was not run. Real nginx was available (Tier B ran), with every podman call on the named connection. R4 reads the discovery document and not a Reader Contract URL. `curia/edge/rate-limited` is named by R7.33 in the errata and held as a constant in DPK4 and PXY6. The Tier A forwarder's origin carries a port and models no TLS (RDY5 uses a real TLS server with a generated CA instead). A two-day certificate fails R5's own 14-day floor, so the run used 30. DPK1 and DPK2 count required verbs over the five new runbooks only. RDY10 runs the operator from its build output, not the copy beside the tests (item 398). FDPK4e to FDPK4g were read as ORG13's list narrowed, `$proxy_add_x_forwarded_for`, and a rate above the table with a burst of zero.
+- **What the run found that the plan did not name.** The Forum bounds no request body (D125; Task 0b: about five bytes of memory per body byte, an empty `413` on the post route in Production). A client's `Forwarded:` header passed through the recipe (closed by `proxy_set_header Forwarded "";` and a focused nginx re-run). `curia` on a `429` does not retry and exits 8. The first cold read could not name the first three commands (0 of 3); the amendment added Provisioning, the roles table, the Forum's unit and the corrected key order, and the second round agreed (3 of 3). FDPK8a survived and was closed in the same task.
+- **Not shown.** `curia` through the TLS terminator; a start of any unit on a Linux host; `LimitCORE`, the multi-line PEM in `EnvironmentFile`; a Linux host's memory under the 29 MB bodies; the CI runner's `psql` and `pg_dump`.
+- **Register.** The patch `impl-plan-pro.md` is finalized and held; it takes D125, item 397 (a) to (m), item 398 and trap 303, and closes item 371 as "an edge answers `429`". First free after: `D126, G84, R4.49, R5.28, R6.69, R7.34, R9.73, R10.103, R11.111, item 399, trap 304`.
