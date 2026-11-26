@@ -74,6 +74,14 @@ public sealed partial class RunbookMonitorLineTests(MonitorOriginFixture forum) 
             var expectedResolve = authority.Contains(':', StringComparison.Ordinal) ? authority : $"{authority}:{defaultPort}";
             if (m.Groups[1].Value + ":" + m.Groups[2].Value != expectedResolve) problems.Add($"--resolve names {m.Groups[1].Value}:{m.Groups[2].Value} but the URL's authority is {authority}");
 
+            // Closing FDPK8a's survivor: a monitor line renamed consistently (--resolve and URL together) passes every check below, because the fixture is configured from the line itself. The name
+            // must also be the one the shipped recipe serves: the literal nginx.conf redirects port 80 to.
+            var nginx = await File.ReadAllTextAsync(Path.Combine(PublishedEdge.RepoRoot(), "deploy", "proxy", "nginx.conf"), Ct);
+            var recipeName = RecipeRedirectName().Match(nginx);
+            var monitorName = authority.Split(':')[0];
+            if (!recipeName.Success) problems.Add("deploy/proxy/nginx.conf has no 'return 301 https://<name>...' redirect to compare the monitor line's name with");
+            else if (!string.Equals(recipeName.Groups[1].Value, monitorName, StringComparison.Ordinal)) problems.Add($"the monitor line names {monitorName} but deploy/proxy/nginx.conf serves {recipeName.Groups[1].Value}");
+
             var named = await HealthAsync(authority);
             if (named.Status != HttpStatusCode.OK) problems.Add($"/health under the runbook's Host {authority} answered {(int)named.Status}, not 200");
             foreach (var other in new[] { "127.0.0.1", authority[..^1] + (authority[^1] == 'x' ? 'y' : 'x') })
@@ -87,6 +95,9 @@ public sealed partial class RunbookMonitorLineTests(MonitorOriginFixture forum) 
         if (!ByAddress().IsMatch(flat)) problems.Add("the runbook does not say that a probe by address is answered 400 host-not-served");
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
+
+    [GeneratedRegex(@"return\s+301\s+https?://([^/$:\s;]+)")]
+    private static partial Regex RecipeRedirectName();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
