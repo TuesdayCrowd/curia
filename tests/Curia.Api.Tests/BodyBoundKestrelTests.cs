@@ -72,16 +72,18 @@ public abstract class BodyBoundKestrelTests(ForumFixture forum, string environme
         return new Sent(await RawHttp.SendAsync(origin.Port, head, writeBody, readSeconds, Ct), token, proof);
     }
 
-    private static async Task WriteChunksAsync(NetworkStream stream, int totalBytes)
+    private static async Task WriteChunksAsync(NetworkStream stream, int totalBytes, byte[]? prefix = null)
     {
         var data = new byte[65_536];
         Array.Fill(data, (byte)'a');
+        var first = (byte[])data.Clone();
+        prefix?.CopyTo(first, 0);
         var header = Encoding.ASCII.GetBytes("10000\r\n");
         var crlf = "\r\n"u8.ToArray();
         for (var sent = 0; sent < totalBytes; sent += data.Length)
         {
             await stream.WriteAsync(header, Ct);
-            await stream.WriteAsync(data, Ct);
+            await stream.WriteAsync(sent == 0 ? first : data, Ct);
             await stream.WriteAsync(crlf, Ct);
         }
 
@@ -159,6 +161,30 @@ public abstract class BodyBoundKestrelTests(ForumFixture forum, string environme
             if (await RowAsync("keys", row) is { } found) problems.Add($"row {row}: {found}");
 
         Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
+    }
+
+    /// <summary>
+    /// BND2k (the closing probe of falsification rows FBND5 and FBND9, D125 Task 6): BND2's chunked rows run on <c>TestServer</c>, which declares a length for the content it is given, so they reach the declared-length
+    /// check and never the stream. This is BND2 over a socket, where a chunked body has no declared length: on each of the five routes the global figure alone bounds, a body sent in chunks past the bound is refused 413 in
+    /// the route's shape by the stream (and, at the token route, by the endpoint's catch filter), and a body of exactly the bound is not.
+    /// </summary>
+    [Theory]
+    [InlineData("agents")]
+    [InlineData("batch")]
+    [InlineData("flags")]
+    [InlineData("token")]
+    [InlineData("posts")]
+    public async Task R6_68_BND2k_AChunkedBodyOnASocketPastTheBoundIsRefusedByTheStreamOnEachRoute(string route)
+    {
+        // A binder route parses as it reads and refuses a body that is not JSON at its first byte, before any bound: its body opens like JSON, a string that never closes inside the bound.
+        var prefix = route is "agents" or "batch" or "flags" ? "{\"a\":\""u8.ToArray() : [];
+        var over = (await SendAsync(route, "Transfer-Encoding: chunked", s => WriteChunksAsync(s, 1_100_000, prefix), 20)).Reply;
+        var at = (await SendAsync(route, "Transfer-Encoding: chunked", s => WriteChunksAsync(s, 1_048_576, prefix), 20)).Reply;
+        var shape = route == "token"
+            ? BodyBoundKit.MemberText(over.Body, "error") == "invalid_request"
+            : BodyBoundKit.MemberText(over.Body, "type") == BodyBoundKit.TooLargeType;
+        Assert.True(over.Status == 413 && shape, $"{route}, chunked on a socket, 1,114,112 bytes: expected 413 in the route's shape, got {BodyBoundKit.Describe(over.Status, over.Body)}");
+        Assert.True(at.Status != 413, $"{route}, chunked on a socket, 1,048,576 bytes (the bound itself): answered {BodyBoundKit.Describe(at.Status, at.Body)}");
     }
 }
 
