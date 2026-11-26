@@ -1,0 +1,12 @@
+[Unit]
+Description=Run curia-sign-head every fifteen minutes
+
+[Timer]
+# R6.24 asks for a head at least every 60 minutes. Fifteen minutes is a quarter of that, so one missed run is not a breach;
+# --if-grown makes a run on a quiet log a no-op (it prints `unchanged` and appends nothing).
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,22 @@
+[Unit]
+Description=Sign the Curia Acta head if the log has grown past the latest head (errata G67, R6.63)
+# The failure target is the OWNER'S unit: replace curia-alert.service with the unit that pages someone. The stub shipped
+# beside this file alerts no one (see it).
+OnFailure=curia-alert.service
+
+[Service]
+Type=oneshot
+User=curia-head
+# The environment file holds CURIA_EVENTS_POSTGRES and CURIA_LOG_SIGNING_KEY_PEM, and NEITHER the declaration key nor the
+# operator-acts key (R12.18: curia-operator refuses, exit 3, an environment that holds one). See sign-head.env.example.
+EnvironmentFile=/etc/curia/sign-head.env
+ExecStart=/usr/local/bin/curia-operator sign-head --by head-timer --if-grown
+# Exit 0 (signed, or `unchanged`) is the only success. Exit 6 is the stall (a row the Forum does not honour follows the latest
+# head) and exit 5 is a store fault: both fail the unit, and OnFailure= runs.
+SuccessExitStatus=0
+# An abort can write a core, and a core holds this environment, which holds the log key.
+LimitCORE=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
