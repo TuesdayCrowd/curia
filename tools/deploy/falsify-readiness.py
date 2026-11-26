@@ -44,6 +44,7 @@ ROWS = [
     ("FRDY6", "R6", READINESS, kill("r6"), "ReadinessScriptTests.G83_RDY6"),
     ("FRDY7", "R7", READINESS, kill("r7"), "ReadinessScriptTests.G83_RDY7"),
     ("FRDY8", "R8", READINESS, kill("r8"), "ReadinessScriptTests.G83_RDY8"),
+    ("FRDY8b", "R8", READINESS, ("    if plain != 200:\n        return FAIL, f\"GET /health answered {plain} with no forwarded header", "    if False:\n        return FAIL, f\"GET /health answered {plain} with no forwarded header"), "ReadinessScriptTests.G83_RDY8b"),
     ("FRDY9", "R9", READINESS, kill("r9"), "ReadinessScriptTests.G83_RDY9"),
     ("FRDY10", "R10", READINESS, kill("r10"), "ReadinessScriptTests.G83_RDY10"),
     ("FRDY11", "R11", READINESS, kill("r11"), "ReadinessScriptTests.G83_RDY11"),

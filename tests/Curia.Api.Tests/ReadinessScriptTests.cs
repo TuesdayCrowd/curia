@@ -362,6 +362,30 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
     }
 
     /// <summary>
+    /// RDY8b: behind an edge that rewrites the <c>Host</c> (the <c>$host</c> defect), R1 and R8 both FAIL and R8 says the proxy rewrote the Host and does not blame the Forum for reading a forwarded header
+    /// (live finding 5); a Forum that does read the header still gets the R5.26 words (RDY8).
+    /// </summary>
+    [Fact]
+    public async Task G83_RDY8b_ARewrittenHostIsNotBlamedOnTheForum()
+    {
+        await using var edge = await NewAsync<ForwardedForumFixture>();
+        _ = edge.Client;
+        string[] through = ["--origin", edge.PublicOrigin, "--connect", $"127.0.0.1:{edge.ForwarderPort}", "--only", "R1,R8"];
+        _ = await edge.ForwardAsync(new RecipeForwarder.Options(RewriteHost: true));
+        var r = await ReadinessAsync(through);
+        Statuses(r, ("R1", "FAIL"), ("R8", "FAIL"));
+        var reason = r.Checks["R8"].Reason;
+        Assert.True(reason.Contains("rewrote the Host", StringComparison.Ordinal) && !reason.Contains("the Forum reads a forwarded header", StringComparison.Ordinal), $"R8 said: {reason}");
+        var fwd = await NewAsync<ReadinessForwardedHostFixture>();
+        await using (fwd)
+        {
+            _ = fwd.Client;
+            var blamed = await ReadinessAsync(["--origin", Origin(fwd), "--only", "R8"]);
+            Assert.Contains("the Forum reads a forwarded header", blamed.Checks["R8"].Reason, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
     /// RDY9: R9 is opt-in, and against a bare Forum it FAILs (no edge limit: asserted); through the forwarder that models the recipe it PASSes with the 429 position named; with the bucket removed it FAILs again.
     /// Without <c>--probe-limits</c> it is NOT CHECKED.
     /// </summary>

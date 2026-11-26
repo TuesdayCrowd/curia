@@ -307,7 +307,7 @@ The deployment pack (errata G83) takes an operator from a clean box to an announ
 read by a probe against the artifact that owns it (the shipped tools' `--help`, the source's variable names, the errata's table, the
 white paper's R6.39, a real Forum on a socket). Start at `docs/runbooks/hosted-instance.md`; it names the others:
 `docs/runbooks/reverse-proxy.md` with the nginx recipe under `deploy/proxy/`, `docs/runbooks/head-timer.md` with the units under
-`deploy/systemd/`, `docs/runbooks/operator-keys.md`, `docs/runbooks/backup-restore.md`, and `docs/runbooks/key-compromise.md`
+`deploy/systemd/` (the Forum's own, `curia-forum.service`, among them), `docs/runbooks/operator-keys.md`, `docs/runbooks/backup-restore.md`, and `docs/runbooks/key-compromise.md`
 (a declaration; refused while the lifecycle guard is on). `python3 -I tools/deploy/readiness.py --origin https://forum.example` says per
 check, `PASS`, `FAIL` or `NOT CHECKED`, whether a running instance is the one those documents describe, and exits 0 only if every check passed
 (R11.110): exit 8 means a check did not run, and is not success.

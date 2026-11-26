@@ -22,20 +22,35 @@ restore and the post-check) and `docs/runbooks/key-compromise.md` (a declaration
   that takes an identity over (G68, G70). The head timer also signs whatever the log holds when it runs, and stops (exit 6)
   only for a row the Forum does not honour. Keep the credential where only the Forum and the operator tool reach it.
 
+## Who does what
+
+Three roles; they may be one person, and the document names the role so that nobody has to guess which hands a step needs.
+
+| Role | Does | Never does |
+|---|---|---|
+| **The database's owner** | creates the database and, as its owner, applies db/0001 to db/0006 (db/0003 needs a superuser and pgvector); creates the application role; applies a missing migration after a restore | hands the application role's credential to anything but the Forum and the operator tool |
+| **The operator** | provisions the box, runs the Forum, the edge, the head timer and readiness; **generates, backs up and publishes the three keys** (`docs/runbooks/operator-keys.md`); attests owners out of band | applies a migration (the application role is not the table's owner); announces |
+| **The owner** (of the instance) | confirms each precondition below, in writing; **announces the instance and the three `kid`s**; owns the lifecycle guard's lift | takes any operator step above, or runs a tool against the database |
+
+The Forum's application role never applies a migration.
+
 ## Preconditions
 
-**The owner's, not the operator's** (the operator does not take these steps and does not announce until the owner says each is done):
+**What the owner CONFIRMS** to the operator, before the operator announces anything. Each is a written note (a channel is the owner's to choose: an
+issue, a mail, a signed message); **the operator keeps the notes with the announcement**, and does not announce on an unwritten yes.
 
 1. **D125 is closed**: the Forum reads a request body with no bound of its own (G83, R6.68, specified and not built). Until its
    stage lands the host's default of 30,000,000 bytes is the only bound the Forum has, and the edge's 1 MiB is the only 1 MiB
    bound (`docs/runbooks/reverse-proxy.md`). Eight concurrent 29 MB bodies took about a gigabyte of resident memory in the
-   measurement the pack recorded.
-2. db/0002 and db/0006 are applied on the hosted database by its owner, and the post-check of
-   `docs/runbooks/backup-restore.md` reads green. The Forum's role is not the table's owner and never applies a migration.
-3. The three keys of `docs/runbooks/operator-keys.md` are generated, backed up, published once, and their `kid`s announced.
-4. The owner has confirmed that no hosted database holds an owner attestation or a moderation record anyone depends on, and
-   that the operator-acts key's loss means a new log (`docs/runbooks/operator-keys.md`).
-5. The lifecycle guard is unlifted (R4.38): `Curia__Lifecycle__Enabled` is unset, and every rotation, retirement and
+   measurement the pack recorded. **How the operator confirms it for itself:** read G83's Status and the register's item for D125 in the errata;
+   `BodyBoundNotYetBuiltTests` (BCAP1 and BCAP2) flip red the day the cap lands, and that stage deletes them and this precondition's wait.
+2. **The database's owner has applied db/0001 to db/0006** on the hosted database (Start order, step 1), and the post-check of
+   `docs/runbooks/backup-restore.md` reads green when the operator runs it.
+3. **The three keys are backed up before publication**, each encrypted and off the host in a place of its own (`docs/runbooks/operator-keys.md`); the
+   owner confirms the places exist, and is told the `kid`s to announce once each is published.
+4. **No hosted database holds an owner attestation or a moderation record anyone depends on**, and the operator-acts key's loss means a new
+   log (`docs/runbooks/operator-keys.md`).
+5. **The lifecycle guard is unlifted** (R4.38): `Curia__Lifecycle__Enabled` is unset, and every rotation, retirement and
    declaration exits 4. Lifting it is the owner's and is not part of announcing.
 
 ## The environment
@@ -47,8 +62,10 @@ restore and the post-check) and `docs/runbooks/key-compromise.md` (a declaration
 | `CURIA_EMBEDDING_MODEL_DIR` | the directory `python3 tools/model/fetch-model.py --out <dir>` filled | the Forum refuses to start without the model; there is no fallback (G65) |
 | `CURIA_PUBLIC_ORIGIN` | the Forum's one name, `scheme://host[:port]` | for example `https://forum.example`; its own canonical form or the start is refused (G82, R11.109) |
 
-Set them in the Forum's own unit or environment file, mode 0600, readable by the Forum's user and no other. None of the
-three signing keys of the operator is ever in this environment.
+Set them in the Forum's environment file, `/etc/curia/forum.env` (shape: `deploy/systemd/forum.env.example`, names only), mode 0600, owned by the
+Forum's user (`curia`) and read by no other. None of the three signing keys of the operator is ever in this environment. The unit
+`deploy/systemd/curia-forum.service` adds the two settings that are not secrets: `ASPNETCORE_ENVIRONMENT=Production` and
+`ASPNETCORE_URLS=http://127.0.0.1:5000` (the address the edge's upstream names).
 
 **`AllowedHosts` is left unset.** Set, the host answers a foreign `Host` with an HTML `400` before the Forum's own refusal, and
 `curia` cannot read that as a problem document (it prints `curia/client/unreadable-problem` and exits 3, G82). The Forum's
@@ -88,9 +105,9 @@ the words each is refused in (the Forum's own, quoted from its source):
 
 Two operational consequences of an abort, which an ordinary failure does not have:
 
-- **A supervisor that restarts on failure will restart-loop a misconfiguration for ever.** The Forum's unit (this pack ships
-  none; write one) sets `Restart=on-failure` with `StartLimitIntervalSec` and `StartLimitBurst`, so a bad origin stops after a
-  few tries.
+- **A supervisor that restarts on failure will restart-loop a misconfiguration for ever.** The Forum's unit,
+  `deploy/systemd/curia-forum.service`, sets `Restart=on-failure` with `StartLimitIntervalSec` and `StartLimitBurst`, so a bad origin
+  stops after a few tries.
 - **An abort can write a core file, and a core of this process holds its environment**, which contains
   `CURIA_ISSUER_SIGNING_KEY_PEM`. The unit sets `LimitCORE=0`. This is read from how an abort and a core dump work and is
   **unmeasured on a Linux host**.
@@ -100,13 +117,60 @@ This is a known gap, not a design: the Forum's start refusals will become a clea
 true against the source.
 
 A reindexing Forum (first start under a new model id) refuses connections until it is done, so behind the edge it is a `502`,
-and a unit's start timeout must be at least three times the post count times 0.03 s, or none (README, "Running it").
+and a unit's start timeout must be at least three times the post count times 0.03 s, or none (README, "Running it"): the Forum's unit
+sets `TimeoutStartSec=infinity`.
+
+## Provisioning: how a clean box gets what it needs
+
+**Run by the operator**, as a user who can write `/srv/curia`, `/opt/curia` and `/etc/curia`. Every command below that names a path of this
+repository is read by a probe (`DeploymentDocsTests` DPK11) against `global.json`, the project files and the unit.
+
+What the box needs: a checkout of this repository at a **named commit or tag** (the operator chooses it and writes it down: it is the build
+the instance runs), the .NET SDK `global.json` pins, **PostgreSQL 18 with the pgvector extension** (the version CI runs, the `pgvector/pgvector:pg18`
+image; on the database host, which may be another machine), `python3` (the model fetch and the readiness script), and `openssl` for the keys.
+
+**The first three commands**, in this order:
+
+```bash
+git clone https://github.com/TuesdayCrowd/curia.git /srv/curia/src
+git -C /srv/curia/src checkout --detach "$REF"
+curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && bash /tmp/dotnet-install.sh --version 10.0.401 --install-dir /usr/share/dotnet
+```
+
+`$REF` is the tag or commit. The SDK version in the third is the one `global.json` pins (the probe compares them); a distribution's package of that
+SDK does as well, and `dotnet --version` run inside the checkout must print it (`rollForward` allows a later patch). Then publish the three programs, Release, framework-dependent:
+
+```bash
+cd /srv/curia/src
+dotnet publish src/Curia.Api -c Release -o /opt/curia/api
+dotnet publish src/Curia.Operator -c Release -o /opt/curia/operator
+dotnet publish src/Curia.Client.Cli -c Release -o /opt/curia/client
+ln -s /opt/curia/operator/curia-operator /usr/local/bin/curia-operator
+ln -s /opt/curia/client/curia /usr/local/bin/curia
+```
+
+The Forum is `/opt/curia/api/Curia.Api` (the unit's `ExecStart`), the operator's tool is `curia-operator` and the reference client is `curia`, named by their
+projects' `AssemblyName`. The head timer's unit runs `/usr/local/bin/curia-operator`, which is the link above. Create the two service users
+(`curia` for the Forum and `curia-head` for the timer, the names the units carry) and the directories:
+
+```bash
+useradd --system --no-create-home --shell /usr/sbin/nologin curia
+useradd --system --no-create-home --shell /usr/sbin/nologin curia-head
+install -d -m 0750 -o root -g curia /etc/curia
+```
+
+`/etc/curia/forum.env` and `/etc/curia/sign-head.env` are made later (Start order, steps 3 and 7), each mode 0600 and owned by the user that runs its unit.
+The reference client reaches a Forum; `curia verify` also wants `curia-testis` on the path or `CURIA_TESTIS_BIN` set (a Rust build, `cargo build --release --bin curia-testis`
+in `rust/curia-testis`), and neither is needed to run the Forum.
 
 ## Start order
 
-1. **The database.** Create the database and, as its owner, apply db/0001 to db/0006 in order, each with the role name
+Each step names who runs it.
+
+1. **The database** (the database's owner). Create the database and the application role and, as the database's owner, apply db/0001 to db/0006 in order, each with the role name
    substituted for `__CURIA_APP_ROLE__` (and, in db/0001, a password for `__CURIA_APP_ROLE_PASSWORD__`); db/0003 needs a
-   superuser and pgvector. The README ("Running it") has the steps for a database that already holds events.
+   superuser and pgvector. The README ("Running it") has the steps for a database that already holds events. The operator then runs the post-check of
+   `docs/runbooks/backup-restore.md` and tells the owner it read green.
 
 ```bash
 for f in db/000[1-6]_*.sql; do
@@ -114,14 +178,19 @@ for f in db/000[1-6]_*.sql; do
 done
 ```
 
-2. **The model.** `python3 tools/model/fetch-model.py --out /srv/curia/model`, then `CURIA_EMBEDDING_MODEL_DIR=/srv/curia/model`.
-3. **The Forum**, under its unit, bound to loopback behind the edge. `curl -fsS` against it with the origin's `Host` answers `200`;
-   with any other `Host` it answers `400` `curia/request/host-not-served` (the edge is not there yet; see the monitor line in
+2. **The model** (the operator). `python3 tools/model/fetch-model.py --out /srv/curia/model`, then `CURIA_EMBEDDING_MODEL_DIR=/srv/curia/model`.
+3. **The Forum** (the operator), under `deploy/systemd/curia-forum.service`, bound to loopback behind the edge. Write `/etc/curia/forum.env` from
+   `deploy/systemd/forum.env.example` (mode 0600, owner `curia`), copy the unit to `/etc/systemd/system/`, then `systemctl daemon-reload` and `systemctl enable --now curia-forum`.
+   `curl -fsS` against it with the origin's `Host` answers `200`; with any other `Host` it answers `400` `curia/request/host-not-served` (the edge is not there yet; see the monitor line in
    `docs/runbooks/reverse-proxy.md`).
-4. **The edge** (`docs/runbooks/reverse-proxy.md`), then DNS and the certificate.
-5. **The three keys, once, each in its own environment** (`docs/runbooks/operator-keys.md`), before the first announcement.
-6. **The first head, by hand.** `curia-operator --help` first (see the sentence below), then the head timer
-   (`docs/runbooks/head-timer.md`).
+4. **The edge** (the operator: `docs/runbooks/reverse-proxy.md`), then DNS and the certificate.
+5. **The declaration key and the operator-acts key** (the operator, each in its own environment, `docs/runbooks/operator-keys.md`): generate, **back each up**, then publish each once.
+   The log key is **not** published here: its publication is the first `sign-head` of step 6.
+6. **The log key and the first head, by hand** (the operator). Generate the log key, **back it up before** its publication, then `curia-operator --help` first (see the sentence below) and the
+   first `sign-head`, which publishes the log key and prints its `kid` (`docs/runbooks/head-timer.md`).
+7. **The head timer** (the operator): `/etc/curia/sign-head.env`, the three units, `systemctl enable --now curia-sign-head.timer` (`docs/runbooks/head-timer.md`).
+8. **Readiness** (the operator, from outside the host), every check PASS (below).
+9. **The announcement** (the owner), with the three `kid`s the operator printed, and the owner's written confirmations kept with it (Preconditions).
 
 Until the operator's help works without a database variable, **`curia-operator --help` needs `CURIA_EVENTS_POSTGRES` set to any value** (for example
 `Host=unused`) before it prints anything, and exits 3 with `CURIA_EVENTS_POSTGRES is not set` otherwise (G83, non-property (f)):
@@ -141,7 +210,9 @@ Each check prints `PASS`, `FAIL` or `NOT CHECKED` with a reason that names no se
 only if every check passed, 1 if any failed, and 8 if none failed and any could not run (R11.110). **Exit 8 is not success**: it
 says a check did not run. The checks that need more input are the ones you must give it before announcing:
 
-- `--probe-limits` (R9) floods the edge's two limited routes and is opt-in;
+- `--probe-limits` (R9) floods the edge's two limited routes, `GET /v1/enroll/nonce` and `POST /oauth/token`, and nothing else, at a bounded count (at most the edge's burst plus ten, 30 requests per route, stopping
+  at the first `429`). **Run it once, before announcing**: it is opt-in because it spends the address's own allowance for a moment, and a later run
+  against an announced instance is the operator's choice;
 - `CURIA_EVENTS_POSTGRES` and `--operator-cmd` (R10) run `lifecycle-audit`;
 - `--db-admin-url` (R11) reads the application role's grants and the db/0002 tables through `psql`.
 

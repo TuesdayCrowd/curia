@@ -315,6 +315,11 @@ public sealed partial class DeploymentDocsTests
                 problems.Add($"{header} is set from {v}, not {value}");
         }
 
+        // RFC 7239's Forwarded is cleared, not passed (live finding 2): an empty value is not sent upstream
+        var forwarded = ProxySetHeader(recipe.Locations, "Forwarded").ToList();
+        if (forwarded.Count == 0) problems.Add("curia-locations.conf does not clear Forwarded (proxy_set_header Forwarded \"\"): a client's RFC 7239 header would reach the upstream");
+        foreach (var v in forwarded.Where(v => v.Length != 0)) problems.Add($"Forwarded is set to '{v}', not cleared");
+
         // zones and locations against G83's table
         var table = PublishedEdge.Zones();
         foreach (var zone in table)
@@ -468,6 +473,190 @@ public sealed partial class DeploymentDocsTests
             if (!runbook.Contains(test, StringComparison.Ordinal)) problems.Add($"head-timer.md does not cite {test}");
             if (!AllTestSource().Contains($"Task {test}(", StringComparison.Ordinal)) problems.Add($"the test {test} the runbook cites no longer exists");
         }
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    // ---------------------------------------------------------------- DPK10
+
+    /// <summary>The <c>NAME=</c> assignments of an environment-file example (comments and blank lines dropped).</summary>
+    private static List<string> AssignedNames(string text) =>
+        text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith('#')).Select(l => l.Split('=', 2)[0]).ToList();
+
+    /// <summary>
+    /// DPK10 (cold read, defect 3). The Forum's unit: a service user that is not root; an <c>EnvironmentFile</c> whose example holds exactly the variables the Forum refuses to start without (read from the source,
+    /// as DPK3 reads them) and none of the operator's three signing keys; <c>ASPNETCORE_ENVIRONMENT=Production</c>; the loopback address the edge's upstream names; <c>ExecStart</c> the published <c>Curia.Api</c>; a
+    /// restart limit; no start timeout; <c>LimitCORE=0</c>; and the hosting runbook says where the file lives and its mode.
+    /// </summary>
+    [Fact]
+    public void G83_DPK10_TheForumsUnitCarriesWhatTheRunbookSaysItDoes()
+    {
+        var problems = new List<string>();
+        var unitText = Text("deploy/systemd/curia-forum.service");
+        var service = Unit("deploy/systemd/curia-forum.service");
+        string One(string key) => service.GetValueOrDefault(key)?.FirstOrDefault() ?? string.Empty;
+        string[] operatorKeys = ["CURIA_LOG_SIGNING_KEY_PEM", "CURIA_DECLARATION_SIGNING_KEY_PEM", "CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM"];
+
+        var user = One("User");
+        if (user.Length == 0 || user == "root") problems.Add($"User is '{user}': the Forum runs as its own unprivileged user");
+
+        var envFile = One("EnvironmentFile");
+        if (envFile != "/etc/curia/forum.env") problems.Add($"EnvironmentFile is '{envFile}', not /etc/curia/forum.env (the path the hosting runbook states)");
+        else
+        {
+            var example = Text("deploy/systemd/" + Path.GetFileName(envFile) + ".example");
+            var names = AssignedNames(example);
+            var required = RequiredStartVariables();
+            foreach (var name in required.Where(r => !names.Contains(r, StringComparer.Ordinal))) problems.Add($"the environment example lacks {name}, which the Forum refuses to start without");
+            foreach (var name in names.Where(n => !required.Contains(n))) problems.Add($"the environment example holds {name}, which is not a variable the Forum requires to start");
+            foreach (var key in operatorKeys.Where(k => example.Contains(k, StringComparison.Ordinal))) problems.Add($"the environment example names {key} (R12.18, and a core of the Forum holds its environment)");
+        }
+
+        foreach (var key in operatorKeys.Where(k => unitText.Contains(k, StringComparison.Ordinal))) problems.Add($"the Forum's unit names {key}");
+        if (unitText.Contains("AllowedHosts", StringComparison.Ordinal) && unitText.Split('\n').Any(l => !l.TrimStart().StartsWith('#') && l.Contains("AllowedHosts", StringComparison.Ordinal))) problems.Add("the unit sets AllowedHosts");
+
+        var environment = service.GetValueOrDefault("Environment") ?? [];
+        if (!environment.Contains("ASPNETCORE_ENVIRONMENT=Production", StringComparer.Ordinal)) problems.Add("Environment= does not set ASPNETCORE_ENVIRONMENT=Production");
+        if (environment.Any(e => e.Contains("Development", StringComparison.OrdinalIgnoreCase))) problems.Add("Environment= names Development");
+        foreach (var variable in environment.Select(e => e.Split('=', 2)[0]).Where(n => n.StartsWith("CURIA_", StringComparison.Ordinal)))
+            if (!AllSource().Contains(variable, StringComparison.Ordinal)) problems.Add($"Environment= sets {variable}, which nothing under src/ reads");
+
+        var urls = environment.FirstOrDefault(e => e.StartsWith("ASPNETCORE_URLS=", StringComparison.Ordinal))?["ASPNETCORE_URLS=".Length..] ?? string.Empty;
+        var upstream = NginxConf.Find(NginxConf.Parse(Text("deploy/proxy/nginx.conf")), "server").FirstOrDefault(s => s.Args.Count == 1 && s.Args[0].StartsWith("127.0.0.1:", StringComparison.Ordinal))?.Args[0];
+        if (upstream is null) problems.Add("nginx.conf names no loopback upstream");
+        else if (urls != $"http://{upstream}") problems.Add($"ASPNETCORE_URLS is '{urls}', not http://{upstream} (the upstream nginx.conf names, loopback only)");
+
+        var exec = One("ExecStart");
+        var project = "src/Curia.Api/Curia.Api.csproj";
+        if (!File.Exists(Path.Combine(Root, project)) || Text(project).Contains("<AssemblyName>", StringComparison.Ordinal)) problems.Add("Curia.Api's executable is no longer named after its project: ExecStart is read against that");
+        if (exec != "/opt/curia/api/Curia.Api") problems.Add($"ExecStart is '{exec}', not the published /opt/curia/api/Curia.Api");
+        if (One("WorkingDirectory") != "/opt/curia/api") problems.Add("WorkingDirectory is not the publish directory");
+
+        if (One("Restart") != "on-failure") problems.Add("Restart is not on-failure");
+        foreach (var key in new[] { "StartLimitIntervalSec", "StartLimitBurst" })
+            if (!int.TryParse(One(key), CultureInfo.InvariantCulture, out var value) || value <= 0) problems.Add($"{key} is '{One(key)}', not a positive integer (a bad origin would restart-loop for ever)");
+        if (One("TimeoutStartSec") is not ("infinity" or "0")) problems.Add($"TimeoutStartSec is '{One("TimeoutStartSec")}': a reindex of a long log is a start longer than any fixed timeout (README, 'Running it', 4)");
+        if (One("LimitCORE") != "0") problems.Add("LimitCORE is not 0: a core of this process holds CURIA_ISSUER_SIGNING_KEY_PEM");
+
+        var hosting = Flat(Runbook("hosted-instance"));
+        foreach (var needed in new[] { "deploy/systemd/curia-forum.service", "/etc/curia/forum.env", "mode 0600", "ASPNETCORE_ENVIRONMENT=Production", "TimeoutStartSec=infinity", "LimitCORE=0" })
+            if (!hosting.Contains(needed, StringComparison.Ordinal)) problems.Add($"the hosting runbook does not say '{needed}'");
+        if (hosting.Contains("this pack ships none", StringComparison.Ordinal)) problems.Add("the hosting runbook still says the pack ships no Forum unit");
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    // ---------------------------------------------------------------- DPK11
+
+    private static readonly string[] DeployToolRunbooks = ["hosted-instance", "backup-restore"];
+
+    [GeneratedRegex(@"dotnet publish (src/\S+) -c Release -o (\S+)")]
+    private static partial Regex PublishCommand();
+
+    [GeneratedRegex(@"\d{4}-\d{2}-\d{2}|\$\(date")]
+    private static partial Regex DatedName();
+
+    /// <summary>
+    /// DPK11 (cold read, defects 1, 2, 4 and 5). The provisioning section sits before Start order and its commands are read against the repository: the three <c>dotnet publish</c> lines name projects that exist, in
+    /// Release, to the directories the units run from (with the link the head timer's unit runs); the SDK install names the version <c>global.json</c> pins; the first three commands are the clone, the checkout and
+    /// the SDK, in that order; Postgres 18 and pgvector are what CI runs. The roles are assigned once (the database's owner applies the migrations, the operator the keys, the owner the announcement), every Start-order
+    /// step names who runs it, the declaration and operator-acts keys are published before the first head and the log key by it, and the three runbooks agree. How a precondition is confirmed (D125's wait and the tests that flip,
+    /// the owner's written note, the offline key, <c>--probe-limits</c>'s bound) is read against the source; no dump file name carries a date; and the 429 sentence states the measured behaviour.
+    /// </summary>
+    [Fact]
+    public void G83_DPK11_ProvisioningRolesAndConfirmationAreStatedAndReadAgainstTheRepository()
+    {
+        var problems = new List<string>();
+        var raw = Runbook("hosted-instance");
+        var hosting = Flat(raw);
+        int At(string heading) => raw.IndexOf(heading, StringComparison.Ordinal);
+
+        // provisioning sits before Start order, after the refused start
+        if (At("## Provisioning") < 0 || At("## Start order") < 0 || At("## Provisioning") > At("## Start order")) problems.Add("the section 'Provisioning' is missing or after 'Start order'");
+        if (At("## Who does what") < 0 || At("## Who does what") > At("## Preconditions")) problems.Add("'Who does what' is missing or after 'Preconditions'");
+
+        var provisioning = At("## Provisioning") >= 0 && At("## Start order") > At("## Provisioning") ? raw[At("## Provisioning")..At("## Start order")] : string.Empty;
+        var fences = Fences(provisioning);
+        var commands = fences.SelectMany(CommandLines).ToList();
+        if (commands.Count < 3 || !commands[0].StartsWith("git clone ", StringComparison.Ordinal) || !commands[1].Contains("checkout", StringComparison.Ordinal) || !commands[2].Contains("dotnet-install.sh", StringComparison.Ordinal))
+            problems.Add("the first three commands are not the clone, the checkout and the SDK install");
+
+        var sdk = Regex.Match(Text("global.json"), "\"version\":\\s*\"([^\"]+)\"", RegexOptions.None, TimeSpan.FromSeconds(5)).Groups[1].Value;
+        if (sdk.Length == 0 || !commands.Any(c => c.Contains("dotnet-install.sh", StringComparison.Ordinal) && c.Contains($"--version {sdk}", StringComparison.Ordinal)))
+            problems.Add($"no install command names the SDK global.json pins ({sdk})");
+        foreach (var needed in new[] { "PostgreSQL 18", "pgvector", "python3", "named commit or tag" })
+            if (!Flat(provisioning).Contains(needed, StringComparison.Ordinal)) problems.Add($"provisioning does not say '{needed}'");
+        if (!Text(".github/workflows/ci.yml").Contains("pgvector/pgvector:pg18", StringComparison.Ordinal)) problems.Add("CI no longer runs pgvector/pgvector:pg18: 'PostgreSQL 18' is read against it");
+
+        var published = PublishCommand().Matches(provisioning).ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value, StringComparer.Ordinal);
+        foreach (var (project, executable) in new[] { ("src/Curia.Api", "Curia.Api"), ("src/Curia.Operator", "curia-operator"), ("src/Curia.Client.Cli", "curia") })
+        {
+            var csproj = Path.Combine(Root, project, Path.GetFileName(project) + ".csproj");
+            if (!File.Exists(csproj)) { problems.Add($"{project} has no project file"); continue; }
+            if (!published.ContainsKey(project)) { problems.Add($"provisioning does not publish {project} (dotnet publish {project} -c Release -o <dir>)"); continue; }
+            var assembly = Regex.Match(File.ReadAllText(csproj), "<AssemblyName>([^<]+)</AssemblyName>", RegexOptions.None, TimeSpan.FromSeconds(5));
+            var name = assembly.Success ? assembly.Groups[1].Value : Path.GetFileName(project);
+            if (name != executable) problems.Add($"{project} publishes an executable named {name}, not {executable}");
+        }
+
+        if (published.GetValueOrDefault("src/Curia.Api") + "/Curia.Api" != Unit("deploy/systemd/curia-forum.service").GetValueOrDefault("ExecStart")?.FirstOrDefault()) problems.Add("the Forum's publish directory is not the one the unit's ExecStart runs");
+        var headExec = Unit("deploy/systemd/curia-sign-head.service").GetValueOrDefault("ExecStart")?.FirstOrDefault() ?? string.Empty;
+        var headPath = headExec.Split(' ')[0];
+        var link = commands.FirstOrDefault(c => c.StartsWith("ln -s ", StringComparison.Ordinal) && c.EndsWith(headPath, StringComparison.Ordinal));
+        if (link is null || !link.Contains($"{published.GetValueOrDefault("src/Curia.Operator")}/curia-operator ", StringComparison.Ordinal))
+            problems.Add($"no link puts the published curia-operator at {headPath}, the path the head timer's unit runs");
+        if (!commands.Any(c => c.StartsWith("ln -s ", StringComparison.Ordinal) && c.Contains($"{published.GetValueOrDefault("src/Curia.Client.Cli")}/curia /usr/local/bin/curia", StringComparison.Ordinal))) problems.Add("no link puts the published curia on the path");
+        foreach (var user in new[] { Unit("deploy/systemd/curia-forum.service"), Unit("deploy/systemd/curia-sign-head.service") }.Select(u => u["User"][0]))
+            if (!commands.Any(c => c.StartsWith("useradd ", StringComparison.Ordinal) && c.EndsWith($" {user}", StringComparison.Ordinal))) problems.Add($"provisioning creates no user {user}, which a unit runs as");
+
+        // roles: assigned once
+        var who = At("## Who does what") >= 0 && At("## Preconditions") > At("## Who does what") ? raw[At("## Who does what")..At("## Preconditions")] : string.Empty;
+        foreach (var needed in new[] { "applies db/0001 to db/0006", "generates, backs up and publishes the three keys", "announces the instance and the three `kid`s", "application role never applies a migration" })
+            if (!Flat(who).Contains(needed, StringComparison.Ordinal)) problems.Add($"'Who does what' does not say '{needed}'");
+        var pre = At("## Preconditions") >= 0 && At("## The environment") > At("## Preconditions") ? Flat(raw[At("## Preconditions")..At("## The environment")]) : string.Empty;
+        if (!pre.Contains("CONFIRMS", StringComparison.Ordinal) || !pre.Contains("written note", StringComparison.Ordinal) || !pre.Contains("keeps the notes with the announcement", StringComparison.Ordinal)) problems.Add("Preconditions does not say they are what the owner CONFIRMS, in a written note the operator keeps with the announcement");
+        foreach (var contradiction in new[] { "by its owner", "are generated, backed up, published once" })
+            if (pre.Contains(contradiction, StringComparison.Ordinal)) problems.Add($"Preconditions still says '{contradiction}', the owner's doing what Start order gives another role");
+
+        var start = At("## Start order") >= 0 && At("## Readiness") > At("## Start order") ? raw[At("## Start order")..At("## Readiness")] : string.Empty;
+        var steps = Regex.Matches(start, @"^(\d+)\. (.*)$", RegexOptions.Multiline, TimeSpan.FromSeconds(5)).Select(m => (N: int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), Line: m.Groups[2].Value)).ToList();
+        if (steps.Count < 9) problems.Add($"Start order has {steps.Count} steps");
+        foreach (var (n, line) in steps)
+            if (!Regex.IsMatch(line, @"\((the database's owner|the operator|the owner)\b", RegexOptions.None, TimeSpan.FromSeconds(5))) problems.Add($"Start order step {n} names no role that runs it");
+        var declaration = steps.FindIndex(s => s.Line.Contains("declaration key and the operator-acts key", StringComparison.Ordinal));
+        var firstHead = steps.FindIndex(s => s.Line.Contains("first head", StringComparison.Ordinal));
+        if (declaration < 0 || firstHead < 0 || declaration > firstHead) problems.Add("the declaration and operator-acts keys are not published before the first head");
+        if (declaration >= 0 && steps[declaration].Line.Contains("log key", StringComparison.Ordinal) && !steps[declaration].Line.Contains("not published here", StringComparison.Ordinal)) problems.Add("the key step publishes the log key before the first sign-head");
+        foreach (var name in new[] { "operator-keys", "head-timer" })
+        {
+            var text = Flat(Runbook(name));
+            if (!text.Contains("first `sign-head`", StringComparison.Ordinal) || !text.Contains("log key", StringComparison.Ordinal)) problems.Add($"{name}.md does not say the log key is published by the first sign-head");
+            if (!Regex.IsMatch(text, @"back[^.]{0,40} (up )?(each key )?(up )?first|backed up before|back each up|Back each key up first", RegexOptions.None, TimeSpan.FromSeconds(5))) problems.Add($"{name}.md does not say to back a key up before its publication");
+        }
+
+        // how a precondition is confirmed
+        foreach (var needed in new[] { "BCAP1", "BCAP2", "G83's Status", "a channel is the owner's to choose" })
+            if (!hosting.Contains(needed, StringComparison.Ordinal)) problems.Add($"the hosting runbook does not say '{needed}'");
+        foreach (var test in new[] { "BodyBoundNotYetBuiltTests", "G83_BCAP1", "G83_BCAP2" })
+            if (!AllTestSource().Contains(test, StringComparison.Ordinal)) problems.Add($"the test '{test}' the runbook relies on to flip when D125 closes no longer exists");
+        var keys = Flat(Runbook("operator-keys"));
+        if (!keys.Contains("carried", StringComparison.Ordinal) || !keys.Contains("R12.18", StringComparison.Ordinal) || !keys.Contains("holds none of the other two keys", StringComparison.Ordinal)) problems.Add("operator-keys.md does not say how the offline declaration key meets the publish command");
+        var readiness = Text("tools/deploy/readiness.py");
+        var burst = Regex.Match(readiness, @"--burst"", type=int, default=(\d+)", RegexOptions.None, TimeSpan.FromSeconds(5));
+        var extra = Regex.Match(readiness, @"count = args\.burst \+ (\d+)", RegexOptions.None, TimeSpan.FromSeconds(5));
+        if (!burst.Success || !extra.Success) problems.Add("readiness.py's flood count is no longer burst + n: the runbook's bound is read against it");
+        else if (!hosting.Contains($"{int.Parse(burst.Groups[1].Value, CultureInfo.InvariantCulture) + int.Parse(extra.Groups[1].Value, CultureInfo.InvariantCulture)} requests per route", StringComparison.Ordinal)) problems.Add("the runbook states no count of requests per route that matches readiness.py's flood");
+        if (!hosting.Contains("Run it once, before announcing", StringComparison.Ordinal)) problems.Add("the runbook does not say whether to run --probe-limits before announcing");
+        foreach (var (name, fencesOf) in DeployToolRunbooks.Select(n => (n, Fences(Runbook(n)))))
+            foreach (var line in fencesOf.SelectMany(CommandLines).Where(l => l.Contains("readiness.py", StringComparison.Ordinal) || l.Contains("backup-drill.py", StringComparison.Ordinal)))
+                foreach (var flag in Flag().Matches(line).Select(f => f.Value))
+                    if (!Text("tools/deploy/" + (line.Contains("readiness.py", StringComparison.Ordinal) ? "readiness.py" : "backup-drill.py")).Contains($"\"{flag}\"", StringComparison.Ordinal)) problems.Add($"{name} gives a deploy tool the flag {flag}, which the tool does not define");
+        if (Fences(Runbook("backup-restore")).Any(f => DatedName().IsMatch(f))) problems.Add("backup-restore.md's commands carry a dated file name or $(date): a placeholder is what an example should carry");
+
+        var proxy = Flat(Runbook("reverse-proxy"));
+        if (proxy.Contains("is not measured by this document", StringComparison.Ordinal)) problems.Add("reverse-proxy.md still says curia's behaviour on a 429 is not measured");
+        foreach (var needed in new[] { "does not wait and does not retry on a `429`", "exits **8**", "must read the printed type" })
+            if (!proxy.Contains(needed, StringComparison.Ordinal)) problems.Add($"reverse-proxy.md does not state the measured 429 behaviour: '{needed}'");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }

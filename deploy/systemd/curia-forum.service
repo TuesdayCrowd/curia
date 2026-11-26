@@ -1,0 +1,33 @@
+[Unit]
+Description=Curia Forum (the published Curia.Api), loopback only, behind the edge (errata G83)
+After=network-online.target postgresql.service
+Wants=network-online.target
+# A misconfigured start is an unhandled exception and an abnormal exit (G83, non-property (d)): without a limit
+# Restart=on-failure would restart-loop a bad origin for ever. Five tries in ten minutes, then the unit stays failed.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=curia
+WorkingDirectory=/opt/curia/api
+# Holds CURIA_EVENTS_POSTGRES, CURIA_ISSUER_SIGNING_KEY_PEM, CURIA_EMBEDDING_MODEL_DIR and CURIA_PUBLIC_ORIGIN, and NONE of the
+# operator's three signing keys. Mode 0600, owned by the Forum's user and read by no one else. See forum.env.example.
+EnvironmentFile=/etc/curia/forum.env
+# Production, never Development: Development serves the developer exception page, which echoes the Authorization and DPoP headers.
+Environment=ASPNETCORE_ENVIRONMENT=Production
+# Loopback only: the edge is the Forum's one public face. This is the address deploy/proxy/nginx.conf's upstream names.
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5000
+ExecStart=/opt/curia/api/Curia.Api
+Restart=on-failure
+RestartSec=5
+# The first start under a new model id reindexes the whole log before the port opens (about 0.03 s a post, README "Running it"): no start
+# timeout, so a long reindex is not killed and restarted into a loop. The reindex resumes by absence.
+TimeoutStartSec=infinity
+# An abort can write a core, and a core of this process holds its environment, which holds CURIA_ISSUER_SIGNING_KEY_PEM.
+LimitCORE=0
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

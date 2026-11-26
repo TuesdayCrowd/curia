@@ -1,6 +1,7 @@
 # Runbook: the operator's three keys, and attesting an owner (errata G67, G70, R12.18)
 
-Audience: the Forum's operator, with the owner. Three keys, three jobs, **never two in one environment** (R12.18):
+Audience: the Forum's operator, with the owner. **The operator generates, backs up and publishes the keys; the owner announces their `kid`s**
+(`docs/runbooks/hosted-instance.md`, "Who does what"). Three keys, three jobs, **never two in one environment** (R12.18):
 `curia-operator` refuses, exit 3, an environment that holds a key the verb does not run with, naming the variable and never a key.
 
 | Key | Variable | Signs | Held where |
@@ -29,8 +30,14 @@ chmod 0600 log-key.pem declaration-key.pem operator-key.pem
 
 ## Publishing, once each, before the instance is announced
 
-Each is published to the log once; the first key published is the one and a second publication is refused. Each runs in an environment
-that holds that one key and the database connection, and no other key. **Print the `kid` the tool reports and put it beside the
+**Back each key up first** (above), then publish it. Each is published to the log once; the first key published is the one and a second publication is refused. Each runs in an environment
+that holds that one key and the database connection, and no other key. The declaration key and the operator-acts key are published by the two commands
+below (Start order, step 5); **the log key is published by its first `sign-head`** (Start order, step 6), which is why this section runs two keys and not three.
+
+**The declaration key is held offline, and its publish command needs the database connection.** R12.18 allows exactly one signing key in an environment, so the PEM is
+**carried** to a machine that holds none of the other two keys (the operator's own workstation does, when the log and operator-acts keys are elsewhere), the command below runs there
+with the connection, and the PEM is removed from that machine afterwards: it lives offline again, backed up as the paragraph above says. A one-off connection from the offline
+machine itself would also do, and is the operator's choice; what is never done is publishing from an environment that also holds another of the three. **Print the `kid` the tool reports and put it beside the
 announcement**: the readiness script compares the Forum with the kids it is given, and does not compare the announcement with the
 key's material.
 
@@ -44,7 +51,7 @@ CURIA_OPERATOR_ACTS_SIGNING_KEY_PEM="$(cat operator-key.pem)" \
 CURIA_EVENTS_POSTGRES="$APP_ROLE_CONNECTION" curia-operator publish-operator-key --by ops
 ```
 
-The log key is published by its first `sign-head` (`docs/runbooks/head-timer.md`), which also prints its `kid`. The three `kid`s are served
+The log key is published by its first `sign-head` (`docs/runbooks/head-timer.md`), which also prints its `kid`; **back the log key up before that run**. The three `kid`s are served
 in `keys`, `declaration_keys` and `operator_keys` of `GET /v1/log/jwks`; readiness R6 compares them with `--log-kid`, `--declaration-kid`
 and `--operator-kid`. Announcing the `kid`s is the owner's act. Neither publication is behind the lifecycle guard.
 

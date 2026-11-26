@@ -25,9 +25,10 @@ shipped here: it must do the four things below, and `tools/deploy/readiness.py` 
    cost and one honest operator behind one address pays in full, so what bounds abuse is possession of a key and the owner's
    attestation. Behind a second proxy the key is that proxy's address: set `real_ip` from a trusted, **named** range, never from
    `X-Forwarded-For`, which a client writes. An IPv6 client can rotate within its /64 for nothing, so the key bounds one host and
-   not anyone with an allocation. A fleet of a hundred agents behind one address starting in the same second meets `429`s;
-   Whether `curia` waits and retries on a `429` is not measured by this document (the pack's live run measures it and records the
-   result in G83's Status). An operator with a measured need for more raises the numbers in the errata and then in the recipe.
+   not anyone with an allocation. A fleet of a hundred agents behind one address starting in the same second meets `429`s.
+   **Measured (the pack's live run, 2026-11-26): `curia` does not wait and does not retry on a `429`.** It does not read `Retry-After`, exits **8**
+   (the code it also uses when a Forum cannot be reached, so the exit code alone does not tell a limit from an outage), and prints the body's title and its
+   problem type (`curia/edge/rate-limited`, or `temporarily_unavailable` from the token route): **a script must read the printed type**, and retry itself. An operator with a measured need for more raises the numbers in the errata and then in the recipe.
 4. **Answer `429` and `413` in a body a client can read.** An RFC 9457 problem document (`application/problem+json`, types
    `curia/edge/rate-limited` and `curia/request/too-large`), and at `/oauth/token` RFC 6749's error object. nginx's own HTML page
    makes `curia` print `curia/client/unreadable-problem` and exit 3, the failure `AllowedHosts` has (G82).
@@ -78,7 +79,7 @@ public and carries no limit: the readiness script's R1 reads it from the public 
 
 | Claim | Held by |
 |---|---|
-| the Host line is `$http_host`; the three forwarded headers are overwritten | `DeploymentDocsTests` DPK4; `ProxyForwardingTests` PXY1 to PXY3 |
+| the Host line is `$http_host`; the three `X-Forwarded-*` are overwritten and `Forwarded` is cleared (a focused real-nginx run checked the clearing) | `DeploymentDocsTests` DPK4; `ProxyForwardingTests` PXY1 to PXY3 |
 | the two limits are at or below G83's table, and the burst is refused with the Forum asked no more than it allows | DPK4; PXY4, PXY5 (the red twin); readiness R9 through the origin |
 | a refusal is a readable body | DPK4; PXY6 |
 | a foreign `Host` is the Forum's refusal, not the edge's | PXY7; readiness R2 |

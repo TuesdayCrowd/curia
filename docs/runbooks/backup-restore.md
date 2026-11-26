@@ -7,8 +7,10 @@ fetched by digest and is not backed up.
 
 ## Backup
 
+`$DUMP_FILE` is a file name of the operator's choosing, one per backup (a date in it is the operator's convention, not this document's).
+
 ```bash
-pg_dump -Fc --no-owner -f "curia-$(date +%F).dump" "$SOURCE_URL"
+pg_dump -Fc --no-owner -f "$DUMP_FILE" "$SOURCE_URL"
 ```
 
 Keep the dump encrypted and off the host, and keep **the latest head's JSON** (`GET /v1/log/head`) with it, read before the dump: the
@@ -21,7 +23,7 @@ the name the Forum's connection string uses, then restore into an empty database
 
 ```bash
 createdb "$TARGET_DB"
-pg_restore --no-owner -d "$TARGET_URL" curia-2026-11-26.dump
+pg_restore --no-owner -d "$TARGET_URL" "$DUMP_FILE"
 ```
 
 The restore's exit code does not say the grants came back. **The post-check does.** A restore from a backup that predates db/0006

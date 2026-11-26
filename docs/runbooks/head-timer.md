@@ -4,7 +4,8 @@ Audience: the Forum's operator. The Forum never holds the log key (R11.7), so a 
 schedule, by a process that holds that one key. The units are `deploy/systemd/curia-sign-head.service`,
 `deploy/systemd/curia-sign-head.timer` and `deploy/systemd/curia-alert.service` (a stub), with the environment file's shape in
 `deploy/systemd/sign-head.env.example`. A probe (`DeploymentDocsTests` DPK5) reads them against the operator's own `--help`.
-`systemd-analyze verify` was **not** run on them: this was written on a machine with no systemd, so the units are read, not run.
+`systemd-analyze verify` was run on them on 2026-11-26 in a Linux VM (systemd 255, with a stub at the `ExecStart` path) and exited 0 with no output; their behaviour
+on a Linux host (a start, `OnFailure=`, `LimitCORE`, the multi-line PEM) was **not** run. The Forum's own unit is `deploy/systemd/curia-forum.service`, held by DPK10.
 
 ## What the timer runs
 
@@ -53,7 +54,8 @@ because a core of this process holds the log key.
 
 ## Installing it
 
-The first head is signed by hand, so that the log key is published and the first head is read by a person:
+**The operator runs these steps** (Start order, steps 6 and 7 of `docs/runbooks/hosted-instance.md`). The log key is generated and **backed up before** this run, because the first `sign-head`
+publishes it (`docs/runbooks/operator-keys.md`: the declaration and operator-acts keys are published before this, in step 5). The first head is signed by hand, so that the log key is published and the first head is read by a person; it prints the log key's `kid`, which the owner announces:
 
 ```bash
 export CURIA_LOG_SIGNING_KEY_PEM="$(cat log-key.pem)"

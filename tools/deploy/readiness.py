@@ -254,6 +254,8 @@ def check_r8(t):
     forged, _, _ = t.request("GET", "/health", headers={"X-Forwarded-Host": "another.example", "X-Forwarded-Proto": "http"})
     if plain == forged == 200:
         return PASS, "GET /health answered 200 with and without X-Forwarded-Host and X-Forwarded-Proto"
+    if plain != 200:
+        return FAIL, f"GET /health answered {plain} with no forwarded header at all, so this check cannot tell whether the Forum reads one; when R1 fails beside it the proxy rewrote the Host (R7.33 (a)), and that is the cause to look for first"
     return FAIL, f"GET /health answered {plain} without and {forged} with X-Forwarded-Host and X-Forwarded-Proto: the Forum reads a forwarded header (R5.26)"
 
 
