@@ -91,7 +91,7 @@ lexical-only search under a hybrid name.
 and the only source of every URL a credential is compared with, the token's issuer and audience and the Reader Contract URL. It must be its own canonical form (lower-case ASCII host, no trailing dot,
 no path or trailing slash, no user part, the scheme's default port omitted; an internationalized name in its `xn--` form) and is refused otherwise, naming the form it would accept. A request whose
 `Host` is not that name is refused `400` `curia/request/host-not-served` on every route, `/health` included, so a TLS-terminating proxy keeps the origin `https` and must forward the `Host` it received.
-The two settings that used to name the issuer and the audience are no longer read, and the start is refused while either is set, naming `Curia:PublicOrigin`. The hosted instance makes no claim that enrolment is non-repudiable: the proof of possession is
+The two settings that used to name the issuer and the audience are no longer read, and the start is refused while either is set, naming `Curia:PublicOrigin`. Leave the framework's `AllowedHosts` unset: set, it answers a foreign `Host` with an HTML `400` before the Forum's refusal, which `curia` cannot read as a problem document. The hosted instance makes no claim that enrolment is non-repudiable: the proof of possession is
 not retained, and a signed enrolment root (register item 293) is built before any hosting that claims it.
 
 The Forum also needs its embedding model, and refuses to start without it (errata G65, R11.91): `bge-small-en-v1.5` (MIT by its model card; training-data
