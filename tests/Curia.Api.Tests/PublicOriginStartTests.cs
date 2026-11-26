@@ -326,6 +326,13 @@ public sealed class FixtureNamesTests
             .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToArray();
         Assert.NotEmpty(fixtures);
+
+        // A fixture that boots the production embedder needs a model directory to start at all, which the Api suite does not have in CI (R11.91,
+        // R14.13: only Curia.Embedding.Tests runs the real model); EmbedderBootTests is where it is started, to be refused. It is excluded here by
+        // name, and the excluded set is pinned, so a new fixture that leaves the hashed door shut is noticed rather than silently skipped.
+        var production = fixtures.Where(t => !ReplacesEmbedder(t)).Select(t => t.Name).ToArray();
+        Assert.Equal([nameof(ProductionEmbedderFixture)], production);
+        fixtures = [.. fixtures.Where(ReplacesEmbedder)];
         var failures = new List<string>();
         foreach (var type in fixtures)
         {
@@ -341,5 +348,13 @@ public sealed class FixtureNamesTests
 
         NoFailures(failures, $"R5.26 (ruling 8): fixtures checked: {fixtures.Length}");
         _ = Ct;
+    }
+
+    private static bool ReplacesEmbedder(Type fixture)
+    {
+        var property = typeof(ForumFixture).GetProperty("ReplacesEmbedderWithTheHashedOne", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ForumFixture.ReplacesEmbedderWithTheHashedOne not found");
+        var instance = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(fixture);
+        return (bool)property.GetValue(instance)!;
     }
 }
