@@ -243,6 +243,10 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .ToString(),
         RefusalKind.Content when Error.Type == "curia/ingest/screening-rejected" =>
             Said($"{Error.Title} Detected: {Error.Detail}."),
+        // Errata G84 (R11.111): the Forum's bound on a request, told by the type it issues; one published sentence after the title and type, which says that nothing was recorded (once) and offers no resend.
+        RefusalKind.Content when Error.Type == RequestBoundWording.TooLargeType => new FrameBuilder()
+            .Append($"{Error.Title}: {Error.Type}{Detailed} {new OwnText(RequestBoundWording.Sentence)}")
+            .ToString(),
         RefusalKind.Content => Said($"{Error.Title}: {Error.Type}{Detailed}"),
         RefusalKind.Authentication => Said($"{Error.Title}: {Error.Type}{Detailed}"),
         // R11.54 (errata G41): the Forum's own word that the post exists and is not served. Told apart by the type it issues, never by the

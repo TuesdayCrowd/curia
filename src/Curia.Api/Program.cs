@@ -410,6 +410,7 @@ public sealed class Program
         // every route and in every hosting environment (the developer exception page, which WebApplication adds in Development, sits above this).
         app.UseStoreFaults();
         app.UseUnreadableRequests();
+        app.UseBodyBound();
         app.UseUtf8JsonBodies();
         TokenEndpoint.Map(app);
         ForumEndpoints.Map(app);

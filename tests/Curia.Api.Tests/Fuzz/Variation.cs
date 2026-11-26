@@ -29,8 +29,11 @@ internal abstract record VariedValue
     /// <summary>A header's or a header parameter's text, added without validation.</summary>
     internal sealed record HeaderText(string Text) : VariedValue;
 
-    /// <summary>body-removed (no bytes, no content) and body-truncated; a null content type keeps the exemplar's.</summary>
-    internal sealed record Body(byte[] Bytes, string? ContentType) : VariedValue;
+    /// <summary>
+    /// body-removed (no bytes, no content), body-truncated and the two over-cap bodies; a null content type keeps the exemplar's. <paramref name="Chunked"/> sends the bytes with no declared length
+    /// (errata G84, trap 304: a declared length is <c>HttpClient</c>'s default and never exercises the path an undeclared body takes).
+    /// </summary>
+    internal sealed record Body(byte[] Bytes, string? ContentType, bool Chunked = false) : VariedValue;
 }
 
 /// <summary>The closed set, exactly spec §4.10's table. Ids are stable: the ledger keys on them.</summary>
@@ -41,6 +44,14 @@ internal static class Variations
 
     /// <summary>The lengths a path, query or header string is grown to.</summary>
     private static readonly int[] LineLengths = [1_024, 7_168];
+
+    /// <summary>R6.68's bound plus one byte, from the white paper's R6.39 number (never <c>AdmitLimits</c>): a body no route reads.</summary>
+    private static byte[] OverCapBody()
+    {
+        var bytes = new byte[Curia.Tests.Shared.PublishedRequestBound.Cap() + 1];
+        Array.Fill(bytes, (byte)'a');
+        return bytes;
+    }
 
     private static List<Variation> Build()
     {
@@ -95,6 +106,11 @@ internal static class Variations
             var bytes = Encoding.UTF8.GetBytes(v ?? string.Empty);
             return new VariedValue.Body(bytes[..(bytes.Length / 2)], null);
         }));
+
+        // Over the Forum's own bound (errata G84, R6.68 (rev.)): one byte past it, R6.39's number from the white paper plus two, declared and then with no declared length. The oracle is R14.10's as written
+        // (no 5xx, every refusal a problem document): the fuzzer discharges R11.33's empty-413 instance, and the figure's VALUE is held by BND1 to BND3, because a 400 for a body one byte past it is a problem document too.
+        all.Add(new("body-over-cap", p => p.IsBodyRoot, (_, _) => new VariedValue.Body(OverCapBody(), null)));
+        all.Add(new("body-over-cap-chunked", p => p.IsBodyRoot, (_, _) => new VariedValue.Body(OverCapBody(), null, Chunked: true)));
 
         // Header parameter: the one value that makes MediaTypeHeaderValue.Encoding throw rather than return null.
         all.Add(new("disabled-encoding", p => p.Kind == PartKind.HeaderParameter, (_, _) => new VariedValue.HeaderText("utf-7")));

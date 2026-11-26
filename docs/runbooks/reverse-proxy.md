@@ -36,16 +36,22 @@ shipped here: it must do the four things below, and `tools/deploy/readiness.py` 
 ## The body cap, and what it is not
 
 `client_max_body_size 1m` is R6.39's submission size (1 MiB, 1,048,576 bytes), read from the white paper by the probe. A body of
-exactly 1 MiB passes the edge and reaches the Forum; one byte more is the edge's `413`, so R6.40's own
-`curia/admit/size-exceeded` answer is unreachable through the edge (a client screens before it sends).
+exactly 1 MiB passes the edge and reaches the Forum; one byte more is the edge's `413`. The Forum's own bound is one byte wider
+(below), so the one body that reaches R6.40's `curia/admit/size-exceeded` is exactly 1,048,577 bytes, and the edge never lets it through.
+**A client does not screen R6.39 before it signs** (the client signs and sends whatever it is given): through the edge an act of
+1,048,577 bytes or more gets the edge's `413`, which the recipe answers as the Forum's own typed problem document
+(`curia/request/too-large`), and `curia` prints R11.111's one sentence, exits 3 and keeps nothing (an edge whose `413` is another
+page, an HTML one, is a refusal `curia` cannot read the cause of: exit 8, with the resend recipe it prints for any act it kept).
 
-**This is the edge's bound, set at R6.39's figure. The Forum has no bound of its own until D125 is closed**: if this edge is
-absent or wrong, a body is read up to the host's default of 30,000,000 bytes, three routes read it with no credential, and the
-post route copies it whole before the per-agent gate is entered (G83, R6.68, specified and not built; non-property (c)). The pack
-measured the cost: eight concurrent 29 MB bodies took about 1.0 to 1.2 GiB of resident memory on the routes that read a body
-whole, and the host's own `413` on the post route has an **empty body**, not a problem document. Two probes
-(`BodyBoundNotYetBuiltTests`, BCAP1 and BCAP2) hold this paragraph true and fail on the day it stops being so; that stage deletes
-them and this paragraph. Do not announce an instance before D125 is closed, whatever the edge says.
+**The Forum bounds a request body itself (G84, R6.68 (rev.); D125 is closed).** It reads at most R6.39's size plus one byte, **1,048,577
+bytes**, on every route and for every method: a body whose declared length is larger, or that is sent with no declared length and
+passes that count, is the Forum's `413` `curia/request/too-large` before a handler acts on it (at `/oauth/token` RFC 6749's error
+object), and a request the host's own reader rejects while a handler reads (too slow, wrongly framed) is answered as a problem document
+and never reaches the host's own response writer. A bound set only at the edge would disappear on the day the edge does; this one does not,
+and the edge's 1 MiB is a second line in front of it. An edge `413` and the Forum's are the same answer through the origin only where the
+edge answers the Forum's document, as this recipe does. **What the bound does not do:** it bounds the bytes a request may carry, not the memory they cost (a body at the bound costs the Forum several times its size to parse,
+measured at about 28 MiB on the post route), and it does not bound the number of bodies in flight: the post route reads before the per-agent gate is entered and three routes need
+no credential, so the burst limit above and the owner's memory limit are what bound many bodies at once (G84's non-properties (a) and (b)).
 
 ## Installing it
 
@@ -84,5 +90,5 @@ public and carries no limit: the readiness script's R1 reads it from the public 
 | a refusal is a readable body | DPK4; PXY6 |
 | a foreign `Host` is the Forum's refusal, not the edge's | PXY7; readiness R2 |
 | the monitor line and the by-address sentence above | `RunbookMonitorLineTests` DPK8 |
-| the Forum has no body bound of its own | BCAP1, BCAP2 |
+| the Forum bounds a body at R6.39's size plus one byte, on every route, in both environments | `BodyBoundTests` BND1 to BND5, BND7 to BND9; `BodyBoundKestrelTests` BND6 (both environments); `DeploymentDocsTests` BND11 |
 | no Forum code reads a forwarded header | `OriginFenceTests` (ORG13), which reads `Curia.Api.dll` only |

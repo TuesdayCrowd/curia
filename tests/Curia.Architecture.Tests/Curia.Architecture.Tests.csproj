@@ -48,5 +48,6 @@
     <!-- The deployment pack (errata G83): the recipe's parser and the edge's published figures. -->
     <Compile Include="../Shared/NginxConf.cs" Link="Shared/NginxConf.cs" />
     <Compile Include="../Shared/PublishedEdge.cs" Link="Shared/PublishedEdge.cs" />
+    <Compile Include="../Shared/PublishedRequestBound.cs" Link="Shared/PublishedRequestBound.cs" />
   </ItemGroup>
 </Project>

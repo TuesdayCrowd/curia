@@ -185,8 +185,10 @@ internal sealed class RequestModel(string method, string pattern)
         var request = new HttpRequestMessage(new HttpMethod(Method), new Uri(rendered.Url, UriKind.Relative));
         try
         {
-            HttpContent? content = rendered.Body is null ? null : new ByteArrayContent(rendered.Body);
             var bodyVaried = part is { IsBodyRoot: true } && value is VariedValue.Body;
+            HttpContent? content = rendered.Body is null
+                ? null
+                : bodyVaried && ((VariedValue.Body)value!).Chunked ? new BodyBoundKit.ChunkedContent(rendered.Body) : new ByteArrayContent(rendered.Body);
 
             foreach (var header in Headers)
             {

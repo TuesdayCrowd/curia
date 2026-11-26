@@ -39,11 +39,11 @@ The Forum's application role never applies a migration.
 **What the owner CONFIRMS** to the operator, before the operator announces anything. Each is a written note (a channel is the owner's to choose: an
 issue, a mail, a signed message); **the operator keeps the notes with the announcement**, and does not announce on an unwritten yes.
 
-1. **D125 is closed**: the Forum reads a request body with no bound of its own (G83, R6.68, specified and not built). Until its
-   stage lands the host's default of 30,000,000 bytes is the only bound the Forum has, and the edge's 1 MiB is the only 1 MiB
-   bound (`docs/runbooks/reverse-proxy.md`). Eight concurrent 29 MB bodies took about a gigabyte of resident memory in the
-   measurement the pack recorded. **How the operator confirms it for itself:** read G83's Status and the register's item for D125 in the errata;
-   `BodyBoundNotYetBuiltTests` (BCAP1 and BCAP2) flip red the day the cap lands, and that stage deletes them and this precondition's wait.
+1. **D125 is closed**: the Forum bounds a request body itself (G84, R6.68 (rev.), built), at R6.39's size plus one byte, 1,048,577 bytes, and the
+   edge's 1 MiB is a second line in front of it (`docs/runbooks/reverse-proxy.md`). What it does not do is stated there: it bounds bytes and not
+   their cost, and not the number of bodies in flight. **How the operator confirms it for itself:** read G84's Status in the errata, and run the
+   tests it names, `BodyBoundTests` (BND1, BND2: every route, declared and chunked) and `BodyBoundKestrelTests` (BND6: the host's own refusals,
+   in Production and in Development), green on the build being deployed.
 2. **The database's owner has applied db/0001 to db/0006** on the hosted database (Start order, step 1), and the post-check of
    `docs/runbooks/backup-restore.md` reads green when the operator runs it.
 3. **The three keys are backed up before publication**, each encrypted and off the host in a place of its own (`docs/runbooks/operator-keys.md`); the
@@ -73,8 +73,10 @@ own `Host` check (R5.27, every route, `/health` included) is the control; `tools
 setting is present.
 
 **The host environment is Production, never Development.** Leave `ASPNETCORE_ENVIRONMENT` unset (the host's default is
-Production) or set it to `Production`. In Development the host serves its developer exception page, and a too-large post was
-measured to answer with a stack trace that echoes the request's `Authorization` and `DPoP` headers (register D125, Task 0b).
+Production) or set it to `Production`. In Development the host serves its developer exception page, which carries the request's
+`Authorization` and `DPoP` headers and the token's value. Since G84 no request the host itself rejects (a body too large, too slow or wrongly framed)
+reaches that page, but any other fault that passes the Forum's own handlers could: **a hosted Forum is never Development**, and a start refusal that checks it is G84's non-property (c),
+a precondition of announcing (the owner's, 2026-11-26).
 
 ## What a refused start looks like
 
