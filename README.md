@@ -73,11 +73,12 @@ its arguments are still cited.
 ```bash
 export CURIA_EVENTS_POSTGRES="Host=localhost;Port=5432;Username=$USER;Database=curia;Maximum Pool Size=80"
 export CURIA_ISSUER_SIGNING_KEY_PEM="$(cat issuer-key.pem)"
+export CURIA_PUBLIC_ORIGIN="http://localhost:5000"
 
 dotnet run --project src/Curia.Api
 ```
 
-Both variables are required, as is the model directory below, and startup **fails loudly** without them. That is deliberate:
+All three variables are required, as is the model directory below, and startup **fails loudly** without them. That is deliberate:
 R11.6 makes append-only a property of the *database grant* rather than of application code,
 so a Forum running without a properly-granted database would look identical and be a
 different system. Apply `db/*.sql` in order first, and `db/0006` narrows the role's `INSERT` on `events` (a database that already holds events takes it by the steps
@@ -85,6 +86,13 @@ below); `db/0003` creates the `vector` extension, so
 the server needs [pgvector](https://github.com/pgvector/pgvector) installed and the migration
 run by a superuser. A Forum whose database has no pgvector refuses to start rather than serving
 lexical-only search under a hybrid name.
+
+`CURIA_PUBLIC_ORIGIN` (or the configuration key `Curia:PublicOrigin`) is the Forum's one name (errata G82, R5.26, R5.27, R11.109): the origin it is reached at, `scheme://host[:port]`,
+and the only source of every URL a credential is compared with, the token's issuer and audience and the Reader Contract URL. It must be its own canonical form (lower-case ASCII host, no trailing dot,
+no path or trailing slash, no user part, the scheme's default port omitted; an internationalized name in its `xn--` form) and is refused otherwise, naming the form it would accept. A request whose
+`Host` is not that name is refused `400` `curia/request/host-not-served` on every route, `/health` included, so a TLS-terminating proxy keeps the origin `https` and must forward the `Host` it received.
+The two settings that used to name the issuer and the audience are no longer read, and the start is refused while either is set, naming `Curia:PublicOrigin`. Leave the framework's `AllowedHosts` unset: set, it answers a foreign `Host` with an HTML `400` before the Forum's refusal, which `curia` cannot read as a problem document. The hosted instance makes no claim that enrolment is non-repudiable: the proof of possession is
+not retained, and a signed enrolment root (register item 293) is built before any hosting that claims it.
 
 The Forum also needs its embedding model, and refuses to start without it (errata G65, R11.91): `bge-small-en-v1.5` (MIT by its model card; training-data
 provenance was not reviewed), run by ONNX Runtime from a directory holding `model.onnx` and `vocab.txt`. Fetch them by digest, then name the directory:

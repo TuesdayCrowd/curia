@@ -235,39 +235,55 @@ public sealed class EnrollmentProofRouteTests(ForumFixture forum) : IClassFixtur
     }
 
     /// <summary>
-    /// EPP23 (Amendment 2, ruling 16), the pin: <b>the Forum honours the Host a request names</b> (register defect D41; non-property (n)). (1) A client assertion and DPoP proof signed for
-    /// <c>http://relay.example/oauth/token</c> and sent with that Host answer a token. (2) An enrollment whose proof is made for <c>http://relay.example/v1/agents</c> and sent with <c>Host: relay.example</c>
-    /// answers <c>201</c> and the key is in the key set. Both go red the day D41 closes (a configured origin or <c>AllowedHosts</c>): <b>when that happens, flip (1) and (2) to refusals and delete
-    /// non-property (n)</b>; the Forum's own origin is then what <c>aud</c> and <c>htu</c> are compared with. The control that makes the pin mean something is its own fact below.
+    /// EPP23 flipped (errata G82, ORG16; amendment 1, #8): D41 is closed, so the pin that said <b>the Forum honours the Host a request names</b> is now its refusal. (1) A client assertion and DPoP proof
+    /// signed for <c>http://relay.example/oauth/token</c> and sent with that Host are refused <c>host-not-served</c> in RFC 6749's form, and no token is issued. Red on the tree: the unmodified Forum answers a token
+    /// (T0-1); its old pin is the instrument FORG0 watched fail, by the helper's own exception, when the closure was applied in an export.
     /// </summary>
     [Fact]
-    public async Task D41_TheForumHonoursTheHostARequestNames()
+    public async Task D41_ORG16_ATokenRequestSignedForAForeignHostIsRefusedByName()
     {
         var token = NewAgent("epp23-token");
         using (var enrolled = await token.EnrollAsync(Client, Ct)) Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
         using var relay = forum.CreateDefaultClient(new Uri("http://relay.example"));
-        var tokenFromRelay = await DpopClient.For(token, token.AssertionKey).GetTokenAsync(relay, "http://relay.example/oauth/token", forum.Now, Ct);
-        Assert.False(string.IsNullOrEmpty(tokenFromRelay), "D41's pin (1) failed: the token endpoint no longer honours the Host a request names; D41 is closed, flip this pin");
+        var (status, body) = await DpopClient.For(token, token.AssertionKey).RequestTokenAsync(relay, "http://relay.example/oauth/token", forum.Now, token.AgentId, Ct);
 
-        var agent = NewAgent("epp23-enrol");
-        var proof = Proof(agent, Audience(relay), await NonceAsync(Client, Ct), forum.Now);
-        var answer = await PostAsync(relay, agent, proof, Ct);
-        Assert.True(answer.Status == HttpStatusCode.Created, $"D41's pin (2) failed: {answer.Says}; D41 is closed, flip pins (1) and (2) to refusals and delete non-property (n)");
-        Assert.NotNull(await JwksAsync(Client, agent.AgentId, Ct));
+        var reply = new OriginProbe.OriginReply((int)status, body, null, []);
+        Assert.True(reply.IsHostRefusal, $"D41's closed form (1): expected 400 invalid_request \"{OriginProbe.HostRefusalTitle}\", the Forum answered {reply.Says}");
+        Assert.DoesNotContain("access_token", body, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// EPP23's control (3): the same shape as the pin's second step, a proof made for the fixture's own origin, sent with <c>Host: relay.example</c>, is refused <c>proof-mismatch</c> <c>claim=aud</c>. It
-    /// shows the Host reaches the route and that <c>aud</c> is compared with it; without it the pin would pass if <c>aud</c> were not checked at all. <b>It is red until the route exists</b>: the
-    /// unmodified route compares no <c>aud</c>, so it answers <c>201</c>. It is a control, not a pin, and goes green with the route (FEPP5 kills its removal).
+    /// EPP23 flipped, (2): an enrollment whose proof is made for <c>http://relay.example/v1/agents</c> and sent with <c>Host: relay.example</c> is refused <c>host-not-served</c>; nothing is appended and no key
+    /// is registered. Red on the tree (<c>201</c>, and the key is in the key set, T0-1). Separate from (1) so that each is red by its own message: in the pin both steps were one method, and the first masked the second.
     /// </summary>
     [Fact]
-    public async Task D41_AProofForTheOwnOriginSentUnderAForeignHostIsRefusedByAud()
+    public async Task D41_ORG16_AnEnrollmentSignedForAForeignHostIsRefusedByNameAndAppendsNothing()
+    {
+        var agent = NewAgent("epp23-enrol");
+        using var relay = forum.CreateDefaultClient(new Uri("http://relay.example"));
+        var events = await EventsAsync(forum, Ct);
+        var proof = Proof(agent, Audience(relay), await NonceAsync(Client, Ct), forum.Now);
+        var answer = await PostAsync(relay, agent, proof, Ct);
+
+        Assert.True(answer.Status == HttpStatusCode.BadRequest && answer.Type == OriginProbe.HostRefusalType, $"D41's closed form (2): expected 400 {OriginProbe.HostRefusalType}, the Forum answered {answer.Says}");
+        Assert.Equal(events, await EventsAsync(forum, Ct));
+        Assert.Equal(0, await KeyRowsAsync(forum, agent.AgentId, Ct));
+    }
+
+    /// <summary>
+    /// EPP23 flipped, (3), the control that keeps the pair meaning something: the honest enrollment proof, made for the origin's own spelling, sent under <c>Host: LOCALHOST</c> (a spelling the Host refusal admits and
+    /// the origin does not use) is honoured <c>201</c>. With (2) it says: the name is refused by the Forum's check, and the <b>binding</b> is the origin's whatever the <c>Host</c> (ORG6d's enrollment form, kept in
+    /// this class so the pair stays together). The old control (a proof for the origin sent under a foreign Host, refused <c>proof-mismatch</c> <c>claim=aud</c>) lost its subject: that Host is now refused earlier.
+    /// Red on the tree (the unmodified Forum compares <c>aud</c> with the Host it was sent).
+    /// </summary>
+    [Fact]
+    public async Task D41_ORG16_TheHonestProofForTheOriginIsHonouredUnderAnAdmittedSpellingOfTheHost()
     {
         var agent = NewAgent("epp23-control");
-        using var relay = forum.CreateDefaultClient(new Uri("http://relay.example"));
+        using var variant = OriginProbe.ClientWith(forum, "LOCALHOST");
         var proof = Proof(agent, Audience(Client), await NonceAsync(Client, Ct), forum.Now);
-        var answer = await PostAsync(relay, agent, proof, Ct);
-        AssertRefused(answer, "proof-mismatch", "claim=aud");
+        var answer = await PostAsync(variant, agent, proof, Ct);
+        Assert.True(answer.Status == HttpStatusCode.Created, $"expected 201 for a proof made for {Audience(Client)} under Host LOCALHOST, the Forum answered {answer.Says}");
+        Assert.NotNull(await JwksAsync(Client, agent.AgentId, Ct));
     }
 }

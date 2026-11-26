@@ -48,6 +48,10 @@ internal sealed class FuzzContext : IDisposable
         Client = client;
         IssuerKey = ECDsa.Create();
         IssuerKey.ImportFromPem(forum.IssuerSigningKeyPem);
+
+        // D41 (errata G82): the template names the fixture's configured origin, which is what a token's iss and aud are; the offline default was a name nobody configured.
+        TokenClaims["iss"] = forum.PublicOrigin;
+        TokenClaims["aud"] = forum.PublicOrigin;
     }
 
     internal ForumFixture Forum { get; }
@@ -87,7 +91,7 @@ internal sealed class FuzzContext : IDisposable
 
     internal JsonObject TokenClaims { get; private set; } = new()
     {
-        ["iss"] = "https://forum.local", ["sub"] = "s", ["aud"] = "https://forum.local", ["client_id"] = "s",
+        ["iss"] = "origin", ["sub"] = "s", ["aud"] = "origin", ["client_id"] = "s",
         ["iat"] = 0, ["exp"] = 0, ["nbf"] = 0, ["jti"] = "j", ["scope"] = "s", ["cnf"] = new JsonObject { ["jkt"] = "t" },
         ["owner"] = "s", ["tier"] = "T1", ["curia_akid"] = "kid",
     };

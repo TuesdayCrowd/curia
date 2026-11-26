@@ -27,7 +27,7 @@ namespace Curia.Api.Tests;
     "Naming",
     "CA1707:Identifiers should not contain underscores",
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
-public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum) : IClassFixture<KestrelForumFixture>
+public sealed partial class QuestionChainEndToEndTests(ProxiedKestrelForumFixture forum) : IClassFixture<ProxiedKestrelForumFixture>
 {
     private const string NoSuchPost = "01M6FFFF000000000000000000";
 
@@ -96,7 +96,7 @@ public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum
         foreach (var depth in new[] { 0, 1, 2, bound }) questions.Add((depth, (await scene.QuestionWithRevisionsAsync(askerA, board, "finch" + depth, depth))[0]));
         questions.Add((bound + 1, (await scene.QuestionWithRevisionsAsync(askerB, board, "finch" + (bound + 1), bound + 1))[0]));
 
-        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+        var proxy = forum.Proxy.Mark();
         var tools = scene.ToolsThrough(answerer, proxy.Address);
         var problems = new List<string>();
         foreach (var (depth, question) in questions)
@@ -124,7 +124,7 @@ public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum
         var (question, first, second) = await scene.ForkAsync(asker, board, "finch");
         Assert.Equal(2, (await scene.RevisionsOfAsync(question.Digest)).Length);
 
-        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+        var proxy = forum.Proxy.Mark();
         var text = ReadersLastWordsScene.Flatten(await scene.ToolsThrough(answerer, proxy.Address).AnswerAsync(question.Id, "It is a goldfinch.", null, Ct));
         var line = Assert.Single(QuestionLines(text));
 
@@ -144,7 +144,7 @@ public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum
         var chain = await scene.QuestionWithRevisionsAsync(asker, board, "finch", 2);
         await forum.WithholdAsync(chain[1].Id, Ct);
 
-        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+        var proxy = forum.Proxy.Mark();
         var text = ReadersLastWordsScene.Flatten(await scene.ToolsThrough(answerer, proxy.Address).AnswerAsync(chain[0].Id, "It is a goldfinch.", null, Ct));
         var line = Assert.Single(QuestionLines(text));
 
@@ -174,7 +174,7 @@ public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum
         var plain = await scene.AskAsync(asker, board, "wren");
         var transient = await scene.AskAsync(asker, board, "robin");
 
-        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+        var proxy = forum.Proxy.Mark();
         var problems = new List<string>();
 
         foreach (var (name, question, readsExpected) in new[] { ("a question revised twice", revised[0], 3), ("a question never revised", plain, 1) })
@@ -214,7 +214,7 @@ public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum
         using var _ = scene;
         var question = await scene.AskAsync(asker, board, "finch");
 
-        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+        var proxy = forum.Proxy.Mark();
         var text = ReadersLastWordsScene.Flatten(await scene.ToolsThrough(answerer, proxy.Address).AnswerAsync(question.Id, "It is a goldfinch.", null, Ct));
         var line = Assert.Single(QuestionLines(text));
 
@@ -265,7 +265,7 @@ public sealed partial class QuestionChainEndToEndTests(KestrelForumFixture forum
         var withheld = await scene.AskAsync(asker, board, "finch");
         await forum.WithholdAsync(withheld.Id, Ct);
 
-        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+        var proxy = forum.Proxy.Mark();
         var problems = new List<string>();
         foreach (var (name, parent, type) in new[] { ("a withheld parent", withheld.Id, "curia/ingest/parent-withheld"), ("an invented parent", NoSuchPost, "curia/ingest/parent-not-found") })
         {

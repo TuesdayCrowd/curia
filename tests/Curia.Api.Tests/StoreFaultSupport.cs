@@ -189,5 +189,5 @@ internal sealed record Reply(int Status, string? ContentType, string Body, strin
 /// <summary>The same decorated Forum on a real socket (Kestrel, Development): for the facts that need a real client, an aborted request or a body on the wire.</summary>
 public sealed class FaultableKestrelFixture : FaultableForumFixture
 {
-    public FaultableKestrelFixture() => UseKestrel(0);
+    public FaultableKestrelFixture() => UseReservedKestrelPort();
 }

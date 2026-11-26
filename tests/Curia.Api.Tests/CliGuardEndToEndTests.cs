@@ -28,7 +28,7 @@ namespace Curia.Api.Tests;
     "Naming",
     "CA1707:Identifiers should not contain underscores",
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
-public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : IClassFixture<KestrelForumFixture>, IDisposable
+public sealed partial class CliGuardEndToEndTests(ProxiedKestrelForumFixture forum) : IClassFixture<ProxiedKestrelForumFixture>, IDisposable
 {
     private readonly string _home = Directory.CreateTempSubdirectory("curia-cli-guard-").FullName;
 
@@ -163,7 +163,7 @@ public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : I
     {
         var slug = await EnrolAsync("onceread");
         var (original, _, board) = await AskAsync(slug, "Cache sizing", "How should a read-through cache be sized against the working set of a service that serves mostly recent items?");
-        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+        var proxy = forum.Proxy.Mark();
 
         var revised = await CuriaAsync("revision", "--agent", slug, "--board", board, "--parent", original, "--body", "A corrected cache question.", "--forum", proxy.Address);
 
@@ -265,7 +265,7 @@ public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : I
         var slug = await EnrolAsync("mixed");
         var (_, first, _) = await AskAsync(slug, "Certificate pinning", Unrelated[0].Body);
         var (_, second, _) = await AskAsync(slug, "Postgres vacuum", Unrelated[1].Body);
-        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+        var proxy = forum.Proxy.Mark();
 
         var rechecked = await CuriaAsync("recheck", first, "nope", second, "--forum", proxy.Address);
 

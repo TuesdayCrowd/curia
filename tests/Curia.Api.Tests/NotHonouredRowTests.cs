@@ -93,7 +93,7 @@ public class NotHonouredFixture : FaultableForumFixture
 /// <summary>The same Forum on a real socket, for the client over the real route (NHR12).</summary>
 public sealed class NotHonouredKestrelFixture : NotHonouredFixture
 {
-    public NotHonouredKestrelFixture() => UseKestrel(0);
+    public NotHonouredKestrelFixture() => UseReservedKestrelPort();
 }
 
 /// <summary>

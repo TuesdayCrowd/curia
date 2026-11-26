@@ -371,7 +371,9 @@ public sealed class JsonReaderFenceTests
     {
         // The Forum's embedder is checked against its model files when the host is built (errata G65, R11.91). This test reads the host's routes and reaches no model, so it registers one that
         // needs none, in code, which Program.Build leaves in place; no configuration can do that.
+        // The Forum does not start without its name (errata G82, R11.109), so the host built here is given one; it is never dialled.
         var builder = WebApplication.CreateBuilder();
+        builder.Configuration[Curia.Api.PublicOrigin.ConfigurationKey] = "http://localhost";
         builder.Services.AddSingleton<Curia.Application.Ports.ITextEmbedder, Curia.Application.Retrieval.HashedNGramEmbedder>();
         await using var app = Curia.Api.Program.Build(builder);
         var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(d => d.Endpoints).ToList();

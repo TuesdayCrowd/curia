@@ -40,13 +40,17 @@ internal sealed record ExemplarRow(
 internal static class Exemplars
 {
     private const int EnvelopeStringCap = 262_144;
+
+    /// <summary>The fuzz fixtures' origin is <c>http://localhost</c> (ForumFixture's default), so its authority is the exemplar's <c>Host</c>.</summary>
+    private static HeaderEntry HostEntry { get; } = new("Host", new Uri(RequestModel.Origin).Authority, []);
     private const int RationaleCap = 4_096;
 
     internal static IReadOnlyList<ExemplarRow> All { get; } =
     [
         // Group 1: reads and anonymous routes.
-        Anonymous("GET", "/health"),
-        Anonymous("GET", ReaderContract.WellKnownPath),
+        // R5.27 (errata G82, ORG12): the Host header is a read the Forum makes on every route, so it is varied, over the closed set of Variations.HostValues and the string class, on three routes: an anonymous one, the contract's and an authenticated one.
+        Anonymous("GET", "/health", (m, _) => m.Headers.Add(HostEntry)),
+        Anonymous("GET", ReaderContract.WellKnownPath, (m, _) => m.Headers.Add(HostEntry)),
         Anonymous("GET", "/oauth/jwks"),
         Anonymous("GET", "/.well-known/oauth-authorization-server"),
         Anonymous("GET", "/v1/enroll/nonce"),   // R4.47: reads no query name, so the pass sends none
@@ -115,7 +119,7 @@ internal static class Exemplars
             m.Query.Add(new("marking", "datamark"));
         }),
         Authenticated("GET", "/v1/flags", (_, _) => { }),
-        Authenticated("GET", "/v1/budget", (_, _) => { }),   // R9.50: a route that honours no query name needs no query entry (the pass sends none)
+        Authenticated("GET", "/v1/budget", (m, _) => m.Headers.Add(HostEntry)),   // R9.50: a route that honours no query name needs no query entry (the pass sends none)
         Authenticated("GET", "/v1/posts/{postId}/flags", (m, c) => m.RouteValues.Add(new("postId", c.OwnQuestionId))),
         Anonymous("POST", "/v1/posts/batch", (m, c) =>
         {

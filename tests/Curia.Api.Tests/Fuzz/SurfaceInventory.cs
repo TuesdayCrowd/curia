@@ -75,13 +75,13 @@ internal static class SurfaceInventory
 
     /// <summary>
     /// The headers no exemplar varies, each with its reason: framing the client computes, which
-    /// Kestrel's parser reads before any handler does. <c>Transfer-Encoding</c> and <c>Connection</c>
+    /// Kestrel's parser reads before any handler does. <c>Host</c> is not listed (errata G82): Forum code
+    /// reads it on every route, so the exemplars of three routes vary it. <c>Transfer-Encoding</c> and <c>Connection</c>
     /// are not listed: nothing reads either through the request's headers on the test host, so each
     /// was stale on the first pass. Kestrel's parser reads its own copy, before the recorder.
     /// </summary>
     internal static readonly (string Name, string Reason)[] TransportHeaders =
     [
-        ("Host", "framing, computed by the client; Kestrel's parser"),
         ("Content-Length", "framing, computed by the client; Kestrel's parser"),
     ];
 

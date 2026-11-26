@@ -80,7 +80,7 @@ internal sealed class RotationSeam
 /// </summary>
 public sealed class SkippedRotationFixture : ForumFixture
 {
-    public SkippedRotationFixture() => UseKestrel(0);
+    public SkippedRotationFixture() => UseReservedKestrelPort();
 
     internal RotationSeam Seam { get; } = new();
 

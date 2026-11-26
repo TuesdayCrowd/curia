@@ -18,7 +18,7 @@ namespace Curia.Api.Tests.Fuzz;
 /// </summary>
 public sealed class KestrelForumFixture : ForumFixture
 {
-    public KestrelForumFixture() => UseKestrel(0);
+    public KestrelForumFixture() => UseReservedKestrelPort();
 }
 
 /// <summary>
@@ -118,6 +118,61 @@ public sealed class RequestFuzzKestrelTests(KestrelForumFixture forum) : IClassF
         Assert.True(failures.Count == 0, $"{failures.Count} failures:\n" + string.Join('\n', failures));
     }
 
+    /// <summary>
+    /// ORG12a over Kestrel (errata G82): the closed set of <c>Host</c> values written raw into the request line of every route that takes no path parameter, which a client library will not send
+    /// (<c>a b</c>, a list, two headers). The oracle is the pass's: no status below 100 (no status line) and no 5xx. The test counts, with its own list, that every value was sent on every route.
+    /// </summary>
+    [Fact]
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "A send that hangs past 30 s or is reset is a failure carrying its type, recorded like any other.")]
+    public async Task R14_10_ORG12a_NoRawHostIsAServerFault()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        forum.StartServer();
+        var address = forum.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses
+            .Select(a => new Uri(a))
+            .First(u => u.Scheme == Uri.UriSchemeHttp);
+        var own = forum.Client.BaseAddress!.Authority;
+        var hosts = new (string Name, string Lines)[]
+        {
+            ("own", $"Host: {own}\r\n"), ("case", $"Host: {own.ToUpperInvariant()}\r\n"), ("default-port", $"Host: {forum.Client.BaseAddress.Host}\r\n"),
+            ("wrong-port", $"Host: {forum.Client.BaseAddress.Host}:8080\r\n"), ("empty", "Host:\r\n"), ("userinfo", "Host: a@b\r\n"), ("list", "Host: a,b\r\n"),
+            ("long-label", $"Host: {new string('a', 300)}.example\r\n"), ("space", "Host: a b\r\n"), ("two", $"Host: {own}\r\nHost: {own}\r\n"), ("none", string.Empty),
+        };
+        var routes = SurfaceInventory.Routes(forum).Where(r => r.Parameters.Length == 0 && r.Method == "GET").Select(r => r.Pattern).Append("/health").Distinct().ToList();
+        var failures = new List<string>();
+        var sent = 0;
+        foreach (var route in routes)
+        {
+            foreach (var (name, lines) in hosts)
+            {
+                try
+                {
+                    var request = Encoding.ASCII.GetBytes($"GET {route} HTTP/1.1\r\n{lines}Content-Length: 0\r\nConnection: close\r\n\r\n");
+                    using var client = new TcpClient();
+                    await client.ConnectAsync(address.Host, address.Port, ct);
+                    await using var stream = client.GetStream();
+                    await stream.WriteAsync(request, ct);
+                    using var answer = new MemoryStream();
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                    await stream.CopyToAsync(answer, timeout.Token);
+                    sent++;
+                    var line = Encoding.Latin1.GetString(answer.ToArray()).Split("\r\n")[0].Split(' ');
+                    var status = line.Length > 1 && int.TryParse(line[1], NumberStyles.None, CultureInfo.InvariantCulture, out var code) ? code : 0;
+                    if (status is < 100 or >= 500) failures.Add($"GET {route} Host {name}: {status.ToString(CultureInfo.InvariantCulture)}, a server fault or no status line");
+                }
+                catch (Exception e) when (!ct.IsCancellationRequested)
+                {
+                    sent++;
+                    failures.Add($"GET {route} Host {name}: the send threw {e.GetType().Name}");
+                }
+            }
+        }
+
+        Assert.True(routes.Count > 0 && sent == routes.Count * hosts.Length, $"the pass sent {sent} requests, expected {routes.Count} routes x {hosts.Length} values");
+        Assert.True(failures.Count == 0, $"{failures.Count} failures:\n" + string.Join('\n', failures));
+    }
+
     /// <summary>The pattern's path with <paramref name="bytes"/> at <paramref name="parameter"/>, and <c>x</c> at any other parameter.</summary>
     private static byte[] PathWith(string pattern, string parameter, byte[] bytes)
     {
@@ -151,7 +206,7 @@ public sealed class RequestFuzzKestrelTests(KestrelForumFixture forum) : IClassF
         [
             .. Encoding.ASCII.GetBytes(method + " "),
             .. path,
-            .. Encoding.ASCII.GetBytes(" HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+            .. Encoding.ASCII.GetBytes($" HTTP/1.1\r\nHost: {address.Authority}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
         ];
         await stream.WriteAsync(request, ct);
 

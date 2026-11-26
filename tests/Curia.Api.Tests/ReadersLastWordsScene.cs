@@ -25,7 +25,7 @@ internal sealed record RlwAgent(EnrolledAgent Agent, ForumSession Session, Forum
 /// client's own rules do not; the ids and digests are the receipts the Forum returned, and the chain a probe expects is read from the <c>events</c> table by
 /// SQL from the connection string the fixture holds, never from <c>CorrectionIndex</c>.
 /// </summary>
-internal sealed class ReadersLastWordsScene(KestrelForumFixture forum) : IDisposable
+internal sealed class ReadersLastWordsScene(ForumFixture forum) : IDisposable
 {
     private static readonly TimeSpan Tenure = TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1);
 
