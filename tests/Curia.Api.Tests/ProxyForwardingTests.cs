@@ -27,6 +27,20 @@ public sealed class ForwardedForumFixture : ForumFixture
 
     internal int ForumPort { get; private set; }
 
+    /// <summary>
+    /// The fixture's own client reaches the Forum behind the forwarder directly, and addresses it by the origin's name, as every fixture's client
+    /// does (R5.26, ORG15): the <c>Host</c> it sends is the origin's authority, not the loopback socket it dials.
+    /// </summary>
+    internal override HttpClient Client
+    {
+        get
+        {
+            var client = base.Client;
+            client.DefaultRequestHeaders.Host = Authority;
+            return client;
+        }
+    }
+
     internal string Authority => $"forum.example:{_forwarderPort}";
 
     internal ConcurrentDictionary<string, int> Reached { get; } = new(StringComparer.Ordinal);
