@@ -1,0 +1,8 @@
+[Unit]
+Description=STUB failure handler for curia-sign-head.service: THIS ALERTS NO ONE, it writes one line to the journal
+
+[Service]
+Type=oneshot
+# A stub that claimed to alert would be vacuous. It logs and does not notify: point OnFailure= in curia-sign-head.service at a
+# unit you supply (a pager, a mail, a chat hook), and delete this one.
+ExecStart=/usr/bin/logger -p user.crit -t curia-alert "curia-sign-head.service failed; this stub alerts no one"
