@@ -510,7 +510,7 @@ public sealed partial class DeploymentDocsTests
             foreach (var name in required.Where(r => !names.Contains(r, StringComparer.Ordinal))) problems.Add($"the environment example lacks {name}, which the Forum refuses to start without");
             foreach (var name in names.Where(n => !required.Contains(n))) problems.Add($"the environment example holds {name}, which is not a variable the Forum requires to start");
             foreach (var key in operatorKeys.Where(k => example.Contains(k, StringComparison.Ordinal))) problems.Add($"the environment example names {key} (R12.18, and a core of the Forum holds its environment)");
-            if (example.Contains("Development", StringComparison.OrdinalIgnoreCase) || names.Contains("ASPNETCORE_ENVIRONMENT", StringComparer.Ordinal)) problems.Add("the environment example sets or names the hosting environment: the unit's Production is the one place it is set, and a Development Forum serves a page that carries the request's credentials (G84, item 399 (c))");
+            if (example.Contains("Development", StringComparison.OrdinalIgnoreCase) || names.Contains("ASPNETCORE_ENVIRONMENT", StringComparer.Ordinal) || names.Contains("DOTNET_ENVIRONMENT", StringComparer.Ordinal)) problems.Add("the environment example sets or names the hosting environment: the unit's Production is the one place it is set, and a Development Forum serves a page that carries the request's credentials (G84, item 399 (c); R11.112)");
         }
 
         foreach (var key in operatorKeys.Where(k => unitText.Contains(k, StringComparison.Ordinal))) problems.Add($"the Forum's unit names {key}");
@@ -518,6 +518,11 @@ public sealed partial class DeploymentDocsTests
 
         var environment = service.GetValueOrDefault("Environment") ?? [];
         if (!environment.Contains("ASPNETCORE_ENVIRONMENT=Production", StringComparer.Ordinal)) problems.Add("Environment= does not set ASPNETCORE_ENVIRONMENT=Production");
+        // R11.112 (errata G85): DOTNET_ENVIRONMENT beats ASPNETCORE_ENVIRONMENT when both are set (measured), so the unit sets both; the guard is the control and the unit is a belt.
+        if (!environment.Contains("DOTNET_ENVIRONMENT=Production", StringComparer.Ordinal)) problems.Add("Environment= does not set DOTNET_ENVIRONMENT=Production (the host takes DOTNET_ENVIRONMENT before ASPNETCORE_ENVIRONMENT, so a Development value of it beats the unit's other line: R11.112)");
+        foreach (var variable in new[] { "ASPNETCORE_ENVIRONMENT", "DOTNET_ENVIRONMENT" })
+            foreach (var line in environment.Where(e => e.StartsWith(variable + "=", StringComparison.Ordinal) && e != variable + "=Production"))
+                problems.Add($"Environment= sets {variable} to something other than Production: {line}");
         if (environment.Any(e => e.Contains("Development", StringComparison.OrdinalIgnoreCase))) problems.Add("Environment= names Development");
         foreach (var variable in environment.Select(e => e.Split('=', 2)[0]).Where(n => n.StartsWith("CURIA_", StringComparison.Ordinal)))
             if (!AllSource().Contains(variable, StringComparison.Ordinal)) problems.Add($"Environment= sets {variable}, which nothing under src/ reads");
@@ -546,6 +551,36 @@ public sealed partial class DeploymentDocsTests
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
+
+    /// <summary>
+    /// DEV11 (errata G85, R11.112; amendment 1 ruling 4(b)). No file under <c>deploy/</c> or <c>docs/runbooks/</c>, and no line of the README's hosting section, sets <c>ASPNETCORE_ENVIRONMENT</c> or
+    /// <c>DOTNET_ENVIRONMENT</c> to <c>Development</c> in any case (the forms <c>NAME=value</c>, <c>NAME: value</c>, <c>export NAME=value</c>, <c>-e NAME=value</c>), so no operator command the repository gives starts a
+    /// hosted Forum in Development. The runbook quotes the refusal words, which name both variables and Production and never Development after one.
+    /// </summary>
+    [Fact]
+    public void R11_112_DEV11_NoDeployFileOrRunbookSetsAHostingEnvironmentToDevelopment()
+    {
+        var problems = new List<string>();
+        var files = new List<string>();
+        foreach (var dir in new[] { "deploy", "docs/runbooks" })
+            files.AddRange(Directory.EnumerateFiles(Path.Combine(Root, dir), "*", SearchOption.AllDirectories));
+        files.Add(Path.Combine(Root, "README.md"));
+        var assignment = EnvironmentAssignment();
+        foreach (var file in files)
+            foreach (var (line, number) in File.ReadAllLines(file).Select((l, i) => (l, i + 1)))
+                if (assignment.Match(line) is { Success: true } m) problems.Add($"{Path.GetRelativePath(Root, file)}:{number} sets {m.Groups[1].Value} to Development: {line.Trim()}");
+
+        // the pattern itself is held: it finds each form it is written for
+        foreach (var form in new[] { "ASPNETCORE_ENVIRONMENT=Development", "export DOTNET_ENVIRONMENT=development", "docker run -e ASPNETCORE_ENVIRONMENT=DEVELOPMENT x", "DOTNET_ENVIRONMENT: Development", "Environment=ASPNETCORE_ENVIRONMENT=Development" })
+            if (!assignment.IsMatch(form)) problems.Add($"the DEV11 pattern does not find '{form}'");
+        foreach (var form in new[] { "ASPNETCORE_ENVIRONMENT=Production", "unset DOTNET_ENVIRONMENT", "set both to Production" })
+            if (assignment.IsMatch(form)) problems.Add($"the DEV11 pattern finds '{form}', which is not an assignment of Development");
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    [GeneratedRegex(@"\b(ASPNETCORE_ENVIRONMENT|DOTNET_ENVIRONMENT)\s*[=:]\s*['""]?development\b", RegexOptions.IgnoreCase)]
+    private static partial Regex EnvironmentAssignment();
 
     // ---------------------------------------------------------------- DPK11
 
@@ -588,6 +623,12 @@ public sealed partial class DeploymentDocsTests
         foreach (var needed in new[] { "PostgreSQL 18", "pgvector", "python3", "named commit or tag" })
             if (!Flat(provisioning).Contains(needed, StringComparison.Ordinal)) problems.Add($"provisioning does not say '{needed}'");
         if (!Text(".github/workflows/ci.yml").Contains("pgvector/pgvector:pg18", StringComparison.Ordinal)) problems.Add("CI no longer runs pgvector/pgvector:pg18: 'PostgreSQL 18' is read against it");
+
+        // R11.112 (errata G85, amendment 1 ruling 5): a Release publish on an operator's box ships PDBs whose frames name the builder's directory, and a refused start prints frames. In a git clone, as the runbook's
+        // first commands make one, ContinuousIntegrationBuild maps them to /_/ (measured by the stage's Task 6; without the clone it maps nothing). This row restates the doc; the measurement is the evidence.
+        var publishLines = commands.Where(c => c.StartsWith("dotnet publish ", StringComparison.Ordinal)).ToList();
+        if (publishLines.Count != 3) problems.Add($"provisioning has {publishLines.Count} dotnet publish lines, expected three");
+        foreach (var line in publishLines.Where(l => !l.Contains("-p:ContinuousIntegrationBuild=true", StringComparison.Ordinal))) problems.Add($"a publish line does not carry -p:ContinuousIntegrationBuild=true, so a refused start's frames name the builder's directory: {line}");
 
         var published = PublishCommand().Matches(provisioning).ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value, StringComparer.Ordinal);
         foreach (var (project, executable) in new[] { ("src/Curia.Api", "Curia.Api"), ("src/Curia.Operator", "curia-operator"), ("src/Curia.Client.Cli", "curia") })
@@ -797,7 +838,8 @@ public sealed partial class DeploymentDocsTests
             var section = end < 0 ? runbook[start..] : runbook[start..end];
             var quotes = section.Split('\n').Where(l => l.StartsWith("> ", StringComparison.Ordinal)).Select(l => l[2..].Trim()).ToList();
             if (quotes.Count < 4) problems.Add($"the section quotes {quotes.Count} refusals, not the four measured cases (absent, no scheme, trailing slash, upper-case scheme)");
-            var source = LiteralText("src/Curia.Api/PublicOrigin.cs");
+            // R11.112 (errata G85): the pair's refusal is quoted too; its one hole is the origin, which the runbook fills with its example (DEV6 reads the whole text against HostingGuard.Words).
+            var source = LiteralText("src/Curia.Api/PublicOrigin.cs") + LiteralText("src/Curia.Api/HostingGuard.cs").Replace("{Origin}", "https://forum.example", StringComparison.Ordinal);
             foreach (var quote in quotes)
                 foreach (var part in quote.Split(": ", StringSplitOptions.RemoveEmptyEntries))
                     if (!source.Contains(part.Trim().TrimEnd('.'), StringComparison.Ordinal))

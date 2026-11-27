@@ -353,9 +353,17 @@ public sealed class Program
         // R11.109 (errata G82): the Forum's one name, read from Curia:PublicOrigin then CURIA_PUBLIC_ORIGIN, refused when absent or not its own canonical form, and the
         // replaced Curia:Issuer and Curia:Audience refused when set. Resolved right after Build, below, so a host with no name never serves a request. The issuer is co-hosted, so
         // iss and aud are both the origin (TokenIssuer's remarks); a split issuer host would need a second setting and none is built.
-        builder.Services.AddSingleton(_ => PublicOrigin.Read(builder.Configuration).Match(
-            origin => origin,
-            error => throw new InvalidOperationException(error.Detail ?? error.Title)));
+        // R11.112 (errata G85) is the same resolution's second refusal: a host whose environment is Development and whose origin is not loopback does not start. It is called here, in the one registration, so
+        // nothing can obtain an origin without passing it, and before any store or key is read; it reads the host's own environment and no setting (HostingGuard).
+        builder.Services.AddSingleton(_ =>
+        {
+            var origin = PublicOrigin.Read(builder.Configuration).Match(
+                origin => origin,
+                error => throw new InvalidOperationException(error.Detail ?? error.Title));
+            return HostingGuard.Check(builder.Environment.EnvironmentName, origin).Match(
+                checkedOrigin => checkedOrigin,
+                error => throw new InvalidOperationException(error.Detail ?? error.Title));
+        });
 
         // R5.27 (errata G82): first of all, on every route, before a store is read: a request not addressed to the Forum's name is refused in the Forum's own words.
         // A startup filter, so that it is outside a forwarding middleware registered after it (see HostNotServed.Filter).

@@ -15,6 +15,9 @@ WorkingDirectory=/opt/curia/api
 # operator's three signing keys. Mode 0600, owned by the Forum's user and read by no one else. See forum.env.example.
 EnvironmentFile=/etc/curia/forum.env
 # Production, never Development: Development serves the developer exception page, which echoes the Authorization and DPoP headers.
+# The host takes DOTNET_ENVIRONMENT before ASPNETCORE_ENVIRONMENT (measured), so both are set: a line here defeats a value of the service manager's own, and
+# not one in the EnvironmentFile, which systemd lets override this. The Forum refuses to start in Development with a public origin whatever sets it (R11.112).
+Environment=DOTNET_ENVIRONMENT=Production
 Environment=ASPNETCORE_ENVIRONMENT=Production
 # Loopback only: the edge is the Forum's one public face. This is the address deploy/proxy/nginx.conf's upstream names.
 Environment=ASPNETCORE_URLS=http://127.0.0.1:5000

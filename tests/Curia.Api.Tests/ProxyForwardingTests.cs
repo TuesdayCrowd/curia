@@ -27,6 +27,9 @@ public sealed class ForwardedForumFixture : ForumFixture
 
     internal int ForumPort { get; private set; }
 
+    /// <summary>R11.112 (errata G85): a Forum that holds a public origin runs Production, the shape the hosted Forum runs; Development with it is refused at start.</summary>
+    protected override string? HostingEnvironment => "Production";
+
     /// <summary>
     /// The fixture's own client reaches the Forum behind the forwarder directly, and addresses it by the origin's name, as every fixture's client
     /// does (R5.26, ORG15): the <c>Host</c> it sends is the origin's authority, not the loopback socket it dials.

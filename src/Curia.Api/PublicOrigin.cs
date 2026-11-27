@@ -62,6 +62,27 @@ public sealed class PublicOrigin
     public string ReaderContractUrl() => Value + Curia.Domain.Serving.ReaderContract.WellKnownPath;
 
     /// <summary>
+    /// Whether the origin's host is this machine's loopback by spelling, and by no other test (R11.112): the name <c>localhost</c>, four dotted-decimal octets whose first is 127, or <c>[::1]</c>. Nothing is
+    /// resolved or parsed again: the origin is already its own canonical form (R11.109), so these are three exact spellings. A DNS name that begins with <c>127.</c> (the grammar admits an all-numeric
+    /// first label: <c>127.example</c>, <c>127.0.0.1.example</c>) is not loopback, and neither is <c>x.localhost</c> or the mapped spelling <c>[::ffff:127.0.0.1]</c>. The scheme and the port are not read.
+    /// </summary>
+    public bool IsLoopback()
+    {
+        var authority = _authority;
+        if (authority.StartsWith('['))
+            return string.Equals(authority[..(authority.IndexOf(']', StringComparison.Ordinal) + 1)], "[::1]", StringComparison.Ordinal);
+
+        var colon = authority.IndexOf(':', StringComparison.Ordinal);
+        var host = colon < 0 ? authority : authority[..colon];
+        if (string.Equals(host, "localhost", StringComparison.Ordinal)) return true;
+
+        var octets = host.Split('.');
+        return octets.Length == 4
+            && string.Equals(octets[0], "127", StringComparison.Ordinal)
+            && octets.All(o => o.Length is >= 1 and <= 3 && o.All(char.IsAsciiDigit) && int.Parse(o, CultureInfo.InvariantCulture) <= 255);
+    }
+
+    /// <summary>
     /// R5.27's comparison: the <c>Host</c> header exactly as received (one value, never decoded, trimmed or de-dotted), ASCII case-insensitively
     /// equal to the origin's authority, an explicit default port counting as the same as none when the origin has none.
     /// </summary>

@@ -265,7 +265,12 @@ public sealed class OriginBindingTests(ForumFixture forum) : IClassFixture<Forum
     [Fact]
     public async Task R5_26_ORGtok_ATokenIsBoundToTheForumThatMintedIt()
     {
-        using var other = forum.WithWebHostBuilder(b => b.UseSetting("Curia:PublicOrigin", "http://other.example"));
+        using var other = forum.WithWebHostBuilder(b =>
+        {
+            // R11.112 (errata G85): this host holds a public origin, so it runs Production (IWebHostBuilder has no UseEnvironment here; the setting is what it sets).
+            b.UseSetting("environment", "Production");
+            b.UseSetting("Curia:PublicOrigin", "http://other.example");
+        });
         using var otherClient = other.CreateClient();
         otherClient.DefaultRequestHeaders.Host = "other.example";
         var (agent, dpop) = await EnrolledAsync(forum, "orgtok", Ct);
