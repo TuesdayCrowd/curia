@@ -25,6 +25,8 @@ internal static partial class PublishedEnrolWords
 
     internal static string NotContinuable => Span("Not continuable");
 
+    internal static string EdgeClosed => Span("Edge closed");
+
     /// <summary>
     /// The span the bullet <paramref name="name"/> publishes, between its double quotes. The paragraph is the one whose <b>line begins</b> <c>**R11.107 words.**</c>: R11.107's own paragraph names that
     /// anchor in running text ("the paragraph `**R11.107 words.**` below"), so <c>PublishedClientWords.Paragraph</c> finds two and refuses (a finding of the Task 2 run); this reads by line start.

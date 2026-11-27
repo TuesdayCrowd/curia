@@ -317,16 +317,21 @@ What a beta instance is, and is not (each of these is in the first section of th
 - **It makes no claim that enrolment is non-repudiable.** The proof of possession (R4.46) is not retained; a signed enrolment root is built
   before any hosting that claims it (G79).
 - **First-come identifier squatting with the squatter's own key is accepted for now** (G79): the first key that enrols an identifier holds it.
-- **A per-address limit is not an abuse control.** The edge limits the nonce and token routes per address (R7.33, at G83's table, which is
+- **Enrolment is closed at the edge by default** (errata G86, R7.33 (rev.) (d)): the shipped recipe answers every method on `/v1/agents`, in every
+  spelling the Forum's router accepts, `403` `curia/edge/enrolment-closed` unless the operator has listed the caller's address in
+  `curia-enrolment-allow.conf`, and `curia enrol` says so in words. **The Forum itself does not close enrolment** (G86's non-property (a)): an edge-less Forum is
+  open, and the readiness check R13 is what observes the closure from outside. A closed beta holds at most **10,000 events**, with a warning at 7,500, and
+  readiness R12 FAILs above the ceiling (items 278 and 314 are deferred, gated by it, not fixed).
+- **A per-address limit is not an abuse control.** The edge limits the nonce, token and enrolment routes per address (R7.33, at G83's and G86's table, which is
   provisional); a fleet spreads across addresses at no cost and one honest operator behind one address pays in full. What bounds abuse is
   possession of a key and the owner's attestation.
 - **The edge's body cap is a second line; the Forum bounds a body itself** (G84, R6.68 (rev.)): at R6.39's size plus one byte, 1,048,577 bytes, on every
   route, and a body the host rejects is answered as a problem document and not by the host's own writer. It bounds bytes and not what they cost, and not the
   number of bodies in flight, which are the edge's burst limit and the owner's memory limit. A hosted Forum is never Development, and since G85 the Forum refuses to start
   in Development with a public origin that is not loopback (R11.112); no setting lifts it.
-- **What remains before announcing** (the Development refusal is built, G85): the closed beta's edge (enrolment closed at the proxy by default and a
-  10,000-event ceiling checked by readiness; the owner deferred items 278 and 314 for a closed beta on 2026-11-26), then the owner's own acts: the hosted database's two
-  pending migrations applied (the runbook names them), the lifecycle guard left unlifted, an alert unit supplied, the keys published and their kids announced.
+- **What remains before announcing** (the build for a closed beta is complete: the Development refusal, G85, and the closed beta's edge, G86): only the owner's own acts. Merge #161;
+  provision the host per the runbook; as the database's owner apply db/0001 to db/0006; generate, back up and publish the three keys and announce their kids; supply the alert unit;
+  list the invitees' addresses in `curia-enrolment-allow.conf`; run readiness until every check passes, R12 and R13 included; announce. The lifecycle guard stays unlifted.
 - **The database credential's reach is named**, not hidden: a process holding it can append rows the Forum skips and reports, can publish an
   operator key before the owner does, and the head timer signs what the log holds when it runs, stopping (exit 6) only for a row the Forum does
   not honour (G68, G70).

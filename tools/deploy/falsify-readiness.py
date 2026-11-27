@@ -50,6 +50,18 @@ ROWS = [
     ("FRDY11", "R11", READINESS, kill("r11"), "ReadinessScriptTests.G83_RDY11"),
     ("FRDY12", "exit should be 8|exit 8", READINESS, ("        if NOT_CHECKED in statuses:\n            return 8", "        if NOT_CHECKED in statuses:\n            return 0"), "ReadinessScriptTests.G83_RDY12|ReadinessScriptTests.G83_RDY1"),
     ("FRDY13", "R9 was", READINESS, ('        return NOT_CHECKED, "--probe-limits was not given', '        return PASS, "--probe-limits was not given'), "ReadinessScriptTests.G83_RDY9"),
+    # errata G86: R12 (the log's size) and R13 (the enrolment edge)
+    ("FRDY14", "R12", READINESS, ("    if count > args.event_ceiling:\n        return FAIL,", "    if count > args.event_ceiling:\n        return PASS,"), "ReadinessScriptTests.G86_RDY13|ReadinessScriptTests.G86_RDY16"),
+    ("FRDY15", "R12", READINESS, kill("r12"), "ReadinessScriptTests.G86_RDY13|ReadinessScriptTests.G86_RDY14|ReadinessScriptTests.G86_RDY16"),
+    ("FRDY16", "R12", READINESS, ('return NOT_CHECKED, f"psql could not count the events (exit {run.returncode})"', 'return PASS, f"psql could not count the events (exit {run.returncode})"'), "ReadinessScriptTests.G86_RDY15"),
+    ("FRDY17", "R12", READINESS, ("    if certain:\n        return PASS, f\"warning:", "    if True:\n        return PASS, f\"warning:"), "ReadinessScriptTests.G86_RDY16"),
+    ("FRDY18", "R12", READINESS, ("    if count <= args.event_warn:", "    if count <= args.event_ceiling:"), "ReadinessScriptTests.G86_RDY14"),
+    ("FRDY19", "R13", READINESS, kill("r13"), "ReadinessScriptTests.G86_RDY17|ReadinessScriptTests.G86_RDY18|ReadinessScriptTests.G86_RDY20"),
+    ("FRDY20", "R13", READINESS, ('ENROL_SPELLINGS = ("/v1/agents", "/V1/AGENTS")', 'ENROL_SPELLINGS = ("/v1/agents",)'), "ReadinessScriptTests.G86_RDY17"),
+    ("FRDY21", "R13", READINESS, ("            if status == 403 and kind == ENROLMENT_CLOSED:\n                continue\n", "            if 400 <= status < 500:\n                continue\n"), "ReadinessScriptTests.G86_RDY17"),
+    ("FRDY22", "default", READINESS, ('"--event-ceiling", type=int, default=10000', '"--event-ceiling", type=int, default=10001'), "ReadinessScriptTests.G86_RDY19"),
+    ("FRDY23", "default", READINESS, ('"--expect-enrolment", choices=("closed", "open"), default="closed"', '"--expect-enrolment", choices=("closed", "open"), default="open"'), "ReadinessScriptTests.G86_RDY19"),
+    ("FRDY24", "R6", READINESS, ("    return p.parse_args(join_kid_values(argv, p))", "    return p.parse_args(argv)"), "ReadinessScriptTests.G86_RDY21"),
     ("FBD1", "drill", DRILL, ('        add("D1", NOT_CHECKED, f"{\', \'.join(missing)} not found on PATH: the drill did not run")', '        add("D1", PASS, f"{\', \'.join(missing)} not found on PATH: the drill did not run")'), "python"),
 ]
 
@@ -117,7 +129,7 @@ def main(argv):
         for path, copy in keep.items():
             restore(path, copy)
             os.remove(copy)
-    code, output = probe("ReadinessScriptTests.G83_RDY1|ReadinessScriptTests.G83_RDY2|ReadinessScriptTests.G83_RDY12")
+    code, output = probe("ReadinessScriptTests.G83_RDY1|ReadinessScriptTests.G83_RDY2|ReadinessScriptTests.G83_RDY12|ReadinessScriptTests.G86_RDY")
     pcode, _ = probe("python")
     results.append(("UNPATCHED", "GREEN" if code == 0 and pcode == 0 else "RED", "the unpatched probes run once after the last restore"))
     for row_id, status, reason in results:

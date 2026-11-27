@@ -117,6 +117,9 @@ public sealed class ProxyForwardingTests(ForwardedForumFixture forum) : IClassFi
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>The operator's allow file as a test writes it (never the shipped one, which lists nothing): the forwarder's clients dial from the loopback address.</summary>
+    private const string ListedLoopback = "allow 127.0.0.1;";
+
     private static string Suffix() => Guid.NewGuid().ToString("N")[..8];
 
     private static string Words() => string.Join(' ', Enumerable.Range(0, 8).Select(_ => Guid.NewGuid().ToString("N")[..10]));
@@ -148,7 +151,7 @@ public sealed class ProxyForwardingTests(ForwardedForumFixture forum) : IClassFi
     [Fact]
     public async Task G83_PXY1_AnAgentEnrolsAuthenticatesAndPostsThroughTheEdge()
     {
-        await forum.ForwardAsync();
+        await forum.ForwardAsync(new RecipeForwarder.Options(EnrolmentAllow: ListedLoopback));
         using var client = forum.ClientOfForwarder();
         var agent = ForumAgent.Create($"https://agents.example/pxy-{Suffix()}", $"k-{Suffix()}");
         var tokenEndpoint = forum.PublicOrigin + "/oauth/token";
@@ -228,7 +231,7 @@ public sealed class ProxyForwardingTests(ForwardedForumFixture forum) : IClassFi
     [Fact]
     public async Task G83_PXY4_TheBurstIsRefusedAtTheTablesNumbers()
     {
-        await forum.ForwardAsync();
+        await forum.ForwardAsync(new RecipeForwarder.Options(EnrolmentAllow: ListedLoopback));
         using var client = forum.ClientOfForwarder();
         var problems = new List<string>();
         foreach (var zone in PublishedEdge.Zones())
@@ -308,4 +311,158 @@ public sealed class ProxyForwardingTests(ForwardedForumFixture forum) : IClassFi
         Assert.True(status == HttpStatusCode.BadRequest && type == "curia/request/host-not-served" && forum.Forwarder.Passed.GetValueOrDefault("/health") == 1,
             $"a foreign Host should be passed on and refused by the Forum (400 curia/request/host-not-served, and /health passed once); got {(int)status} {type}, passed {forum.Forwarder.Passed.GetValueOrDefault("/health")}");
     }
+    private static string WellFormedEnrolment()
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        return JsonSerializer.Serialize(new { agent_id = "https://agents.example/pxy-edge", alg = "ES256", kid = "pxy-edge", public_key = Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()) });
+    }
+
+    private static async Task<(HttpStatusCode Status, string? Type, string? ContentType)> PostEnrolmentAsync(HttpClient client, string path, string? body = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(body ?? WellFormedEnrolment(), System.Text.Encoding.UTF8, "application/json") };
+        using var response = await client.SendAsync(request, Ct);
+        var parsed = Parse(response.StatusCode, await response.Content.ReadAsStringAsync(Ct), response.Content.Headers.ContentType?.MediaType);
+        return (parsed.Item1, parsed.Item2, parsed.Item4);
+    }
+
+    /// <summary>
+    /// G86_PXY8 (R7.33 (rev.) (d), under the model): a request to the enrolment route from an address the shipped allow file does not list is the edge's <c>403</c> problem document of the type the errata names (read from the errata),
+    /// and the Forum is <b>not reached</b>: the Forum's own count of what it was asked is the oracle, as PXY4's is.
+    /// </summary>
+    [Fact]
+    public async Task G86_PXY8_AnUnlistedAddressIsRefusedByTheEdgeAndTheForumIsNotReached()
+    {
+        await forum.ForwardAsync();
+        using var client = forum.ClientOfForwarder();
+        var (status, type, contentType) = await PostEnrolmentAsync(client, "/v1/agents");
+        var reached = forum.Reached.GetValueOrDefault("/v1/agents");
+        Assert.True(status == HttpStatusCode.Forbidden && type == PublishedEdge.EnrolmentClosedType() && contentType == "application/problem+json" && reached == 0,
+            $"an unlisted address should be answered 403 {PublishedEdge.EnrolmentClosedType()} as application/problem+json with the Forum not reached; got {(int)status} {type} {contentType}, the Forum was asked {reached} times");
+    }
+
+    /// <summary>G86_PXY9: a listed address reaches the Forum, and a well-formed body with no proof is the Forum's own <c>400 curia/enroll/proof-required</c> (the allow file is the test's, never the shipped one).</summary>
+    [Fact]
+    public async Task G86_PXY9_AListedAddressReachesTheForumsOwnRefusal()
+    {
+        await forum.ForwardAsync(new RecipeForwarder.Options(EnrolmentAllow: ListedLoopback));
+        using var client = forum.ClientOfForwarder();
+        var (status, type, _) = await PostEnrolmentAsync(client, "/v1/agents");
+        var reached = forum.Reached.GetValueOrDefault("/v1/agents");
+        Assert.True(status == HttpStatusCode.BadRequest && type == "curia/enroll/proof-required" && reached == 1, $"a listed address should reach the Forum's own refusal (400 curia/enroll/proof-required, asked once); got {(int)status} {type}, asked {reached} times");
+    }
+
+    /// <summary>
+    /// G86_PXY10: every spelling of the route the Forum accepts when it is sent to it directly (a status other than <c>404</c> and <c>405</c> to a <c>POST</c>; the 17 Task 0 measured, plus the ones that are not) is the edge's <c>403</c> through the
+    /// forwarder and does not reach the Forum. <b>Under the model this restates the pattern's flag</b>: the differential through a real nginx is LCBE2, and this row does not count as that.
+    /// </summary>
+    [Fact]
+    public async Task G86_PXY10_EverySpellingTheForumAcceptsIsRefusedByTheEdge()
+    {
+        var spellings = new[]
+        {
+            "/v1/agents", "/V1/agents", "/v1/Agents", "/V1/AGENTS", "/v1/AGENTS", "/v1/agents/", "/V1/Agents/", "/v1/agents//", "//v1/agents", "/v1//agents", "/v1/./agents", "/v1/x/../agents", "/v1/%61gents", "/v1/%41gents",
+            "/%76%31/agents", "/v1%2Fagents", "/v1/agents;a=b", "/v1/agents;", "/v1/agents?x", "/v1/agents?x=1&y=2", "/v1/agents#f", "/v1/agents%20", "/v1/agents.", "/v1/agents/.", "/v1/agents%2F", "/v1/agents/%2e", "/v1/agents%09",
+            "/v1/%2561gents", "/v1/agents/x", "/v1/agents%c0%af",
+        };
+        await forum.ForwardAsync();
+        var accepted = new List<string>();
+        foreach (var path in spellings)
+        {
+            var direct = await RawHttp.PostAsync(forum.ForumPort, forum.Authority, path, 0, 0, "application/json", Ct);
+            // "Accepted" is the Forum's router having routed the request: one of its own problem documents that is not the no-route one (a 405 is a refusal of the method). A status alone is not that: on Linux Kestrel answers a target with a '#' in it a bare 400 with no body (it never reaches the router), which CI's first run took for acceptance.
+            if (direct.Status != 405 && direct.Body.Contains("\"type\":\"curia/", StringComparison.Ordinal) && !direct.Body.Contains("curia/request/no-route", StringComparison.Ordinal)) accepted.Add(path);
+        }
+
+        Assert.True(accepted.Count >= 9, $"the Forum should accept at least the case and slash variants directly; it accepted {accepted.Count}: {string.Join(' ', accepted)}");
+        var open = new List<string>();
+        foreach (var path in accepted)
+        {
+            forum.Reached.Clear();
+            var viaEdge = await RawHttp.PostAsync(forum.ForwarderPort, forum.Authority, path, 0, 0, "application/json", Ct);
+            if (viaEdge.Status != 403 || !viaEdge.Body.Contains(PublishedEdge.EnrolmentClosedType(), StringComparison.Ordinal) || forum.Reached.Any(r => r.Key.Contains("agents", StringComparison.OrdinalIgnoreCase)))
+                open.Add($"{path} -> {viaEdge.Status}");
+            await Task.Delay(1100, Ct);
+        }
+
+        Assert.True(open.Count == 0, $"spellings the Forum accepts that the edge did not refuse with its 403: {string.Join("; ", open)}");
+    }
+
+    /// <summary>
+    /// G86_PXY10c: a request target with a fragment (or a fragment after a query) selects the enrolment location and the rotation route's does not, on every OS. nginx 1.28.0 ends the URI at the <c>#</c> (measured with a raw socket from an unlisted
+    /// address: <c>/v1/agents#f</c>, <c>/v1/agents/#x</c>, <c>/V1/AGENTS#</c> and <c>/v1/agents?x#y</c> were each the edge's 403, so the edge was never bypassed), and the Forum never routes such a target to enrolment (404 on macOS, a bare 400 on Linux), so
+    /// the closed route is closed whichever the host does. A <c>%23</c> is a character of the path to both, selects no enrolment location and is the Forum's 404.
+    /// </summary>
+    [Fact]
+    public async Task G86_PXY10c_AFragmentDoesNotTakeATargetOutOfTheClosedLocation()
+    {
+        var forwarder = await forum.ForwardAsync();
+        var closed = new[] { "/v1/agents#f", "/v1/agents#", "/v1/agents/#x", "/V1/AGENTS#", "/V1/Agents/#f", "/v1/agents?x#y", "/v1/agents?#", "/v1/agents#f/x", "/v1/agents#/keys" };
+        var enrolment = forwarder.SelectedLocation("/v1/agents");
+        Assert.NotEqual("/", enrolment);
+        var open = closed.Where(t => forwarder.SelectedLocation(t) != enrolment).ToList();
+        Assert.True(open.Count == 0, $"targets that did not select the enrolment location: {string.Join(' ', open)}");
+        foreach (var rotation in new[] { "/v1/agents/x/keys", "/v1/agents/x/keys#f", "/v1/agents/x/retire?a#b", "/v1/agents%23f" })
+            Assert.Equal("/", forwarder.SelectedLocation(rotation));
+    }
+
+    /// <summary>G86_PXY10b: every method on the route is closed, not only <c>POST</c>: a <c>GET</c> to the route from an unlisted address is the edge's <c>403</c> where the Forum would answer <c>405</c>.</summary>
+    [Fact]
+    public async Task G86_PXY10b_EveryMethodOnTheRouteIsClosed()
+    {
+        await forum.ForwardAsync();
+        using var client = forum.ClientOfForwarder();
+        var statuses = new List<string>();
+        foreach (var method in new[] { HttpMethod.Get, HttpMethod.Put, HttpMethod.Delete, HttpMethod.Options })
+        {
+            using var request = new HttpRequestMessage(method, "/V1/Agents/");
+            using var response = await client.SendAsync(request, Ct);
+            statuses.Add($"{method} {(int)response.StatusCode}");
+        }
+
+        Assert.True(statuses.All(s => s.EndsWith(" 403", StringComparison.Ordinal)), string.Join(", ", statuses));
+    }
+
+    /// <summary>G86_PXY11: the credentialed rotation route is not closed (the anchor keeps it out): <c>POST /v1/agents/x/keys</c> from an unlisted address reaches the Forum, which answers it.</summary>
+    [Fact]
+    public async Task G86_PXY11_TheRotationRouteIsNotClosed()
+    {
+        await forum.ForwardAsync();
+        using var client = forum.ClientOfForwarder();
+        var (status, type, _) = await PostEnrolmentAsync(client, "/v1/agents/x/keys", "{}");
+        var reached = forum.Reached.GetValueOrDefault("/v1/agents/x/keys");
+        Assert.True(type != PublishedEdge.EnrolmentClosedType() && reached == 1, $"the rotation route should reach the Forum (asked once) and not be the enrolment closure; got {(int)status} {type}, asked {reached} times");
+    }
+
+    /// <summary>G86_PXY12: the mechanism can be opened: an allow file whose only line is <c>allow all;</c> admits every address (the operator's bounded window).</summary>
+    [Fact]
+    public async Task G86_PXY12_AnAllowAllFileOpensTheRoute()
+    {
+        await forum.ForwardAsync(new RecipeForwarder.Options(EnrolmentAllow: "allow all;"));
+        using var client = forum.ClientOfForwarder();
+        var (status, type, _) = await PostEnrolmentAsync(client, "/V1/AGENTS");
+        Assert.True(status == HttpStatusCode.BadRequest && type == "curia/enroll/proof-required", $"allow all should open the route in any spelling; got {(int)status} {type}");
+    }
+
+    /// <summary>
+    /// G86_PXY13: the closed route is limited too (nginx's <c>limit_req</c> runs before the access check and counts a denied request): sixty rapid requests from an unlisted address are the edge's <c>403</c> up to the table's burst and
+    /// then <c>429</c>, and the Forum is never asked. The opened route's burst at the table's numbers is PXY4's third row.
+    /// </summary>
+    [Fact]
+    public async Task G86_PXY13_AFloodAtTheClosedRouteIsLimitedAndNeverReachesTheForum()
+    {
+        await forum.ForwardAsync();
+        using var client = forum.ClientOfForwarder();
+        var burst = PublishedEdge.Zones().Single(z => z.Name == "curia_enrol").Burst;
+        var counts = new Dictionary<HttpStatusCode, int>();
+        for (var n = 0; n < 60; n++)
+        {
+            var (status, _, _) = await PostEnrolmentAsync(client, "/v1/agents");
+            counts[status] = counts.GetValueOrDefault(status) + 1;
+        }
+
+        var reached = forum.Reached.GetValueOrDefault("/v1/agents");
+        Assert.True(counts.GetValueOrDefault(HttpStatusCode.Forbidden) >= burst && counts.GetValueOrDefault(HttpStatusCode.TooManyRequests) > 0 && reached == 0,
+            $"sixty rapid requests should be 403 up to the burst ({burst}) and then 429 with the Forum not asked; got {string.Join(", ", counts.Select(c => $"{(int)c.Key}: {c.Value}"))}, asked {reached} times");
+    }
 }
+

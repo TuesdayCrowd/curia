@@ -20,6 +20,12 @@ Checks (the runbook docs/runbooks/hosted-instance.md says what each is for):
   R9  with --probe-limits: the edge answers 429 on GET /v1/enroll/nonce and POST /oauth/token
   R10 lifecycle-audit exits 0 (needs CURIA_EVENTS_POSTGRES and the operator tool)
   R11 the app role's grants and the db/0002 tables, by psql (--db-admin-url)
+  R12 the log holds no more than --event-ceiling events (default 10,000, errata G86; a warning above --event-warn, 7,500):
+      counted by psql (--db-admin-url), else read from the latest head's tree_size, which understates and so certifies only a size
+      at or below the warning figure; an unreadable size is NOT CHECKED, never PASS
+  R13 enrolment at the edge is as --expect-enrolment says (default closed: POST /v1/agents answers 403 curia/edge/enrolment-closed
+      in two spellings of the route; open: the Forum's own 400 curia/enroll/proof-required to a well-formed body with no proof);
+      appends no row to the log
 
 Deliberately not checks: the lifecycle guard's state, the embedding model's identity (the Forum does not start
 without it) and the Forum's own body bound (an edge's 413 and the Forum's share a type, not the document's bytes).
@@ -39,9 +45,23 @@ import sys
 import urllib.parse
 
 PASS, FAIL, NOT_CHECKED = "PASS", "FAIL", "NOT CHECKED"
-ALL_CHECKS = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"]
+ALL_CHECKS = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11", "R12", "R13"]
 FOREIGN_HOST = "not-this-forum.invalid"
 HOST_NOT_SERVED = "curia/request/host-not-served"
+ENROLMENT_CLOSED = "curia/edge/enrolment-closed"
+PROOF_REQUIRED = "curia/enroll/proof-required"
+# R13's request: the route's own shape (agent_id, alg, kid and a public key that is a P-256 SubjectPublicKeyInfo) and no `proof`. An empty body is
+# `curia/request/unreadable`, `{}` is `curia/enroll/invalid`, and a made-up key is `curia/enroll/invalid-key`: only a well-formed body shows that an
+# open route is open on purpose. The key is a public key generated for this probe; its private half was discarded. R4.46 refuses a request with no
+# proof before any store is read, so the probe appends no row (measured, Task 0). The two spellings are the route's, in the case the router also accepts.
+ENROL_BODY = json.dumps({
+    "agent_id": "https://agents.example/readiness-probe",
+    "alg": "ES256",
+    "kid": "readiness-probe",
+    "public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEDUwxV4LhSCHH44gGzVvcuzh9b/oHXZC/5VMhxKEkHcx7wCRltha3CcBJ5UKDtS5to1j/nZdyVQGoGf+TTfF5/g==",
+}).encode("utf-8")
+ENROL_SPELLINGS = ("/v1/agents", "/V1/AGENTS")
+COUNT_SQL = "SELECT count(*) FROM events"
 
 # The restore post-check of docs/runbooks/backup-restore.md, with the role as the literal curia_app (one textual
 # substitution below). Column-level grants: has_table_privilege(..., 'INSERT') is false with and without db/0006,
@@ -323,6 +343,82 @@ def check_r11(args):
     return PASS, f"the role {args.app_role} holds the narrowed grants of db/0006 and db/0002's tables exist"
 
 
+def size_verdict(count, args, source, certain):
+    """R12's verdict for a count. `certain` is true for an exact count (psql) and false for a head's tree_size, which can only understate."""
+    if count > args.event_ceiling:
+        return FAIL, f"{count} events ({source}), above the {args.event_ceiling} the beta is sized for: close enrolment and read register item 278"
+    if count <= args.event_warn:
+        return PASS, f"{count} events ({source}), within the ceiling of {args.event_ceiling}"
+    if certain:
+        return PASS, f"warning: {count} events ({source}), above {args.event_warn}; the ceiling is {args.event_ceiling}: stop inviting"
+    return NOT_CHECKED, f"the latest head counts {count} events, between {args.event_warn} and {args.event_ceiling}, and the head lags the log: use --db-admin-url"
+
+
+def check_r12(t, args):
+    if args.db_admin_url:
+        psql = shutil.which("psql")
+        if psql is None:
+            return NOT_CHECKED, "--db-admin-url was given and psql was not found on PATH"
+        run = subprocess.run([psql, args.db_admin_url, "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", COUNT_SQL], capture_output=True, text=True, timeout=60, check=False)
+        text = run.stdout.strip()
+        if run.returncode != 0:
+            return NOT_CHECKED, f"psql could not count the events (exit {run.returncode})"
+        if not text.isdigit():
+            return NOT_CHECKED, "psql's answer was not a count of events"
+        return size_verdict(int(text), args, "counted by psql", True)
+    status, _, text = t.request("GET", "/v1/log/head")
+    doc = as_json(text)
+    head = doc.get("head") if doc else None
+    size = head.get("tree_size") if isinstance(head, dict) else None
+    if status != 200 or isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        return NOT_CHECKED, f"no event count: --db-admin-url was not given and GET /v1/log/head answered {status} with no readable tree_size"
+    return size_verdict(size, args, "the latest head's tree_size, which understates", False)
+
+
+def enrol_answer(t, path):
+    status, _, text = t.request("POST", path, headers={"Content-Type": "application/json"}, body=ENROL_BODY)
+    doc = as_json(text)
+    return status, (doc.get("type") if doc else None)
+
+
+def check_r13(t, args):
+    for path in ENROL_SPELLINGS:
+        status, kind = enrol_answer(t, path)
+        if args.expect_enrolment == "closed":
+            if status == 403 and kind == ENROLMENT_CLOSED:
+                continue
+            if status == 403:
+                return FAIL, f"POST {path} answered 403 of another type than {ENROLMENT_CLOSED}: not the edge's closure"
+            return FAIL, f"POST {path} answered {status}, not the edge's 403 {ENROLMENT_CLOSED}: it reached the Forum's enrolment route (status {status}), or another answer closed it"
+        if status == 400 and kind == PROOF_REQUIRED:
+            continue
+        if status == 403 and kind == ENROLMENT_CLOSED:
+            return FAIL, f"POST {path} was closed by the edge and --expect-enrolment open was given"
+        return FAIL, f"POST {path} answered {status}, not the Forum's own 400 {PROOF_REQUIRED}"
+    if args.expect_enrolment == "closed":
+        return PASS, f"POST {' and '.join(ENROL_SPELLINGS)} were each answered 403 {ENROLMENT_CLOSED} by the edge"
+    return PASS, f"POST {' and '.join(ENROL_SPELLINGS)} each reached the Forum's own 400 {PROOF_REQUIRED}: enrolment is open, as expected"
+
+
+KID_FLAGS = ("--declaration-kid", "--operator-kid", "--log-kid")
+
+
+def join_kid_values(argv, parser):
+    """A key id is base64url, so about one in 64 begins with `-`, which argparse reads as an option. Join `--log-kid -abc` as `--log-kid=-abc`
+    unless the next word is one of this script's own options (then the value is missing and argparse says so)."""
+    known = set(parser._option_string_actions)  # noqa: SLF001 (argparse offers no public list of its option strings)
+    joined, i = [], 0
+    while i < len(argv):
+        word = argv[i]
+        if word in KID_FLAGS and i + 1 < len(argv) and argv[i + 1] not in known:
+            joined.append(f"{word}={argv[i + 1]}")
+            i += 2
+        else:
+            joined.append(word)
+            i += 1
+    return joined
+
+
 def parse(argv):
     p = argparse.ArgumentParser(prog="readiness.py", description="Readiness report for a hosted Curia Forum (errata G83, R11.110).")
     p.add_argument("--origin", required=True)
@@ -336,11 +432,14 @@ def parse(argv):
     p.add_argument("--burst", type=int, default=20, help="the edge's burst (G83's table); R9 sends burst+10 requests per route")
     p.add_argument("--db-admin-url", default=os.environ.get("CURIA_READINESS_DB_URL"))
     p.add_argument("--app-role", default="curia_app")
+    p.add_argument("--event-ceiling", type=int, default=10000, help="R12 FAILs a log of more events than this (errata G86, R11.110 (add.))")
+    p.add_argument("--event-warn", type=int, default=7500, help="R12 PASSes with a warning above this many events")
+    p.add_argument("--expect-enrolment", choices=("closed", "open"), default="closed", help="R13: closed (the default, edge refuses) or open (the Forum's own refusal of a proofless body)")
     p.add_argument("--max-head-age", type=int, default=7200)
-    p.add_argument("--operator-cmd", default="curia-operator")
+    p.add_argument("--operator-cmd", default="curia-operator", help="R10 only: no operator verb counts events, so R12 does not use it")
     p.add_argument("--only", help="comma list of check ids; every other check reports NOT CHECKED")
     p.add_argument("--timeout", type=float, default=10.0)
-    return p.parse_args(argv)
+    return p.parse_args(join_kid_values(argv, p))
 
 
 def main(argv):
@@ -358,6 +457,7 @@ def main(argv):
         "R1": lambda: check_r1(target), "R2": lambda: check_r2(target), "R3": lambda: check_r3(target), "R4": lambda: check_r4(target),
         "R5": lambda: check_r5(target), "R6": lambda: check_r6(target, args), "R7": lambda: check_r7(target, args),
         "R8": lambda: check_r8(target), "R9": lambda: check_r9(target, args), "R10": lambda: check_r10(args), "R11": lambda: check_r11(args),
+        "R12": lambda: check_r12(target, args), "R13": lambda: check_r13(target, args),
     }
     report = Report()
     for check in ALL_CHECKS:

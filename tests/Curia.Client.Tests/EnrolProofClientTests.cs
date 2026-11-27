@@ -268,4 +268,38 @@ public sealed class EnrolProofClientTests
         Assert.Equal(1, second.Requests.Count(r => r.Method == "POST"));
         Assert.Equal(fingerprint, host.FingerprintOf("epp20nc"));
     }
+    /// <summary>
+    /// G86_EPP21 (R7.33 (rev.) (d)): the edge's <c>403</c> of type <c>curia/edge/enrolment-closed</c> is worded as the errata's <c>Edge closed</c> span says (the operator lists addresses; nothing was registered; the same command enrols once listed),
+    /// not by the generic denial line with its empty <c>((none))</c> reason and "Retrying will not change this"; the exit stays 4, and the profile stays continuable (the same command sends one <c>POST</c> and prints the same).
+    /// </summary>
+    [Fact]
+    public async Task G86_EPP21_TheEdgesClosedEnrolmentIsWordedByTheErrata()
+    {
+        using var host = new AgentHost();
+        var forum = new EnrolForum().Refuse(403, "curia/edge/enrolment-closed").Refuse(403, "curia/edge/enrolment-closed");
+        host.OnOther = forum.Handle;
+
+        var first = await host.RunAsync(Enrol("epp21"));
+        Assert.Equal(4, first.Exit);
+        AssertSays(first, PublishedEnrolWords.EdgeClosed);
+        Assert.DoesNotContain("((none))", first.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Retrying will not change this", first.Text, StringComparison.Ordinal);
+
+        var second = await host.RunAsync(Enrol("epp21"));
+        Assert.Equal(4, second.Exit);
+        AssertSays(second, PublishedEnrolWords.EdgeClosed);
+        Assert.Equal(1, second.Requests.Count(r => r.Method == "POST"));
+    }
+    /// <summary>G86_EPP21b, the control: a <c>403</c> of any other type is not the closure and is not worded as it (the words are for the edge's type alone, D51: a denial does not borrow another refusal's cause).</summary>
+    [Fact]
+    public async Task G86_EPP21b_AnotherDenialIsNotWordedAsTheEdgesClosure()
+    {
+        using var host = new AgentHost();
+        host.OnOther = new EnrolForum().Refuse(403, "curia/authz/some-other-denial").Handle;
+
+        var run = await host.RunAsync(Enrol("epp21b"));
+
+        Assert.Equal(4, run.Exit);
+        Assert.False(PublishedClientWords.Says(run.Text, PublishedEnrolWords.EdgeClosed), $"a 403 of another type was worded as the edge's closure: {run.Text}");
+    }
 }
