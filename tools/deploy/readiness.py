@@ -20,7 +20,7 @@ Checks (the runbook docs/runbooks/hosted-instance.md says what each is for):
   R9  with --probe-limits: the edge answers 429 on GET /v1/enroll/nonce and POST /oauth/token
   R10 lifecycle-audit exits 0 (needs CURIA_EVENTS_POSTGRES and the operator tool)
   R11 the app role's grants and the db/0002 tables, by psql (--db-admin-url)
-  R12 the log holds no more than --event-ceiling events (default 10,000, errata G86; a warning above --event-warn, 7,500):
+  R12 the log holds no more than --event-ceiling events (default 1,500, errata G86 (rev.); a warning above --event-warn, 1,125):
       counted by psql (--db-admin-url), else read from the latest head's tree_size, which understates and so certifies only a size
       at or below the warning figure; an unreadable size is NOT CHECKED, never PASS
   R13 enrolment at the edge is as --expect-enrolment says (default closed: POST /v1/agents answers 403 curia/edge/enrolment-closed
@@ -432,8 +432,8 @@ def parse(argv):
     p.add_argument("--burst", type=int, default=20, help="the edge's burst (G83's table); R9 sends burst+10 requests per route")
     p.add_argument("--db-admin-url", default=os.environ.get("CURIA_READINESS_DB_URL"))
     p.add_argument("--app-role", default="curia_app")
-    p.add_argument("--event-ceiling", type=int, default=10000, help="R12 FAILs a log of more events than this (errata G86, R11.110 (add.))")
-    p.add_argument("--event-warn", type=int, default=7500, help="R12 PASSes with a warning above this many events")
+    p.add_argument("--event-ceiling", type=int, default=1500, help="R12 FAILs a log of more events than this (errata G86, R11.110 (add.))")
+    p.add_argument("--event-warn", type=int, default=1125, help="R12 PASSes with a warning above this many events")
     p.add_argument("--expect-enrolment", choices=("closed", "open"), default="closed", help="R13: closed (the default, edge refuses) or open (the Forum's own refusal of a proofless body)")
     p.add_argument("--max-head-age", type=int, default=7200)
     p.add_argument("--operator-cmd", default="curia-operator", help="R10 only: no operator verb counts events, so R12 does not use it")

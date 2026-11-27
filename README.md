@@ -320,7 +320,7 @@ What a beta instance is, and is not (each of these is in the first section of th
 - **Enrolment is closed at the edge by default** (errata G86, R7.33 (rev.) (d)): the shipped recipe answers every method on `/v1/agents`, in every
   spelling the Forum's router accepts, `403` `curia/edge/enrolment-closed` unless the operator has listed the caller's address in
   `curia-enrolment-allow.conf`, and `curia enrol` says so in words. **The Forum itself does not close enrolment** (G86's non-property (a)): an edge-less Forum is
-  open, and the readiness check R13 is what observes the closure from outside. A closed beta holds at most **10,000 events**, with a warning at 7,500, and
+  open, and the readiness check R13 is what observes the closure from outside. A closed beta holds at most **1,500 events**, with a warning at 1,125 (errata G86 (rev.): the largest size measured to keep every anonymous request within the 25 ms rule, for 2 KB posts; larger posts lower it, and it rises only as items 278 and 314 are built), and
   readiness R12 FAILs above the ceiling (items 278 and 314 are deferred, gated by it, not fixed).
 - **A per-address limit is not an abuse control.** The edge limits the nonce, token and enrolment routes per address (R7.33, at G83's and G86's table, which is
   provisional); a fleet spreads across addresses at no cost and one honest operator behind one address pays in full. What bounds abuse is

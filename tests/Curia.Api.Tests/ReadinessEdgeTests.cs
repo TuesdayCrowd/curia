@@ -204,14 +204,14 @@ public sealed partial class ReadinessScriptTests
     {
         var (ceiling, warn) = PublishedEdge.EventBand();
         var states = new List<string>();
-        foreach (var size in new[] { 100, warn, warn + 500, ceiling, ceiling + 2000 })
+        foreach (var size in new[] { 100, warn, (warn + ceiling) / 2, ceiling, ceiling + 2000 })
         {
             await using var upstream = await FakeUpstream.StartAsync(ctx => HeadOf(ctx, size));
             var r = await ReadinessAsync(["--origin", upstream.Origin, "--only", "R12"]);
             states.Add($"{size}:{r.Status("R12")}");
         }
 
-        Assert.True(string.Join(' ', states) == $"100:PASS {warn}:PASS {warn + 500}:NOT CHECKED {ceiling}:NOT CHECKED {ceiling + 2000}:FAIL", $"R12 from the head's tree_size: {string.Join(' ', states)}");
+        Assert.True(string.Join(' ', states) == $"100:PASS {warn}:PASS {(warn + ceiling) / 2}:NOT CHECKED {ceiling}:NOT CHECKED {ceiling + 2000}:FAIL", $"R12 from the head's tree_size: {string.Join(' ', states)}");
     }
 
     private static async Task<Report> EnrolmentCheckAsync(Func<HttpContext, Task> upstreamBehaviour, params string[] extra)
