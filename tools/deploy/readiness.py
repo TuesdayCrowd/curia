@@ -74,6 +74,9 @@ UNION ALL SELECT 'delete on events', has_table_privilege('curia_app', 'events', 
 UNION ALL SELECT 'insert on events.event_id (the positive control)', has_column_privilege('curia_app', 'events', 'event_id', 'INSERT'), true
 UNION ALL SELECT 'select on events.seq', has_column_privilege('curia_app', 'events', 'seq', 'SELECT'), true;"""
 TABLES_SQL = "SELECT to_regclass('authn_dpop_nonces') IS NOT NULL AND to_regclass('authn_replay') IS NOT NULL;"
+# db/0007 (R6.69): the column exists and the role may INSERT it. has_column_privilege raises on a column that is not there, so the catalogue is asked first; "not there" is the answer.
+LEAF_SQL = """SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('events') AND attname = 'leaf_hash' AND NOT attisdropped)
+THEN has_column_privilege('curia_app', 'events', 'leaf_hash', 'INSERT') ELSE false END;"""
 
 
 class Report:
@@ -329,8 +332,9 @@ def check_r11(args):
     base = [psql, args.db_admin_url, "-X", "-A", "-t", "-F", "|", "-v", "ON_ERROR_STOP=1"]
     grants = subprocess.run(base + ["-c", GRANTS_SQL.replace("curia_app", args.app_role)], capture_output=True, text=True, timeout=60, check=False)
     tables = subprocess.run(base + ["-c", TABLES_SQL], capture_output=True, text=True, timeout=60, check=False)
-    if grants.returncode != 0 or tables.returncode != 0:
-        return NOT_CHECKED, f"psql could not run the check (exit {grants.returncode or tables.returncode})"
+    leaf = subprocess.run(base + ["-c", LEAF_SQL.replace("curia_app", args.app_role)], capture_output=True, text=True, timeout=60, check=False)
+    if grants.returncode != 0 or tables.returncode != 0 or leaf.returncode != 0:
+        return NOT_CHECKED, f"psql could not run the check (exit {grants.returncode or tables.returncode or leaf.returncode})"
     bad = []
     for row in grants.stdout.strip().splitlines():
         name, got, want = row.rsplit("|", 2)
@@ -338,9 +342,11 @@ def check_r11(args):
             bad.append(name)
     if tables.stdout.strip() != "t":
         bad.append("authn_dpop_nonces and authn_replay (db/0002)")
+    if leaf.stdout.strip() != "t":
+        bad.append("insert on events.leaf_hash (db/0007: the column is missing or the role cannot write it; the Forum does not start)")
     if bad:
-        return FAIL, "the database does not match db/0002 and db/0006: " + "; ".join(bad)
-    return PASS, f"the role {args.app_role} holds the narrowed grants of db/0006 and db/0002's tables exist"
+        return FAIL, "the database does not match db/0002, db/0006 and db/0007: " + "; ".join(bad)
+    return PASS, f"the role {args.app_role} holds the narrowed grants of db/0006 and the leaf column of db/0007, and db/0002's tables exist"
 
 
 def size_verdict(count, args, source, certain):

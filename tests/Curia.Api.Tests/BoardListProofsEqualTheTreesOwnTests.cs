@@ -44,7 +44,7 @@ public sealed class BoardListProofsEqualTheTreesOwnTests(PassThroughGateForumFix
         Assert.Equal(11, first.Json.GetArrayLength());
 
         var log = (await forum.Services.GetRequiredService<IEventReader>().ReadAllAsync(Ct)).Match(r => r, e => throw new InvalidOperationException(e.Type));
-        var leaves = ActaLog.Fold(log).Match(a => a, e => throw new InvalidOperationException(e.Type)).Leaves;
+        var leaves = ActaLog.FoldRecomputed(log).Match(a => a, e => throw new InvalidOperationException(e.Type)).Leaves;   // the oracle hashes every leaf from its row (R6.69), never reading the column the route served from
 
         var wrong = new List<string>();
         var sizes = new HashSet<long>();

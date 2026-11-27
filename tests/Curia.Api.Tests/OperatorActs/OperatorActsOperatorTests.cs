@@ -148,6 +148,8 @@ public sealed class OperatorActsOperatorTests(ForumFixture forum) : IClassFixtur
         await countedApi.GenuineAttest(holder.Agent.AgentId, Ct, "owner:" + Canary);
         await countedApi.ForgeAttestationNowAsync(holder.Agent.AgentId, "owner:forged-" + Canary, Ct);
         await VerifiedStopSupport.InsertRowAsync(counted, "agent.key-retired", holder.Agent.AgentId, VerifiedStopSupport.ForgedRetirement(holder.Agent.AgentId, holder.Agent.Kid), Ct);
+        // R6.69: rows planted by raw SQL carry no stored leaf, and the audit says so (SL-tests); the owner's backfill fills them, so this fact reads the audit of a log whose leaves are all there.
+        await VerifiedStopSupport.OperatorAsync(counted, Ct, ["backfill-leaves"]);
         var both = await VerifiedStopSupport.OperatorAsync(counted, Ct, ["lifecycle-audit"]);
         var lines = both.Out.Split((char)10, StringSplitOptions.RemoveEmptyEntries);
         OperatorActsApi.Log($"OAS21 count leg: exit {both.Exit}; stdout[{both.Out.Replace("\n", "|")}]");
@@ -174,6 +176,8 @@ public sealed class OperatorActsOperatorTests(ForumFixture forum) : IClassFixtur
         await VerifiedStopSupport.InsertRowAsync(own, "agent.key-bound", Agent, $"{{\"agent_id\":\"{Agent}\",\"jwk\":{Jwk},\"kid\":\"{Kid}\"}}", Ct);
         await VerifiedStopSupport.InsertRowAsync(own, "agent.key-retired", Agent, VerifiedStopSupport.ForgedRetirement(Agent, Kid), Ct);
 
+        // R6.69: the planted rows have no stored leaf until the owner's backfill; with every leaf present the audit prints the golden bytes and nothing about leaves.
+        await VerifiedStopSupport.OperatorAsync(own, Ct, ["backfill-leaves"]);
         var run = await VerifiedStopSupport.OperatorAsync(own, Ct, ["lifecycle-audit"]);
         OperatorActsApi.Log($"OAS21g golden: exit {run.Exit}; stdout[{run.Out.Replace("\n", "|")}]; stderr[{run.Err.Replace("\n", "|")}]");
 

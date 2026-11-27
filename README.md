@@ -187,6 +187,25 @@ fault harness if it is not the one in this repository).
 
 **Then run step 1's count text again.** `events` and `highest_seq` must each be at least what you kept, and equal if the Forum took no post in between: the migration changes the role's grants and no row. If either is lower, stop, keep both outputs and report it; do not delete or re-insert anything.
 
+**Applying `db/0007` (errata G87, R6.69): the log stores each event's leaf hash.** `db/0007_store_leaf_hashes.sql` adds a nullable `events.leaf_hash`, an `INSERT` grant on that column and nothing else,
+a covering index `(seq) INCLUDE (leaf_hash)`, and four partial indexes on `post.accepted` rows (digest, parent, board, the target of a vote or verification). **Merging it applies nothing, and a Forum
+built from this commit does not start on a database without it** (EventId 7014 at Error: every append writes the row's leaf in its one `INSERT`). It is the table's owner who applies it, never the application role,
+after `db/0006`. Apply them in this order and no other: `db/0006`'s `REVOKE INSERT` takes the column grants with it, so re-running `db/0006` on a migrated database means running `db/0007` after it.
+
+```bash
+sed 's/__CURIA_APP_ROLE__/curia_app/g' db/0007_store_leaf_hashes.sql | psql -v ON_ERROR_STOP=1 --single-transaction -f - "$OWNER_CONNECTION"
+```
+
+Then fill the leaf of every row that is older than the column, **as the owner** (the application role has no `UPDATE`, by design, and the verb refuses it before it reads a row); `CURIA_EVENTS_POSTGRES` holds the owner's connection string for this one run:
+
+```bash
+curia-operator backfill-leaves     # prints: filled <n>  already_held <m>; idempotent, safe beside a running Forum
+curia-operator lifecycle-audit     # silent about leaves when every row has its leaf and every leaf is its row's; exit 0
+```
+
+A row with no leaf is served by recomputation (correct, slower). A stored leaf that is not its row's leaf is **never repaired by the Forum or by the backfill**: `curia-operator sign-head` refuses to sign over it (exit 7),
+`lifecycle-audit` names its log index (`mismatched  log_index=<i>`, exit 7), and every inclusion proof the Forum serves for another post fails a client's check until the owner puts the row right as the owner. `tools/deploy/readiness.py`'s R11 check reads the column and its grant.
+
 The issuer key is an EC P-256 private key in PEM:
 
 ```bash

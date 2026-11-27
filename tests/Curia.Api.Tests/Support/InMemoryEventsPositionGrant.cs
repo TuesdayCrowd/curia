@@ -7,4 +7,8 @@ namespace Curia.Api.Tests;
 internal sealed class InMemoryEventsPositionGrant(Result<bool> answer) : IEventsPositionGrant
 {
     public Task<Result<bool>> RoleCanNameSeqAsync(CancellationToken cancellationToken = default) => Task.FromResult(answer);
+
+    /// <summary>R6.69: the leaf column is there and writable (the Api fixtures apply db/0007), unless a test says the store cannot be asked.</summary>
+    public Task<Result<bool>> RoleCanWriteLeafAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(answer.IsOk ? Result<bool>.Ok(true) : answer);
 }

@@ -33,7 +33,7 @@ Three roles; they may be one person, and the document names the role so that nob
 
 | Role | Does | Never does |
 |---|---|---|
-| **The database's owner** | creates the database and, as its owner, applies db/0001 to db/0006 (db/0003 needs a superuser and pgvector); creates the application role; applies a missing migration after a restore | hands the application role's credential to anything but the Forum and the operator tool |
+| **The database's owner** | creates the database and, as its owner, applies db/0001 to db/0007 (db/0003 needs a superuser and pgvector; db/0007 is followed by `curia-operator backfill-leaves` as the owner); creates the application role; applies a missing migration after a restore | hands the application role's credential to anything but the Forum and the operator tool |
 | **The operator** | provisions the box, runs the Forum, the edge, the head timer and readiness; **generates, backs up and publishes the three keys** (`docs/runbooks/operator-keys.md`); attests owners out of band | applies a migration (the application role is not the table's owner); announces |
 | **The owner** (of the instance) | confirms each precondition below, in writing; **announces the instance and the three `kid`s**; owns the lifecycle guard's lift | takes any operator step above, or runs a tool against the database |
 
@@ -49,7 +49,7 @@ issue, a mail, a signed message); **the operator keeps the notes with the announ
    their cost, and not the number of bodies in flight. **How the operator confirms it for itself:** read G84's Status in the errata, and run the
    tests it names, `BodyBoundTests` (BND1, BND2: every route, declared; in process a "chunked" body is also declared) and `BodyBoundKestrelTests` (BND2k: a body with no
    declared length over a socket on five routes; BND6: the host's own refusals, in Production and in Development), green on the build being deployed.
-2. **The database's owner has applied db/0001 to db/0006** on the hosted database (Start order, step 1), and the post-check of
+2. **The database's owner has applied db/0001 to db/0007** on the hosted database (Start order, step 1), and the post-check of
    `docs/runbooks/backup-restore.md` reads green when the operator runs it.
 3. **The three keys are backed up before publication**, each encrypted and off the host in a place of its own (`docs/runbooks/operator-keys.md`); the
    owner confirms the places exist, and is told the `kid`s to announce once each is published.
@@ -182,7 +182,7 @@ in `rust/curia-testis`), and neither is needed to run the Forum.
 
 Each step names who runs it.
 
-1. **The database** (the database's owner). Create the database and the application role and, as the database's owner, apply db/0001 to db/0006 in order, each with the role name
+1. **The database** (the database's owner). Create the database and the application role and, as the database's owner, apply db/0001 to db/0007 in order, each with the role name
    substituted for `__CURIA_APP_ROLE__` (and, in db/0001, a password for `__CURIA_APP_ROLE_PASSWORD__`); db/0003 needs a
    superuser and pgvector. The README ("Running it") has the steps for a database that already holds events. The operator then runs the post-check of
    `docs/runbooks/backup-restore.md` and tells the owner it read green.
@@ -260,7 +260,7 @@ relies on: use it only with R12 run beside it and an end time written down.
 ## Announcing
 
 **The build for a closed beta is complete** (G85, G86). What remains before announcing is the owner's own acts, and only those: merge #161; provision the host (this runbook);
-as the database's owner apply db/0001 to db/0006; generate, back up and publish the three keys; supply the alert unit; list the invitees' addresses in
+as the database's owner apply db/0001 to db/0007; generate, back up and publish the three keys; supply the alert unit; list the invitees' addresses in
 `curia-enrolment-allow.conf` ("Invitations"); run readiness until every check passes, R12 and R13 included; announce.
 
 Announce the origin and the three `kid`s, say what the instance is and is not (the first section), and name the owner as the

@@ -49,11 +49,19 @@ public sealed record AppendedEvent
     public ServerTimestamp ServerTimestamp { get; }
     public DomainEvent Event { get; }
 
-    internal AppendedEvent(EventSequence seq, AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event)
+    /// <summary>
+    /// R6.69: the leaf hash the store holds for this row (<c>events.leaf_hash</c>), in the wire form <c>sha256:</c> and 64 lowercase hex digits, or <see langword="null"/> for a row appended
+    /// before db/0007 (or by a store that holds none). It is what the store <i>says</i> the leaf is, never what the leaf <i>is</i>: <c>LogLeaf.Hash</c> recomputes it from the row, and
+    /// <c>curia-operator sign-head</c> and <c>lifecycle-audit</c> compare the two. A string, not an array, so that two reads of one row are equal records.
+    /// </summary>
+    public string? StoredLeafHash { get; }
+
+    internal AppendedEvent(EventSequence seq, AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event, string? storedLeafHash = null)
     {
         Seq = seq;
         AggregateId = aggregateId;
         ServerTimestamp = serverTimestamp;
         Event = @event;
+        StoredLeafHash = storedLeafHash;
     }
 }

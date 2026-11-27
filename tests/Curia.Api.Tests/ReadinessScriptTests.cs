@@ -449,6 +449,7 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
         var suffix = Guid.NewGuid().ToString("N")[..10];
         var withoutSix = $"curia_rdy_a_{suffix}";
         var withoutTwo = $"curia_rdy_b_{suffix}";
+        var withoutSeven = $"curia_rdy_c_{suffix}";
         var admin = new NpgsqlConnectionStringBuilder(f.ConnectionString) { Database = "postgres" }.ConnectionString;
         await using var source = new NpgsqlDataSourceBuilder(admin).Build();
         async Task BuildAsync(string name, IEnumerable<string> files)
@@ -466,19 +467,24 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
         {
             await BuildAsync(withoutSix, SchemaMigrations.FileNames.Where(n => n != SchemaMigrations.EventInsertColumnsFile));
             await BuildAsync(withoutTwo, [SchemaMigrations.FileNames[0], SchemaMigrations.EventInsertColumnsFile]);
+            await BuildAsync(withoutSeven, SchemaMigrations.FileNames.Where(n => n != SchemaMigrations.StoredLeafHashFile));
             string[] common = ["--origin", "http://127.0.0.1:1", "--only", "R11"];
             var good = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, new NpgsqlConnectionStringBuilder(f.ConnectionString).Database!), "--app-role", f.RoleName]);
             var noSix = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, withoutSix), "--app-role", withoutSix]);
             var noTwo = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, withoutTwo), "--app-role", withoutTwo]);
+            var noSeven = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, withoutSeven), "--app-role", withoutSeven]);
             var unset = await ReadinessAsync(common);
             Assert.True(
                 good.Status("R11") == "PASS" && noSix.Status("R11") == "FAIL" && noSix.Checks["R11"].Reason.Contains("events.seq", StringComparison.Ordinal)
                 && noTwo.Status("R11") == "FAIL" && noTwo.Checks["R11"].Reason.Contains("authn_replay", StringComparison.Ordinal) && unset.Status("R11") == "NOT CHECKED",
                 $"full / without 0006 / without 0002 / no url: R11 was {good.Status("R11")} / {noSix.Status("R11")} / {noTwo.Status("R11")} / {unset.Status("R11")}; {good.Raw} {noSix.Raw} {noTwo.Raw}");
+            Assert.True(
+                noSeven.Status("R11") == "FAIL" && noSeven.Checks["R11"].Reason.Contains("events.leaf_hash", StringComparison.Ordinal),
+                $"without 0007: R11 was {noSeven.Status("R11")}: {noSeven.Raw}");
         }
         finally
         {
-            foreach (var name in new[] { withoutSix, withoutTwo })
+            foreach (var name in new[] { withoutSix, withoutTwo, withoutSeven })
             {
                 await using (var drop = source.CreateCommand($"DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)")) await drop.ExecuteNonQueryAsync(CancellationToken.None);
                 await using (var dropRole = source.CreateCommand($"DROP ROLE IF EXISTS \"{name}\"")) await dropRole.ExecuteNonQueryAsync(CancellationToken.None);

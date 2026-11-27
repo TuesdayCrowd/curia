@@ -35,4 +35,24 @@ public sealed class PostgresEventsPositionGrant : IEventsPositionGrant
             return Result<bool>.Fail(new Error("curia/store/unavailable", "The store could not be asked", PostgresStoreFaults.Cause(e)));
         }
     }
+
+    [SuppressMessage("Reliability", "CA2007:Consider calling ConfigureAwait on the awaited task", Justification = "Every awaited call carries ConfigureAwait(false); the analyzer flags the `await using` disposal.")]
+    public async Task<Result<bool>> RoleCanWriteLeafAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            // The column is looked up first and its privilege asked only where it exists: has_column_privilege raises on a column that is not there, and "not there" is the answer.
+            await using var command = new NpgsqlCommand(
+                "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = @table::regclass AND attname = 'leaf_hash' AND NOT attisdropped) " +
+                "THEN has_column_privilege(current_user, @table::regclass, 'leaf_hash', 'INSERT') ELSE false END;",
+                connection);
+            command.Parameters.AddWithValue("table", _qualifiedTable);
+            return Result<bool>.Ok((bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!);
+        }
+        catch (Exception e) when (e is not OperationCanceledException && PostgresStoreFaults.Is(e))
+        {
+            return Result<bool>.Fail(new Error("curia/store/unavailable", "The store could not be asked", PostgresStoreFaults.Cause(e)));
+        }
+    }
 }

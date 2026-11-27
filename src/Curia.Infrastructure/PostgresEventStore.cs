@@ -4,6 +4,7 @@ using Curia.Application.Ports;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Domain;
+using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
 using Npgsql;
 using NpgsqlTypes;
@@ -36,9 +37,9 @@ public sealed class PostgresEventStore : IEventStore
     /// A statement that decides or returns an aggregate's events says so here, so that a version, a read by aggregate and a forward read are of one set of rows (errata G68, R6.65).
     /// A row at <c>seq</c> 0 or below is not in the log; it is not counted, read or honoured (G69 non-property (b) and (c): it is inert, not detected).
     /// </summary>
-    private const string InTheLog = "seq > 0";
+    internal const string InTheLog = "seq > 0";
 
-    private const string SelectColumns = "seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts";
+    internal const string SelectColumns = "seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly TimeProvider _clock;
@@ -257,14 +258,38 @@ public sealed class PostgresEventStore : IEventStore
             }
         }
 
-        var serverTimestamp = ServerTimestamp.At(_clock.GetUtcNow());
+        // R6.69: the column holds microseconds, so the instant is cut to them here and the leaf below is of the value the column will hold; a leaf of a seventh digit the row cannot keep
+        // would be a leaf no recomputation from the row reproduces.
+        var serverTimestamp = ServerTimestamp.At(TruncatedToMicroseconds(_clock.GetUtcNow()));
+
+        // R6.69: the leaf of each row, from the six things the row is made of (seq is no member, R6.46), computed before the INSERT and written in it. The payload is the one MapRow
+        // will read back (the stored text, parsed and put in canonical member order), so the leaf is of the row as a reader sees it and not of the caller's tree.
+        var leaves = new byte[events.Count][];
+        for (var i = 0; i < events.Count; i++)
+        {
+            var asRead = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(payloads[i])).Bind(CanonicalJson.InCanonicalMemberOrder);
+            if (!asRead.TryGetValue(out var payloadAsRead, out var readError))
+                return Result<IReadOnlyList<AppendedEvent>>.Fail(readError!);
+            if (!LogLeaf.Hash(aggregateId, serverTimestamp, events[i] with { Payload = payloadAsRead }).TryGetValue(out var leaf, out var leafError))
+                return Result<IReadOnlyList<AppendedEvent>>.Fail(leafError!);
+            leaves[i] = [.. leaf];
+        }
 
         var appended = new List<AppendedEvent>(events.Count);
-        await using (var insertCommand = BuildInsertCommand(_qualifiedTable, connection, transaction, aggregateId, serverTimestamp, events, payloads))
+        await using (var insertCommand = BuildInsertCommand(_qualifiedTable, connection, transaction, aggregateId, serverTimestamp, events, payloads, leaves))
         await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 appended.Add(MapRow(reader));
+        }
+
+        // R6.69: what was written is checked against what a reader recomputes from the row as read back, before the commit. A row whose stored leaf is not its row's leaf is never committed
+        // by this store: the transaction is disposed, which rolls it back, and the append throws (a bug in the one function both sides call, not a modeled outcome).
+        foreach (var row in appended)
+        {
+            var expected = LogLeaf.Hash(row).Match(h => LogEntries.Prefixed(h), e => throw new InvalidOperationException($"The appended row has no leaf: {e.Type}"));
+            if (!string.Equals(row.StoredLeafHash, expected, StringComparison.Ordinal))
+                throw new InvalidOperationException("The leaf this append computed is not the leaf of the row it wrote; nothing was committed (R6.69).");
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -441,18 +466,19 @@ public sealed class PostgresEventStore : IEventStore
         AggregateId aggregateId,
         ServerTimestamp serverTimestamp,
         IReadOnlyList<DomainEvent> events,
-        string[] payloads)
+        string[] payloads,
+        byte[][] leaves)
     {
         var command = new NpgsqlCommand { Connection = connection, Transaction = transaction };
         var sql = new StringBuilder(
-            $"WITH ins AS (INSERT INTO {qualifiedTable} (event_id, event_type, aggregate_id, actor_id, payload, server_ts) VALUES ");
+            $"WITH ins AS (INSERT INTO {qualifiedTable} (event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash) VALUES ");
 
         for (var i = 0; i < events.Count; i++)
         {
             if (i > 0)
                 sql.Append(", ");
             sql.Append("(@id").Append(i).Append(", @type").Append(i).Append(", @agg, @actor").Append(i)
-                .Append(", @payload").Append(i).Append(", @ts)");
+                .Append(", @payload").Append(i).Append(", @ts, @leaf").Append(i).Append(')');
 
             var domainEvent = events[i];
             command.Parameters.Add(new NpgsqlParameter($"id{i}", NpgsqlDbType.Text) { Value = domainEvent.Id.Value });
@@ -465,6 +491,7 @@ public sealed class PostgresEventStore : IEventStore
             {
                 Value = payloads[i],
             });
+            command.Parameters.Add(new NpgsqlParameter($"leaf{i}", NpgsqlDbType.Bytea) { Value = leaves[i] });
         }
 
         command.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
@@ -474,6 +501,9 @@ public sealed class PostgresEventStore : IEventStore
         command.CommandText = sql.ToString();
         return command;
     }
+
+    private static DateTimeOffset TruncatedToMicroseconds(DateTimeOffset instant) =>
+        new(instant.Ticks - (instant.Ticks % 10), instant.Offset);
 
     /// <summary>
     /// Payload -&gt; JSON text for the jsonb parameter, in two steps that answer two different
@@ -543,7 +573,7 @@ public sealed class PostgresEventStore : IEventStore
     /// duplicates last-wins, so the value in the column never has any) and which
     /// <see cref="SerializePayload"/> refuses before the INSERT in any case.
     /// </summary>
-    private static AppendedEvent MapRow(NpgsqlDataReader reader)
+    internal static AppendedEvent MapRow(NpgsqlDataReader reader)
     {
         var seq = EventSequence.From(reader.GetInt64(0))
             .Match(v => v, e => throw new InvalidOperationException($"Corrupt events.seq: {e.Title}"));
@@ -576,6 +606,9 @@ public sealed class PostgresEventStore : IEventStore
 
         var serverTimestamp = ServerTimestamp.At(reader.GetFieldValue<DateTimeOffset>(6));
 
-        return new AppendedEvent(seq, aggregateId, serverTimestamp, new DomainEvent(eventId, eventType, actorId, payload));
+        // R6.69: what the column says, in the wire form; null for a row with none. A value that is not 32 bytes cannot be here (the column's CHECK) and is not guessed at.
+        var storedLeaf = reader.IsDBNull(7) ? null : LogEntries.Prefixed([.. reader.GetFieldValue<byte[]>(7)]);
+
+        return new AppendedEvent(seq, aggregateId, serverTimestamp, new DomainEvent(eventId, eventType, actorId, payload), storedLeaf);
     }
 }

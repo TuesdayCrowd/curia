@@ -85,11 +85,14 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
 
     // ---- SEQ2 ----
 
-    /// <summary>SEQ2: the columns the role may <c>INSERT</c> are the six the errata names, and <c>seq</c> is not among them; table-level <c>SELECT</c> only, no other table privilege.</summary>
+    /// <summary>
+    /// SEQ2: the columns the role may <c>INSERT</c> are the six R11.6 (add.) names and the one R6.69 adds (<c>leaf_hash</c>, db/0007), and <c>seq</c> is not among them; table-level <c>SELECT</c> only, no other
+    /// table privilege.
+    /// </summary>
     [Fact]
     public async Task R11_6_SEQ2_TheCatalogueEqualsTheErrata()
     {
-        var expected = ErrataColumns();
+        var expected = WithTheLeafColumn(ErrataColumns());
 
         var granted = await ReadGrantsAsync("public.events");
 
@@ -100,13 +103,17 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
 
     // ---- SEQ3 ----
 
-    /// <summary>SEQ3: the migration exists, and applying it twice raises nothing and leaves the catalogue as it was.</summary>
+    /// <summary>
+    /// SEQ3: the migration exists, and applying it twice raises nothing and leaves the catalogue as it was. db/0006's <c>REVOKE INSERT</c> takes the column grants with it, so an owner who runs it again
+    /// runs db/0007 after it, which this test does and the README says (R6.69): without the second file the role would lose <c>leaf_hash</c> and every append would be refused.
+    /// </summary>
     [Fact]
     public async Task R11_6_SEQ3_TheMigrationIsIdempotent()
     {
         var path = Path.Combine(RepoRoot(), "db", MigrationFile);
         Assert.True(File.Exists(path), $"db/{MigrationFile} does not exist");
-        var rendered = (await File.ReadAllTextAsync(path, Ct)).Replace(RolePlaceholder, fixture.RoleName, StringComparison.Ordinal);
+        var rendered = (await File.ReadAllTextAsync(path, Ct)).Replace(RolePlaceholder, fixture.RoleName, StringComparison.Ordinal)
+            + "\n" + (await File.ReadAllTextAsync(Path.Combine(RepoRoot(), "db", "0007_store_leaf_hashes.sql"), Ct)).Replace(RolePlaceholder, fixture.RoleName, StringComparison.Ordinal);
         var before = await ReadGrantsAsync("public.events");
 
         for (var i = 0; i < 2; i++)
@@ -128,7 +135,7 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
     public async Task R11_6_SEQ4_TheIsolatedSchemaGrantIsTheMigrationsGrant()
     {
         var schema = await fixture.CreateIsolatedSchemaAsync(Ct);
-        var expected = ErrataColumns();
+        var expected = WithTheLeafColumn(ErrataColumns());
 
         var isolated = await ReadGrantsAsync($"\"{schema}\".events");
         var published = await ReadGrantsAsync("public.events");
@@ -267,6 +274,9 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
         Assert.Equal(6, names.Length);
         return names;
     }
+
+    /// <summary>The columns of db/0006's grant and the one db/0007 adds (R6.69), in the catalogue's order.</summary>
+    private static string[] WithTheLeafColumn(string[] errataColumns) => [.. errataColumns.Append("leaf_hash").Order(StringComparer.Ordinal)];
 
     /// <summary>The SQL of the fenced block between <c>&lt;!-- name --&gt;</c> and <c>&lt;!-- /name --&gt;</c>, with the fence and any shell prompt removed.</summary>
     private static string ReadmeBlock(string readme, string name)
