@@ -536,6 +536,9 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
         builder.UseSetting("ConnectionStrings:Events", HostConnectionString);
 
+        // R11.112 (errata G85): a host the factory builds is Development unless it says otherwise, and a Forum whose public origin is not loopback does not start there.
+        if (HostingEnvironment is not null) builder.UseEnvironment(HostingEnvironment);
+
         // D41 (errata G82): the Forum's one name. The unmodified Forum ignores this key (it builds every URL from the request); the build that closes D41 reads it and nothing else.
         ConfigureOrigin(builder);
 
@@ -567,6 +570,13 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             ConfigureStore(services);
         });
     }
+
+    /// <summary>
+    /// R11.112 (errata G85): the hosting environment this fixture's host is built in. <c>null</c> leaves the factory's own (Development, D125 Task 0.5). A fixture that holds a public origin
+    /// (one that is not loopback) overrides it to <c>"Production"</c>: the Forum refuses to start in Development with such an origin, and there is no door that lifts it, so the suite runs
+    /// the shape the hosted Forum runs. A fixture that forgets fails its own start with the guard's words (DEV9).
+    /// </summary>
+    protected virtual string? HostingEnvironment => null;
 
     /// <summary>
     /// Errata G65 (R11.91): whether this fixture's host runs with the hashed test adapter in place of the production embedder. The one explicit door: production

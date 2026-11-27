@@ -20,6 +20,9 @@ public sealed class HttpsNamedForumFixture : ForumFixture
 {
     internal override string PublicOrigin => "https://forum.test";
 
+    /// <summary>R11.112 (errata G85): a Forum that holds a public origin runs Production, the shape the hosted Forum runs; Development with it is refused at start.</summary>
+    protected override string? HostingEnvironment => "Production";
+
     protected override void ConfigureClient(HttpClient client)
     {
         ArgumentNullException.ThrowIfNull(client);
@@ -91,6 +94,9 @@ public sealed class IdnOriginKestrelFixture : ForumFixture
     internal const string Label = "xn--bcher-kva.example";
 
     public IdnOriginKestrelFixture() => UseReservedKestrelPort(port => $"http://{Label}:{port}");
+
+    /// <summary>R11.112 (errata G85): a Forum that holds a public origin runs Production, the shape the hosted Forum runs; Development with it is refused at start.</summary>
+    protected override string? HostingEnvironment => "Production";
 
     internal string Authority => new Uri(PublicOrigin).Authority;
 

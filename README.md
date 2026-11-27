@@ -322,8 +322,11 @@ What a beta instance is, and is not (each of these is in the first section of th
   possession of a key and the owner's attestation.
 - **The edge's body cap is a second line; the Forum bounds a body itself** (G84, R6.68 (rev.)): at R6.39's size plus one byte, 1,048,577 bytes, on every
   route, and a body the host rejects is answered as a problem document and not by the host's own writer. It bounds bytes and not what they cost, and not the
-  number of bodies in flight, which are the edge's burst limit and the owner's memory limit. A hosted Forum is never Development, and the start refusal that
-  checks it (G84's non-property (c)) is a precondition of announcing.
+  number of bodies in flight, which are the edge's burst limit and the owner's memory limit. A hosted Forum is never Development, and since G85 the Forum refuses to start
+  in Development with a public origin that is not loopback (R11.112); no setting lifts it.
+- **What remains before announcing** (the Development refusal is built, G85): the closed beta's edge (enrolment closed at the proxy by default and a
+  10,000-event ceiling checked by readiness; the owner deferred items 278 and 314 for a closed beta on 2026-11-26), then the owner's own acts: the hosted database's two
+  pending migrations applied (the runbook names them), the lifecycle guard left unlifted, an alert unit supplied, the keys published and their kids announced.
 - **The database credential's reach is named**, not hidden: a process holding it can append rows the Forum skips and reports, can publish an
   operator key before the owner does, and the head timer signs what the log holds when it runs, stopping (exit 6) only for a row the Forum does
   not honour (G68, G70).

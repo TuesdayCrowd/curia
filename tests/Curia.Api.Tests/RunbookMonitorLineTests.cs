@@ -22,6 +22,9 @@ public sealed partial class MonitorOriginFixture : ForumFixture
 
     internal override string PublicOrigin => $"{Scheme}://{Authority}";
 
+    /// <summary>R11.112 (errata G85): a Forum that holds a public origin runs Production, the shape the hosted Forum runs; Development with it is refused at start.</summary>
+    protected override string? HostingEnvironment => "Production";
+
     protected override void ConfigureClient(HttpClient client)
     {
         ArgumentNullException.ThrowIfNull(client);

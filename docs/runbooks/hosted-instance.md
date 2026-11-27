@@ -64,7 +64,7 @@ issue, a mail, a signed message); **the operator keeps the notes with the announ
 
 Set them in the Forum's environment file, `/etc/curia/forum.env` (shape: `deploy/systemd/forum.env.example`, names only), mode 0600, owned by the
 Forum's user (`curia`) and read by no other. None of the three signing keys of the operator is ever in this environment. The unit
-`deploy/systemd/curia-forum.service` adds the two settings that are not secrets: `ASPNETCORE_ENVIRONMENT=Production` and
+`deploy/systemd/curia-forum.service` adds the settings that are not secrets: `DOTNET_ENVIRONMENT=Production`, `ASPNETCORE_ENVIRONMENT=Production` and
 `ASPNETCORE_URLS=http://127.0.0.1:5000` (the address the edge's upstream names).
 
 **`AllowedHosts` is left unset.** Set, the host answers a foreign `Host` with an HTML `400` before the Forum's own refusal, and
@@ -72,18 +72,22 @@ Forum's user (`curia`) and read by no other. None of the three signing keys of t
 own `Host` check (R5.27, every route, `/health` included) is the control; `tools/deploy/readiness.py` check R2 fails when the
 setting is present.
 
-**The host environment is Production, never Development.** Leave `ASPNETCORE_ENVIRONMENT` unset (the host's default is
-Production) or set it to `Production`. In Development the host serves its developer exception page, which carries the request's
+**The host environment is Production, never Development, and the Forum refuses to start otherwise (G85, R11.112).** The host takes its environment from
+`DOTNET_ENVIRONMENT` when that is set, and from `ASPNETCORE_ENVIRONMENT` when it is not (measured: `DOTNET_ENVIRONMENT` wins when both are set, so a
+`DOTNET_ENVIRONMENT` of Development in the process environment beats an `ASPNETCORE_ENVIRONMENT` of Production). Leave both unset (the host's default is
+Production) or set both to `Production`; the unit sets both. In Development the host serves its developer exception page, which carries the request's
 `Authorization` and `DPoP` headers and the token's value. Since G84 no request the host itself rejects (a body too large, too slow or wrongly framed)
-reaches that page, but any other fault that passes the Forum's own handlers could: **a hosted Forum is never Development**, and a start refusal that checks it is G84's non-property (c),
-a precondition of announcing (the owner's, 2026-11-26).
+reaches that page, and since G85 **a Forum whose host is Development and whose public origin is not loopback does not start**: loopback is the name `localhost`,
+four dotted-decimal octets whose first is 127, or `[::1]`, and nothing else (`x.localhost`, a private or tailnet address and every DNS name are public). No
+setting lifts it. A Forum run for local work names itself `http://localhost[:port]`. The unit's two lines defeat a value of the service manager's own and not one in
+`/etc/curia/forum.env`, which systemd lets override them; the Forum's refusal is the control and the unit is a belt. A refusal is printed as below.
 
 ## What a refused start looks like
 
 A Forum that is misconfigured **does not print a tidy error and stop**: the refusal is an unhandled exception (G83,
 non-property (d)), a stack trace and an abnormal exit. **Read the first line of the exception message**: it names the setting
 and, for the origin, the form it must have. Measured on macOS the process exits 134 (SIGABRT); under systemd the unit reports
-`code=dumped, status=6/ABRT`, which is **read and not measured on a Linux host**. The four bad origins the pack measured, and
+`code=dumped, status=6/ABRT`, which is **read and not measured on a Linux host**. The bad origins the pack measured, and
 the words each is refused in (the Forum's own, quoted from its source):
 
 1. No origin set at all:
@@ -104,6 +108,10 @@ the words each is refused in (the Forum's own, quoted from its source):
 
 (followed by the origin in quotes). A missing connection string, issuer key or model directory ends the same way, naming
 `CURIA_EVENTS_POSTGRES`, `CURIA_ISSUER_SIGNING_KEY_PEM` or the model directory's setting.
+
+5. A public origin in the Development environment (R11.112), for example `https://forum.example`; the fix is in the message, and it is to unset both variables or set both to Production, never to rename the Forum `localhost`:
+
+> The Forum is started in the Development environment and its public origin is "https://forum.example", which is not this machine's loopback address. In Development the host serves a developer exception page that carries a request's Authorization and DPoP headers and the access token, so a Forum reached by any other name must not run there. The host takes its environment from DOTNET_ENVIRONMENT when that is set, and from ASPNETCORE_ENVIRONMENT when it is not: unset both, or set both to Production, and start again. (For local work only, set CURIA_PUBLIC_ORIGIN to http://localhost[:port].) No setting lifts this (R11.112).
 
 Two operational consequences of an abort, which an ordinary failure does not have:
 
@@ -140,13 +148,13 @@ curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && bas
 ```
 
 `$REF` is the tag or commit. The SDK version in the third is the one `global.json` pins (the probe compares them); a distribution's package of that
-SDK does as well, and `dotnet --version` run inside the checkout must print it (`rollForward` allows a later patch). Then publish the three programs, Release, framework-dependent:
+SDK does as well, and `dotnet --version` run inside the checkout must print it (`rollForward` allows a later patch). Then publish the three programs, Release, framework-dependent. `-p:ContinuousIntegrationBuild=true` maps the build's source paths to `/_/` in the shipped symbols, so that a stack trace in a journal (a refused start prints one) does not name the builder's directory; it needs the git checkout the first commands made (measured: without a repository it maps nothing):
 
 ```bash
 cd /srv/curia/src
-dotnet publish src/Curia.Api -c Release -o /opt/curia/api
-dotnet publish src/Curia.Operator -c Release -o /opt/curia/operator
-dotnet publish src/Curia.Client.Cli -c Release -o /opt/curia/client
+dotnet publish src/Curia.Api -c Release -o /opt/curia/api -p:ContinuousIntegrationBuild=true
+dotnet publish src/Curia.Operator -c Release -o /opt/curia/operator -p:ContinuousIntegrationBuild=true
+dotnet publish src/Curia.Client.Cli -c Release -o /opt/curia/client -p:ContinuousIntegrationBuild=true
 ln -s /opt/curia/operator/curia-operator /usr/local/bin/curia-operator
 ln -s /opt/curia/client/curia /usr/local/bin/curia
 ```
