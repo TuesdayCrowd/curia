@@ -87,7 +87,7 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
 
     private static readonly string[] UnrunChecks = ["R5", "R6", "R9", "R10", "R11"];
 
-    private static readonly string[] RunChecks = ["R1", "R2", "R3", "R4", "R7", "R8"];
+    private static readonly string[] RunChecks = ["R1", "R2", "R3", "R4", "R7", "R8", "R12", "R13"];
 
     private sealed record Report(int Exit, Dictionary<string, (string Status, string Reason)> Checks, string Raw)
     {
@@ -497,7 +497,7 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
         var logPem = LogSigningKey.GeneratePem();
         f.Clock.Advance(DateTimeOffset.UtcNow - f.Now);
         _ = await RunOperatorAsync(f, ["sign-head", "--by", "ops"], logKey: () => logPem);
-        var r = await ReadinessAsync(["--origin", Origin(f), "--allow-http"]);
+        var r = await ReadinessAsync(["--origin", Origin(f), "--allow-http", "--expect-enrolment", "open"]);
         var unrun = UnrunChecks;
         var passed = unrun.Where(id => r.Status(id) != "NOT CHECKED").ToList();
         Assert.True(passed.Count == 0 && r.Exit == 8 && RunChecks.All(id => r.Status(id) == "PASS"),

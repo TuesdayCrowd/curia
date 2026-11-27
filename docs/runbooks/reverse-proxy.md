@@ -1,14 +1,14 @@
 # Runbook: the reverse proxy in front of the Forum (errata G83, R7.33)
 
-Audience: the Forum's operator. The recipe is nginx, in three files under `deploy/proxy/` so that the file that is exercised
-is the file that ships: `deploy/proxy/curia-http.conf` (the http context: the two limit zones), `deploy/proxy/curia-locations.conf`
-(everything a server needs to be the Forum's front) and `deploy/proxy/nginx.conf` (the whole file an operator copies, which
-includes the other two). Each is read by `DeploymentDocsTests` against the rule it carries, and a model of the recipe runs in
+Audience: the Forum's operator. The recipe is nginx, in four files under `deploy/proxy/` so that the file that is exercised
+is the file that ships: `deploy/proxy/curia-http.conf` (the http context: the three limit zones), `deploy/proxy/curia-locations.conf`
+(everything a server needs to be the Forum's front), `deploy/proxy/curia-enrolment-allow.conf` (the operator's addresses, which ships with none) and
+`deploy/proxy/nginx.conf` (the whole file an operator copies, which includes the first two; the locations file includes the third by name, so the four are copied together). Each is read by `DeploymentDocsTests` against the rule it carries, and a model of the recipe runs in
 front of a real Forum in CI (`ProxyForwardingTests`). **What the model cannot show is that nginx honours a stanza as the
 model reads it**; the recipe's own header says what nginx ran and when. A platform's edge (a managed load balancer) is not
-shipped here: it must do the four things below, and `tools/deploy/readiness.py` is the only check.
+shipped here: it must do the five things below, and `tools/deploy/readiness.py` is the only check.
 
-## The four obligations
+## The five obligations
 
 1. **Forward the `Host` as received.** `proxy_set_header Host $http_host`. The Forum compares the header to its one configured
    name (R5.27) on every route, `/health` included; an edge that rewrites it makes the Forum's refusal the edge's.
@@ -32,6 +32,44 @@ shipped here: it must do the four things below, and `tools/deploy/readiness.py` 
 4. **Answer `429` and `413` in a body a client can read.** An RFC 9457 problem document (`application/problem+json`, types
    `curia/edge/rate-limited` and `curia/request/too-large`), and at `/oauth/token` RFC 6749's error object. nginx's own HTML page
    makes `curia` print `curia/client/unreadable-problem` and exit 3, the failure `AllowedHosts` has (G82).
+5. **Close enrolment unless the caller's address is listed** (errata G86, R7.33 (rev.) (d)). `POST /v1/agents` is the one unauthenticated route that appends
+   to the log, and every request's cost grows with the log (register items 278 and 314, deferred for the closed beta), so the recipe answers **every
+   method on `/v1/agents`, in every spelling the Forum's router accepts, `403`** as the problem document `curia/edge/enrolment-closed`, and `curia enrol` prints what
+   that means. The decision is the connection's address and nothing else: no credential is minted, no header is read or added (the Forum reads none, R5.26).
+   See "Enrolment is closed by default" below.
+
+## Enrolment is closed by default
+
+The location is `location ~* ^/v1/agents/?$`: a **case-insensitive pattern anchored at both ends**, and not `location = /v1/agents`. nginx matches a path
+case-sensitively and the Forum's router does not, so the exact match is bypassed: measured against a Forum (errata G86, Task 0), 9 of the 17 spellings the Forum accepts
+(`/V1/agents`, `/v1/Agents`, `/V1/AGENTS`, `/v1/AGENTS`, `/v1/agents/`, `/V1/Agents/`, `/v1/%41gents`, `/v1/agents/.` and `/v1/agents/%2e`) reached it through the exact location, and
+all 17 are the edge's `403` through the pattern. The `$` keeps the credentialed rotation routes (`/v1/agents/{id}/keys`, `.../retire`, rotation-budgeted, R7.23) out of it.
+**Do not "simplify" it to an exact match, and do not drop the `~*`.**
+
+To admit an invitee, write one line in `/etc/nginx/curia-enrolment-allow.conf` on the host (the file in the repository ships with none, and a probe fails the day one is committed),
+and always check before reloading:
+
+```bash
+# in /etc/nginx/curia-enrolment-allow.conf, one line per invitee (never commit one):
+#   allow 203.0.113.7;
+nginx -t
+nginx -s reload
+```
+
+If `nginx -t` fails, do not reload: the running configuration stays as it was. Removing the line and reloading closes the address again. An existing agent is unaffected by either: its
+token and its posts do not pass through this route. The first match decides and an allow after `deny all;` is dead, so the recipe includes the file before `deny all;`.
+
+**What this is not.** The address is the connection's (`$remote_addr`): behind a second proxy it is the proxy's, so set `real_ip` from a trusted, named range first (never from
+`X-Forwarded-For`), and a listed invitee whose egress address changes is refused until the line is changed. A listed address is a **cost and admission bound and not an abuse control**: a fleet
+behind one listed address enrols as many identities as the `curia_enrol` zone lets through (1 r/s, burst 10, G86's table row; about two events an enrolment, so about 83 minutes to the log's ceiling
+from one address, computed and not run). A listed address gains no tier and no exemption from any refusal: the proof of possession (R4.46) still decides. The zone limits the closed route too
+(`limit_req` runs before the access check and counts a denied request), so an operator probing it quickly sees `429` and not `403`.
+
+**`allow all;` as the file's only line** opens enrolment to everyone for as long as it stays. It removes the control the log's ceiling relies on: use it for a named, bounded window, read
+`docs/runbooks/hosted-instance.md` ("Invitations") first, and run readiness R12 beside it (`--expect-enrolment open` tells R13 that the opening is on purpose).
+
+**The Forum itself does not close enrolment** (G86's non-property (a)). An edge-less Forum, or an edge whose recipe was edited, answers `POST /v1/agents` to anyone: this is acceptable for the
+closed beta only because every path in these runbooks is behind this recipe, and readiness R13 observes the closure from outside. It is not acceptable past the beta: the Forum's own control is the open lead G86 and G83 name (the unmetered routes).
 
 ## The body cap, and what it is not
 
@@ -55,7 +93,7 @@ no credential, so the burst limit above and the owner's memory limit are what bo
 
 ## Installing it
 
-Copy the three files to `/etc/nginx/`, edit the three things `deploy/proxy/nginx.conf`'s header names (the upstream's address,
+Copy the four files to `/etc/nginx/` (the locations file includes the allow file by name), edit the three things `deploy/proxy/nginx.conf`'s header names (the upstream's address,
 the literal name in the port-80 redirect, the certificate paths), and check the whole file before reloading:
 
 ```bash
@@ -89,6 +127,8 @@ public and carries no limit: the readiness script's R1 reads it from the public 
 | the two limits are at or below G83's table, and the burst is refused with the Forum asked no more than it allows | DPK4; PXY4, PXY5 (the red twin); readiness R9 through the origin |
 | a refusal is a readable body | DPK4; PXY6 |
 | a foreign `Host` is the Forum's refusal, not the edge's | PXY7; readiness R2 |
+| the enrolment route is closed by a case-insensitive pattern, with the allow file before `deny all`, a readable `403`, the shipped file listing no address, and the third zone at the table | `DeploymentDocsTests` DPK4, DPK4e; `ProxyForwardingTests` PXY8 to PXY13 (a model of nginx: the differential through a real nginx is the live run's) |
+| the enrolment closure is observed from outside, in two spellings | readiness R13 (`RDY17`, `RDY18`) |
 | the monitor line and the by-address sentence above | `RunbookMonitorLineTests` DPK8 |
 | the Forum bounds a body at R6.39's size plus one byte, on every route, in both environments | `BodyBoundTests` BND1 to BND5, BND7 to BND9; `BodyBoundKestrelTests` BND6 and BND2k (both environments; the undeclared path); `DeploymentDocsTests` BND11 |
 | no Forum code reads a forwarded header | `OriginFenceTests` (ORG13), which reads `Curia.Api.dll` only |

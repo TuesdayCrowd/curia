@@ -268,6 +268,9 @@ public sealed partial class DeploymentDocsTests
             NginxConf.Parse(Text("deploy/proxy/nginx.conf")));
     }
 
+    /// <summary>The arguments of the enrolment route's location (G86): case-insensitive, anchored at both ends, an optional trailing slash. Task 0 measured that <c>location = /v1/agents</c> lets 9 of the 17 spellings the Forum accepts through.</summary>
+    private const string EnrolmentLocationArgs = "~* ^/v1/agents/?$";
+
     private static IEnumerable<string> ProxySetHeader(IEnumerable<NgxDirective> locations, string header) =>
         NginxConf.Find(locations, "proxy_set_header").Where(d => d.Args.Count == 2 && string.Equals(d.Args[0], header, StringComparison.OrdinalIgnoreCase)).Select(d => d.Args[1]);
 
@@ -333,9 +336,11 @@ public sealed partial class DeploymentDocsTests
             if (!declared.Args.Contains("$binary_remote_addr", StringComparer.Ordinal)) problems.Add($"{zone.Name} is not keyed on $binary_remote_addr");
 
             var path = zone.Route.Split('?')[0];
-            var location = NginxConf.Location(recipe.Locations, "= " + path);
+            // G86: the enrolment zone's location is the case-insensitive pattern, not an exact match (an exact match is the bypass, DPK4g)
+            var locationArgs = zone.Name == "curia_enrol" ? EnrolmentLocationArgs : "= " + path;
+            var location = NginxConf.Location(recipe.Locations, locationArgs);
             var limit = location?.Children("limit_req").FirstOrDefault(l => l.Args.Contains($"zone={zone.Name}", StringComparer.Ordinal));
-            if (limit is null) { problems.Add($"location = {path} has no limit_req zone={zone.Name}"); continue; }
+            if (limit is null) { problems.Add($"location {locationArgs} has no limit_req zone={zone.Name}"); continue; }
             var burstArg = limit.Args.FirstOrDefault(a => a.StartsWith("burst=", StringComparison.Ordinal));
             var burst = burstArg is null ? 0 : int.Parse(burstArg["burst=".Length..], CultureInfo.InvariantCulture);
             if (burst <= 0 || burst > zone.Burst) problems.Add($"{zone.Name}'s burst is {burst}, not above 0 and at most G83's {zone.Burst}");
@@ -391,6 +396,59 @@ public sealed partial class DeploymentDocsTests
         foreach (var name in new[] { "Host", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-For", "Forwarded" })
             if (!banned.Success || !banned.Groups[1].Value.Contains($"\"{name}\"", StringComparison.Ordinal))
                 problems.Add($"OriginFenceTests' BannedLiterals no longer bans \"{name}\", so 'no Forum code reads a forwarded header' is undischarged");
+
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    /// <summary>
+    /// G86_DPK4e (errata G86, R7.33 (rev.) (d)): the enrolment route is closed by default and opened by a file of addresses. (i) a location with the arguments <c>~* ^/v1/agents/?$</c> exists and no
+    /// location is <c>= /v1/agents</c> (the exact match is the bypass, measured: 9 of 17 spellings); (ii) it includes <c>curia-enrolment-allow.conf</c> before a <c>deny all</c> (an <c>allow</c> after
+    /// <c>deny all</c> is dead) and holds no <c>allow all</c>; (iii) its <c>error_page 403</c> reaches a named location answering <c>403</c>, <c>application/problem+json</c>, with the type the errata's R7.33 (rev.)
+    /// names (read from the errata and compared with the recipe, not typed here); (iv) the shipped allow file holds no <c>allow</c> line (a shipped address is an opening); (v) its 413 and 429 pages are kept (an
+    /// <c>error_page</c> inside a location replaces the server's); (vi) <c>nginx.conf</c>'s header lists the file among the files copied together.
+    /// </summary>
+    [Fact]
+    public void G86_DPK4e_TheEnrolmentRouteIsClosedByDefaultAndOpenedByAFileOfAddresses()
+    {
+        var problems = new List<string>();
+        var recipe = Recipe.Load();
+        var type = PublishedEdge.EnrolmentClosedType();
+
+        if (NginxConf.Location(recipe.Locations, "= /v1/agents") is not null) problems.Add("curia-locations.conf has location = /v1/agents: an exact match is the bypass (Task 0: 9 of the 17 spellings the Forum accepts reach it)");
+        var location = NginxConf.Location(recipe.Locations, EnrolmentLocationArgs);
+        if (location is null) { problems.Add($"curia-locations.conf has no location {EnrolmentLocationArgs}"); }
+        else
+        {
+            var block = location.Block!.ToList();
+            var include = block.FindIndex(d => d.Name == "include" && d.Args.SequenceEqual(["curia-enrolment-allow.conf"]));
+            var deny = block.FindIndex(d => d.Name == "deny" && d.Args.SequenceEqual(["all"]));
+            if (include < 0) problems.Add("the enrolment location does not include curia-enrolment-allow.conf");
+            if (deny < 0) problems.Add("the enrolment location has no deny all: the route is open by default");
+            if (include >= 0 && deny >= 0 && include > deny) problems.Add("the enrolment location includes the allow file after deny all: an allow after deny all is dead");
+            if (block.Any(d => d.Name == "allow")) problems.Add("the enrolment location holds an allow directive of its own; the operator's addresses are in the include only");
+
+            var target = ErrorPageTarget(location, 403);
+            var answer = target is null ? null : NamedAnswer(recipe.Locations, target);
+            if (target is null) problems.Add("the enrolment location has no error_page 403 to a named location: a refusal would be nginx's HTML page, which curia cannot read");
+            else if (answer is null) problems.Add($"the named location {target} returns nothing");
+            else
+            {
+                if (answer.Value.Status != 403) problems.Add($"{target} returns {answer.Value.Status}, not 403");
+                if (!string.Equals(answer.Value.ContentType, "application/problem+json", StringComparison.Ordinal)) problems.Add($"{target} answers as '{answer.Value.ContentType}', not application/problem+json");
+                if (!answer.Value.Body.Contains($"\"type\":\"{type}\"", StringComparison.Ordinal)) problems.Add($"{target}'s body does not carry \"type\":\"{type}\", the type R7.33 (rev.) names");
+            }
+
+            foreach (var (code, page) in new[] { (413, "@curia_too_large"), (429, "@curia_rate_limited") })
+                if (ErrorPageTarget(location, code) != page) problems.Add($"the enrolment location's error_page {code} is not {page}: a location's error_page replaces the server's");
+        }
+
+        if (!File.Exists(Path.Combine(Root, "deploy", "proxy", "curia-enrolment-allow.conf"))) problems.Add("deploy/proxy/curia-enrolment-allow.conf is not shipped: the include has nothing to read");
+        else
+            foreach (var d in NginxConf.Parse(Text("deploy/proxy/curia-enrolment-allow.conf")).Where(d => d.Name is "allow" or "deny"))
+                problems.Add($"the shipped curia-enrolment-allow.conf holds '{d.Text}': a shipped address is an opening");
+
+        var header = string.Join('\n', Text("deploy/proxy/nginx.conf").Split('\n').TakeWhile(l => l.StartsWith('#')));
+        if (!header.Contains("curia-enrolment-allow.conf", StringComparison.Ordinal)) problems.Add("nginx.conf's header does not list curia-enrolment-allow.conf among the files copied together");
 
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }

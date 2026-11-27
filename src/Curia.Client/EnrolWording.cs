@@ -31,6 +31,12 @@ public static class EnrolWording
     private const string NotContinuable =
         "nothing was registered, and this profile cannot be enrolled as it is: the Forum refused what the profile names (<type>), and the same command would be refused again. Remove <directory>, then enrol again under a different --agent-id or --kid.";
 
+    /// <summary>The edge's <c>403</c> of type <c>curia/edge/enrolment-closed</c> (errata G86, R7.33 (rev.) (d)): the span <c>Edge closed</c>.</summary>
+    private const string EdgeClosed =
+        "Enrolment is closed at this Forum's edge, which admits only addresses its operator has listed: ask the operator to list yours. Nothing was registered; once your address is listed, the same command enrols.";
+
+    private const string EdgeClosedType = "curia/edge/enrolment-closed";
+
     /// <summary>Printed when <c>curia enrol</c> resumes a profile that was created and records no enrollment.</summary>
     public const string Continuing = "continuing an enrollment that was not completed, with the keys already in this profile: an earlier attempt the Forum refused registered nothing, and one whose answer was lost is confirmed, not repeated, by this run.";
 
@@ -52,6 +58,8 @@ public static class EnrolWording
         if (refusal.NothingSent) return refusal.Status == 404 ? NonceAbsent : null;
 
         var type = refusal.Error.Type;
+        if (refusal.Status == 403 && string.Equals(type, EdgeClosedType, StringComparison.Ordinal)) return EdgeClosed;
+
         if (refusal.Kind == RefusalKind.Content && refusal.Status == 400 && Array.IndexOf(ProofTypes, type) >= 0)
         {
             return type switch

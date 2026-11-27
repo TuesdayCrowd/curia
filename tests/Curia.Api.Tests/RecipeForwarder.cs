@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net;
+using System.Text.RegularExpressions;
 using Curia.Tests.Shared;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -22,7 +23,7 @@ namespace Curia.Api.Tests;
 internal sealed class RecipeForwarder : IAsyncDisposable
 {
     /// <summary>The mutations the falsification rows apply to the model (FPX1 to FPX4): off by default.</summary>
-    internal sealed record Options(bool DropBucket = false, bool RewriteHost = false, bool TrustXForwardedHost = false, bool HtmlOn429 = false);
+    internal sealed record Options(bool DropBucket = false, bool RewriteHost = false, bool TrustXForwardedHost = false, bool HtmlOn429 = false, string? EnrolmentAllow = null, bool IgnoreDeny = false, bool CaseSensitiveRegex = false, bool DropAnchor = false);
 
     private sealed record Answer(int Status, string ContentType, string Body);
 
@@ -101,9 +102,58 @@ internal sealed class RecipeForwarder : IAsyncDisposable
 
     private (NgxDirective? Location, string? ErrorPage429, string? ErrorPage413) Match(string path)
     {
-        var exact = NginxConf.Location(_locations, "= " + path);
-        var loc = exact ?? NginxConf.Location(_locations, "/");
+        var loc = NginxConf.Location(_locations, "= " + path) ?? RegexLocation(path) ?? NginxConf.Location(_locations, "/");
         return (loc, ErrorPageFor(loc, _limitStatus), ErrorPageFor(loc, 413));
+    }
+
+    /// <summary>The first regex location, in file order, whose pattern matches the path (nginx's order: exact, then regex, then the longest prefix; the recipe has one prefix, <c>/</c>).</summary>
+    private NgxDirective? RegexLocation(string path)
+    {
+        foreach (var loc in NginxConf.Find(_locations, "location").Where(l => l.Args.Count == 2 && l.Args[0] is "~" or "~*"))
+        {
+            var pattern = loc.Args[1];
+            if (_options.DropAnchor && pattern.EndsWith("/?$", StringComparison.Ordinal)) pattern = pattern[..^3];
+            var ignoreCase = loc.Args[0] == "~*" && !_options.CaseSensitiveRegex;
+            if (Regex.IsMatch(path, pattern, ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None, TimeSpan.FromSeconds(1))) return loc;
+        }
+
+        return null;
+    }
+
+    /// <summary>nginx's access module over the location's <c>include</c>, <c>allow</c> and <c>deny</c>, in order: the first rule that names the address decides, and an address no rule names is admitted.</summary>
+    private bool Admitted(NgxDirective? loc, IPAddress? address)
+    {
+        if (loc is null) return true;
+        var rules = new List<NgxDirective>();
+        foreach (var d in loc.Block ?? [])
+        {
+            if (d.Name == "include" && d.Args.Count == 1) rules.AddRange(IncludedRules(d.Args[0]));
+            else if (d.Name is "allow" or "deny") rules.Add(d);
+        }
+
+        var peer = address?.IsIPv4MappedToIPv6 == true ? address.MapToIPv4() : address;
+        foreach (var rule in rules)
+        {
+            if (rule.Name == "deny" && _options.IgnoreDeny) continue;
+            if (rule.Args.Count != 1 || !Names(rule.Args[0], peer)) continue;
+            return rule.Name == "allow";
+        }
+
+        return true;
+    }
+
+    private IEnumerable<NgxDirective> IncludedRules(string file)
+    {
+        if (file != "curia-enrolment-allow.conf") return [];
+        var text = _options.EnrolmentAllow ?? File.ReadAllText(Path.Combine(PublishedEdge.RepoRoot(), "deploy", "proxy", file));
+        return NginxConf.Parse(text).Where(d => d.Name is "allow" or "deny");
+    }
+
+    private static bool Names(string rule, IPAddress? peer)
+    {
+        if (rule == "all") return true;
+        if (peer is null) return false;
+        return rule.Contains('/', StringComparison.Ordinal) ? IPNetwork.TryParse(rule, out var network) && network.Contains(peer) : IPAddress.TryParse(rule, out var one) && one.Equals(peer);
     }
 
     private string? ErrorPageFor(NgxDirective? loc, int code)
@@ -204,6 +254,13 @@ internal sealed class RecipeForwarder : IAsyncDisposable
         if (ctx.Request.ContentLength is { } declared && declared > _bodyCap)
         {
             await RefuseAsync(ctx, 413, page413).ConfigureAwait(false);
+            return;
+        }
+
+        // allow and deny, after the limit and the body bound (nginx's access phase)
+        if (!Admitted(loc, ctx.Connection.RemoteIpAddress))
+        {
+            await RefuseAsync(ctx, 403, ErrorPageFor(loc, 403)).ConfigureAwait(false);
             return;
         }
 
