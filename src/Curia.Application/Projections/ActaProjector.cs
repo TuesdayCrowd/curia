@@ -63,9 +63,9 @@ public sealed record ConsistencyProof(
 /// it does not grow with log length. What grows is this fold: O(n) hashes per request that needs
 /// the tree, on top of the O(n) read every projection already performs. The bound is the same one
 /// every read path has: the whole log fits one read
-/// (<see cref="Ports.EventReaderExtensions.ReadAllAsync"/>). When it no longer does, the fix is a
-/// tree with cached subtree hashes, not a larger page -- a tree over a truncated leaf list yields
-/// wrong roots with no error.</para>
+/// (<see cref="Ports.EventReaderExtensions.ReadAllAsync"/>). When it no longer does, the fix is not a larger page -- a tree over a truncated leaf list yields
+/// wrong roots with no error. Each proof is O(log n) after the first, because this log owns one
+/// <see cref="MerkleSubtreeCache"/> for its own leaves (register item 403) and a request drops it with the log.</para>
 ///
 /// <para><b>Order is commit order.</b> Leaf <i>i</i> is the <i>i</i>th event in ascending
 /// <c>seq</c>, and R6.47 makes the store serialize appends so that order is also the order in
@@ -90,8 +90,15 @@ public sealed class ActaLog
         DeclarationKeys = declarationKeys;
         OperatorKeys = operatorKeys;
         IndexByEventId = indexByEventId;
-        Root = MerkleTree.Root(leaves);
+        _subtrees = new MerkleSubtreeCache(leaves);
+        Root = _subtrees.Root(leaves.Length);
     }
+
+    // Register item 403: the subtree hashes of this log's leaves, made once and dropped with the log (one request's fold); never static.
+    private readonly MerkleSubtreeCache _subtrees;
+
+    /// <summary>Node hashes this log's cache has computed so far: the cost the complexity probes read.</summary>
+    internal int SubtreeHashesComputed => _subtrees.NodeHashes;
 
     public IReadOnlyList<AppendedEvent> Events { get; }
 
@@ -185,13 +192,12 @@ public sealed class ActaLog
         if (treeSize < 1 || treeSize > TreeSize || index < 0 || index >= treeSize)
             return null;
 
-        var tree = Leaves[..checked((int)treeSize)];
         return new InclusionProof(
             index,
             treeSize,
             Leaves[checked((int)index)],
-            MerkleTree.InclusionPath(tree, checked((int)index)),
-            MerkleTree.Root(tree));
+            _subtrees.InclusionPath(checked((int)treeSize), checked((int)index)),
+            _subtrees.Root(checked((int)treeSize)));
     }
 
     /// <summary>

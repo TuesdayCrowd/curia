@@ -19,7 +19,8 @@ namespace Curia.Canon.Acta;
 /// O(n) hashes per build and O(log n) per proof. There is no incremental state here on purpose --
 /// the read paths already fold the whole log per request, and a cache that could disagree with a
 /// rebuild is exactly what R11.9's replay drill exists to forbid. The size at which that stops
-/// being acceptable is stated in the plan, not hidden here.</para>
+/// being acceptable is stated in the plan, not hidden here. This type keeps none; <see cref="MerkleSubtreeCache"/> is the one place subtree hashes are remembered, and only for the life
+/// of the object that made it (register item 403).</para>
 /// </summary>
 public static class MerkleTree
 {
@@ -240,6 +241,68 @@ public static class MerkleTree
         {
             SubProof(leaves, start + k, end, m - k, startFromComplete: false, path);
             path.Add(Subtree(leaves, start, start + k));
+        }
+    }
+}
+
+/// <summary>
+/// Register item 403: the subtree hashes of one leaf list, each computed once, so a root or an audit path for any prefix size costs O(log n) lookups after the first O(n) pass. A subtree hash
+/// depends only on the leaves in its range, so one cache over the whole list serves every tree size. The recursion, the split point (<see cref="MerkleTree.SplitPoint"/>), the node hash and the
+/// path order are <see cref="MerkleTree"/>'s own, and <see cref="MerkleTree"/> stays the oracle the property tests compare this to.
+///
+/// <para><b>Lifetime.</b> An instance is owned by the one object that holds its leaves (<c>ActaLog</c>, which a request folds and drops) and is never static, so no state outlives
+/// a request (the owner's ruling, 2026-11-27; held by <c>InclusionCacheFenceTests</c>). The memo is keyed by the range <c>(start, end)</c> and is valid for these leaves only.</para>
+/// </summary>
+public sealed class MerkleSubtreeCache
+{
+    private readonly ImmutableArray<ImmutableArray<byte>> _leaves;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Start, int End), ImmutableArray<byte>> _memo = new();
+    private int _nodeHashes;
+
+    public MerkleSubtreeCache(ImmutableArray<ImmutableArray<byte>> leaves)
+    {
+        _leaves = leaves;
+    }
+
+    /// <summary>How many node hashes this cache has computed: the cost, for the complexity probes.</summary>
+    public int NodeHashes => Volatile.Read(ref _nodeHashes);
+
+    public ImmutableArray<byte> Root(int size) => size == 0 ? MerkleTree.EmptyRoot() : Hash(0, size);
+
+    public ImmutableArray<ImmutableArray<byte>> InclusionPath(int size, int index)
+    {
+        var path = ImmutableArray.CreateBuilder<ImmutableArray<byte>>();
+        Path(0, size, index, path);
+        return path.ToImmutable();
+    }
+
+    private ImmutableArray<byte> Hash(int start, int end)
+    {
+        var n = end - start;
+        if (n == 1) return _leaves[start];
+        if (_memo.TryGetValue((start, end), out var known)) return known;
+
+        var k = MerkleTree.SplitPoint(n);
+        var hash = MerkleTree.NodeHash(Hash(start, start + k).AsSpan(), Hash(start + k, end).AsSpan());
+        Interlocked.Increment(ref _nodeHashes);
+        _memo[(start, end)] = hash;
+        return hash;
+    }
+
+    private void Path(int start, int end, int m, ImmutableArray<ImmutableArray<byte>>.Builder path)
+    {
+        var n = end - start;
+        if (n == 1) return;
+        var k = MerkleTree.SplitPoint(n);
+        if (m < k)
+        {
+            Path(start, start + k, m, path);
+            path.Add(Hash(start + k, end));
+        }
+        else
+        {
+            Path(start + k, end, m - k, path);
+            path.Add(Hash(start, start + k));
         }
     }
 }
