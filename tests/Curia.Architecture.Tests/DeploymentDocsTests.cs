@@ -510,6 +510,7 @@ public sealed partial class DeploymentDocsTests
             foreach (var name in required.Where(r => !names.Contains(r, StringComparer.Ordinal))) problems.Add($"the environment example lacks {name}, which the Forum refuses to start without");
             foreach (var name in names.Where(n => !required.Contains(n))) problems.Add($"the environment example holds {name}, which is not a variable the Forum requires to start");
             foreach (var key in operatorKeys.Where(k => example.Contains(k, StringComparison.Ordinal))) problems.Add($"the environment example names {key} (R12.18, and a core of the Forum holds its environment)");
+            if (example.Contains("Development", StringComparison.OrdinalIgnoreCase) || names.Contains("ASPNETCORE_ENVIRONMENT", StringComparer.Ordinal)) problems.Add("the environment example sets or names the hosting environment: the unit's Production is the one place it is set, and a Development Forum serves a page that carries the request's credentials (G84, item 399 (c))");
         }
 
         foreach (var key in operatorKeys.Where(k => unitText.Contains(k, StringComparison.Ordinal))) problems.Add($"the Forum's unit names {key}");
@@ -635,10 +636,8 @@ public sealed partial class DeploymentDocsTests
         }
 
         // how a precondition is confirmed
-        foreach (var needed in new[] { "BCAP1", "BCAP2", "G83's Status", "a channel is the owner's to choose" })
-            if (!hosting.Contains(needed, StringComparison.Ordinal)) problems.Add($"the hosting runbook does not say '{needed}'");
-        foreach (var test in new[] { "BodyBoundNotYetBuiltTests", "G83_BCAP1", "G83_BCAP2" })
-            if (!AllTestSource().Contains(test, StringComparison.Ordinal)) problems.Add($"the test '{test}' the runbook relies on to flip when D125 closes no longer exists");
+        // D125's confirmation (what the operator reads and the tests it names) is BND11's, moved there from here (errata G84, amendment 1 ruling 8).
+        if (!hosting.Contains("a channel is the owner's to choose", StringComparison.Ordinal)) problems.Add("the hosting runbook does not say 'a channel is the owner's to choose'");
         var keys = Flat(Runbook("operator-keys"));
         if (!keys.Contains("carried", StringComparison.Ordinal) || !keys.Contains("R12.18", StringComparison.Ordinal) || !keys.Contains("holds none of the other two keys", StringComparison.Ordinal)) problems.Add("operator-keys.md does not say how the offline declaration key meets the publish command");
         var readiness = Text("tools/deploy/readiness.py");
@@ -725,6 +724,48 @@ public sealed partial class DeploymentDocsTests
         var problems = UnresolvedCitations("See R999.99, G9999, item 99999, D99999 and `docs/runbooks/no-such-runbook.md`; also R6.39 and G82.");
         Assert.True(problems.Count == 5 && problems.All(p => !p.StartsWith("R6.39", StringComparison.Ordinal) && !p.StartsWith("G82", StringComparison.Ordinal)), "the scan flagged: " + string.Join("; ", problems));
     }
+
+    // ---------------------------------------------------------------- BND11
+
+    /// <summary>
+    /// BND11 (errata G84, R6.68 (rev.); D125 closed): the four documents that spoke of the Forum's body bound say it is built. None says the Forum has no bound of its own, none names the probes the stage deleted, and each states the
+    /// Forum's figure as the white paper's R6.39 number plus one byte, parsed from the white paper (the same figure as <see cref="PublishedRequestBound.Cap"/>, so the document is read against R6.39 and not against
+    /// the code). The hosting runbook names G84's Status and the three probes the operator runs (BND1, BND2, BND6), and those tests exist; the edge's runbook says the bound is not a bound on memory or on bodies in flight.
+    /// Moved here, not duplicated, from DPK11's four assertions about D125's wait.
+    /// </summary>
+    [Fact]
+    public void R6_68_BND11_TheDocumentsSayTheForumBoundsABodyAndStateTheFigure()
+    {
+        var problems = new List<string>();
+        var figure = PublishedRequestBound.Cap().ToString("N0", CultureInfo.InvariantCulture);
+        var documents = new[] { "docs/runbooks/reverse-proxy.md", "docs/runbooks/hosted-instance.md", "README.md", "deploy/proxy/curia-locations.conf" };
+        foreach (var path in documents)
+        {
+            var text = Flat(Text(path));
+            if (NoBoundOfItsOwn().IsMatch(text)) problems.Add($"{path} still says the Forum has no bound of its own");
+            if (!text.Contains(figure, StringComparison.Ordinal)) problems.Add($"{path} does not state the Forum's figure {figure}");
+            foreach (var gone in new[] { "BCAP1", "BCAP2", "BodyBoundNotYetBuiltTests" })
+                if (text.Contains(gone, StringComparison.Ordinal)) problems.Add($"{path} names {gone}, which the stage deleted");
+        }
+
+        var hosting = Flat(Runbook("hosted-instance"));
+        foreach (var needed in new[] { "G84's Status", "BND1", "BND2", "BND6" })
+            if (!hosting.Contains(needed, StringComparison.Ordinal)) problems.Add($"the hosting runbook does not say '{needed}'");
+        foreach (var test in new[] { "BodyBoundTests", "BodyBoundKestrelTests" })
+        {
+            if (!hosting.Contains(test, StringComparison.Ordinal)) problems.Add($"the hosting runbook does not name {test}");
+            if (!AllTestSource().Contains("class " + test, StringComparison.Ordinal) && !AllTestSource().Contains("class " + test + "(", StringComparison.Ordinal)) problems.Add($"the test class '{test}' the runbook names does not exist");
+        }
+
+        var proxy = Flat(Runbook("reverse-proxy"));
+        if (!proxy.Contains("in flight", StringComparison.Ordinal)) problems.Add("reverse-proxy.md does not say the bound is not a bound on bodies in flight");
+        if (!proxy.Contains("G84", StringComparison.Ordinal)) problems.Add("reverse-proxy.md does not name G84");
+        if (proxy.Contains("a client screens before it sends", StringComparison.Ordinal)) problems.Add("reverse-proxy.md says a client screens before it sends, which it does not (item 399 (g))");
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
+    [GeneratedRegex(@"no bound of its own( on a request body)?( until D125)?|has no body bound of its own|the only 1 MiB bound", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 5000)]
+    private static partial Regex NoBoundOfItsOwn();
 
     // ---------------------------------------------------------------- DPK9
 

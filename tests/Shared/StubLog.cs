@@ -1968,6 +1968,9 @@ internal sealed class StubLog : IDisposable
                             $$"""{"type":"{{Curia.Tests.Shared.PublishedStoreFaults.LogUnreadableType}}","title":"{{Curia.Tests.Shared.PublishedStoreFaults.LogUnreadableTitle}}","detail":null}""", null),
                         StubIngestRefusal.StoreUnavailable => (HttpStatusCode.ServiceUnavailable,
                             $$"""{"type":"{{Curia.Tests.Shared.PublishedStoreFaults.StoreUnavailableType}}","title":"{{Curia.Tests.Shared.PublishedStoreFaults.StoreUnavailableTitle}}","detail":null}""", null),
+                        // Errata G84 (R6.68 (rev.), R11.111): the Forum's own bound on a body, typed as the requirement types it; the title is the one R11.33's rule gives a 413 (held by CLW4 against the real Forum).
+                        StubIngestRefusal.TooLarge => (HttpStatusCode.RequestEntityTooLarge,
+                            $$"""{"type":"{{Curia.Tests.Shared.PublishedRequestBound.TooLargeType()}}","title":"The request is larger than this route reads","detail":null}""", null),
                         _ => throw new InvalidOperationException("an unknown StubIngestRefusal"),
                     };
                 }
@@ -2336,4 +2339,7 @@ internal enum StubIngestRefusal
 
     /// <summary><c>503 curia/store/unavailable</c> (errata G52): any other store failed; a write may or may not have been recorded, and for a post the Forum has not confirmed that it was (errata G55, R11.76).</summary>
     StoreUnavailable,
+
+    /// <summary><c>413 curia/request/too-large</c> (errata G84): the Forum's bound on a request body (R6.68 (rev.)).</summary>
+    TooLarge,
 }

@@ -358,7 +358,7 @@ jws:<token|proof|assertion|post>:<header|claims><pointer>
 | Long | `long-{r,space,comment,self}-{n}`, with n ∈ {1,024; 65,536; 262,144} for body and JWS parts, and {1,024; 7,168} for path, query and header parts |
 | Capped | `at-cap` and `over-cap` for a part with a published cap: R6.39 envelope strings (262,144 / 262,145), R10.68 rationale (4,096 / 4,097, the latter as 1,365 × U+4E2D + `"ab"`) |
 | Number | `zero`, `minus-one`, `1e13`, `-1e11`, `2^53+1`, `1.5`, `1e400` |
-| Body | `body-removed`, `body-truncated` (cut at half its bytes) |
+| Body | `body-removed`, `body-truncated` (cut at half its bytes), `body-over-cap` (one byte past the Forum's bound, R6.68 (rev.): R6.39's number from the white paper plus two, declared), `body-over-cap-chunked` (the same bytes with no declared length) |
 | Header parameter | `disabled-encoding` (`utf-7`), applied to every `header:<Name>;<param>` part; the only value that makes `MediaTypeHeaderValue.Encoding` throw rather than return null |
 
 Details:

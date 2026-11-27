@@ -590,6 +590,9 @@ public sealed class ForumClient
             403 => RefusalKind.Authorization,
             404 => RefusalKind.NotFound,
             409 => RefusalKind.Conflict,
+
+            // Errata G84 (R11.111): the Forum's bound on a request, told apart by the type it issues and never by the status alone (a 413 from an edge, an empty one or another type says nothing of the cause).
+            413 when error.Type == RequestBoundWording.TooLargeType => RefusalKind.Content,
             >= 500 => RefusalKind.ServerFault,
             _ => RefusalKind.Malformed,
         };

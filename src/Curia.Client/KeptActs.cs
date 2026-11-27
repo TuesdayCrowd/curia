@@ -179,7 +179,8 @@ public sealed class KeptActs
         if (answer.Status == 201 || (answer.Status == 409 && answer.ProblemType == AlreadyRecordedType)) return ActFate.Remove;
         if (send == ActSend.Resend) return ActFate.Keep;
 
-        return answer.Status is 400 or 401 or 403 or 404 or 409 or 422 || DefiniteServiceRefusal(answer)
+        // Errata G84 (R11.79 (rev.)): bytes the Forum refuses as too large it refuses the same way for ever, so a first send answered its typed 413 settles. An untyped 413 (an edge's) is kept, as every status the table does not name.
+        return answer.Status is 400 or 401 or 403 or 404 or 409 or 422 || DefiniteServiceRefusal(answer) || answer is { Status: 413, ProblemType: RequestBoundWording.TooLargeType }
             ? ActFate.Remove
             : ActFate.Keep;
     }

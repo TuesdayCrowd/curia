@@ -41,7 +41,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.12.8";
+    internal const string Version = "0.12.9";
 
     /// <summary>
     /// The tier sentence of a tool with no Table 10 pair (R11.30 (rev.), errata G68): <c>curia_verify</c>'s, which names no Forum authority and states that no tier is required (R11.26). Both pairless

@@ -35,10 +35,38 @@ internal static class RawHttp
             }
         }
 
+        return await ReadReplyAsync(stream, 10, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// A request written to a socket by hand from its head (the request line and every header, ending in the blank line) and a body writer, so that a probe states its own framing: a declared
+    /// length the body does not reach, a chunked body, a stall (a writer that returns and sends nothing more) or a malformed chunk frame. The answer is read to the end of the connection, or to
+    /// <paramref name="readSeconds"/> of silence; the head carries <c>Connection: close</c> so that the host ends the connection after its answer.
+    /// </summary>
+    internal static async Task<Reply> SendAsync(int port, string head, Func<NetworkStream, Task> writeBody, int readSeconds, CancellationToken ct)
+    {
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(System.Net.IPAddress.Loopback, port, ct).ConfigureAwait(false);
+        var stream = tcp.GetStream();
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head), ct).ConfigureAwait(false);
+        try
+        {
+            await writeBody(stream).ConfigureAwait(false);
+        }
+        catch (IOException)
+        {
+            // The host answered before the body was finished and closed: the answer is still on the socket.
+        }
+
+        return await ReadReplyAsync(stream, readSeconds, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<Reply> ReadReplyAsync(NetworkStream stream, int readSeconds, CancellationToken ct)
+    {
         using var buffer = new MemoryStream();
         var chunk = new byte[8192];
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        timeout.CancelAfter(TimeSpan.FromSeconds(readSeconds));
         try
         {
             int n;
@@ -48,6 +76,10 @@ internal static class RawHttp
         catch (IOException)
         {
             // A reset after the answer: what was read is the answer.
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Silence for the whole of the read window: what was read is what the host said.
         }
 
         var text = Encoding.UTF8.GetString(buffer.ToArray());

@@ -85,7 +85,9 @@ public static class TokenEndpoint
         {
             return new OAuthRefusal("invalid_request", "The request body is not a form this endpoint can read", null);
         }
-        catch (IOException)
+        // BadHttpRequestException is an IOException. One the host or the body bound (errata G84) throws is the body's own refusal (413, 408, 400 by what the host chose), answered once by
+        // UseBodyBound and UseUnreadableRequests in RFC 6749's shape; caught here it would be a 400 that names a malformed form for a body that was too large.
+        catch (IOException e) when (e is not BadHttpRequestException)
         {
             return new OAuthRefusal("invalid_request", "The request body is not a form this endpoint can read", null);
         }
