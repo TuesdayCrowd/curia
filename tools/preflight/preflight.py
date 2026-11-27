@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Run CI's own steps on this machine before a push, in minutes, leaving out only the slow Api suite.
+"""Run CI's own steps on this machine before a push, in minutes, leaving out the jobs CI fans out.
 
 The commands are read from .github/workflows/ci.yml and never copied here, so a step added to CI
 runs here with no edit. That is the point: twice a branch passed every command a developer was told
 to run and went red in CI (D16, and the cost step's line-count pins on #147), and each red costs a
 run of over an hour. What this cannot catch is named in tools/preflight/README.md.
 
-Usage: python3 tools/preflight/preflight.py [--workflow PATH] [--api FILTER | --no-api] [--base REF]
+A job CI fans out (a `strategy:` matrix, or `needs:` other jobs) is never run here and is listed as left
+out: its steps hold expressions only CI can fill, and one local run would not mirror its several. The
+Api suite is such a job (its legs); `--leg NAME` runs one leg's filter from tools/ci/api-legs.json.
+
+Usage: python3 tools/preflight/preflight.py [--workflow PATH] [--api FILTER | --leg NAME | --no-api] [--base REF] [--list]
 Exit 0 when every step ran and passed, 1 otherwise.
 """
 import argparse
@@ -24,8 +28,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# The one step left out by default, by job and name. Anything else in the workflow runs.
-SLOW_STEPS = {("dotnet", "Test (Api)")}
+# A step left out by default, by job and name. Anything else in the workflow runs. Empty now: the Api
+# suite is no longer a step of the core job but the legs of a job CI fans out, which is left out whole.
+# A future slow step goes here.
+SLOW_STEPS = set()
 
 # Added lines may name these placeholders from the privacy rule; anything else under a home is a leak.
 HOME_PATH = re.compile(r"/Users/(?!you\b|<|\$)[A-Za-z0-9_.-]+|/home/(?!you\b|u\b|runner\b|<|\$)[A-Za-z0-9_.-]+|/private/tmp/")
@@ -66,9 +72,11 @@ def parse_run(lines, i, key_indent, value):
 
 
 def parse_workflow(path):
-    """The steps with a `run:`, in file order. Not a YAML parser: it reads the shape this file has, and fails if it finds none."""
+    """(steps, left_out): the steps with a `run:` of every job CI does not fan out, in file order, and the
+    fanned-out jobs as (job, reason). Not a YAML parser: it reads the shape this file has, and fails if it finds none."""
     lines = path.read_text(encoding="utf-8").splitlines()
     steps, job, job_cwd = [], None, ""
+    fanned = {}
     in_jobs = False
     i = 0
     while i < len(lines):
@@ -79,6 +87,8 @@ def parse_workflow(path):
             job, job_cwd = line.strip().rstrip(":"), ""
         elif job and re.fullmatch(r"\s+working-directory: .*", line) and indent(line) == 8:
             job_cwd = line.split(":", 1)[1].strip()
+        elif job and re.match(r"    (needs|strategy):", line):
+            fanned.setdefault(job, line.strip().split(":", 1)[0])
         elif job and re.match(r"      - ", line):
             body, end = block(lines, i + 1, 6)
             step_lines = ["        " + line[8:]] + body
@@ -89,7 +99,7 @@ def parse_workflow(path):
                     key, value = s.strip().split(":", 1)
                     value = value.strip()
                     if key == "name":
-                        name = value
+                        name = value.strip("\"'")
                     elif key == "working-directory":
                         cwd = value
                     elif key == "run":
@@ -109,9 +119,10 @@ def parse_workflow(path):
             i = end
             continue
         i += 1
-    if not steps:
+    if not steps and not fanned:
         raise SystemExit(f"preflight: read no step with a run: from {path}; the workflow's shape changed, so this script is wrong")
-    return steps
+    reasons = {"needs": "needs: other jobs, which CI joins", "strategy": "strategy: a matrix, which CI runs once per entry"}
+    return [step for step in steps if step.job not in fanned], [(name, reasons[key]) for name, key in fanned.items()]
 
 
 def substitute(text, temp):
@@ -184,9 +195,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--workflow", type=Path, default=ROOT / ".github/workflows/ci.yml")
     parser.add_argument("--api", help="a dotnet test filter for the Api suite; default: the classes this branch changed")
+    parser.add_argument("--leg", help="run one Api leg (a name in tools/ci/api-legs.json), using the filter CI uses for it")
     parser.add_argument("--no-api", action="store_true", help="run no Api test at all")
+    parser.add_argument("--list", action="store_true", help="print each job's run steps and the jobs left out, and run nothing")
     parser.add_argument("--base", default="origin/main")
     args = parser.parse_args()
+
+    steps, fanned_out = parse_workflow(args.workflow)
+    if args.list:
+        for job in dict.fromkeys(step.job for step in steps):
+            print(f"run       {job}")
+            for step in steps:
+                if step.job == job:
+                    print(f"            {step.name}" + ("   (left out: slow)" if (job, step.name) in SLOW_STEPS else ""))
+        for job, reason in fanned_out:
+            print(f"left out  {job}   ({reason})")
+        return 0
 
     temp = tempfile.mkdtemp(prefix="curia-preflight-")
     logs = Path(temp) / "logs"
@@ -194,7 +218,7 @@ def main():
     results, left_out = [], []
     failed_jobs = set()
 
-    for step in parse_workflow(args.workflow):
+    for step in steps:
         label = f"{step.job}/{step.name}"
         if (step.job, step.name) in SLOW_STEPS:
             left_out.append(label)
@@ -210,12 +234,15 @@ def main():
 
     if not args.no_api and "dotnet" not in failed_jobs:
         classes = changed_api_classes(args.base)
-        api = args.api or "|".join(f"FullyQualifiedName~{c}" for c in classes)
+        if args.leg:
+            api = subprocess.run([sys.executable, str(ROOT / "tools/ci/api-legs.py"), "filter", args.leg], capture_output=True, text=True, check=True).stdout.strip()
+        else:
+            api = args.api or "|".join(f"FullyQualifiedName~{c}" for c in classes)
         if api:
             env = dict(os.environ, CURIA_TEST_POSTGRES=step_env(Step("dotnet", "", ""), temp)["CURIA_TEST_POSTGRES"])
             env["CURIA_TESTIS_BIN"] = str(ROOT / "rust/curia-testis/target/debug/curia-testis")
             ok, elapsed = run_step(f"api/{api[:70]}", f'dotnet test tests/Curia.Api.Tests --no-build --configuration Release --filter "{api}"', env, ROOT, logs)
-            results.append(("api/the classes this branch changed" if not args.api else "api/--api filter", ok, elapsed))
+            results.append((f"api/leg {args.leg}" if args.leg else "api/--api filter" if args.api else "api/the classes this branch changed", ok, elapsed))
 
     problems = lint(args.base)
     for problem in problems:
@@ -234,6 +261,8 @@ def main():
         print(f"  {state:8s}{elapsed:7.0f}s  {label}")
     for label in left_out:
         print(f"  left out         {label} (CI runs it; see tools/preflight/README.md)")
+    for job, reason in fanned_out:
+        print(f"  left out         job {job} ({reason}; CI runs it, see tools/preflight/README.md)")
 
     passed = all(ok for _, ok, _ in results)
     if passed:

@@ -1,0 +1,8 @@
+{
+  "project": "tests/Curia.Api.Tests",
+  "legs": {
+    "fuzz": "FullyQualifiedName~Curia.Api.Tests.Fuzz.",
+    "bursts": "FullyQualifiedName~Curia.Api.Tests.AgentWriteGateEndpointTests.",
+    "rest": { "complement_of": ["fuzz", "bursts"] }
+  }
+}
