@@ -61,6 +61,7 @@ ROWS = [
     ("FRDY21", "R13", READINESS, ("            if status == 403 and kind == ENROLMENT_CLOSED:\n                continue\n", "            if 400 <= status < 500:\n                continue\n"), "ReadinessScriptTests.G86_RDY17"),
     ("FRDY22", "default", READINESS, ('"--event-ceiling", type=int, default=10000', '"--event-ceiling", type=int, default=10001'), "ReadinessScriptTests.G86_RDY19"),
     ("FRDY23", "default", READINESS, ('"--expect-enrolment", choices=("closed", "open"), default="closed"', '"--expect-enrolment", choices=("closed", "open"), default="open"'), "ReadinessScriptTests.G86_RDY19"),
+    ("FRDY24", "R6", READINESS, ("    return p.parse_args(join_kid_values(argv, p))", "    return p.parse_args(argv)"), "ReadinessScriptTests.G86_RDY21"),
     ("FBD1", "drill", DRILL, ('        add("D1", NOT_CHECKED, f"{\', \'.join(missing)} not found on PATH: the drill did not run")', '        add("D1", PASS, f"{\', \'.join(missing)} not found on PATH: the drill did not run")'), "python"),
 ]
 

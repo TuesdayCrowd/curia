@@ -270,4 +270,20 @@ public sealed partial class ReadinessScriptTests
         Assert.True(unselected.Status("R12") == "NOT CHECKED" && unselected.Status("R13") == "NOT CHECKED" && down.Status("R13") == "FAIL",
             $"not selected: R12 {unselected.Status("R12")}, R13 {unselected.Status("R13")}; an edge that is down: R13 {down.Status("R13")}");
     }
+
+    /// <summary>
+    /// RDY21 (the RDY6 flake): a key id is base64url, so about one in 64 begins with <c>-</c>, which argparse reads as an option: <c>--log-kid: expected one argument</c> and no report. Whatever a kid begins with, the
+    /// separate form (<c>--log-kid -abc</c>) and the joined form (<c>--log-kid=-abc</c>) reach R6, which says the Forum does not list it (FAIL); no usage error, no missing check.
+    /// </summary>
+    [Fact]
+    public async Task G86_RDY21_AKidThatBeginsWithAHyphenIsAKidAndNotAnOption()
+    {
+        var origin = Origin(forum);
+        var separate = await ReadinessAsync(["--origin", origin, "--only", "R6", "--log-kid", "-abc"]);
+        var doubled = await ReadinessAsync(["--origin", origin, "--only", "R6", "--declaration-kid", "--abc", "--operator-kid", "-_x"]);
+        var joined = await ReadinessAsync(["--origin", origin, "--only", "R6", "--log-kid=-abc"]);
+        Assert.True(
+            separate.Status("R6") == "FAIL" && doubled.Status("R6") == "FAIL" && joined.Status("R6") == "FAIL",
+            $"R6 for a kid beginning with a hyphen, separate / doubled / joined: {separate.Status("R6")} (exit {separate.Exit}) / {doubled.Status("R6")} (exit {doubled.Exit}) / {joined.Status("R6")} (exit {joined.Exit}); {separate.Raw}");
+    }
 }

@@ -329,9 +329,9 @@ What a beta instance is, and is not (each of these is in the first section of th
   route, and a body the host rejects is answered as a problem document and not by the host's own writer. It bounds bytes and not what they cost, and not the
   number of bodies in flight, which are the edge's burst limit and the owner's memory limit. A hosted Forum is never Development, and since G85 the Forum refuses to start
   in Development with a public origin that is not loopback (R11.112); no setting lifts it.
-- **What remains before announcing** (the Development refusal is built, G85, and the closed beta's edge is built, G86: enrolment closed at the proxy by default, a
-  10,000-event ceiling checked by readiness; the owner deferred items 278 and 314 for a closed beta on 2026-11-26): the owner's own acts: the hosted database's two
-  pending migrations applied (the runbook names them), the lifecycle guard left unlifted, an alert unit supplied, the keys published and their kids announced.
+- **What remains before announcing** (the build for a closed beta is complete: the Development refusal, G85, and the closed beta's edge, G86): only the owner's own acts. Merge #161;
+  provision the host per the runbook; as the database's owner apply db/0001 to db/0006; generate, back up and publish the three keys and announce their kids; supply the alert unit;
+  list the invitees' addresses in `curia-enrolment-allow.conf`; run readiness until every check passes, R12 and R13 included; announce. The lifecycle guard stays unlifted.
 - **The database credential's reach is named**, not hidden: a process holding it can append rows the Forum skips and reports, can publish an
   operator key before the owner does, and the head timer signs what the log holds when it runs, stopping (exit 6) only for a row the Forum does
   not honour (G68, G70).

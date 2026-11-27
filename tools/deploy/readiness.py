@@ -400,6 +400,25 @@ def check_r13(t, args):
     return PASS, f"POST {' and '.join(ENROL_SPELLINGS)} each reached the Forum's own 400 {PROOF_REQUIRED}: enrolment is open, as expected"
 
 
+KID_FLAGS = ("--declaration-kid", "--operator-kid", "--log-kid")
+
+
+def join_kid_values(argv, parser):
+    """A key id is base64url, so about one in 64 begins with `-`, which argparse reads as an option. Join `--log-kid -abc` as `--log-kid=-abc`
+    unless the next word is one of this script's own options (then the value is missing and argparse says so)."""
+    known = set(parser._option_string_actions)  # noqa: SLF001 (argparse offers no public list of its option strings)
+    joined, i = [], 0
+    while i < len(argv):
+        word = argv[i]
+        if word in KID_FLAGS and i + 1 < len(argv) and argv[i + 1] not in known:
+            joined.append(f"{word}={argv[i + 1]}")
+            i += 2
+        else:
+            joined.append(word)
+            i += 1
+    return joined
+
+
 def parse(argv):
     p = argparse.ArgumentParser(prog="readiness.py", description="Readiness report for a hosted Curia Forum (errata G83, R11.110).")
     p.add_argument("--origin", required=True)
@@ -420,7 +439,7 @@ def parse(argv):
     p.add_argument("--operator-cmd", default="curia-operator", help="R10 only: no operator verb counts events, so R12 does not use it")
     p.add_argument("--only", help="comma list of check ids; every other check reports NOT CHECKED")
     p.add_argument("--timeout", type=float, default=10.0)
-    return p.parse_args(argv)
+    return p.parse_args(join_kid_values(argv, p))
 
 
 def main(argv):

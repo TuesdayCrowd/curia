@@ -135,3 +135,15 @@ Task 0 (`task-0-report.md`) measured on the D125 tip 4de17af7 through nginx 1.28
 6. **Growth, for the runbook (Task 4).** Measured per identity per day: T0 23 events, T1 125, T2 500; the 10,000 ceiling is about 400 T0 identities. A listed address is bounded only by the `curia_enrol` zone (1 r/s, burst 10, about 2 events a second, the ceiling in about 83 minutes, computed not run). The hosted-instance runbook says: open enrolment for named addresses only, close it when the invitees have enrolled, and run readiness at least hourly while it is open.
 7. **The event count is `SELECT count(*) FROM events`** through `psql` as the application role (Task 0 (7)); no operator verb counts events (filed as an item 401 lead).
 8. **Not measured, stated in the record:** real client addresses (podman shows nginx only the VM gateway), IPv6, a second proxy, a live enrolment flood.
+
+## As run (2026-11-26, Task 8)
+
+Built on `the-closed-beta-edge`, stacked on `a-hosted-forum-is-never-development` (#180). Where this section and the plan or Amendment 1 differ, this section is what happened. The record is errata G86's Status; the figures are not repeated here beyond what a reader needs.
+
+- **Task 0** (commit `3d2610d3` is the plan): the bypass is measured (9 of 17 spellings through `location = /v1/agents`; all 17 closed by `~* ^/v1/agents/?$`), so trap 306 is claimed; `tree_size` is `count(*)` minus one; the client's words were `((none))` and are mended (Amendment 1).
+- **Tasks 1 to 6** (commit `6086ca51`): the entry, the probes red first, the recipe, the forwarder, readiness R12 and R13, the `Edge closed` span, the runbooks, 33 falsification rows (all killed) and the live run (LCBE1 to LCBE8, all held). **Deviations:** the span says "Nothing was registered" and not "and no key was sent anywhere"; PXY13 is the closed route's flood; R12 does not fall back to the head when a configured database fails; LCBE7's seeded counts were written by SQL as the scratch database's owner; PXY10's set is the 16 spellings a raw socket delivers.
+- **Task 7** (cold read): not run, on the owner's instruction to accelerate; the register says "no cold read".
+- **Task 8 (this close):** G86's Status, CLAUDE.md, README and the runbook's "what remains before announcing" (**the build for a closed beta is complete; the owner's acts remain**), this section, the held register patch `impl-plan-cbe.md` (not applied), the PR body. **One addition to the plan:** the "RDY6 flake" the implementer met in Task 2 was an operator bug (a kid beginning with `-` is read by argparse as an option; one in 64), fixed in `readiness.py` (`join_kid_values`), with RDY21 red first, FRDY24 and a deterministic RDY6, and the runbook's `--kid="$KID"` form. The held read-cost patch was renumbered to G87, item 402 and trap 307.
+- **Not run:** the whole Api suite, the closed fuzz, `preflight.py`, the Rust commands, the differential gate. **The api-legs gate was unavailable (#161 unmerged).**
+- **Next:** the owner's acts, then, after launch, the read-cost PR (items 278 and 314), which gates raising the ceiling.
+

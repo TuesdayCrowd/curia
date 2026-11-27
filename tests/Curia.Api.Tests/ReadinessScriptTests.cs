@@ -309,7 +309,7 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
     }
 
     /// <summary>
-    /// RDY6: R6 against a log after the three keys are published: the announced kids (the operator prints them at publication) PASS; a wrong kid FAILs; a missing argument is NOT CHECKED, never PASS (R11.110).
+    /// RDY6: R6 against a log after the three keys are published: the announced kids (the operator prints them at publication) PASS; a wrong kid FAILs; a missing argument is NOT CHECKED, never PASS (R11.110). The kids are passed as `--flag=value`: a random kid begins with `-` one time in 64 and RDY21 is the probe for that, so this one does not depend on the first character.
     /// </summary>
     [Fact]
     public async Task G83_RDY6_TheAnnouncedKidsAreTheForumsOrTheCheckSaysItDidNotRun()
@@ -324,9 +324,9 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
         var operatorKid = (await KeySetAsync(f)).GetProperty("operator_keys")[0].GetProperty("kid").GetString()!;
         var origin = Origin(f);
 
-        var good = await ReadinessAsync(["--origin", origin, "--only", "R6", "--declaration-kid", declarationKid, "--operator-kid", operatorKid, "--log-kid", logKid]);
-        var wrong = await ReadinessAsync(["--origin", origin, "--only", "R6", "--declaration-kid", declarationKid, "--operator-kid", "not-the-kid", "--log-kid", logKid]);
-        var partial = await ReadinessAsync(["--origin", origin, "--only", "R6", "--declaration-kid", declarationKid]);
+        var good = await ReadinessAsync(["--origin", origin, "--only", "R6", $"--declaration-kid={declarationKid}", $"--operator-kid={operatorKid}", $"--log-kid={logKid}"]);
+        var wrong = await ReadinessAsync(["--origin", origin, "--only", "R6", $"--declaration-kid={declarationKid}", "--operator-kid=not-the-kid", $"--log-kid={logKid}"]);
+        var partial = await ReadinessAsync(["--origin", origin, "--only", "R6", $"--declaration-kid={declarationKid}"]);
         var none = await ReadinessAsync(["--origin", origin, "--only", "R6"]);
         Assert.True(
             good.Status("R6") == "PASS" && wrong.Status("R6") == "FAIL" && partial.Status("R6") == "NOT CHECKED" && none.Status("R6") == "NOT CHECKED" && none.Exit == 8,

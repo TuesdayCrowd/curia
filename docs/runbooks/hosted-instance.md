@@ -218,7 +218,7 @@ From a machine outside the host's network, with the kids the owner announced:
 
 ```bash
 python3 -I tools/deploy/readiness.py --origin https://forum.example \
-  --declaration-kid "$DECLARATION_KID" --operator-kid "$OPERATOR_KID" --log-kid "$LOG_KID"
+  --declaration-kid="$DECLARATION_KID" --operator-kid="$OPERATOR_KID" --log-kid="$LOG_KID"
 ```
 
 Each check prints `PASS`, `FAIL` or `NOT CHECKED` with a reason that names no secret and echoes no response body; the exit is 0
@@ -258,6 +258,10 @@ and raising the ceiling or opening enrolment wider is gated by building their re
 relies on: use it only with R12 run beside it and an end time written down.
 
 ## Announcing
+
+**The build for a closed beta is complete** (G85, G86). What remains before announcing is the owner's own acts, and only those: merge #161; provision the host (this runbook);
+as the database's owner apply db/0001 to db/0006; generate, back up and publish the three keys; supply the alert unit; list the invitees' addresses in
+`curia-enrolment-allow.conf` ("Invitations"); run readiness until every check passes, R12 and R13 included; announce.
 
 Announce the origin and the three `kid`s, say what the instance is and is not (the first section), and name the owner as the
 contact. Do not announce while any readiness check is FAIL, or NOT CHECKED for a reason you cannot explain, or while a
