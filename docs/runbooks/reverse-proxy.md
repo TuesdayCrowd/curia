@@ -61,7 +61,7 @@ token and its posts do not pass through this route. The first match decides and 
 
 **What this is not.** The address is the connection's (`$remote_addr`): behind a second proxy it is the proxy's, so set `real_ip` from a trusted, named range first (never from
 `X-Forwarded-For`), and a listed invitee whose egress address changes is refused until the line is changed. A listed address is a **cost and admission bound and not an abuse control**: a fleet
-behind one listed address enrols as many identities as the `curia_enrol` zone lets through (1 r/s, burst 10, G86's table row; about two events an enrolment, so about 83 minutes to the log's ceiling
+behind one listed address enrols as many identities as the `curia_enrol` zone lets through (1 r/s, burst 10, G86's table row; about two events an enrolment, so about 12 minutes to the log's 1,500-event ceiling (errata G86 (rev.): measured at 2 KB posts to keep every anonymous request within 25 ms; it rises only as items 278 and 314 are built)
 from one address, computed and not run). A listed address gains no tier and no exemption from any refusal: the proof of possession (R4.46) still decides. The zone limits the closed route too
 (`limit_req` runs before the access check and counts a denied request), so an operator probing it quickly sees `429` and not `403`.
 
