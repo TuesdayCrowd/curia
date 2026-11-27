@@ -369,7 +369,8 @@ public sealed class ProxyForwardingTests(ForwardedForumFixture forum) : IClassFi
         foreach (var path in spellings)
         {
             var direct = await RawHttp.PostAsync(forum.ForumPort, forum.Authority, path, 0, 0, "application/json", Ct);
-            if (direct.Status is not (404 or 405)) accepted.Add(path);
+            // "Accepted" is the Forum's router having routed the request: one of its own problem documents that is not the no-route one (a 405 is a refusal of the method). A status alone is not that: on Linux Kestrel answers a target with a '#' in it a bare 400 with no body (it never reaches the router), which CI's first run took for acceptance.
+            if (direct.Status != 405 && direct.Body.Contains("\"type\":\"curia/", StringComparison.Ordinal) && !direct.Body.Contains("curia/request/no-route", StringComparison.Ordinal)) accepted.Add(path);
         }
 
         Assert.True(accepted.Count >= 9, $"the Forum should accept at least the case and slash variants directly; it accepted {accepted.Count}: {string.Join(' ', accepted)}");
@@ -384,6 +385,24 @@ public sealed class ProxyForwardingTests(ForwardedForumFixture forum) : IClassFi
         }
 
         Assert.True(open.Count == 0, $"spellings the Forum accepts that the edge did not refuse with its 403: {string.Join("; ", open)}");
+    }
+
+    /// <summary>
+    /// G86_PXY10c: a request target with a fragment (or a fragment after a query) selects the enrolment location and the rotation route's does not, on every OS. nginx 1.28.0 ends the URI at the <c>#</c> (measured with a raw socket from an unlisted
+    /// address: <c>/v1/agents#f</c>, <c>/v1/agents/#x</c>, <c>/V1/AGENTS#</c> and <c>/v1/agents?x#y</c> were each the edge's 403, so the edge was never bypassed), and the Forum never routes such a target to enrolment (404 on macOS, a bare 400 on Linux), so
+    /// the closed route is closed whichever the host does. A <c>%23</c> is a character of the path to both, selects no enrolment location and is the Forum's 404.
+    /// </summary>
+    [Fact]
+    public async Task G86_PXY10c_AFragmentDoesNotTakeATargetOutOfTheClosedLocation()
+    {
+        var forwarder = await forum.ForwardAsync();
+        var closed = new[] { "/v1/agents#f", "/v1/agents#", "/v1/agents/#x", "/V1/AGENTS#", "/V1/Agents/#f", "/v1/agents?x#y", "/v1/agents?#", "/v1/agents#f/x", "/v1/agents#/keys" };
+        var enrolment = forwarder.SelectedLocation("/v1/agents");
+        Assert.NotEqual("/", enrolment);
+        var open = closed.Where(t => forwarder.SelectedLocation(t) != enrolment).ToList();
+        Assert.True(open.Count == 0, $"targets that did not select the enrolment location: {string.Join(' ', open)}");
+        foreach (var rotation in new[] { "/v1/agents/x/keys", "/v1/agents/x/keys#f", "/v1/agents/x/retire?a#b", "/v1/agents%23f" })
+            Assert.Equal("/", forwarder.SelectedLocation(rotation));
     }
 
     /// <summary>G86_PXY10b: every method on the route is closed, not only <c>POST</c>: a <c>GET</c> to the route from an unlisted address is the edge's <c>403</c> where the Forum would answer <c>405</c>.</summary>

@@ -23,7 +23,7 @@ namespace Curia.Api.Tests;
 internal sealed class RecipeForwarder : IAsyncDisposable
 {
     /// <summary>The mutations the falsification rows apply to the model (FPX1 to FPX4): off by default.</summary>
-    internal sealed record Options(bool DropBucket = false, bool RewriteHost = false, bool TrustXForwardedHost = false, bool HtmlOn429 = false, string? EnrolmentAllow = null, bool IgnoreDeny = false, bool CaseSensitiveRegex = false, bool DropAnchor = false);
+    internal sealed record Options(bool DropBucket = false, bool RewriteHost = false, bool TrustXForwardedHost = false, bool HtmlOn429 = false, string? EnrolmentAllow = null, bool IgnoreDeny = false, bool CaseSensitiveRegex = false, bool DropAnchor = false, bool KeepFragment = false);
 
     private sealed record Answer(int Status, string ContentType, string Body);
 
@@ -98,6 +98,23 @@ internal sealed class RecipeForwarder : IAsyncDisposable
         app.Run(forwarder.GuardedAsync);
         await app.StartAsync().ConfigureAwait(false);
         return forwarder;
+    }
+
+    /// <summary>
+    /// The part of a request target nginx matches a <c>location</c> against: the URI ends at the first <c>#</c> (a fragment is not part of it; measured against nginx 1.28.0 by a raw socket, which sends what curl strips), and the query is
+    /// not part of it either. The Forum's own host differs by platform (Kestrel answers a bare <c>400</c> to a <c>#</c> in the target on Linux and routes the path with it on macOS), so a probe reads this function, which is the same on every OS.
+    /// </summary>
+    internal static string MatchedPath(string rawTarget)
+    {
+        var end = rawTarget.IndexOfAny(['#', '?']);
+        return end < 0 ? rawTarget : rawTarget[..end];
+    }
+
+    /// <summary>The <c>location</c> (its arguments, as the recipe writes them) the model selects for a request target as sent on the wire, fragment and query included.</summary>
+    internal string? SelectedLocation(string rawTarget)
+    {
+        var (loc, _, _) = Match(_options.KeepFragment ? rawTarget.Split('?')[0] : MatchedPath(rawTarget));
+        return loc is null ? null : string.Join(' ', loc.Args);
     }
 
     private (NgxDirective? Location, string? ErrorPage429, string? ErrorPage413) Match(string path)
@@ -236,7 +253,7 @@ internal sealed class RecipeForwarder : IAsyncDisposable
     private async Task HandleAsync(HttpContext ctx)
     {
         var path = ctx.Request.Path.Value ?? "/";
-        var (loc, page429, page413) = Match(path);
+        var (loc, page429, page413) = Match(_options.KeepFragment ? path : MatchedPath(path));
 
         // limit_req, before the Forum reads the request
         var limit = loc?.Children("limit_req").Select(l => (Zone: l.Args.First(a => a.StartsWith("zone=", StringComparison.Ordinal))["zone=".Length..], Burst: l.Args.FirstOrDefault(a => a.StartsWith("burst=", StringComparison.Ordinal)))).FirstOrDefault();
