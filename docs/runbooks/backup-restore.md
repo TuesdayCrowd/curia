@@ -28,7 +28,7 @@ pg_restore --no-owner -d "$TARGET_URL" "$DUMP_FILE"
 
 The restore's exit code does not say the grants came back. **The post-check does.** A restore from a backup that predates db/0006
 re-opens the application role's `INSERT` on `events.seq`, and the Forum's log says so at every start (EventId 7008): re-apply
-`db/0006_events_insert_columns.sql` as the table's owner, and run the post-check again. Re-applying `db/0006_events_insert_columns.sql` revokes the column grants with its table-level `REVOKE`, so apply `db/0007_store_leaf_hashes.sql` after it (the Forum does not start without the `leaf_hash` grant, EventId 7014), then run `curia-operator backfill-leaves` as the owner and `curia-operator lifecycle-audit`.
+`db/0006_events_insert_columns.sql` as the table's owner, and run the post-check again. Re-applying `db/0006_events_insert_columns.sql` revokes the column grants with its table-level `REVOKE`, so apply `db/0007_store_leaf_hashes.sql` after it (the Forum does not start without the `leaf_hash` grant, EventId 7014), then run `curia-operator backfill-leaves` as the owner and `curia-operator lifecycle-audit`. `db/0008_create_search_index.sql` (the keyword channel's index, errata G88) is a table set of its own that a dump holds, and the drill's D6 and D7 compare its row counts and run `search-audit` over the restored copy; a restore from a backup that predates it is a database without those tables, and the Forum does not start there until the owner applies it.
 
 ## The restore post-check
 

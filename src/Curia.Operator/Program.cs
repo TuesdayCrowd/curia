@@ -4,6 +4,7 @@ using Curia.Application.Credentials;
 using Curia.Application.Moderation;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
+using Curia.Application.Retrieval;
 using Curia.Canon.Envelope;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
@@ -64,6 +65,12 @@ public static class ExitCode
     /// <see cref="LifecycleRowsSkipped"/>: both are a finding in the log that a person reads before anything signs over it.
     /// </summary>
     public const int StoredLeafMismatch = 7;
+
+    /// <summary>
+    /// Errata G88: <c>search-audit</c> found a post with no rows in the keyword channel's index, a row that is not the one the post's content makes, or a row for no post. The audit only reads. The same number
+    /// as the other audits: a finding in the database that a person reads before anything relies on it.
+    /// </summary>
+    public const int SearchIndexFindings = 7;
 }
 
 /// <summary>
@@ -185,6 +192,19 @@ public static class OperatorCommands
               finding, not this verb's to repair). Idempotent; safe beside a running Forum. Prints
               "filled <n>  already_held <m>". sign-head refuses, exit 7, a log in which a stored
               leaf is not the leaf of its row; lifecycle-audit reports it (and the rows with none).
+
+          curia-operator reindex-search
+
+              Writes the keyword channel's index (db/0008, errata G88) for every discussion post the log holds and the index does not, each from its own post by the rule of the current index version.
+              INSERT only, so run it with the Forum's own connection string in CURIA_EVENTS_POSTGRES: it needs no owner role, replaces no row (a row that exists is left as it is: a wrong one is
+              search-audit's finding, and the database's owner removes it), and is safe beside a running Forum, whose append writes its own. The Forum does this at every start; this verb is the same
+              work on demand, after a restore or with the Forum down. Prints "posts <n>  already_indexed <m>  inserted <k>  still_missing <j>"; exit 7 when still_missing is above 0.
+
+          curia-operator search-audit
+
+              Recomputes every discussion post's search-index rows from the LOG (never from the index) and compares them with the stored ones. Read-only. Prints "posts <n>  findings <m>", and with
+              m above 0 one line per finding, "missing|different|extra  seq=<n>", the first 100 and then "and <n> more", and exits 7. A missing row is a post search cannot find; a different or extra
+              row is one that makes a post match what it does not contain: the application role cannot remove it, the database's owner does. Run it after a restore and before relying on the index.
 
           curia-operator compromise --agent <agent-id> --kid <kid> --from-index <n>
                                     --reason owner-reported|operator-observed --operator <role>
@@ -421,6 +441,14 @@ public static class OperatorCommands
 
         if (args[0] == "backfill-leaves")
             return await BackfillLeavesAsync(args.Skip(1).ToArray(), connectionString, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "reindex-search")
+            return await ReindexSearchAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "search-audit")
+            return await SearchAuditAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "flags")
@@ -785,6 +813,52 @@ public static class OperatorCommands
             }
 
             return skipped.IsEmpty && leaves.Mismatched.Count == 0 ? ExitCode.Ok : ExitCode.LifecycleRowsSkipped;
+        }
+    }
+
+    /// <summary>Errata G88: <c>reindex-search</c>. The reconcile the Forum runs at start, on demand: insert-only, with the Forum's own role.</summary>
+    private static async Task<int> ReindexSearchAsync(
+        string[] argv, string connectionString, TimeProvider clock, ILifecycleAppendGate lifecycleGate, TextWriter stdout, TextWriter stderr, CancellationToken cancellationToken)
+    {
+        if (argv.Length != 0)
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[0]}'. reindex-search takes no argument.").ConfigureAwait(false);
+
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+        await using (adapters.ConfigureAwait(false))
+        {
+            var reconciled = await SearchIndexReconcile.RunAsync(adapters.EventStore, adapters.SearchIndex, Curia.Infrastructure.Search.ShippedSearchIndexRules.Shipped, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (!reconciled.TryGetValue(out var report, out var error))
+                return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+            await stdout.WriteLineAsync(
+                $"posts {report!.Posts.ToString(CultureInfo.InvariantCulture)}  already_indexed {report.AlreadyIndexed.ToString(CultureInfo.InvariantCulture)}  " +
+                $"inserted {report.Inserted.ToString(CultureInfo.InvariantCulture)}  still_missing {report.StillMissing.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            return report.StillMissing == 0 ? ExitCode.Ok : ExitCode.SearchIndexFindings;
+        }
+    }
+
+    /// <summary>Errata G88: <c>search-audit</c>. Reads the log and the index and says where they differ. Writes nothing.</summary>
+    private static async Task<int> SearchAuditAsync(
+        string[] argv, string connectionString, TimeProvider clock, ILifecycleAppendGate lifecycleGate, TextWriter stdout, TextWriter stderr, CancellationToken cancellationToken)
+    {
+        if (argv.Length != 0)
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[0]}'. search-audit takes no argument.").ConfigureAwait(false);
+
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+        await using (adapters.ConfigureAwait(false))
+        {
+            var audited = await SearchIndexAudit.RunAsync(adapters.EventStore, adapters.SearchIndex, Curia.Infrastructure.Search.ShippedSearchIndexRules.Shipped, cancellationToken).ConfigureAwait(false);
+            if (!audited.TryGetValue(out var report, out var error))
+                return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+            await stdout.WriteLineAsync(
+                $"posts {report!.Posts.ToString(CultureInfo.InvariantCulture)}  findings {report.FindingCount.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            foreach (var finding in report.Findings)
+                await stdout.WriteLineAsync($"{finding.Kind}  seq={finding.Seq.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            if (report.FindingCount > report.Findings.Length)
+                await stdout.WriteLineAsync($"and {(report.FindingCount - report.Findings.Length).ToString(CultureInfo.InvariantCulture)} more").ConfigureAwait(false);
+
+            return report.FindingCount == 0 ? ExitCode.Ok : ExitCode.SearchIndexFindings;
         }
     }
 

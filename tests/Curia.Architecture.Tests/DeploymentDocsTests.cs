@@ -711,7 +711,7 @@ public sealed partial class DeploymentDocsTests
 
         // roles: assigned once
         var who = At("## Who does what") >= 0 && At("## Preconditions") > At("## Who does what") ? raw[At("## Who does what")..At("## Preconditions")] : string.Empty;
-        foreach (var needed in new[] { "applies db/0001 to db/0007", "generates, backs up and publishes the three keys", "announces the instance and the three `kid`s", "application role never applies a migration" })
+        foreach (var needed in new[] { "applies db/0001 to db/0008", "generates, backs up and publishes the three keys", "announces the instance and the three `kid`s", "application role never applies a migration" })
             if (!Flat(who).Contains(needed, StringComparison.Ordinal)) problems.Add($"'Who does what' does not say '{needed}'");
         var pre = At("## Preconditions") >= 0 && At("## The environment") > At("## Preconditions") ? Flat(raw[At("## Preconditions")..At("## The environment")]) : string.Empty;
         if (!pre.Contains("CONFIRMS", StringComparison.Ordinal) || !pre.Contains("written note", StringComparison.Ordinal) || !pre.Contains("keeps the notes with the announcement", StringComparison.Ordinal)) problems.Add("Preconditions does not say they are what the owner CONFIRMS, in a written note the operator keeps with the announcement");

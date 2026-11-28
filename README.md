@@ -206,6 +206,20 @@ curia-operator lifecycle-audit     # silent about leaves when every row has its 
 A row with no leaf is served by recomputation (correct, slower). A stored leaf that is not its row's leaf is **never repaired by the Forum or by the backfill**: `curia-operator sign-head` refuses to sign over it (exit 7),
 `lifecycle-audit` names its log index (`mismatched  log_index=<i>`, exit 7), and every inclusion proof the Forum serves for another post fails a client's check until the owner puts the row right as the owner. `tools/deploy/readiness.py`'s R11 check reads the column and its grant.
 
+**Applying `db/0008` (errata G88, R11.114 to R11.116): the keyword channel's index is written.** `db/0008_create_search_index.sql` adds `search_docs`, `search_terms` and `search_index_versions`, with `SELECT` and
+`INSERT` for the application role and no `UPDATE`, `DELETE` or `TRUNCATE` (it revokes them in the same file), a GIN index on the folded tags, and `COLLATE "C"` on the key columns. **Merging it applies nothing, and a
+Forum built from this commit does not start on a database without it** (EventId 7018 at Error, naming `curia/search-index/not-applied`). It is the table's owner who applies it, never the application role, after `db/0007`:
+
+```bash
+sed 's/__CURIA_APP_ROLE__/curia_app/g' db/0008_create_search_index.sql | psql -v ON_ERROR_STOP=1 --single-transaction -f - "$OWNER_CONNECTION"
+```
+
+Nothing reads the index in this release: the keyword channel is unchanged. The append writes a post's rows in its own transaction (a post that cannot be indexed is not stored), and **at every start the Forum
+writes the rows of every discussion post that has none** (insert-only, logged as EventId 7019 as it goes, about the cost of the append's write per post), so a database that already holds posts is indexed by its first start
+or by `curia-operator reindex-search` (the Forum's own connection string is enough). `curia-operator search-audit` recomputes every post's rows from the log and exits 7 on a missing, a different or an extra row; the
+application role cannot remove such a row, the database's owner does. The Forum also refuses to start (EventId 7018) when the runtime's letter-and-case tables are not the ones this build was committed with
+(`conformance/retrieval/tokenizer-units.sha256`) or the digests recorded for the index version differ: a runtime upgrade is a deploy-time failure and not a silent change of what a word is.
+
 The issuer key is an EC P-256 private key in PEM:
 
 ```bash

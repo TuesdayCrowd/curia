@@ -56,6 +56,18 @@
   </ItemGroup>
   <ItemGroup>
     <!--
+      Errata G88 (R9.75, R11.116): the tag-fold table of index version 1 and the digest of the tokenizer's letter-and-case tables, the files conformance/retrieval holds and a test regenerates
+      from the runtime. Embedded so the build carries the files the Forum compares its own runtime with at start.
+    -->
+    <EmbeddedResource Include="../../conformance/retrieval/tagfold-v1.tsv">
+      <LogicalName>Curia.Infrastructure.Search.tagfold-v1.tsv</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../../conformance/retrieval/tokenizer-units.sha256">
+      <LogicalName>Curia.Infrastructure.Search.tokenizer-units.sha256</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <!--
       R4.38 (add.): the lifecycle approval record, embedded so the build carries it and a missing or
       unparsable record fails closed (spec section 4.13). Its manifest name is written once in source,
       as LifecycleApprovalRecord.ResourceName. Empty until the owner lifts the guard.

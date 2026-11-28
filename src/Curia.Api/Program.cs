@@ -209,6 +209,12 @@ public sealed class Program
             sp.GetRequiredService<TimeProvider>()));
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventsPositionGrant);
         builder.Services.AddHostedService<EventsSeqWritableCheck>();
+
+        // Errata G88, R11.114, R11.116: the keyword channel's index (db/0008) is written by the append and rebuilt by an insert-only reconcile; the Forum does not start without its tables, with the build's
+        // tokenizer or with a post missing from it. Nothing reads the index in this release.
+        builder.Services.AddSingleton(_ => Curia.Infrastructure.Search.ShippedSearchIndexRules.Shipped);
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().SearchIndex);
+        builder.Services.AddHostedService<SearchIndexStartService>();
         builder.Services.AddHostedService<EmbeddingReconcileService>();
         builder.Services.AddHostedService<EmbeddingCatchUpService>();
         builder.Services.AddHostedService<LifecycleEntryScan>();

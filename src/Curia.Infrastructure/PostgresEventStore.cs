@@ -1,11 +1,14 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Curia.Application.Ports;
+using Curia.Application.Retrieval;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
+using Curia.Domain.Search;
+using Curia.Infrastructure.Search;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -46,6 +49,7 @@ public sealed class PostgresEventStore : IEventStore
     private readonly ILifecycleAppendGate _gate;
     private readonly string _schema;
     private readonly string _qualifiedTable;
+    private readonly SearchIndexRules _searchRules;
 
     /// <summary>
     /// <paramref name="schema"/> defaults to Postgres's own default, "public" -- where
@@ -74,7 +78,11 @@ public sealed class PostgresEventStore : IEventStore
     /// composition builds a store that forgot it. Every append is classified against it before anything
     /// is written (spec section 4.13).
     /// </summary>
-    public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock, ILifecycleAppendGate gate, string schema = "public")
+    /// <param name="searchRules">
+    /// Errata G88: the rules the keyword channel's index rows are written under, which the append writes in its own transaction (R9.75, R11.115). <see cref="ShippedSearchIndexRules.Shipped"/> where omitted;
+    /// a test passes its own to see the append write what the rules say.
+    /// </param>
+    public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock, ILifecycleAppendGate gate, string schema = "public", SearchIndexRules? searchRules = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(clock);
@@ -85,6 +93,7 @@ public sealed class PostgresEventStore : IEventStore
         _gate = gate;
         _schema = schema;
         _qualifiedTable = SqlIdentifier.Quote(schema) + ".events";
+        _searchRules = searchRules ?? ShippedSearchIndexRules.Shipped;
     }
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
@@ -290,6 +299,14 @@ public sealed class PostgresEventStore : IEventStore
             var expected = LogLeaf.Hash(row).Match(h => LogEntries.Prefixed(h), e => throw new InvalidOperationException($"The appended row has no leaf: {e.Type}"));
             if (!string.Equals(row.StoredLeafHash, expected, StringComparison.Ordinal))
                 throw new InvalidOperationException("The leaf this append computed is not the leaf of the row it wrote; nothing was committed (R6.69).");
+        }
+
+        // Errata G88, R9.75, R11.115: the keyword channel's rows of each discussion post, written on this connection and in this transaction, so a post is searchable at the instant it is served and a post that
+        // cannot be indexed is not stored. No try: a fault here is the append's, the transaction is disposed and rolled back, and the caller sees what it sees for any other store fault.
+        foreach (var row in appended)
+        {
+            if (_searchRules.Index(row) is { } indexed)
+                await SearchIndexWriter.WriteAsync(connection, transaction, SqlIdentifier.Quote(_schema), _searchRules.Version, indexed, skipExisting: false, cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
