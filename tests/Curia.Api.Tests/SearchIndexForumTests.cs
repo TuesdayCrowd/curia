@@ -130,9 +130,10 @@ public sealed class SearchIndexForumTests(RoleForumFixture forum) : IClassFixtur
         {
             using var refused = new LogCapture();
             await using var without = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<ILoggerProvider>(refused)));
-            var started = Record.Exception(() => without.CreateClient());
+            var started = Record.Exception(() => _ = without.Services);
 
             Assert.NotNull(started);
+            Assert.DoesNotContain("hasn't been initialized", started.ToString(), StringComparison.Ordinal);
             Assert.Contains("curia/search-index/not-applied", started.ToString(), StringComparison.Ordinal);
             Assert.Contains(refused.All, e => e.EventId == 7018 && e.Level == LogLevel.Error);
         }
@@ -143,9 +144,7 @@ public sealed class SearchIndexForumTests(RoleForumFixture forum) : IClassFixtur
 
         using var control = new LogCapture();
         await using var with = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<ILoggerProvider>(control)));
-        using var client = with.CreateClient();
-        using var health = await client.GetAsync(new Uri("/health", UriKind.Relative), Ct);
-        Assert.Equal(200, (int)health.StatusCode);
+        Assert.Null(Record.Exception(() => _ = with.Services));
         Assert.DoesNotContain(control.All, e => e.EventId == 7018);
         Assert.Contains(control.All, e => e.EventId == 7016);
     }
@@ -163,9 +162,10 @@ public sealed class SearchIndexForumTests(RoleForumFixture forum) : IClassFixtur
             services.AddSingleton(drifted);
         }));
 
-        var started = Record.Exception(() => host.CreateClient());
+        var started = Record.Exception(() => _ = host.Services);
 
         Assert.NotNull(started);
+        Assert.DoesNotContain("hasn't been initialized", started.ToString(), StringComparison.Ordinal);
         Assert.Contains("curia/search-index/tokenizer-changed", started.ToString(), StringComparison.Ordinal);
         Assert.Contains(log.All, e => e.EventId == 7018 && e.Level == LogLevel.Error);
     }

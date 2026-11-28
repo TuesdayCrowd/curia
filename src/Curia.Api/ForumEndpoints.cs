@@ -1191,6 +1191,11 @@ public static class ForumEndpoints
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var verifiedLog = VerifierOf(http).OfLog(log);
 
+        // R8.78, R8.86: the guard of PERSIST judges what was appended after the position of THIS read, so the digest is checked on this read too. The check above ran on the author's own rows, read earlier; a
+        // twin that committed between the two reads is in this read, before this read's position, and neither the early check nor the guard's delta would see it (RVO45: two events of one digest).
+        if (AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } recordedAfter)
+            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(recordedAfter));
+
         // R8.77 (errata G45): a revision is entered under a gate on its prev. After AUTHORIZE (a stranger is told 403 and never holds the gate or
         // learns a successor) and before the parent checks, the near-duplicate check, SCREEN and PERSIST. The log AUTHORIZE read is older than any
         // hold, so the checks are made again on a log read under the hold, and the hold is released when the attempt ends on any path (the
@@ -2676,6 +2681,9 @@ public static class ForumEndpoints
     }
 
     /// <summary>R8.78: the id of the first stored post (served or not) whose digest is <paramref name="digest"/>, in log order; <see langword="null"/> when none.</summary>
+    private static string? AlreadyRecordedPost(IReadOnlyList<AppendedEvent> log, string digest) =>
+        SubmissionChecks.AlreadyRecorded(log, digest);
+
     private static string? AlreadyRecordedPost(AgentRead read, string digest) =>
         read.Posts.FirstOrDefault(p => string.Equals(p.Digest, digest, StringComparison.Ordinal))?.PostId;
 

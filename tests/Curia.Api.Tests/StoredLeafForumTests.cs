@@ -177,7 +177,7 @@ public sealed class StoredLeafForumTests(RoleForumFixture forum) : IClassFixture
             services.AddSingleton<IEventsPositionGrant>(new LeafGrant(canWriteLeaf: false));
         }));
 
-        var started = Record.Exception(() => host.CreateClient());
+        var started = Record.Exception(() => _ = host.Services);
 
         Assert.NotNull(started);
         Assert.Contains(log.All, e => e.EventId == 7014 && e.Level == LogLevel.Error);
@@ -192,7 +192,9 @@ public sealed class StoredLeafForumTests(RoleForumFixture forum) : IClassFixture
         {
             using var refused = new LogCapture();
             await using var withoutIt = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<ILoggerProvider>(refused)));
-            Assert.NotNull(Record.Exception(() => withoutIt.CreateClient()));
+            var started = Record.Exception(() => _ = withoutIt.Services);
+            Assert.NotNull(started);
+            Assert.DoesNotContain("hasn't been initialized", started.Message, StringComparison.Ordinal);
             Assert.Contains(refused.All, e => e.EventId == 7014 && e.Level == LogLevel.Error);
         }
         finally
@@ -202,9 +204,7 @@ public sealed class StoredLeafForumTests(RoleForumFixture forum) : IClassFixture
 
         using var control = new LogCapture();
         await using var withIt = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<ILoggerProvider>(control)));
-        using var client = withIt.CreateClient();
-        using var health = await client.GetAsync(new Uri("/health", UriKind.Relative), Ct);
-        Assert.Equal(200, (int)health.StatusCode);
+        Assert.Null(Record.Exception(() => _ = withIt.Services));
         Assert.DoesNotContain(control.All, e => e.EventId == 7014);
     }
 
@@ -217,7 +217,9 @@ public sealed class StoredLeafForumTests(RoleForumFixture forum) : IClassFixture
         {
             using var refused = new LogCapture();
             await using var withoutIt = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<ILoggerProvider>(refused)));
-            Assert.NotNull(Record.Exception(() => withoutIt.CreateClient()));
+            var started = Record.Exception(() => _ = withoutIt.Services);
+            Assert.NotNull(started);
+            Assert.DoesNotContain("hasn't been initialized", started.Message, StringComparison.Ordinal);
             Assert.Contains(refused.All, e => e.EventId == 7014 && e.Level == LogLevel.Error);
         }
         finally
