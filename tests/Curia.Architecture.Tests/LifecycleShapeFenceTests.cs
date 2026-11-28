@@ -103,6 +103,15 @@ public sealed class LifecycleShapeFenceTests
     ];
 
     /// <summary>
+    /// Errata G87 (R11.113): the decisions a request makes (a key's binding, an enrolment, a key act) read one plan of their caller's own rows through <c>AgentRead.ReadAsync</c>, in one snapshot with each row's index, and
+    /// not the whole log; the operator's two (<c>AttestOwner</c>, <c>ApplyModeration</c>) read it whole, by design, because they decide an act against every key the log publishes and sign it.
+    /// </summary>
+    private static readonly string[] PlanDecisions =
+    [
+        "Curia.Application.Credentials.LogBoundKeys", "Curia.Application.Credentials.KeyActs", "Curia.Application.Credentials.EnrollIdentity", "Curia.Application.Credentials.EnrollAgent",
+    ];
+
+    /// <summary>
     /// Ruling 36, as Amendment 7's ruling 88 states it: the set of types that call <c>ReadByAggregateAsync</c> over all twelve shipped assemblies is the pinned list, so no lifecycle decision reads an aggregate by
     /// itself and a new caller is a decision read in review; and each of <c>LogBoundKeys</c>, <c>KeyActs</c>, <c>EnrollIdentity</c>, <c>EnrollAgent</c> and (errata G70, R6.67: an operator act is decided over the whole log, because a log index is a position in it) <c>AttestOwner</c> and <c>ApplyModeration</c> is found and reads the whole log (<c>ReadAllAsync</c>).
     /// </summary>
@@ -124,7 +133,21 @@ public sealed class LifecycleShapeFenceTests
         {
             var calls = sites.Where(c => OwningType(c.CallerType) == decision).ToArray();
             Assert.True(calls.Length > 0, $"{decision} is not found in the scanned IL, so this fence would go quiet");
-            Assert.True(calls.Any(c => c.CalleeMember == "ReadAllAsync"), $"{decision} does not read the whole log (ReadAllAsync)");
+            if (PlanDecisions.Contains(decision))
+            {
+                Assert.True(
+                    calls.Any(c => c.CalleeType.EndsWith("AgentRead", StringComparison.Ordinal) && c.CalleeMember == "ReadAsync"),
+                    $"{decision} does not read a plan of its caller's own rows (AgentRead.ReadAsync)");
+
+                // KeyActs keeps the operator's whole read (ReadWholeLifecycleAsync, called by no route); the others read nothing whole.
+                if (decision != "Curia.Application.Credentials.KeyActs")
+                    Assert.DoesNotContain(calls, c => c.CalleeMember == "ReadAllAsync");
+            }
+            else
+            {
+                Assert.True(calls.Any(c => c.CalleeMember == "ReadAllAsync"), $"{decision} does not read the whole log (ReadAllAsync)");
+            }
+
             Assert.DoesNotContain(decision, byAggregate);
         }
     }

@@ -95,7 +95,7 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
 
     /// <summary>
     /// NMN17. A question write reads the log four times (R9.65, errata G71), the same on a new board and on a known one, and the same question text sent twice reads the same number: R8.88's
-    /// <c>board_new</c> adds no read of its own (it is folded from the read the near-duplicate check already makes). The four, from the stacks of the reads of one write: the access token's key
+    /// <c>board_new</c> adds no read of its own (it is folded from the read the near-duplicate check already makes). Four before errata G87 (two whole reads and two plan reads since), from the stacks of the reads of one write: the access token's key
     /// status (<c>LogBoundKeys.StatusAsync</c>), the author key's resolution at VERIFY (<c>LogBoundKeys.ResolveLiveAsync</c>), AUTHORIZE's read (<c>SubmitAttemptAsync</c>), and the read after the
     /// embedding wait that the corpus, <c>board_new</c> and a refusal's thread come from (<c>PersistSubmissionAsync</c>). The first three are the reads the write made before G71; the fourth is
     /// the rule's, and is one read for a question and for every discussion kind. The figure is <c>SeamReads</c>. It holds FNMN19 and FNMN21.
@@ -109,12 +109,13 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
         var asker = await AcceptedAnswerScene.EnrolAsync(forum, "nmn17", Ct);
         var token = await asker.Dpop.GetTokenAsync(host.Client, RevisionProbe.TokenEndpoint, forum.Now, Ct);
 
-        async Task<int> ReadsOfAsync(byte[] wire)
+        async Task<(int Whole, int Plans)> ReadsOfAsync(byte[] wire)
         {
             counter.Count = 0;
+            counter.Plans = 0;
             var sent = await RevisionProbe.SendViaAsync(forum, host.Client, asker, wire, token, Ct);
             Assert.True(sent.Status == 201, sent.Says);
-            return counter.Count;
+            return (counter.Count - counter.Plans, counter.Plans);
         }
 
         var first = await ReadsOfAsync(Question(asker, Board(), forum.Now));
@@ -122,11 +123,20 @@ public sealed class BoardNewReceiptTests(ConfirmFixture forum) : IClassFixture<C
         await ReadsOfAsync(Question(asker, onKnownBoard, forum.Now));
         var second = await ReadsOfAsync(Question(asker, onKnownBoard, forum.Now));
 
-        Said($"{SeamReads} reads for a question on a new board and {SeamReads} on a known one", $"{first} reads for a question on a new board and {second} on a known one");
+        Said(
+            $"{SeamReads} whole reads and {SeamPlans} plan reads for a question on a new board and {SeamReads} and {SeamPlans} on a known one",
+            $"{first.Whole} whole reads and {first.Plans} plan reads for a question on a new board and {second.Whole} and {second.Plans} on a known one");
     }
 
     /// <summary>The log reads a question write makes: the three it made before errata G71 and the one after the embedding wait (R9.65), named in <see cref="R8_88_NMN17_ADiscussionWriteReadsTheLogFourTimesTheThreeItMadeBeforeAndOneAfterTheWait"/>.</summary>
-    private const int SeamReads = 4;
+    private const int SeamReads = 2;
+
+    /// <summary>
+    /// The reads of a write that are read plans (errata G87, R5.28): the access token's key status, the author key's resolution at VERIFY, AUTHORIZE's read (the author's own rows, taken before the wait and
+    /// refusing early) and the decision that admits (the author's own rows again, taken after the wait, R7.35). The two whole reads are the corpus's: before the wait, and after it (R9.65); they leave with
+    /// the serving routes (class B and C of errata G87).
+    /// </summary>
+    private const int SeamPlans = 4;
 
     /// <summary>
     /// NMN18. The confirm path's <c>201</c> carries the member (errata G55: a question whose append commits and then throws is answered <c>201</c> composed from the log), and a

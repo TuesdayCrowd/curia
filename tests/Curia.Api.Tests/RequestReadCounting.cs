@@ -9,7 +9,11 @@ namespace Curia.Api.Tests;
 /// <summary>The log reads a request made, counted by the tests that hold a route to a number of reads.</summary>
 internal sealed class Counter
 {
+    /// <summary>Every read a request made, a plan or a whole-log page.</summary>
     internal int Count { get; set; }
+
+    /// <summary>Of <see cref="Count"/>, the reads that were read plans (errata G87): the bounded reads a request decides from.</summary>
+    internal int Plans { get; set; }
 }
 
 /// <summary>
@@ -28,6 +32,14 @@ internal sealed class CountingReader(IEventReader inner, Counter counter, IHttpC
     {
         Count();
         return inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+    }
+
+    public Task<Curia.Application.Reads.LogSlice> ReadAsync(Curia.Application.Reads.ReadPlan plan, CancellationToken cancellationToken = default)
+    {
+        Count();
+        if (requests.HttpContext is not null)
+            counter.Plans++;
+        return inner.ReadAsync(plan, cancellationToken);
     }
 
     private void Count()

@@ -1,4 +1,5 @@
 using Curia.Application.Ports;
+using Curia.Application.Reads;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Primitives;
@@ -33,9 +34,14 @@ public sealed record LiveKey(PublicKeyMaterial Key, AggregateVersion AuthorStrea
 /// <summary>
 /// One identity's keys as the Forum publishes them (R4.35): the keys the store holds that the log
 /// binds, and how many the store holds at all, so a caller can still tell an identity the store has
-/// never heard of from one whose every row the log refuses.
+/// never heard of from one whose every row the log refuses. <paramref name="Verified"/> and <paramref name="IndexOf"/> are what the same read says of the identity's lifecycle and of the log
+/// index (R6.47) of any row it holds (errata G87): the key set is published from one read, never from a second.
 /// </summary>
-public sealed record AgentKeySet(int Stored, IReadOnlyList<BoundKey> Bound);
+public sealed record AgentKeySet(
+    int Stored,
+    IReadOnlyList<BoundKey> Bound,
+    VerifiedLifecycle? Verified = null,
+    Func<string, long?>? IndexOf = null);
 
 /// <summary>
 /// R4.35 (errata G16): the Forum honours a key the Registrar's store holds only when the event log
@@ -71,10 +77,10 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
 
     private readonly IAuthorKeyResolver _store;
     private readonly IAuthorKeyRegistry _registry;
-    private readonly IEventReader _events;
+    private readonly IPositionedEventReader _events;
     private readonly LifecycleVerifier _verifier;
 
-    public LogBoundKeys(IAuthorKeyResolver store, IAuthorKeyRegistry registry, IEventReader events, LifecycleVerifier verifier)
+    public LogBoundKeys(IAuthorKeyResolver store, IAuthorKeyRegistry registry, IPositionedEventReader events, LifecycleVerifier verifier)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(registry);
@@ -138,12 +144,36 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (!read.TryGetValue(out var stream, out var readError))
             return Result<LiveKey>.Fail(readError!);
 
-        if (stream!.Verified.Binding?.For(kid) is not { } bound || !bound.Holds(key))
+        return Decide(stream!.Verified, stream.Version, agentId, kid, key);
+    }
+
+    /// <summary>
+    /// <see cref="RequireBoundAsync"/> decided on a read the caller already holds (errata G87, R5.28): the token endpoint makes one read set for a request whose assertion verified, and the key's
+    /// binding, the credential's status and the agent's standing are all decided from it. It reads nothing.
+    /// </summary>
+    public static Result<LiveKey> RequireBound(AgentRead read, Kid kid, PublicKeyMaterial key)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(kid);
+        ArgumentNullException.ThrowIfNull(key);
+
+        if (!AggregateId.Create(read.Agent.Value).TryGetValue(out _, out _))
+            return Decide(read.Lifecycle, AggregateVersion.New, read.Agent, kid, key);
+
+        if (!read.StreamVersion.TryGetValue(out var version, out var versionError))
+            return Result<LiveKey>.Fail(LogUnreadable(versionError!));
+
+        return Decide(read.Lifecycle, version, read.Agent, kid, key);
+    }
+
+    private static Result<LiveKey> Decide(VerifiedLifecycle verified, AggregateVersion version, AgentId agentId, Kid kid, PublicKeyMaterial key)
+    {
+        if (verified.Binding?.For(kid) is not { } bound || !bound.Holds(key))
             return Result<LiveKey>.Fail(AuthorKeyErrors.NotBoundByTheLog(agentId.Value, kid.Value));
 
-        return stream.Verified.Honoured.StatusNow(kid.Value) switch
+        return verified.Honoured.StatusNow(kid.Value) switch
         {
-            KeyStatus.Active => Result<LiveKey>.Ok(new LiveKey(key, stream.Version)),
+            KeyStatus.Active => Result<LiveKey>.Ok(new LiveKey(key, version)),
             KeyStatus.Compromised => Result<LiveKey>.Fail(AuthorKeyErrors.Compromised(agentId.Value, kid.Value)),
             KeyStatus.Retired or KeyStatus.Unbound => Result<LiveKey>.Fail(AuthorKeyErrors.Retired(agentId.Value, kid.Value)),
             _ => throw new InvalidOperationException("Not a key status"),
@@ -198,7 +228,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
             }
         }
 
-        return Result<AgentKeySet>.Ok(new AgentKeySet(held.Count, bound));
+        return Result<AgentKeySet>.Ok(new AgentKeySet(held.Count, bound, stream.Verified, stream.IndexOf));
     }
 
     /// <summary>
@@ -213,25 +243,32 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
     }
 
     /// <summary>One read of an identity's stream: what it holds, what it binds, and the version a decision on it was made at.</summary>
-    private sealed record StreamRead(VerifiedLifecycle Verified, AggregateVersion Version);
+    private sealed record StreamRead(VerifiedLifecycle Verified, AggregateVersion Version, Func<string, long?> IndexOf);
 
     /// <summary>
-    /// The identity's stream, read once, with what the log binds to <paramref name="agentId"/> (null when
-    /// it records no enrollment of it); <see cref="LogUnreadable"/> when the log cannot be read.
+    /// The identity's stream and the published keys, read once in one snapshot (errata G87, R5.28, R11.113), with what the log binds to <paramref name="agentId"/> (null when
+    /// it records no enrollment of it); <see cref="LogUnreadable"/> when the log cannot be read. A statement's <c>prev</c> and a declaration's <c>from_index</c> are indices in the log (R6.47, R6.64),
+    /// which every row of the read carries; the stream's version is its own events' count.
     /// </summary>
     private async Task<Result<StreamRead>> ReadAsync(AgentId agentId, CancellationToken cancellationToken)
     {
-        if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out _))
-            return Result<StreamRead>.Ok(new StreamRead(_verifier.OfLog([]).For(agentId), AggregateVersion.New));
+        AgentRead read;
+        try
+        {
+            read = await AgentRead.ReadAsync(_events, _verifier, agentId, AgentReadOptions.Stream, cancellationToken).ConfigureAwait(false);
+        }
+        catch (LogUnreadableException e) when (e.Refusal is { } refused)
+        {
+            // A reader that answered with a refusal (not a fault of a store, which propagates to the host's middleware and is logged there): the log could not be read, and that is said.
+            return Result<StreamRead>.Fail(LogUnreadable(refused));
+        }
 
-        // The verifier is given the whole log, because a statement's prev and a declaration's from_index are positions in it (R6.47, R6.64); the stream's version is its own events' count.
-        var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-        if (!read.TryGetValue(out var log, out var readError))
-            return Result<StreamRead>.Fail(LogUnreadable(readError!));
+        if (!AggregateId.Create(agentId.Value).TryGetValue(out _, out _))
+            return Result<StreamRead>.Ok(new StreamRead(read.Lifecycle, AggregateVersion.New, read.Verified.PositionOf));
 
-        if (!AggregateVersion.From(log!.Count(e => e.AggregateId.Value == aggregate.Value)).TryGetValue(out var version, out var versionError))
+        if (!read.StreamVersion.TryGetValue(out var version, out var versionError))
             return Result<StreamRead>.Fail(LogUnreadable(versionError!));
 
-        return Result<StreamRead>.Ok(new StreamRead(_verifier.OfLog(log!).For(agentId), version!));
+        return Result<StreamRead>.Ok(new StreamRead(read.Lifecycle, version, read.Verified.PositionOf));
     }
 }

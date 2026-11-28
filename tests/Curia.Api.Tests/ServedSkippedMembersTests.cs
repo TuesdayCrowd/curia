@@ -125,9 +125,13 @@ public sealed class ServedSkippedMembersTests(ForumFixture forum) : IClassFixtur
         WholeText.Same("curia_skipped_total 23; listed 20; [log_index,type,predicate]", Words(keySet));
     }
 
-    /// <summary>A stream the Forum could not decide has neither member (a malformed <c>log.head</c> row stops the Acta's fold, so the key set is served without positions): a control on the seam.</summary>
+    /// <summary>
+    /// Errata G87 (R11.113, non-property (h)): the key set is published from the identity's own read, whose rows carry their log indices, and not from a fold of the whole log into a tree. A malformed <c>log.head</c> row
+    /// stops the Acta's fold (the Acta's routes report it), and used to leave this key set without positions and without its lifecycle members; it now stops nothing here, and the identity's lifecycle and skipped
+    /// rows are served as for any other. A control on the seam: the members are present, and the answer is <c>200</c>.
+    /// </summary>
     [Fact]
-    public async Task LRV25_AStreamTheForumCouldNotDecideHasNeitherMember_Control()
+    public async Task LRV25_AMalformedLogHeadRowNoLongerStopsTheKeySetBeingServedWithItsLifecycle_Control()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var own = await VerifiedStopSupport.NewAsync();
@@ -138,7 +142,7 @@ public sealed class ServedSkippedMembersTests(ForumFixture forum) : IClassFixtur
         var keySet = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement;
 
         WholeText.Same(
-            "200; curia_lifecycle absent; curia_skipped absent; curia_skipped_total absent",
+            "200; curia_lifecycle present; curia_skipped present; curia_skipped_total present",
             $"{(int)response.StatusCode}; curia_lifecycle {(keySet.TryGetProperty("curia_lifecycle", out _) ? "present" : "absent")}; curia_skipped {(keySet.TryGetProperty("curia_skipped", out _) ? "present" : "absent")}; "
             + $"curia_skipped_total {(keySet.TryGetProperty("curia_skipped_total", out _) ? "present" : "absent")}");
     }

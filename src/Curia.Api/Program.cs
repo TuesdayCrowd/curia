@@ -161,6 +161,9 @@ public sealed class Program
         // review convention. Registering it is what lets them ask for the narrower type.
         builder.Services.AddSingleton<IEventReader>(sp => sp.GetRequiredService<IEventStore>());
 
+        // Errata G87, R11.113: the read a request decides from, the same reader seen through its bounded read (a test that replaces the reader replaces this). A route is handed this, and not a whole-log read.
+        builder.Services.AddSingleton<IPositionedEventReader>(sp => sp.GetRequiredService<IEventReader>());
+
         // R11.71 (errata G52): the one predicate for a fault of a store the Forum owns, behind its port, so the outermost middleware names no driver type.
         builder.Services.AddSingleton<IStoreFaultClassifier, PostgresStoreFaults>();
 

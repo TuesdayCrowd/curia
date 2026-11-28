@@ -25,6 +25,7 @@ public sealed partial class ParentReadFenceTests
     [
         ("src/Curia.Application/Ingest/IngestPipeline.cs", 3, "ADMIT parses the submitted parent as a reference (two reads on one line), and PERSIST copies it into the event payload; neither decides a thread"),
         ("src/Curia.Application/Projections/PostProjection.cs", 1, "placement of a post of any kind but a revision (R9.48): the one place a parent places a post"),
+        ("src/Curia.Application/Reads/AgentRead.cs", 2, "the read plan names the stream of the thread an answer belongs to (its parent) to read that thread's acceptances (R8.68, errata G87); the author's word is a key of a stream there and places nothing"),
         ("src/Curia.Application/Projections/AcceptedAnswerIndex.cs", 2, "ThreadOf: the question an answer is attached to, read from the chain root's parent, never from a revision's; and QuestionIdOfAnswer: an answer's own attachment, the one read the served-answer count and question_revised both make (answers only, G76, R9.69 and R9.71)"),
         ("src/Curia.Application/Projections/InboxSelection.cs", 1, "the inbox counts the answers whose parent is a question; answers only"),
         ("src/Curia.Api/ForumEndpoints.cs", 3, "PersistSubmissionAsync: the existence check of a submitted answer or comment (G38); AcceptAnswerAsync: the chain root's parent, read for the accept route; ToResponse: the wire copy of the author's parent. The duplicate refusal's filter on answers is gone: it lists them from AcceptedAnswerIndex.ServedAnswersOf (G76)"),

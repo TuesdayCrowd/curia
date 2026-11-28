@@ -1,4 +1,5 @@
 using Curia.Application.Ports;
+using Curia.Application.Reads;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Primitives;
@@ -46,13 +47,13 @@ namespace Curia.Application.Credentials;
 /// </summary>
 public sealed class EnrollIdentity
 {
-    private readonly IEventReader _events;
+    private readonly IPositionedEventReader _events;
     private readonly IAuthorKeyRegistry _keys;
     private readonly EnrollAgent _log;
     private readonly TimeProvider _clock;
     private readonly LifecycleVerifier _verifier;
 
-    public EnrollIdentity(IEventReader events, IAuthorKeyRegistry keys, EnrollAgent log, LifecycleVerifier verifier, TimeProvider clock)
+    public EnrollIdentity(IPositionedEventReader events, IAuthorKeyRegistry keys, EnrollAgent log, LifecycleVerifier verifier, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(verifier);
         _verifier = verifier;
@@ -81,13 +82,19 @@ public sealed class EnrollIdentity
         if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<AgentEnrollment>.Fail(aggregateError!);
 
-        // The whole log, because the verifier decides a row by positions in it (R6.47, R6.64).
-        var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-        if (!read.TryGetValue(out var log, out var readError))
-            return Result<AgentEnrollment>.Fail(readError!);
+        // The identity's stream and the published keys, in one snapshot (errata G87, R11.113): the verifier decides a row by the indices the rows carry (R6.47, R6.64).
+        AgentRead read;
+        try
+        {
+            read = await AgentRead.ReadAsync(_events, _verifier, agentId, AgentReadOptions.Stream, cancellationToken).ConfigureAwait(false);
+        }
+        catch (LogUnreadableException e) when (e.Refusal is { } refused)
+        {
+            return Result<AgentEnrollment>.Fail(refused);
+        }
 
-        var history = log!.Where(e => e.AggregateId.Value == aggregate.Value).ToList();
-        var binding = _verifier.OfLog(log!).For(agentId).Binding;
+        var history = read.Slice.Rows.Where(r => r.Event.AggregateId.Value == aggregate.Value).ToList();
+        var binding = read.Lifecycle.Binding;
 
         // R4.33's second clause: the aggregate holds events and none is this identifier's enrollment,
         // so the log keeps it for something else and could never append the record. Refused here,

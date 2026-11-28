@@ -261,7 +261,8 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
                     .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
                 answer = $"{(int)status} {body}";
                 Assert.Equal(expected, answer);
-                Assert.Equal("curia/log/unreadable", logged.SingleType(mark, 5000));
+                // Errata G87: the one read set is refused by the reader, and the endpoint logs the reader's own refusal (as it logs a failed standings read).
+                Assert.Equal("test/log-unreadable", logged.SingleType(mark, 5000));
                 break;
             }
 

@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using Curia.Application.Ports;
+using Curia.Application.Reads;
 using Curia.Application.Projections;
 using Curia.Canon.Json;
 using Curia.Domain;
@@ -154,16 +155,13 @@ public sealed class RaiseFlag
         DomainEvent? flagEvent = null;
         for (var pass = 1; pass <= Passes; pass++)
         {
-            // After the cheap refusals, because it reads the whole log and the private store.
-            var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-            if (!read.TryGetValue(out var log, out var logError))
-                return Result<FlagRaised>.Fail(logError!);
-
-            var rows = await _details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-            if (!rows.TryGetValue(out var details, out var detailError))
+            // After the cheap refusals, because it reads the private store and the entries its rows open (errata G87: the flags this raiser raised against this post, and none of the log besides).
+            var flags = await FlagReads.ReadAsync(_events, _details, d =>
+                string.Equals(d.PostId, target.Value, StringComparison.Ordinal) && string.Equals(d.RaisedBy, raisedBy.Value, StringComparison.Ordinal), cancellationToken).ConfigureAwait(false);
+            if (!flags.TryGetValue(out var read, out var detailError))
                 return Result<FlagRaised>.Fail(detailError!);
 
-            var earlier = FlagDirectory.Join(log!, details!).Flags.FirstOrDefault(f =>
+            var earlier = read!.Flags.FirstOrDefault(f =>
                 string.Equals(f.PostId, target.Value, StringComparison.Ordinal)
                 && string.Equals(f.RaisedBy, raisedBy.Value, StringComparison.Ordinal)
                 && f.Kind == kind);
@@ -206,7 +204,7 @@ public sealed class RaiseFlag
             }
 
             var appended = await _events
-                .AppendAsync(aggregate!.Value, AggregateVersion.New, [flagEvent], null, FlagGuard.For(log!, FlagKinds.Wire(kind)), cancellationToken)
+                .AppendAsync(aggregate!.Value, AggregateVersion.New, [flagEvent], null, FlagGuard.After(read.After, FlagKinds.Wire(kind)), cancellationToken)
                 .ConfigureAwait(false);
 
             if (appended.TryGetValue(out var recorded, out var appendError))

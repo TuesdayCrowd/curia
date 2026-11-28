@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Curia.Application.Projections;
+using Curia.Application.Reads;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
@@ -108,6 +109,18 @@ public sealed class PublishedKeys
     {
         ArgumentNullException.ThrowIfNull(log);
 
+        return Decide(new PositionedLog(log));
+    }
+
+    /// <summary>
+    /// <see cref="Decide(IReadOnlyList{AppendedEvent})"/> over rows that carry their own log index (errata G87, R11.113): the entries of the three key types, each at the index it was read with, in
+    /// log order. The decision reads the rows of its own class's earlier entries and the other classes' earlier entries, so it is the same function over the three types whole (a read set's
+    /// <c>Keys</c> clause) as over the whole log, and each row's <see cref="Decided.Index"/> is its position in the log, not in the list it was given.
+    /// </summary>
+    internal static ImmutableArray<Decided> Decide(IReadOnlyList<PositionedEvent> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+
         var decided = ImmutableArray.CreateBuilder<Decided>();
         var seen = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         {
@@ -118,10 +131,10 @@ public sealed class PublishedKeys
         var heldLogOrDeclaration = new List<(string Kid, ClosedJwk Key)>();
         var heldOperator = new List<(string Kid, ClosedJwk Key)>();
 
-        for (var i = 0; i < log.Count; i++)
+        for (var i = 0; i < rows.Count; i++)
         {
-            var type = log[i].Event.Type.Value;
-            if (!seen.TryGetValue(type, out var kids) || ReadEntry(log[i].Event.Payload) is not { } entry)
+            var type = rows[i].Event.Event.Type.Value;
+            if (!seen.TryGetValue(type, out var kids) || ReadEntry(rows[i].Event.Event.Payload) is not { } entry)
                 continue;
 
             var key = ClosedJwk.Read(entry.Jwk, entry.Kid)!;
@@ -134,7 +147,7 @@ public sealed class PublishedKeys
             if (standing == Standing.Holds)
                 (type == LogEntries.OperatorKeyType ? heldOperator : heldLogOrDeclaration).Add((entry.Kid, key));
 
-            decided.Add(new Decided(i, type, entry.Kid, entry.Jwk, entry.ValidFrom, standing));
+            decided.Add(new Decided(rows[i].LogIndex, type, entry.Kid, entry.Jwk, entry.ValidFrom, standing));
         }
 
         return decided.ToImmutable();

@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Curia.Application.Ports;
+using Curia.Application.Reads;
 using Curia.Application.Retrieval;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
@@ -366,6 +367,13 @@ public sealed class PostgresEventStore : IEventStore
             refuse: error => error,
             redecide: DomainErrors.AppendRedecide);
     }
+
+    /// <summary>
+    /// Errata G87, R11.113: a <see cref="ReadPlan"/> answered in one <c>REPEATABLE READ, READ ONLY</c> snapshot, each clause by the index it names, each row with its R6.47 index. The default
+    /// of <see cref="IPositionedEventReader"/> reads the whole log; this does not.
+    /// </summary>
+    public Task<LogSlice> ReadAsync(ReadPlan plan, CancellationToken cancellationToken = default) =>
+        PostgresPlanReader.ReadAsync(_dataSource, _qualifiedTable, plan, cancellationToken);
 
     [SuppressMessage(
         "Reliability",
