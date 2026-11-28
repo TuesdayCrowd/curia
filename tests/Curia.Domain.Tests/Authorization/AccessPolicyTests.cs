@@ -243,12 +243,10 @@ public sealed class AccessPolicyTests
     }
 
     /// <summary>
-    /// A read decision never consults the posting count. Table 11's budget bounds writes, and R7.4
-    /// caches reads only -- so <c>CachingPolicyDecisionPoint</c>'s key omits <c>PostsToday</c>,
-    /// and this is the fact that omission rests on. Checked over every modelled read, every tier
+    /// A read decision never consults the posting count. Table 11's budget bounds writes. Checked over every modelled read, every tier
     /// and every credential state, at both ends of the count, because the claim is about the whole
     /// table and not the rows someone thought to list. <see cref="Reads_do_not_spend_the_posting_budget"/>
-    /// states Table 11's own argument for three rows; this is the exhaustive form the key depends on.
+    /// states Table 11's own argument for three rows; this is the exhaustive form.
     /// </summary>
     [Fact]
     public void Read_decisions_do_not_consult_the_posting_count()

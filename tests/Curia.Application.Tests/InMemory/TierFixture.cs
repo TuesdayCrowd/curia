@@ -17,9 +17,8 @@ internal static class TierFixture
     internal static EvaluatedTier As(PrincipalTier tier) => new(tier, DateTimeOffset.UnixEpoch);
 
     /// <summary>
-    /// A tier evaluated at a named instant. The single-argument form pins one epoch, which is the
-    /// one shape that made <c>CachingPolicyDecisionPoint</c>'s old whole-request key look like it
-    /// worked; the tests that reproduce production's fresh instant per request use this one.
+    /// A tier evaluated at a named instant. The single-argument form pins one epoch; the tests
+    /// that reproduce production's fresh instant per request use this one.
     /// </summary>
     internal static EvaluatedTier As(PrincipalTier tier, DateTimeOffset evaluatedAt) => new(tier, evaluatedAt);
 }

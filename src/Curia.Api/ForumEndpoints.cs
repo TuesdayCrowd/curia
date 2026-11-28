@@ -1062,6 +1062,85 @@ public static class ForumEndpoints
             error => Problem(StatusCodes.Status503ServiceUnavailable, error));
     }
 
+    /// <summary>What <see cref="AdmitAsync"/> decided: the answer for a request it did not admit, or, for one it admitted, the receipt's posting budget (R7.29).</summary>
+    private sealed record Admission(IResult? Refusal, Func<DateTimeOffset, BudgetEntry>? BudgetAfter)
+    {
+        public static Admission Refused(IResult refusal) => new(refusal, null);
+
+        public static Admission Admitted(Func<DateTimeOffset, BudgetEntry> budgetAfter) => new(null, budgetAfter);
+    }
+
+    /// <summary>
+    /// AUTHORIZE (R7.7, R7.32, Table 10, Table 11) for a submission, decided on <paramref name="verifiedLog"/> and the clock now: the posture, the tier, the posting count and the policy decision point's answer.
+    /// R7.35 (errata G88): it is called before the near-duplicate check's wait, where it may refuse early, and again on the read taken after the wait, where its answer is the one that admits; a decision taken
+    /// before a wait is never the one that admits a request that waits, because an act outside the agent's hold (an operator's moderation, an acceptance, a withdrawn attestation) can change the posture during it.
+    /// </summary>
+    private static async Task<Admission> AdmitAsync(
+        VerifiedSubmission v,
+        AgentId author,
+        VerifiedLog verifiedLog,
+        IPolicyDecisionPoint pdp,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var log = verifiedLog.Log;
+        var posture = PostureQuery.Of(verifiedLog, author);
+
+        if (!posture.TryGetValue(out var facts, out var postureError))
+            return Admission.Refused(Problem(StatusCodes.Status500InternalServerError, postureError!));
+
+        var now = clock.GetUtcNow();
+        var tier = TierPolicy.Evaluate(facts, now);
+
+        // R7.28, R7.29: the instants the posting count reads, taken once from the log this decision is made on (under the agent's hold, R7.27): the
+        // policy's count is CountIn over them, a refusal's next_slot_at is the standing's over them, and the receipt adds the act to them.
+        var postInstants = BudgetReadout.PostInstants(log, v.AuthorAgentId).ToArray();
+        var postLimit = TierPolicy.PostsPerDay(tier.Tier);
+
+        var (resource, action) = PairFor(v.Envelope.Kind);
+        var decision = await pdp.EvaluateAsync(
+            new AuthorizationRequest(
+                tier,
+                facts.CredentialState,
+                resource,
+                action,
+                PostsToday: BudgetReadout.CountIn(postInstants, now)),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!decision.TryGetValue(out var d, out var decisionError))
+            return Admission.Refused(Problem(StatusCodes.Status403Forbidden, decisionError!));
+
+        // Table 10's parenthetical, discharged. `revision`/`create` is "(own)", and an allow
+        // carrying that qualifier is not a permission to act -- it is a permission conditional on a
+        // fact about the resource that the PDP cannot know, because the PDP is not handed the
+        // resource. Until this existed, the qualifier was returned and read past: any T0 agent could
+        // submit a revision naming another agent's post.
+        if (d!.Qualifier is GrantQualifier.OwnResourceOnly)
+            d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId.Value));
+
+        // R7.32 (errata G58): the posting budget, and no other denial, gives way to R8.78. A recorded act has already spent its slot, so refusing the very
+        // bytes for that slot says something true of the budget and false of the act. The check is the one the allowed path makes below, on this same
+        // log read, asked once; it is asked only for the posting budget's own reason and only of a credential that is not set aside (a quarantine, a tier
+        // or an ownership denial is a statement about the caller that holds whether or not the act was recorded). The policy decides the posting budget before the quarantine
+        // intersection, so a quarantined credential at a spent budget is answered with the budget's reason and not the quarantine's, which is why the credential's state is read here: ASA50
+        // (Domain, AccessPolicy and the posture facts directly) holds that order. The Active clause itself has no probe, because no event yet quarantines a credential (the plan's ruling 42: the
+        // quarantine leg is implemented and not discharged). An act whose digest is not held is refused for the budget as before.
+        if (!d.IsAllowed
+            && string.Equals(d.Reason, BudgetKinds.All.First(k => string.Equals(k.Name, BudgetKinds.Posting, StringComparison.Ordinal)).DenialReason, StringComparison.Ordinal)
+            && facts.CredentialState == CredentialState.Active
+            && AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } spentRecordedPostId)
+            return Admission.Refused(Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(spentRecordedPostId)));
+
+        if (!d.IsAllowed)
+            return Admission.Refused(Problem(
+                StatusCodes.Status403Forbidden,
+                Denial(d, DeniedDetail(d, tier.Tier, BudgetKinds.Posting, () => BudgetReadout.Entry(BudgetKinds.Posting, postLimit, postInstants, now)))));
+
+        BudgetEntry BudgetAfter(DateTimeOffset act) => BudgetReadout.After(BudgetKinds.Posting, postLimit, postInstants, act, now);
+
+        return Admission.Admitted(BudgetAfter);
+    }
+
     /// <summary>
     /// One attempt at VERIFY, AUTHORIZE, SCREEN and PERSIST for <see cref="SubmitAsync"/>, decided on the
     /// log as it stands now. <see langword="null"/> when PERSIST's append found the author's stream moved
@@ -1095,57 +1174,11 @@ public static class ForumEndpoints
 
         // One verified log per request (errata G70, ruling 76): the posture, the checks and the guard decide from the operator acts the Forum honours, each act verified once.
         var verifiedLog = VerifierOf(http).OfLog(log);
-        var posture = PostureQuery.Of(verifiedLog, author!);
-
-        if (!posture.TryGetValue(out var facts, out var postureError))
-            return Problem(StatusCodes.Status500InternalServerError, postureError!);
-
-        var now = clock.GetUtcNow();
-        var tier = TierPolicy.Evaluate(facts!, now);
-
-        // R7.28, R7.29: the instants the posting count reads, taken once from the log this decision is made on (under the agent's hold, R7.27): the
-        // policy's count is CountIn over them, a refusal's next_slot_at is the standing's over them, and the receipt adds the act to them.
-        var postInstants = BudgetReadout.PostInstants(log, v!.AuthorAgentId).ToArray();
-        var postLimit = TierPolicy.PostsPerDay(tier.Tier);
-
-        var (resource, action) = PairFor(v.Envelope.Kind);
-        var decision = await pdp.EvaluateAsync(
-            new AuthorizationRequest(
-                tier,
-                facts!.CredentialState,
-                resource,
-                action,
-                PostsToday: BudgetReadout.CountIn(postInstants, now)),
-            cancellationToken).ConfigureAwait(false);
-
-        if (!decision.TryGetValue(out var d, out var decisionError))
-            return Problem(StatusCodes.Status403Forbidden, decisionError!);
-
-        // Table 10's parenthetical, discharged. `revision`/`create` is "(own)", and an allow
-        // carrying that qualifier is not a permission to act -- it is a permission conditional on a
-        // fact about the resource that the PDP cannot know, because the PDP is not handed the
-        // resource. Until this existed, the qualifier was returned and read past: any T0 agent could
-        // submit a revision naming another agent's post.
-        if (d!.Qualifier is GrantQualifier.OwnResourceOnly)
-            d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId.Value));
-
-        // R7.32 (errata G58): the posting budget, and no other denial, gives way to R8.78. A recorded act has already spent its slot, so refusing the very
-        // bytes for that slot says something true of the budget and false of the act. The check is the one the allowed path makes below, on this same
-        // log read, asked once; it is asked only for the posting budget's own reason and only of a credential that is not set aside (a quarantine, a tier
-        // or an ownership denial is a statement about the caller that holds whether or not the act was recorded). The policy decides the posting budget before the quarantine
-        // intersection, so a quarantined credential at a spent budget is answered with the budget's reason and not the quarantine's, which is why the credential's state is read here: ASA50
-        // (Domain, AccessPolicy and the posture facts directly) holds that order. The Active clause itself has no probe, because no event yet quarantines a credential (the plan's ruling 42: the
-        // quarantine leg is implemented and not discharged). An act whose digest is not held is refused for the budget as before.
-        if (!d.IsAllowed
-            && string.Equals(d.Reason, BudgetKinds.All.First(k => string.Equals(k.Name, BudgetKinds.Posting, StringComparison.Ordinal)).DenialReason, StringComparison.Ordinal)
-            && facts!.CredentialState == CredentialState.Active
-            && AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } spentRecordedPostId)
-            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(spentRecordedPostId));
-
-        if (!d.IsAllowed)
-            return Problem(
-                StatusCodes.Status403Forbidden,
-                Denial(d, DeniedDetail(d, tier.Tier, BudgetKinds.Posting, () => BudgetReadout.Entry(BudgetKinds.Posting, postLimit, postInstants, now))));
+        // R7.35 (errata G88): this decision may refuse the request early and is never the one that admits a request that waits; the near-duplicate check's wait is below, and
+        // PersistSubmissionAsync decides again on the read taken after it.
+        var admission = await AdmitAsync(v, author!, verifiedLog, pdp, clock, cancellationToken).ConfigureAwait(false);
+        if (admission.Refusal is not null)
+            return admission.Refusal;
 
         // R8.78 (errata G45): the same bytes are not recorded twice. The envelope carries its author and a signed nonce, so an
         // equal digest is the same author and the very bytes; a fresh nonce is a new post. After AUTHORIZE (a caller denied by
@@ -1161,10 +1194,8 @@ public static class ForumEndpoints
         // `await using`), after PERSIST has committed or refused. Try, never wait: a held gate is 409 revision-in-flight. The gate is the fast path and not the
         // guarantee (errata G57): a commit the Forum gave up on can land after the hold is released, so every post's append also carries the digest, successor
         // and vote checks as a guard the store judges inside the log's lock (R6.60, R8.86), and a flag's append sends its decision back (R10.94).
-        BudgetEntry BudgetAfter(DateTimeOffset act) => BudgetReadout.After(BudgetKinds.Posting, postLimit, postInstants, act, now);
-
         if (v.Envelope.Kind is not PostKind.Revision || v.Envelope.Prev is not { Length: > 0 } prevDigest)
-            return await PersistSubmissionAsync(v, DecidedLog.Of(verifiedLog), pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, DecidedLog.Of(verifiedLog), pipeline, pdp, events, indexer, dedupe, http, clock, admission.BudgetAfter!, cancellationToken).ConfigureAwait(false);
 
         var entered = await revisionGate.TryEnterAsync(prevDigest, cancellationToken).ConfigureAwait(false);
         if (!entered.TryGetValue(out var held, out var gateError))
@@ -1192,7 +1223,7 @@ public static class ForumEndpoints
             if (SubmissionChecks.RevisionBoardRefusal(freshLog.Facts, prevDigest, v.Envelope.Board) is { } boardRefusal)
                 return Problem(StatusCodes.Status400BadRequest, boardRefusal);
 
-            return await PersistSubmissionAsync(v, freshLog, pipeline, events, indexer, dedupe, http, BudgetAfter, cancellationToken).ConfigureAwait(false);
+            return await PersistSubmissionAsync(v, freshLog, pipeline, pdp, events, indexer, dedupe, http, clock, admission.BudgetAfter!, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -1241,10 +1272,12 @@ public static class ForumEndpoints
         VerifiedSubmission v,
         DecidedLog decided,
         IIngestPipeline pipeline,
+        IPolicyDecisionPoint pdp,
         IEventReader events,
         IndexStep indexer,
         DuplicateCheck dedupe,
         HttpRequest http,
+        TimeProvider clock,
         Func<DateTimeOffset, BudgetEntry> budgetAfter,
         CancellationToken cancellationToken)
     {
@@ -1308,6 +1341,14 @@ public static class ForumEndpoints
                 return Problem(StatusCodes.Status503ServiceUnavailable, dedupeReadError!);
 
             var dedupeVerified = decided.Verified.ExtendTo(dedupeLog!);
+
+            // R7.35 (errata G88): the decision that admits is this one, on the read taken after the last wait and inside the agent's hold, and the one above only refused early. After the wait and
+            // before the corpus is folded or a refusal names a thread (a caller denied is never told whether a post exists, R7.30); no read of its own, it is the read the check below judges on.
+            var admission = await AdmitAsync(v, v.AuthorAgentId, dedupeVerified, pdp, clock, cancellationToken).ConfigureAwait(false);
+            if (admission.Refusal is not null)
+                return admission.Refusal;
+
+            budgetAfter = admission.BudgetAfter!;
 
             // Errata G62, ruling 18: one fold of the corpus, shared by the near-duplicate check and by R8.88's `board_new`.
             var corpus = SearchProjector.FoldHonoured(dedupeVerified);

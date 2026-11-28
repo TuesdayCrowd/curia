@@ -3,7 +3,6 @@ using Curia.Api.Adapters;
 using Curia.Api.Issuer;
 using Curia.AuthN;
 using Curia.AuthN.Ports;
-using Curia.Application.Authorization;
 using Curia.Application.Credentials;
 using Curia.Application.Ingest;
 using Curia.Application.Moderation;
@@ -322,12 +321,9 @@ public sealed class Program
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
-        // R7.4/R7.5 live in the decorator, never in the adapter (see CachingPolicyDecisionPoint).
-        builder.Services.AddSingleton<IPolicyDecisionPoint>(sp => new CachingPolicyDecisionPoint(
-            new DomainPolicyDecisionPoint(),
-            sp.GetRequiredService<IAuthorizationAlertSink>(),
-            sp.GetRequiredService<TimeProvider>(),
-            CachingPolicyDecisionPoint.MaximumTtl));
+        // R7.4 (rev.), R7.34: no policy decision outlives a request, so the point is the domain's own, undecorated. The read half of principle P6
+        // (fail open on reads) has no implementation while the point is in process (R7.5 (rev.)).
+        builder.Services.AddSingleton<IPolicyDecisionPoint>(_ => new DomainPolicyDecisionPoint());
 
         // §5's transport. The issuer is co-hosted for the prototype (see TokenIssuer's remarks);
         // the resource server verifies what it minted through IssuerKeyResolver, which resolves
