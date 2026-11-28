@@ -56,8 +56,16 @@ public sealed record AppendedEvent
     /// </summary>
     public string? StoredLeafHash { get; }
 
-    internal AppendedEvent(EventSequence seq, AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event, string? storedLeafHash = null)
+    /// <summary>
+    /// R11.6 (add.), db/0007: the signal target the store holds for this row (<c>events.signal_target</c>), the wire form of a prefixed digest, or <see langword="null"/> for a row that is not a
+    /// vote or verification, or was appended before db/0007. It is what the store <i>says</i> the target is; the canonical envelope says what it <i>is</i>, and <c>lifecycle-audit</c> compares them.
+    /// </summary>
+    public string? StoredSignalTarget { get; }
+
+    internal AppendedEvent(
+        EventSequence seq, AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event, string? storedLeafHash = null, string? storedSignalTarget = null)
     {
+        StoredSignalTarget = storedSignalTarget;
         Seq = seq;
         AggregateId = aggregateId;
         ServerTimestamp = serverTimestamp;

@@ -40,7 +40,8 @@ internal static class PostgresPlanReader
             {
                 ReadClause.PayloadMember.Digest => ($"{select}event_type = '{PostProjector.PostAcceptedType}' AND (payload->>'digest') = ANY(@p);", Array("p", values)),
                 ReadClause.PayloadMember.SignalTarget => (
-                    $"{select}event_type = '{PostProjector.PostAcceptedType}' AND payload->>'kind' IN ('vote', 'verification') AND ((payload->>'canonical')::jsonb->>'target') = ANY(@p);",
+                    // R11.6 (add.): the column the append wrote from the signed envelope, never SQL over the canonical text; the partial index's predicate is implied by the equality.
+                    $"{select}event_type = '{PostProjector.PostAcceptedType}' AND signal_target = ANY(@p);",
                     Array("p", values)),
                 _ => throw new ArgumentOutOfRangeException(nameof(member), member, "Not a payload member"),
             },

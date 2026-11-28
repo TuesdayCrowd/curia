@@ -2368,9 +2368,10 @@ public static class ForumEndpoints
 
         // The log index (R6.47) of the row that binds each key, and of each of the identity's lifecycle entries, are the indices the one read returned its rows with (errata G87, R5.28, R11.113):
         // the key set is published from the identity's stream and the published keys alone, not from a fold of the whole log, and no index of its own is computed.
+        // R4.41 (rev.): an event the read does not hold has no index, and that is a fault of the Forum (a 500 from the exception handler), never a member left out of the document.
         var decided = keySet.Verified!;
-        var indexOf = keySet.IndexOf!;
-        var lifecycle = decided.Honoured.Entries.Select(e => indexOf(e.EventId)).Where(i => i is not null).Select(i => i!.Value).ToList();
+        var indexOf = Jwks.Strictly(keySet.IndexOf!);
+        var lifecycle = decided.Honoured.Entries.Select(e => indexOf(e.EventId)).ToList();
 
         // R4.38 (add.): the kinds the build approves and the Forum enables. A record that cannot be read
         // is the Forum's fault, never an empty approval.

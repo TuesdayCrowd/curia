@@ -187,23 +187,26 @@ fault harness if it is not the one in this repository).
 
 **Then run step 1's count text again.** `events` and `highest_seq` must each be at least what you kept, and equal if the Forum took no post in between: the migration changes the role's grants and no row. If either is lower, stop, keep both outputs and report it; do not delete or re-insert anything.
 
-**Applying `db/0007` (errata G87, R6.69): the log stores each event's leaf hash.** `db/0007_store_leaf_hashes.sql` adds a nullable `events.leaf_hash`, an `INSERT` grant on that column and nothing else,
-a covering index `(seq) INCLUDE (leaf_hash)`, and four partial indexes on `post.accepted` rows (digest, parent, board, the target of a vote or verification). **Merging it applies nothing, and a Forum
-built from this commit does not start on a database without it** (EventId 7014 at Error: every append writes the row's leaf in its one `INSERT`). It is the table's owner who applies it, never the application role,
+**Applying `db/0007` (errata G87, R6.69, R11.6 (add.)): the log stores each event's leaf hash and each vote's signal target.** `db/0007_store_leaf_hashes.sql` adds a nullable `events.leaf_hash` and a nullable
+`events.signal_target` (a `CHECK` of the 71-byte `sha256:` form), an `INSERT` grant on those two columns and nothing else, a covering index `(seq) INCLUDE (leaf_hash)`, and two partial indexes (the post digest,
+and `(signal_target, seq)` for the votes and verifications that target a digest). **The file was amended before anyone applied it (2026-11-27): the earlier text, which also created `events_post_parent` and
+`events_post_board` over the author's own words and an index over the canonical text's `target`, must not be applied anywhere; if a database ever applied it, stop and ask before applying this one.**
+**Merging it applies nothing, and a Forum built from this commit does not start on a database without it** (EventId 7014 at Error: every append writes the row's leaf and a vote's target in its one `INSERT`). It is the table's owner who applies it, never the application role,
 after `db/0006`. Apply them in this order and no other: `db/0006`'s `REVOKE INSERT` takes the column grants with it, so re-running `db/0006` on a migrated database means running `db/0007` after it.
 
 ```bash
 sed 's/__CURIA_APP_ROLE__/curia_app/g' db/0007_store_leaf_hashes.sql | psql -v ON_ERROR_STOP=1 --single-transaction -f - "$OWNER_CONNECTION"
 ```
 
-Then fill the leaf of every row that is older than the column, **as the owner** (the application role has no `UPDATE`, by design, and the verb refuses it before it reads a row); `CURIA_EVENTS_POSTGRES` holds the owner's connection string for this one run:
+Then fill the leaf and the signal target of every row that is older than the columns, **as the owner** (the application role has no `UPDATE`, by design, and the verb refuses it before it reads a row); `CURIA_EVENTS_POSTGRES` holds the owner's connection string for this one run:
 
 ```bash
-curia-operator backfill-leaves     # prints: filled <n>  already_held <m>; idempotent, safe beside a running Forum
-curia-operator lifecycle-audit     # silent about leaves when every row has its leaf and every leaf is its row's; exit 0
+curia-operator backfill-leaves     # prints: filled <n>  already_held <m>  signal_targets_filled <k>; idempotent, safe beside a running Forum
+curia-operator lifecycle-audit     # silent about leaves and targets when every row has its leaf, every leaf is its row's and every vote's column is its envelope's target; exit 0
 ```
 
-A row with no leaf is served by recomputation (correct, slower). A stored leaf that is not its row's leaf is **never repaired by the Forum or by the backfill**: `curia-operator sign-head` refuses to sign over it (exit 7),
+A vote or verification whose `signal_target` is NULL (appended before the column) **does not count toward a finding's verification until it is filled**, so `lifecycle-audit` reports it
+(`signal-targets  mismatched <n>  missing <m>`, exit 7) and does not let it pass; a column that is not its envelope's target is reported and never repaired. A row with no leaf is served by recomputation (correct, slower). A stored leaf that is not its row's leaf is **never repaired by the Forum or by the backfill**: `curia-operator sign-head` refuses to sign over it (exit 7),
 `lifecycle-audit` names its log index (`mismatched  log_index=<i>`, exit 7), and every inclusion proof the Forum serves for another post fails a client's check until the owner puts the row right as the owner. `tools/deploy/readiness.py`'s R11 check reads the column and its grant.
 
 **Applying `db/0008` (errata G88, R11.114 to R11.116): the keyword channel's index is written.** `db/0008_create_search_index.sql` adds `search_docs`, `search_terms` and `search_index_versions`, with `SELECT` and

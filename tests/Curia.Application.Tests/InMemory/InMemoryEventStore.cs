@@ -189,7 +189,7 @@ internal sealed class InMemoryEventStore : IEventStore
                 var seq = new EventSequence(_log.Count + 1L);
                 // R6.69: the store holds each row's leaf, written with the row, as PostgresEventStore writes it in the same INSERT.
                 var leaf = Curia.Domain.Acta.LogLeaf.Hash(aggregateId, serverTimestamp, domainEvent).Match(h => Curia.Domain.Acta.LogEntries.Prefixed(h), e => throw new InvalidOperationException(e.Type));
-                var record = new AppendedEvent(seq, aggregateId, serverTimestamp, domainEvent, leaf);
+                var record = new AppendedEvent(seq, aggregateId, serverTimestamp, domainEvent, leaf, Curia.Application.Projections.SignalTargetColumn.Of(domainEvent));
                 _log.Add(record);
                 appended.Add(record);
             }

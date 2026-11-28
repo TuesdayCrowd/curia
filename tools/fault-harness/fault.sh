@@ -12,9 +12,9 @@ log(){ echo "$(now_ms) $1 $FH_DB" >> "$FH_DIR/faults.log"; }
 priv(){ psql -d "$FH_DB" -Atc "select has_table_privilege('$FH_ROLE','public.$1','$2')"; }
 # R11.6 (add.), errata G69: INSERT on events is a grant on the six columns the Forum supplies and never seq (db/0006), so it is read and restored by
 # column. A table-level read (has_table_privilege INSERT) is false on a migrated database, and a table-level restore re-opens the hole.
-# R6.69 (db/0007): leaf_hash is the seventh, written in the same INSERT as the row it describes.
-evcols="event_id event_type aggregate_id actor_id payload server_ts leaf_hash"
-evcollist="event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash"
+# R6.69 (db/0007): leaf_hash is the seventh and signal_target (R11.6 (add.)) the eighth, written in the same INSERT as the row they describe.
+evcols="event_id event_type aggregate_id actor_id payload server_ts leaf_hash signal_target"
+evcollist="event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash, signal_target"
 colpriv(){ psql -d "$FH_DB" -Atc "select has_column_privilege('$FH_ROLE','public.events','$1','INSERT')"; }
 # "ok" only if both halves hold: every column the Forum supplies is insertable and seq is not.
 events_insert(){ local c; for c in $evcols; do [ "$(colpriv $c)" = "t" ] || { echo "no"; return; }; done; [ "$(colpriv seq)" = "f" ] && echo "ok" || echo "seq-writable"; }

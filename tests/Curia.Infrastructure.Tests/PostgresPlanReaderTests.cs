@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Curia.Application.Ports;
+using Curia.Application.Projections;
 using Curia.Application.Reads;
 using Curia.Application.Tests;
 using Curia.Application.Tests.Reads;
@@ -68,6 +69,31 @@ public sealed class PostgresPlanReaderTests(PostgresDatabaseFixture fixture)
                 actual.Rows.Select(r => $"{r.LogIndex}:{r.Event.Event.Id.Value}:{r.Event.Seq.Value}"));
             Assert.Equal(expected.HighWater, actual.HighWater);
         }
+    }
+
+    /// <summary>
+    /// RC16 (ii) (R11.6 (add.)): the signal clause reads <c>events.signal_target</c>, a column the append wrote from the signed envelope, and the reference reader reads the canonical text itself: two artifacts, so
+    /// that a column the append wrote wrongly (NULL, or another post's digest) is a difference here and not a restatement. Over every digest the scene's signals name, the adapter returns the reference's rows, and
+    /// the comparison is not vacuous: the scene holds signals, and the clause finds them.
+    /// </summary>
+    [Theory]
+    [InlineData(11)]
+    [InlineData(12)]
+    [InlineData(13)]
+    public async Task RC16_ii_TheSignalClauseOverTheColumnReturnsTheRowsTheCanonicalNames(int seed)
+    {
+        var (store, _) = await SceneAsync(seed, burn: true);
+        var all = Require(await store.ReadAllAsync(Ct));
+        var targets = all.Select(r => SignalTargetColumn.Of(r.Event)).Where(t => t is not null).Select(t => t!).Distinct(StringComparer.Ordinal).ToArray();
+        Assert.True(targets.Length > 0, "the scene holds no vote or verification, so the comparison proves nothing");
+
+        var plan = ReadPlan.Of(ReadClause.SignalsOn(targets));
+        var expected = WholeLogPlanReader.Answer(all, plan);
+        var actual = await store.ReadAsync(plan, Ct);
+
+        Assert.NotEmpty(actual.Rows);
+        Assert.Equal(expected.Rows.Select(r => r.Event.Event.Id.Value), actual.Rows.Select(r => r.Event.Event.Id.Value));
+        Assert.Equal(all.Count(r => SignalTargetColumn.Of(r.Event) is not null), actual.Rows.Count);
     }
 
     /// <summary>
@@ -191,12 +217,13 @@ public sealed class PostgresPlanReaderTests(PostgresDatabaseFixture fixture)
         await using (var connection = await fixture.AdminDataSource.OpenConnectionAsync(Ct))
         await using (var fill = new NpgsqlCommand(
             $$"""
-            INSERT INTO "{{schema}}".events (event_id, event_type, aggregate_id, actor_id, payload)
+            INSERT INTO "{{schema}}".events (event_id, event_type, aggregate_id, actor_id, payload, signal_target)
             SELECT 'e' || g, CASE WHEN g % 3 = 0 THEN 'post.accepted' WHEN g % 3 = 1 THEN 'agent.enrolled' ELSE 'log.key' END,
                    'agg' || (g % 4000), 'actor' || (g % 50),
                    CASE WHEN g % 3 = 0 THEN jsonb_build_object('digest', 'sha256:' || g, 'kind', CASE WHEN g % 9 = 0 THEN 'vote' ELSE 'question' END, 'parent', NULL, 'board', 'b',
                         'canonical', '{"target":"sha256:' || (g % 500) || '"}')
-                        ELSE jsonb_build_object('kid', 'k' || g) END
+                        ELSE jsonb_build_object('kid', 'k' || g) END,
+                   CASE WHEN g % 9 = 0 THEN 'sha256:' || lpad((g % 500)::text, 64, '0') ELSE NULL END
             FROM generate_series(1, 13000) g;
             ANALYZE "{{schema}}".events;
             """, connection))
@@ -233,6 +260,13 @@ public sealed class PostgresPlanReaderTests(PostgresDatabaseFixture fixture)
             await drop.ExecuteNonQueryAsync(Ct);
         var (digestSql, digestParameter) = PostgresPlanReader.Statement(ReadClause.PostsWithDigest(["sha256:3"]), table, "seq");
         Assert.DoesNotContain("events_post_digest", await PlanOfAsync(digestSql, digestParameter, usesTypes: false), StringComparison.Ordinal);
+
+        // And for the signal clause: the same statement, planned with its index gone, names no events_post_signal_target (RC13 stays red with the index dropped).
+        await using (var connection = await fixture.AdminDataSource.OpenConnectionAsync(Ct))
+        await using (var drop = new NpgsqlCommand($"DROP INDEX \"{schema}\".events_post_signal_target;", connection))
+            await drop.ExecuteNonQueryAsync(Ct);
+        var (signalSql, signalParameter) = PostgresPlanReader.Statement(ReadClause.SignalsOn(["sha256:4"]), table, "seq");
+        Assert.DoesNotContain("events_post_signal_target", await PlanOfAsync(signalSql, signalParameter, usesTypes: false), StringComparison.Ordinal);
     }
 
     private async Task<string> PlanOfAsync(string sql, NpgsqlParameter? parameter, bool usesTypes)

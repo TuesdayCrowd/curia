@@ -74,9 +74,11 @@ UNION ALL SELECT 'delete on events', has_table_privilege('curia_app', 'events', 
 UNION ALL SELECT 'insert on events.event_id (the positive control)', has_column_privilege('curia_app', 'events', 'event_id', 'INSERT'), true
 UNION ALL SELECT 'select on events.seq', has_column_privilege('curia_app', 'events', 'seq', 'SELECT'), true;"""
 TABLES_SQL = "SELECT to_regclass('authn_dpop_nonces') IS NOT NULL AND to_regclass('authn_replay') IS NOT NULL;"
-# db/0007 (R6.69): the column exists and the role may INSERT it. has_column_privilege raises on a column that is not there, so the catalogue is asked first; "not there" is the answer.
-LEAF_SQL = """SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('events') AND attname = 'leaf_hash' AND NOT attisdropped)
-THEN has_column_privilege('curia_app', 'events', 'leaf_hash', 'INSERT') ELSE false END;"""
+# db/0007 (R6.69, R11.6 (add.)): both columns exist and the role may INSERT each. has_column_privilege raises on a column that is not there, so the catalogue is asked first; "not there" is the answer.
+LEAF_SQL = """SELECT (CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('events') AND attname = 'leaf_hash' AND NOT attisdropped)
+THEN has_column_privilege('curia_app', 'events', 'leaf_hash', 'INSERT') ELSE false END)
+AND (CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('events') AND attname = 'signal_target' AND NOT attisdropped)
+THEN has_column_privilege('curia_app', 'events', 'signal_target', 'INSERT') ELSE false END);"""
 # db/0008 (errata G88, R11.114): the three tables exist and the role may SELECT and INSERT each; the Forum does not start without them.
 SEARCH_SQL = """SELECT to_regclass('search_docs') IS NOT NULL AND to_regclass('search_terms') IS NOT NULL AND to_regclass('search_index_versions') IS NOT NULL
 AND has_table_privilege('curia_app', 'search_docs', 'SELECT') AND has_table_privilege('curia_app', 'search_docs', 'INSERT')
@@ -349,12 +351,12 @@ def check_r11(args):
     if tables.stdout.strip() != "t":
         bad.append("authn_dpop_nonces and authn_replay (db/0002)")
     if leaf.stdout.strip() != "t":
-        bad.append("insert on events.leaf_hash (db/0007: the column is missing or the role cannot write it; the Forum does not start)")
+        bad.append("insert on events.leaf_hash and events.signal_target (db/0007: a column is missing or the role cannot write it; the Forum does not start)")
     if search.stdout.strip() != "t":
         bad.append("search_docs, search_terms and search_index_versions with SELECT and INSERT for the role (db/0008: the Forum does not start)")
     if bad:
         return FAIL, "the database does not match db/0002, db/0006, db/0007 and db/0008: " + "; ".join(bad)
-    return PASS, f"the role {args.app_role} holds the narrowed grants of db/0006, the leaf column of db/0007 and the search index of db/0008, and db/0002's tables exist"
+    return PASS, f"the role {args.app_role} holds the narrowed grants of db/0006, the leaf and signal-target columns of db/0007 and the search index of db/0008, and db/0002's tables exist"
 
 
 def size_verdict(count, args, source, certain):

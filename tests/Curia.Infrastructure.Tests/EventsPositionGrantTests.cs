@@ -86,7 +86,7 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
     // ---- SEQ2 ----
 
     /// <summary>
-    /// SEQ2: the columns the role may <c>INSERT</c> are the six R11.6 (add.) names and the one R6.69 adds (<c>leaf_hash</c>, db/0007), and <c>seq</c> is not among them; table-level <c>SELECT</c> only, no other
+    /// SEQ2: the columns the role may <c>INSERT</c> are the six R11.6 (add.) names and the two db/0007 adds (<c>leaf_hash</c>, R6.69, and <c>signal_target</c>, R11.6 (add.)), and <c>seq</c> is not among them; table-level <c>SELECT</c> only, no other
     /// table privilege.
     /// </summary>
     [Fact]
@@ -105,7 +105,7 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
 
     /// <summary>
     /// SEQ3: the migration exists, and applying it twice raises nothing and leaves the catalogue as it was. db/0006's <c>REVOKE INSERT</c> takes the column grants with it, so an owner who runs it again
-    /// runs db/0007 after it, which this test does and the README says (R6.69): without the second file the role would lose <c>leaf_hash</c> and every append would be refused.
+    /// runs db/0007 after it, which this test does and the README says (R6.69): without the second file the role would lose <c>leaf_hash</c> and <c>signal_target</c> and every append would be refused.
     /// </summary>
     [Fact]
     public async Task R11_6_SEQ3_TheMigrationIsIdempotent()
@@ -275,8 +275,8 @@ public sealed class EventsPositionGrantTests(PostgresDatabaseFixture fixture)
         return names;
     }
 
-    /// <summary>The columns of db/0006's grant and the one db/0007 adds (R6.69), in the catalogue's order.</summary>
-    private static string[] WithTheLeafColumn(string[] errataColumns) => [.. errataColumns.Append("leaf_hash").Order(StringComparer.Ordinal)];
+    /// <summary>The columns of db/0006's grant and the two db/0007 adds (R6.69, R11.6 (add.)), in the catalogue's order.</summary>
+    private static string[] WithTheLeafColumn(string[] errataColumns) => [.. errataColumns.Append("leaf_hash").Append("signal_target").Order(StringComparer.Ordinal)];
 
     /// <summary>The SQL of the fenced block between <c>&lt;!-- name --&gt;</c> and <c>&lt;!-- /name --&gt;</c>, with the fence and any shell prompt removed.</summary>
     private static string ReadmeBlock(string readme, string name)

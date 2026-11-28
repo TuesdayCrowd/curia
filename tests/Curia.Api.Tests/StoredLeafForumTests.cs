@@ -6,8 +6,11 @@ using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Canon.Acta;
 using Curia.Domain.Acta;
+using Curia.Canon.Json;
+using Curia.Domain;
 using Curia.Domain.Primitives;
 using Curia.OperatorTool;
+using Curia.Tests.Shared;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -80,7 +83,7 @@ public sealed class StoredLeafForumTests(RoleForumFixture forum) : IClassFixture
         var afterBackfill = await ListAsync(board);
 
         Assert.True(fromTheColumn == fromTheRows, "the served listing differs between stored leaves and recomputed leaves");
-        Assert.Equal((0, $"filled {total.ToString(CultureInfo.InvariantCulture)}  already_held 0"), (backfill.Exit, backfill.Out.Trim()));
+        Assert.Equal((0, $"filled {total.ToString(CultureInfo.InvariantCulture)}  already_held 0  signal_targets_filled 0"), (backfill.Exit, backfill.Out.Trim()));
         Assert.True(afterBackfill == fromTheColumn, "the served listing moved after the backfill");
         Assert.Equal(0, (await OperatorAsync(["lifecycle-audit"])).Exit);
     }
@@ -131,6 +134,38 @@ public sealed class StoredLeafForumTests(RoleForumFixture forum) : IClassFixture
         Assert.Equal(0, (await OperatorAsync(["sign-head", "--by", "ops"], logPem)).Exit);
     }
 
+    /// <summary>
+    /// SLF4 (R11.6 (add.)): a vote whose <c>signal_target</c> is NULL (a row older than the column) does not count toward a finding, so <c>lifecycle-audit</c> says so and exits 7 instead of passing; the owner's
+    /// <c>backfill-leaves</c> fills it from the envelope and the audit is then quiet. A column that is another post's target is named as mismatched and the backfill never replaces it.
+    /// </summary>
+    [Fact]
+    public async Task R11_6_SLF4_ANullSignalTargetIsAFindingTheBackfillFillsAndAWrongOneIsNeverRepaired()
+    {
+        var store = forum.Services.GetRequiredService<IEventStore>();
+        var vote = SignalRows.Make("vote", 4_001, SignalRows.Digest(4_001), "n");
+        var verification = SignalRows.Make("verification", 4_002, SignalRows.Digest(4_002), "n");
+        foreach (var e in new[] { vote, verification })
+            (await store.AppendAsync(AggregateId.Create(e.Id.Value).Match(v => v, x => throw new InvalidOperationException(x.Type)), AggregateVersion.New, [e], Ct)).Match(v => v, x => throw new InvalidOperationException(x.Type));
+
+        Assert.Equal(0, (await OperatorAsync(["lifecycle-audit"])).Exit);
+
+        await AdminAsync($"UPDATE events SET signal_target = NULL WHERE event_id = '{vote.Id.Value}';");
+        await AdminAsync($"UPDATE events SET signal_target = '{SignalRows.Digest(9)}' WHERE event_id = '{verification.Id.Value}';");
+        var found = await OperatorAsync(["lifecycle-audit"]);
+        var backfill = await OperatorAsync(["backfill-leaves"]);
+        var after = await OperatorAsync(["lifecycle-audit"]);
+
+        Assert.Equal(7, found.Exit);
+        Assert.Contains("signal-targets  mismatched 1  missing 1", found.Out, StringComparison.Ordinal);
+        Assert.Contains("a vote or verification with no signal_target does not count toward a finding", found.Out, StringComparison.Ordinal);
+        Assert.Equal((0, "filled 0  already_held " + (await CountAsync("SELECT count(*) FROM events WHERE seq > 0;")).ToString(CultureInfo.InvariantCulture) + "  signal_targets_filled 1"), (backfill.Exit, backfill.Out.Trim()));
+        Assert.Equal(7, after.Exit);
+        Assert.Contains("signal-targets  mismatched 1  missing 0", after.Out, StringComparison.Ordinal);
+
+        await AdminAsync($"UPDATE events SET signal_target = '{SignalRows.Digest(4_002)}' WHERE event_id = '{verification.Id.Value}';");
+        Assert.Equal(0, (await OperatorAsync(["lifecycle-audit"])).Exit);
+    }
+
     /// <summary>SLF3: a Forum whose database has no <c>events.leaf_hash</c> (or whose role cannot write it) says so at Error (7014) and does not start.</summary>
     [Fact]
     public async Task R6_69_SLF3_AForumWithoutTheLeafColumnDoesNotStart()
@@ -171,6 +206,24 @@ public sealed class StoredLeafForumTests(RoleForumFixture forum) : IClassFixture
         using var health = await client.GetAsync(new Uri("/health", UriKind.Relative), Ct);
         Assert.Equal(200, (int)health.StatusCode);
         Assert.DoesNotContain(control.All, e => e.EventId == 7014);
+    }
+
+    /// <summary>SLF3c (R11.6 (add.)): the second column. With <c>INSERT</c> on <c>signal_target</c> revoked from the role the Forum does not start and says why (7014); the leaf's grant alone is not enough.</summary>
+    [Fact]
+    public async Task R11_6_SLF3c_TheSignalTargetGrantDecidesTheStartToo()
+    {
+        await AdminAsync($"REVOKE INSERT (signal_target) ON events FROM \"{forum.RoleName}\";");
+        try
+        {
+            using var refused = new LogCapture();
+            await using var withoutIt = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<ILoggerProvider>(refused)));
+            Assert.NotNull(Record.Exception(() => withoutIt.CreateClient()));
+            Assert.Contains(refused.All, e => e.EventId == 7014 && e.Level == LogLevel.Error);
+        }
+        finally
+        {
+            await AdminAsync($"GRANT INSERT (signal_target) ON events TO \"{forum.RoleName}\";");
+        }
     }
 
     private async Task<string> ScalarTextAsync(string sql)

@@ -36,16 +36,21 @@ public sealed class PostgresEventsPositionGrant : IEventsPositionGrant
         }
     }
 
+    private static string Writable(string column) =>
+        $"(CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = @table::regclass AND attname = '{column}' AND NOT attisdropped) " +
+        $"THEN has_column_privilege(current_user, @table::regclass, '{column}', 'INSERT') ELSE false END)";
+
     [SuppressMessage("Reliability", "CA2007:Consider calling ConfigureAwait on the awaited task", Justification = "Every awaited call carries ConfigureAwait(false); the analyzer flags the `await using` disposal.")]
+    [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities", Justification = "The only concatenated text is Writable's two column names, string literals of this file; the table is a bound parameter.")]
     public async Task<Result<bool>> RoleCanWriteLeafAsync(CancellationToken cancellationToken = default)
     {
         try
         {
             await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            // The column is looked up first and its privilege asked only where it exists: has_column_privilege raises on a column that is not there, and "not there" is the answer.
+            // Each column is looked up first and its privilege asked only where it exists: has_column_privilege raises on a column that is not there, and "not there" is the answer.
+            // Both columns db/0007 adds are written by every append (the leaf, and the signal target of a vote or verification, R11.6 (add.)).
             await using var command = new NpgsqlCommand(
-                "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = @table::regclass AND attname = 'leaf_hash' AND NOT attisdropped) " +
-                "THEN has_column_privilege(current_user, @table::regclass, 'leaf_hash', 'INSERT') ELSE false END;",
+                "SELECT " + Writable("leaf_hash") + " AND " + Writable("signal_target") + ";",
                 connection);
             command.Parameters.AddWithValue("table", _qualifiedTable);
             return Result<bool>.Ok((bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!);

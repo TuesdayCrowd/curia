@@ -22,7 +22,7 @@ public sealed partial class EventsSeqWritableCheck(IEventsPositionGrant grant, I
         else if (!canWrite)
         {
             LeafColumnMissing(log);
-            throw new InvalidOperationException("db/0007 is not applied to this database: events.leaf_hash is missing or the role holds no INSERT on it (R6.69). The owner applies it; see the README.");
+            throw new InvalidOperationException("db/0007 is not applied to this database: events.leaf_hash or events.signal_target is missing or the role holds no INSERT on it (R6.69, R11.6 (add.)). The owner applies it; see the README.");
         }
     }
 
@@ -39,14 +39,14 @@ public sealed partial class EventsSeqWritableCheck(IEventsPositionGrant grant, I
         EventId = 7014,
         EventName = "EventsLeafColumnMissing",
         Level = LogLevel.Error,
-        Message = "events.leaf_hash is missing, or the role this Forum connects as holds no INSERT on it: db/0007 is not applied to this database (R6.69, errata G87). Every append writes the row's leaf hash, so this Forum would refuse every write. The Forum does not start; the database's owner applies db/0007 and runs curia-operator backfill-leaves (README).")]
+        Message = "events.leaf_hash or events.signal_target is missing, or the role this Forum connects as holds no INSERT on one of them: db/0007 is not applied to this database (R6.69, R11.6 (add.), errata G87). Every append writes the row's leaf hash and a vote's signal target, so this Forum would refuse every write. The Forum does not start; the database's owner applies db/0007 and runs curia-operator backfill-leaves (README).")]
     private static partial void LeafColumnMissing(ILogger logger);
 
     [LoggerMessage(
         EventId = 7015,
         EventName = "EventsLeafColumnUnchecked",
         Level = LogLevel.Warning,
-        Message = "Whether db/0007's events.leaf_hash is writable by the role this Forum connects as could not be checked ({Type}). The Forum starts anyway.")]
+        Message = "Whether db/0007's events.leaf_hash and events.signal_target are writable by the role this Forum connects as could not be checked ({Type}). The Forum starts anyway.")]
     private static partial void LeafUnchecked(ILogger logger, string type);
 
     [LoggerMessage(

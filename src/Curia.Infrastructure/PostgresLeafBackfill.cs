@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Curia.Application.Projections;
 using Curia.Domain;
 using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
@@ -8,10 +9,10 @@ using NpgsqlTypes;
 namespace Curia.Infrastructure;
 
 /// <summary>What <see cref="PostgresLeafBackfill"/> did: rows it filled, and rows that already held a leaf and were left alone (right or wrong: the audit decides which).</summary>
-public sealed record LeafBackfillReport(long Filled, long AlreadyHeld);
+public sealed record LeafBackfillReport(long Filled, long AlreadyHeld, long SignalTargetsFilled = 0);
 
 /// <summary>
-/// R6.69, db/0007: fills <c>events.leaf_hash</c> for the rows appended before the column existed. It runs with the <b>database owner's</b> role, never the application role, which holds no
+/// R6.69, db/0007: fills <c>events.leaf_hash</c> and <c>events.signal_target</c> (R11.6 (add.): the target of a vote or verification, read from its canonical envelope as the append reads it) for the rows appended before the columns existed. It runs with the <b>database owner's</b> role, never the application role, which holds no
 /// <c>UPDATE</c> (R11.6) and is refused before a row is read. It fills a row only where the column is <c>NULL</c> (<c>WHERE leaf_hash IS NULL</c> in the statement itself, so a leaf that appears
 /// between the read and the write is not overwritten), and it never replaces a leaf that is there: a wrong stored leaf is the audit's finding, and a repair that rewrote it from the row would be
 /// this tool deciding what the log's leaf is. Idempotent, in batches (each its own transaction), and safe to run beside a Forum that is appending, which writes its own leaf.
@@ -54,7 +55,8 @@ public sealed class PostgresLeafBackfill : IAsyncDisposable
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         bool canUpdate;
-        await using (var privilege = new NpgsqlCommand("SELECT has_column_privilege(current_user, @table::regclass, 'leaf_hash', 'UPDATE');", connection))
+        await using (var privilege = new NpgsqlCommand(
+            "SELECT has_column_privilege(current_user, @table::regclass, 'leaf_hash', 'UPDATE') AND has_column_privilege(current_user, @table::regclass, 'signal_target', 'UPDATE');", connection))
         {
             privilege.Parameters.AddWithValue("table", _qualifiedTable);
             canUpdate = (bool)(await privilege.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
@@ -63,10 +65,10 @@ public sealed class PostgresLeafBackfill : IAsyncDisposable
         if (!canUpdate)
             return Result<LeafBackfillReport>.Fail(new Error(
                 "curia/backfill/not-the-owner",
-                "The role this tool connects as holds no UPDATE on events.leaf_hash",
+                "The role this tool connects as holds no UPDATE on events.leaf_hash or events.signal_target",
                 "Run backfill-leaves with the database owner's connection string, not the Forum's. The application role has no UPDATE on events by design (R11.6)."));
 
-        long filled = 0, held = 0, after = 0;
+        long filled = 0, held = 0, targets = 0, after = 0;
         while (true)
         {
             var batch = new List<AppendedEvent>(BatchSize);
@@ -81,11 +83,20 @@ public sealed class PostgresLeafBackfill : IAsyncDisposable
             }
 
             if (batch.Count == 0)
-                return Result<LeafBackfillReport>.Ok(new LeafBackfillReport(filled, held));
+                return Result<LeafBackfillReport>.Ok(new LeafBackfillReport(filled, held, targets));
 
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             foreach (var row in batch)
             {
+                // The signal target is filled where the canonical states one and the column is NULL, and only there: a column that holds a different value is the audit's finding and is never replaced.
+                if (row.StoredSignalTarget is null && SignalTargetColumn.Of(row.Event) is { } target)
+                {
+                    await using var fill = new NpgsqlCommand($"UPDATE {_qualifiedTable} SET signal_target = @target WHERE seq = @seq AND signal_target IS NULL;", connection, transaction);
+                    fill.Parameters.Add(new NpgsqlParameter("target", NpgsqlDbType.Text) { Value = target });
+                    fill.Parameters.Add(new NpgsqlParameter("seq", NpgsqlDbType.Bigint) { Value = row.Seq.Value });
+                    targets += await fill.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
                 if (row.StoredLeafHash is not null)
                 {
                     held++;

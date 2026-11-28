@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Curia.Application.Ports;
+using Curia.Application.Projections;
 using Curia.Application.Reads;
 using Curia.Application.Retrieval;
 using Curia.Canon.Canonical;
@@ -43,7 +44,7 @@ public sealed class PostgresEventStore : IEventStore
     /// </summary>
     internal const string InTheLog = "seq > 0";
 
-    internal const string SelectColumns = "seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash";
+    internal const string SelectColumns = "seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash, signal_target";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly TimeProvider _clock;
@@ -496,14 +497,14 @@ public sealed class PostgresEventStore : IEventStore
     {
         var command = new NpgsqlCommand { Connection = connection, Transaction = transaction };
         var sql = new StringBuilder(
-            $"WITH ins AS (INSERT INTO {qualifiedTable} (event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash) VALUES ");
+            $"WITH ins AS (INSERT INTO {qualifiedTable} (event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash, signal_target) VALUES ");
 
         for (var i = 0; i < events.Count; i++)
         {
             if (i > 0)
                 sql.Append(", ");
             sql.Append("(@id").Append(i).Append(", @type").Append(i).Append(", @agg, @actor").Append(i)
-                .Append(", @payload").Append(i).Append(", @ts, @leaf").Append(i).Append(')');
+                .Append(", @payload").Append(i).Append(", @ts, @leaf").Append(i).Append(", @target").Append(i).Append(')');
 
             var domainEvent = events[i];
             command.Parameters.Add(new NpgsqlParameter($"id{i}", NpgsqlDbType.Text) { Value = domainEvent.Id.Value });
@@ -517,6 +518,8 @@ public sealed class PostgresEventStore : IEventStore
                 Value = payloads[i],
             });
             command.Parameters.Add(new NpgsqlParameter($"leaf{i}", NpgsqlDbType.Bytea) { Value = leaves[i] });
+            // R11.6 (add.): the signal target of a vote or verification, read from its signed envelope by the reader the verification fold uses; NULL for any other row. Never SQL over the canonical text.
+            command.Parameters.Add(new NpgsqlParameter($"target{i}", NpgsqlDbType.Text) { Value = (object?)SignalTargetColumn.Of(domainEvent) ?? DBNull.Value });
         }
 
         command.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
@@ -633,7 +636,8 @@ public sealed class PostgresEventStore : IEventStore
 
         // R6.69: what the column says, in the wire form; null for a row with none. A value that is not 32 bytes cannot be here (the column's CHECK) and is not guessed at.
         var storedLeaf = reader.IsDBNull(7) ? null : LogEntries.Prefixed([.. reader.GetFieldValue<byte[]>(7)]);
+        var storedTarget = reader.IsDBNull(8) ? null : reader.GetString(8);
 
-        return new AppendedEvent(seq, aggregateId, serverTimestamp, new DomainEvent(eventId, eventType, actorId, payload), storedLeaf);
+        return new AppendedEvent(seq, aggregateId, serverTimestamp, new DomainEvent(eventId, eventType, actorId, payload), storedLeaf, storedTarget);
     }
 }

@@ -63,7 +63,7 @@ public abstract class ReadClause
         /// <summary><c>payload-&gt;&gt;'digest'</c> of a <c>post.accepted</c> row: <c>events_post_digest</c>.</summary>
         Digest,
 
-        /// <summary>The <c>target</c> member of the signed envelope of a vote or verification: <c>events_post_signal_target</c>.</summary>
+        /// <summary>The <c>target</c> member of the signed envelope of a vote or verification, as the append wrote it in <c>events.signal_target</c> (R11.6 (add.)): <c>events_post_signal_target</c>.</summary>
         SignalTarget,
     }
 

@@ -180,17 +180,20 @@ public static class OperatorCommands
               and then "and <n> more", never a payload member, and exits 7. Run it before a
               plain sign-head covers a row, and after a restore. It cannot see a row planted at a
               position the application role's grant refuses (R11.6 (add.)): that is the start-up
-              check's.
+              check's. It also holds events.signal_target (R11.6 (add.)) to each vote's and
+              verification's own signed envelope: a column that is NULL or is not that target is
+              named ("signal-targets", then "mismatched" and "missing" rows) and exits 7; run
+              backfill-leaves for a NULL.
 
           curia-operator backfill-leaves
 
-              Fills events.leaf_hash (db/0007, R6.69) for rows appended before that column existed,
+              Fills events.leaf_hash and events.signal_target (db/0007, R6.69, R11.6 (add.)) for rows appended before those columns existed,
               each from its own row by the leaf computation of R6.46. Run it with the DATABASE
               OWNER's connection string in CURIA_EVENTS_POSTGRES: the Forum's role holds no UPDATE
               (R11.6) and is refused, exit 2, before a row is read. It fills a row only where the
               column is empty and never replaces a leaf that is there (a wrong one is the audit's
               finding, not this verb's to repair). Idempotent; safe beside a running Forum. Prints
-              "filled <n>  already_held <m>". sign-head refuses, exit 7, a log in which a stored
+              "filled <n>  already_held <m>  signal_targets_filled <k>". sign-head refuses, exit 7, a log in which a stored
               leaf is not the leaf of its row; lifecycle-audit reports it (and the rows with none).
 
           curia-operator reindex-search
@@ -812,7 +815,23 @@ public static class OperatorCommands
                     await stdout.WriteLineAsync("missing  rows with no stored leaf are served by recomputation; run curia-operator backfill-leaves with the database owner's connection").ConfigureAwait(false);
             }
 
-            return skipped.IsEmpty && leaves.Mismatched.Count == 0 ? ExitCode.Ok : ExitCode.LifecycleRowsSkipped;
+            // R11.6 (add.): the signal target column, held to each vote's and verification's own canonical. A NULL is a vote the indexed read does not find, so it is a finding.
+            var targets = SignalTargetAudit.Check(log!);
+            if (targets.Mismatched.Count > 0 || targets.Missing.Count > 0)
+            {
+                await stdout.WriteLineAsync(
+                    $"signal-targets  mismatched {targets.Mismatched.Count.ToString(CultureInfo.InvariantCulture)}  missing {targets.Missing.Count.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+                foreach (var index in targets.Mismatched.Take(AuditListed))
+                    await stdout.WriteLineAsync($"mismatched  log_index={index.ToString(CultureInfo.InvariantCulture)}  signal_target is not the target of its row's envelope").ConfigureAwait(false);
+                if (targets.Mismatched.Count > AuditListed)
+                    await stdout.WriteLineAsync($"and {(targets.Mismatched.Count - AuditListed).ToString(CultureInfo.InvariantCulture)} more mismatched").ConfigureAwait(false);
+                foreach (var index in targets.Missing.Take(AuditListed))
+                    await stdout.WriteLineAsync($"missing  log_index={index.ToString(CultureInfo.InvariantCulture)}  a vote or verification with no signal_target does not count toward a finding; run curia-operator backfill-leaves with the database owner's connection").ConfigureAwait(false);
+                if (targets.Missing.Count > AuditListed)
+                    await stdout.WriteLineAsync($"and {(targets.Missing.Count - AuditListed).ToString(CultureInfo.InvariantCulture)} more missing").ConfigureAwait(false);
+            }
+
+            return skipped.IsEmpty && leaves.Mismatched.Count == 0 && targets.Mismatched.Count == 0 && targets.Missing.Count == 0 ? ExitCode.Ok : ExitCode.LifecycleRowsSkipped;
         }
     }
 
@@ -896,7 +915,7 @@ public static class OperatorCommands
             if (!report.TryGetValue(out var done, out var error))
                 return await RefuseAsync(stderr, error!).ConfigureAwait(false);
 
-            await stdout.WriteLineAsync($"filled {done!.Filled.ToString(CultureInfo.InvariantCulture)}  already_held {done.AlreadyHeld.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            await stdout.WriteLineAsync($"filled {done!.Filled.ToString(CultureInfo.InvariantCulture)}  already_held {done.AlreadyHeld.ToString(CultureInfo.InvariantCulture)}  signal_targets_filled {done.SignalTargetsFilled.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
             return ExitCode.Ok;
         }
     }
