@@ -22,6 +22,12 @@ public sealed class LogUnreadableException : Exception
     public LogUnreadableException(string cause, Exception? inner)
         : base("The event log could not be read: " + cause, inner) => Cause = cause;
 
+    /// <summary>
+    /// A reader that answered a read with a failed <see cref="Curia.Domain.Primitives.Result{T}"/> instead of throwing (a refusal, never what the Postgres store does, R11.71) and was asked a read plan: the plan's
+    /// default answers it by throwing this, carrying the reader's own error, and a caller that handled the failed result before the plan existed handles <see cref="Refusal"/> as it handled it. Null for a fault of a store.
+    /// </summary>
+    public Curia.Domain.Primitives.Error? Refusal { get; init; }
+
     /// <summary>The fault's type name and, for a Postgres fault, its SQLSTATE; never a message.</summary>
     public string Cause { get; }
 }

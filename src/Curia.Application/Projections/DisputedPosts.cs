@@ -100,11 +100,7 @@ public sealed class DisputedPosts
     {
         ArgumentNullException.ThrowIfNull(verified);
 
-        var log = verified.Log;
-        var position = new Dictionary<string, long>(StringComparer.Ordinal);
-        for (var i = 0; i < log.Count; i++)
-            position[log[i].Event.Id.Value] = i;
-
+        // A log index is the row's own (R6.47): the whole log's position, or the index a read returned the row with (errata G87).
         var lifecycles = new Dictionary<string, KeyLifecycle?>(StringComparer.Ordinal);
         var disputed = ImmutableDictionary.CreateBuilder<string, long>(StringComparer.Ordinal);
         var statuses = ImmutableDictionary.CreateBuilder<string, KeyStatus>(StringComparer.Ordinal);
@@ -125,11 +121,11 @@ public sealed class DisputedPosts
 
             var status = lifecycle.StatusNow(kid);
             statuses[post.PostId] = status;
-            if (status is not KeyStatus.Compromised || !position.TryGetValue(post.PostId, out var postIndex)) continue;
+            if (status is not KeyStatus.Compromised || verified.PositionOf(post.PostId) is not { } postIndex) continue;
 
             var bound = lifecycle.Entries
                 .Where(e => e.Kid is not null && string.Equals(e.Kid, kid, StringComparison.Ordinal) && e.Type != LifecycleAppendGuard.KeyRetiredType)
-                .Select(e => position.TryGetValue(e.EventId, out var p) ? p : long.MaxValue)
+                .Select(e => verified.PositionOf(e.EventId) ?? long.MaxValue)
                 .DefaultIfEmpty(long.MaxValue)
                 .Min();
 
@@ -139,7 +135,7 @@ public sealed class DisputedPosts
             {
                 if (entry.Kids is not { } kids || entry.FromIndex is not { } from) continue;
                 if (!kids.Contains(kid, StringComparer.Ordinal)) continue;
-                if (!position.TryGetValue(entry.EventId, out var declared)) continue;
+                if (verified.PositionOf(entry.EventId) is not { } declared) continue;
                 if (postIndex < from || postIndex < bound || postIndex >= declared) continue;
                 by = by is { } existing ? Math.Min(existing, declared) : declared;
             }

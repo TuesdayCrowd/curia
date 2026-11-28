@@ -10,6 +10,7 @@ using Curia.Application.Ingest;
 using Curia.Application.Moderation;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
+using Curia.Application.Reads;
 using Curia.AuthN;
 using Curia.AuthN.Ports;
 using Curia.Canon.Json;
@@ -1078,13 +1079,14 @@ public static class ForumEndpoints
     private static async Task<Admission> AdmitAsync(
         VerifiedSubmission v,
         AgentId author,
-        VerifiedLog verifiedLog,
+        AgentRead read,
         IPolicyDecisionPoint pdp,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
-        var log = verifiedLog.Log;
-        var posture = PostureQuery.Of(verifiedLog, author);
+        // Errata G87, R5.28: the posture, the posting count, the own-revision check and the recorded-digest check are decided from the one read the caller took for this decision (the agent's stream, the
+        // keys, its posts and what bears on them): none of them needs a row that is not the author's, since an envelope carries its author and an equal digest is the same author's bytes.
+        var posture = read.Posture;
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Admission.Refused(Problem(StatusCodes.Status500InternalServerError, postureError!));
@@ -1094,7 +1096,7 @@ public static class ForumEndpoints
 
         // R7.28, R7.29: the instants the posting count reads, taken once from the log this decision is made on (under the agent's hold, R7.27): the
         // policy's count is CountIn over them, a refusal's next_slot_at is the standing's over them, and the receipt adds the act to them.
-        var postInstants = BudgetReadout.PostInstants(log, v.AuthorAgentId).ToArray();
+        var postInstants = read.PostInstants.ToArray();
         var postLimit = TierPolicy.PostsPerDay(tier.Tier);
 
         var (resource, action) = PairFor(v.Envelope.Kind);
@@ -1116,7 +1118,7 @@ public static class ForumEndpoints
         // resource. Until this existed, the qualifier was returned and read past: any T0 agent could
         // submit a revision naming another agent's post.
         if (d!.Qualifier is GrantQualifier.OwnResourceOnly)
-            d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId.Value));
+            d = d.Discharge(RevisesOwnPost(read, v.Envelope.Prev));
 
         // R7.32 (errata G58): the posting budget, and no other denial, gives way to R8.78. A recorded act has already spent its slot, so refusing the very
         // bytes for that slot says something true of the budget and false of the act. The check is the one the allowed path makes below, on this same
@@ -1128,7 +1130,7 @@ public static class ForumEndpoints
         if (!d.IsAllowed
             && string.Equals(d.Reason, BudgetKinds.All.First(k => string.Equals(k.Name, BudgetKinds.Posting, StringComparison.Ordinal)).DenialReason, StringComparison.Ordinal)
             && facts.CredentialState == CredentialState.Active
-            && AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } spentRecordedPostId)
+            && AlreadyRecordedPost(read, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } spentRecordedPostId)
             return Admission.Refused(Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(spentRecordedPostId)));
 
         if (!d.IsAllowed)
@@ -1170,13 +1172,9 @@ public static class ForumEndpoints
         // criteria: the credential events enrollment appended, and the agent's own post history.
         // The fold reads no clock (R11.9); the elapsed-time half is the instant handed to
         // TierPolicy.Evaluate below.
-        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-
-        // One verified log per request (errata G70, ruling 76): the posture, the checks and the guard decide from the operator acts the Forum honours, each act verified once.
-        var verifiedLog = VerifierOf(http).OfLog(log);
-        // R7.35 (errata G88): this decision may refuse the request early and is never the one that admits a request that waits; the near-duplicate check's wait is below, and
-        // PersistSubmissionAsync decides again on the read taken after it.
-        var admission = await AdmitAsync(v, author!, verifiedLog, pdp, clock, cancellationToken).ConfigureAwait(false);
+        // Errata G87, R5.28, R7.35: the authorization is decided from the author's own rows, read in one snapshot (this one may refuse early; the one after the near-duplicate check's wait is the one that admits).
+        var authorization = await AgentRead.ReadAsync(events, VerifierOf(http), author, AgentReadOptions.PostureAndFindings, cancellationToken).ConfigureAwait(false);
+        var admission = await AdmitAsync(v, author!, authorization, pdp, clock, cancellationToken).ConfigureAwait(false);
         if (admission.Refusal is not null)
             return admission.Refusal;
 
@@ -1185,8 +1183,18 @@ public static class ForumEndpoints
         // tier is told the tier and never whether a post exists; the posting budget's denial alone gives way, R7.32, above), before the parent checks, the near-duplicate check, SCREEN and
         // PERSIST (nothing is screened, stored or spent). It counts stored posts, not served ones: withheld bytes sent again are
         // not a correction. The first post of the digest in log order is named, by its id and nothing an author wrote.
-        if (AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } recordedPostId)
+        if (AlreadyRecordedPost(authorization, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } recordedPostId)
             return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(recordedPostId));
+
+        // The rest of the attempt (the parent checks, the signal refusal, the near-duplicate check) folds the corpus, and so reads the log whole: classes B and C of errata G87, which leave with the
+        // routes that serve them. One verified log per request (errata G70, ruling 76): the checks and the guard decide from the operator acts the Forum honours, each act verified once.
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var verifiedLog = VerifierOf(http).OfLog(log);
+
+        // R8.78, R8.86: the guard of PERSIST judges what was appended after the position of THIS read, so the digest is checked on this read too. The check above ran on the author's own rows, read earlier; a
+        // twin that committed between the two reads is in this read, before this read's position, and neither the early check nor the guard's delta would see it (RVO45: two events of one digest).
+        if (AlreadyRecordedPost(log, Curia.Canon.Digests.Sha256(v.Canonical).ToPrefixed()) is { } recordedAfter)
+            return Problem(StatusCodes.Status409Conflict, IngestErrors.AlreadyRecorded(recordedAfter));
 
         // R8.77 (errata G45): a revision is entered under a gate on its prev. After AUTHORIZE (a stranger is told 403 and never holds the gate or
         // learns a successor) and before the parent checks, the near-duplicate check, SCREEN and PERSIST. The log AUTHORIZE read is older than any
@@ -1344,7 +1352,8 @@ public static class ForumEndpoints
 
             // R7.35 (errata G88): the decision that admits is this one, on the read taken after the last wait and inside the agent's hold, and the one above only refused early. After the wait and
             // before the corpus is folded or a refusal names a thread (a caller denied is never told whether a post exists, R7.30); no read of its own, it is the read the check below judges on.
-            var admission = await AdmitAsync(v, v.AuthorAgentId, dedupeVerified, pdp, clock, cancellationToken).ConfigureAwait(false);
+            var admitting = await AgentRead.ReadAsync(events, VerifierOf(http), v.AuthorAgentId, AgentReadOptions.PostureAndFindings, cancellationToken).ConfigureAwait(false);
+            var admission = await AdmitAsync(v, v.AuthorAgentId, admitting, pdp, clock, cancellationToken).ConfigureAwait(false);
             if (admission.Refusal is not null)
                 return admission.Refusal;
 
@@ -1611,13 +1620,12 @@ public static class ForumEndpoints
         await using (hold!.ConfigureAwait(false))
         {
             // PEP-2. R7.13 evaluates authorization per request; R7.7 takes the tier from the log rather
-            // than from the token's claim about it.
-            var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+            // than from the token's claim about it. Errata G87, R5.28: from the raiser's own rows, read in one snapshot.
             if (!PrincipalOf(subject).TryGetValue(out var raiser, out var subjectError))
                 return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
-            var verifiedLog = VerifierOf(http).OfLog(log);
-            var posture = PostureQuery.Of(verifiedLog, raiser!);
+            var read = await AgentRead.ReadAsync(events, VerifierOf(http), raiser!, AgentReadOptions.PostureAndFindings, cancellationToken).ConfigureAwait(false);
+            var posture = read.Posture;
 
             if (!posture.TryGetValue(out var facts, out var postureError))
                 return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -1627,7 +1635,7 @@ public static class ForumEndpoints
 
             // R7.22 (errata G18): the flag budget is counted from the log joined with the private store,
             // under the raiser's hold, so no other flag by this raiser is counted or recorded meanwhile.
-            var (raisedFlags, flagsProblem) = await FlagsAsync(log, details, cancellationToken).ConfigureAwait(false);
+            var (raisedFlags, flagsProblem) = await FlagsAsync(events, details, d => string.Equals(d.RaisedBy, raiser!.Value, StringComparison.Ordinal), cancellationToken).ConfigureAwait(false);
             if (flagsProblem is not null)
                 return flagsProblem;
 
@@ -1640,7 +1648,7 @@ public static class ForumEndpoints
                     facts!.CredentialState,
                     ResourceKind.Flag,
                     ActionKind.Raise,
-                    PostsToday: BudgetReadout.PostsUsed(log, raiser!, now),
+                    PostsToday: BudgetReadout.CountIn(read.PostInstants, now),
                     FlagsToday: BudgetReadout.CountIn(flagInstants, now)),
                 cancellationToken).ConfigureAwait(false);
 
@@ -1656,6 +1664,12 @@ public static class ForumEndpoints
             // parsed at their first use, after authorization. Each parse outcome is passed rather than
             // refused here, so the use case answers every refusal where it answered it before the
             // types existed (R10.68's order: before screening, before the post is looked up).
+            // R9.49: the post's own stream is read before the flag is recorded, with the rest of what the receipt is decided from, so that an act the log holds is answered from what it holds when every read
+            // after it fails (errata G52, R8.82).
+            var postRead = PostId.Parse(postId, "post_id").TryGetValue(out var flaggedPost, out _)
+                ? await PostStreamRead.ReadAsync(events, VerifierOf(http), flaggedPost!, cancellationToken).ConfigureAwait(false)
+                : null;
+
             var raised = await flags
                 .RecordAsync(
                     PostId.Parse(postId, "post_id"), raiser!, kind, Rationale.Parse(request.Rationale), cancellationToken)
@@ -1667,7 +1681,7 @@ public static class ForumEndpoints
             // R9.49 (errata G47): whether the post is served, always present, decided from the log read for this flag by the one predicate the single
             // read of a post answers 200 by (ServedPost), so the receipt is true exactly where an anonymous read of the id would be 200 and the two cannot
             // drift. A vote is a post that exists (a flag against it is accepted, R10.35) and no post a reader is served: false.
-            var postServed = ServedPost(PostProjector.Fold(log), Servable(verifiedLog), flag!.PostId) is not null;
+            var postServed = postRead is not null && ServedPost(postRead.Posts, postRead.Servable, flag!.PostId) is not null;
 
             return Results.Created(
                 $"/v1/posts/{Uri.EscapeDataString(postId)}",
@@ -1739,10 +1753,11 @@ public static class ForumEndpoints
 
         if (problem is not null) return problem;
 
-        var (flags, detailProblem) = await FlagsAsync(ok!.Log, details, cancellationToken).ConfigureAwait(false);
+        var subject = ok!.Subject;
+        var (flags, detailProblem) = await FlagsAsync(events, details, d => string.Equals(d.RaisedBy, subject, StringComparison.Ordinal), cancellationToken).ConfigureAwait(false);
         if (detailProblem is not null) return detailProblem;
 
-        var mine = flags.Where(f => string.Equals(f.RaisedBy, ok.Subject, StringComparison.Ordinal));
+        var mine = flags.Where(f => string.Equals(f.RaisedBy, subject, StringComparison.Ordinal));
 
         // Ownership is established by the filter immediately above, not claimed.
         var decision = ok.Decision.Discharge(satisfied: true);
@@ -1771,7 +1786,7 @@ public static class ForumEndpoints
         CancellationToken cancellationToken)
     {
         var (ok, problem) = await AuthorizeFlagListAsync(
-                http, pdp, events, authn, nonces, clock, cancellationToken, ResourceKind.Budget, ActionKind.Read, unreadableLogIsAFault: true)
+                http, pdp, events, authn, nonces, clock, cancellationToken, ResourceKind.Budget, ActionKind.Read)
             .ConfigureAwait(false);
 
         if (problem is not null) return problem;
@@ -1783,7 +1798,7 @@ public static class ForumEndpoints
         if (!BudgetKinds.CredentialWord(ok!.Facts.CredentialState).TryGetValue(out var credential, out var credentialError))
             return Problem(StatusCodes.Status403Forbidden, credentialError!);
 
-        var (flags, detailProblem) = await FlagsAsync(ok.Log, details, cancellationToken).ConfigureAwait(false);
+        var (flags, detailProblem) = await FlagsAsync(events, details, d => string.Equals(d.RaisedBy, ok.Subject, StringComparison.Ordinal), cancellationToken).ConfigureAwait(false);
         if (detailProblem is not null) return detailProblem;
 
         if (!PrincipalOf(ok.Subject).TryGetValue(out var agent, out var subjectError))
@@ -1792,7 +1807,7 @@ public static class ForumEndpoints
         var now = clock.GetUtcNow();
         var tier = TierPolicy.Evaluate(ok.Facts, now).Tier;
         var entries = BudgetReadout.Read(
-            ok.Log, flags, agent!, TierPolicy.PostsPerDay(tier), TierPolicy.AcceptsPerDay(tier), TierPolicy.FlagsPerDay(tier), now);
+            [.. ok.Read.PostInstants], [.. ok.Read.AcceptInstants], flags, agent!, TierPolicy.PostsPerDay(tier), TierPolicy.AcceptsPerDay(tier), TierPolicy.FlagsPerDay(tier), now);
 
         http.HttpContext.Response.Headers.CacheControl = "no-store";
 
@@ -1845,8 +1860,11 @@ public static class ForumEndpoints
 
         if (problem is not null) return problem;
 
-        var post = PostProjector.Fold(ok!.Log)
-            .FirstOrDefault(p => string.Equals(p.PostId, postId, StringComparison.Ordinal));
+        // The post's own stream and nothing else (errata G87): a post is the rows of its aggregate, and its author is the one that wrote it.
+        var post = PostId.Parse(postId, "post_id").TryGetValue(out var named, out _)
+            ? PostProjector.Fold([.. (await events.ReadAsync(ReadPlan.Of(ReadClause.Aggregates([named!.Value])), cancellationToken).ConfigureAwait(false)).Rows.Select(r => r.Event)])
+                .FirstOrDefault(p => string.Equals(p.PostId, postId, StringComparison.Ordinal))
+            : null;
 
         if (post is null)
             return Problem(StatusCodes.Status404NotFound, new Error(
@@ -1854,14 +1872,14 @@ public static class ForumEndpoints
 
         // Table 10's "(own)": the post these flags name must be one the caller wrote.
         // R7.30: this route has just found the post, so its denial says the resource exists.
-        var decision = ok.Decision.Discharge(
+        var decision = ok!.Decision.Discharge(
             string.Equals(post.Author, ok.Subject, StringComparison.Ordinal),
             resourceKnownToExist: true);
 
         if (!decision.IsAllowed)
             return Problem(StatusCodes.Status403Forbidden, Denial(decision, $"{decision.Reason} post={postId}"));
 
-        var (all, detailProblem) = await FlagsAsync(ok.Log, details, cancellationToken).ConfigureAwait(false);
+        var (all, detailProblem) = await FlagsAsync(events, details, d => string.Equals(d.PostId, postId, StringComparison.Ordinal), cancellationToken).ConfigureAwait(false);
         if (detailProblem is not null) return detailProblem;
 
         var flags = all.Where(f => string.Equals(f.PostId, postId, StringComparison.Ordinal));
@@ -1872,7 +1890,7 @@ public static class ForumEndpoints
     /// <summary>What both listing routes need once the caller is authenticated and tier-checked.</summary>
     private sealed record FlagListContext(
         string Subject,
-        IReadOnlyList<AppendedEvent> Log,
+        AgentRead Read,
         AuthorizationDecision Decision,
         PostureFacts Facts);
 
@@ -1886,14 +1904,13 @@ public static class ForumEndpoints
     private static async Task<(FlagListContext? Context, IResult? Problem)> AuthorizeFlagListAsync(
         HttpRequest http,
         IPolicyDecisionPoint pdp,
-        IEventReader events,
+        IPositionedEventReader events,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
         TimeProvider clock,
         CancellationToken cancellationToken,
         ResourceKind resource = ResourceKind.Flag,
-        ActionKind action = ActionKind.List,
-        bool unreadableLogIsAFault = false)
+        ActionKind action = ActionKind.List)
     {
         var principal = await AccessTokenValidator.ValidateRequestAsync(
             new IncomingRequest(
@@ -1910,27 +1927,13 @@ public static class ForumEndpoints
 
         var subject = authenticated!.Claims.Sub;
 
-        // R9.50 (errata G49, ruling 19): a route that must never state a count from a log it could not read reads it itself, so a failed read is its own 503
-        // with the slug. (Until errata G52 this was the only way: ReadEventsAsync's empty log made the posture Pending and the tier Anonymous, which told a real
-        // agent a tier denial a missing log produced; ReadEventsAsync now throws and the middleware answers the same 503.)
-        IReadOnlyList<AppendedEvent> log;
-        if (unreadableLogIsAFault)
-        {
-            var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-            if (!read.TryGetValue(out var all, out var readError))
-                return (null, StoreFaults.LogUnreadable(readError!.Type));
-
-            log = all!;
-        }
-        else
-        {
-            log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        }
-
         if (!PrincipalOf(subject).TryGetValue(out var lister, out var subjectError))
             return (null, Problem(StatusCodes.Status403Forbidden, subjectError!));
 
-        var posture = PostureQuery.Of(VerifierOf(http), log, lister!);
+        // Errata G87, R5.28, R11.113: the lister's posture and budgets are decided from the lister's own rows (its stream, the keys, its posts and acceptances and what bears on them), read in one snapshot.
+        // R9.50: a log that cannot be read is thrown (R11.71) and answered 503 with its slug, never a tier the missing log produced.
+        var read = await AgentRead.ReadAsync(events, VerifierOf(http), lister!, new AgentReadOptions(Posture: true, Findings: true, Acceptances: true), cancellationToken).ConfigureAwait(false);
+        var posture = read.Posture;
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return (null, Problem(StatusCodes.Status500InternalServerError, postureError!));
@@ -1949,7 +1952,7 @@ public static class ForumEndpoints
         if (!d!.IsPermitted)
             return (null, Problem(StatusCodes.Status403Forbidden, Denial(d, d.Reason)));
 
-        return (new FlagListContext(subject, log, d, facts), null);
+        return (new FlagListContext(subject, read, d, facts), null);
     }
 
     /// <summary>
@@ -1958,17 +1961,17 @@ public static class ForumEndpoints
     /// absent, which reads as "nothing was raised".
     /// </summary>
     private static async Task<(ImmutableArray<RaisedFlag> Flags, IResult? Problem)> FlagsAsync(
-        IReadOnlyList<AppendedEvent> log, IFlagDetailStore details, CancellationToken cancellationToken)
+        IPositionedEventReader events, IFlagDetailStore details, Func<FlagDetail, bool> wanted, CancellationToken cancellationToken)
     {
-        var rows = await details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-        if (!rows.TryGetValue(out var detailRows, out var error))
+        var read = await FlagReads.ReadAsync(events, details, wanted, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var flags, out var error))
         {
             // R9.50: one name for one fault. A store that fails in a way of its own is still this route's 503, under the type the real store uses.
             var served = string.Equals(error!.Type, "curia/flag/detail-store-unavailable", StringComparison.Ordinal) ? error : new Error("curia/flag/detail-store-unavailable", "The flag detail store could not complete the request", error.Type);
             return ([], Problem(StatusCodes.Status503ServiceUnavailable, served));
         }
 
-        return (FlagDirectory.Join(log, detailRows!).Flags, null);
+        return (flags!.Flags, null);
     }
 
     /// <summary>
@@ -2346,7 +2349,7 @@ public static class ForumEndpoints
     /// set.</para>
     /// </summary>
     private static async Task<IResult> GetJwks(
-        string? agent, LogBoundKeys keys, IEventReader events, LifecycleVerifier verifier, ILifecycleAppendGate gate, CancellationToken cancellationToken)
+        string? agent, LogBoundKeys keys, ILifecycleAppendGate gate, CancellationToken cancellationToken)
     {
         // R11.34 (errata G18): the agent as the AgentId the key set is read for. Bound as a nullable
         // string, so an absent parameter reaches this handler: bound non-nullable, the binder answered
@@ -2368,22 +2371,12 @@ public static class ForumEndpoints
         if (keySet!.Stored == 0)
             return Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId!.Value));
 
-        // The leaf that binds each key, from the Acta folded once, as every route that serves a post
-        // or a log document folds it: no index of the key set's own, which would be a second
-        // computation of R6.47's leaf index that must agree with the fold forever (the spec's
-        // Decision 8). A log that cannot be read is 503, as FoldAsync answers it. A log that reads
-        // but will not fold into a tree publishes the keys without positions rather than no keys: a
-        // reader then cannot check the binding, and says so (R6.54's absence is an absence).
-        var (acta, failure) = await ActaEndpoints.FoldAsync(events, cancellationToken).ConfigureAwait(false);
-        if (failure is ServerFault { Type: LogBoundKeys.LogUnreadableType })
-            return failure;
-
-        // R4.35 (rev.): the identity's lifecycle indices, from the same fold; left out when the log would
-        // not fold, as the keys' own positions are, so an absence never reads as an empty lifecycle.
-        var decided = acta is null ? null : verifier.OfLog(acta.Events).For(agentId!);
-        var lifecycle = decided is not null
-            ? decided.Honoured.Entries.Select(e => acta!.IndexOf(e.EventId)).Where(i => i is not null).Select(i => i!.Value).ToList()
-            : null;
+        // The log index (R6.47) of the row that binds each key, and of each of the identity's lifecycle entries, are the indices the one read returned its rows with (errata G87, R5.28, R11.113):
+        // the key set is published from the identity's stream and the published keys alone, not from a fold of the whole log, and no index of its own is computed.
+        // R4.41 (rev.): an event the read does not hold has no index, and that is a fault of the Forum (a 500 from the exception handler), never a member left out of the document.
+        var decided = keySet.Verified!;
+        var indexOf = Jwks.Strictly(keySet.IndexOf!);
+        var lifecycle = decided.Honoured.Entries.Select(e => indexOf(e.EventId)).ToList();
 
         // R4.38 (add.): the kinds the build approves and the Forum enables. A record that cannot be read
         // is the Forum's fault, never an empty approval.
@@ -2392,10 +2385,10 @@ public static class ForumEndpoints
 
         return Results.Ok(Jwks.ForAgent(
             keySet.Bound,
-            acta is null ? _ => null : acta.IndexOf,
+            indexOf,
             lifecycle,
             Jwks.LifecycleKinds(record!.Approved.Select(a => a.Kind), gate),
-            decided is null ? null : (IReadOnlyList<SkippedRow>)decided.Skipped));
+            (IReadOnlyList<SkippedRow>)decided.Skipped));
     }
 
     /// <summary>
@@ -2457,8 +2450,11 @@ public static class ForumEndpoints
 
         await using var heldTurn = hold!.ConfigureAwait(false);
 
+        // Errata G87, R5.28: the acceptor's posture and its acceptances are decided from its own rows, read in one snapshot, under its hold. The target's resolution below folds the corpus
+        // (the answer, its correction chain, its thread's root and acceptance) and so still reads the log whole: class B of errata G87, which leaves with the routes that serve posts.
+        var read = await AgentRead.ReadAsync(events, VerifierOf(http), acceptor!, new AgentReadOptions(Posture: true, Findings: true, Acceptances: true), cancellationToken).ConfigureAwait(false);
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(VerifierOf(http), log, acceptor!);
+        var posture = read.Posture;
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -2496,7 +2492,7 @@ public static class ForumEndpoints
             && AcceptanceProjector.Fold(log).TryGetValue(root.PostId, out var standingAnswer)
             && string.Equals(standingAnswer, answer.PostId, StringComparison.Ordinal);
 
-        var acceptInstants = BudgetReadout.AcceptInstants(log, acceptor!).ToArray();
+        var acceptInstants = read.AcceptInstants.ToArray();
         var acceptLimit = TierPolicy.AcceptsPerDay(tier.Tier);
 
         var decision = await pdp.EvaluateAsync(
@@ -2688,13 +2684,14 @@ public static class ForumEndpoints
     private static string? AlreadyRecordedPost(IReadOnlyList<AppendedEvent> log, string digest) =>
         SubmissionChecks.AlreadyRecorded(log, digest);
 
-    private static bool RevisesOwnPost(IReadOnlyList<AppendedEvent> log, string? prev, string author)
+    private static string? AlreadyRecordedPost(AgentRead read, string digest) =>
+        read.Posts.FirstOrDefault(p => string.Equals(p.Digest, digest, StringComparison.Ordinal))?.PostId;
+
+    private static bool RevisesOwnPost(AgentRead read, string? prev)
     {
         if (string.IsNullOrWhiteSpace(prev)) return false;
 
-        return PostProjector.Fold(log).Any(p =>
-            string.Equals(p.Digest, prev, StringComparison.Ordinal)
-            && string.Equals(p.Author, author, StringComparison.Ordinal));
+        return read.Posts.Any(p => string.Equals(p.Digest, prev, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -2749,6 +2746,10 @@ public static class ForumEndpoints
 
         if (!TryReadLimit(http, "curia/search/invalid-limit", out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
+
+        // R9.79 (errata G88): a query of more distinct words than the keyword channel's cost allows is refused before anything is embedded or read.
+        if (LexicalSearch.RefuseLongQuery(http.Query["q"].ToString()) is { } longQuery)
+            return Problem(StatusCodes.Status400BadRequest, longQuery);
 
         // R9.26: a set, comma-separated the way `tags` already is. The scalar could not name
         // {answer, finding} -- the gradable kinds R10.45 applies a floor to -- so an agent told by
@@ -3839,8 +3840,9 @@ public static class ForumEndpoints
         if (!PrincipalOf(subject).TryGetValue(out var agent, out var subjectError))
             return (null, Problem(StatusCodes.Status403Forbidden, subjectError!));
 
-        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        if (!PostureQuery.Of(VerifierOf(http), log, agent!).TryGetValue(out var facts, out var postureError))
+        // Errata G87, R5.28: the tier is decided from the agent's own rows, read in one snapshot.
+        var read = await AgentRead.ReadAsync(events, VerifierOf(http), agent!, AgentReadOptions.PostureAndFindings, cancellationToken).ConfigureAwait(false);
+        if (!read.Posture.TryGetValue(out var facts, out var postureError))
             return (null, Problem(StatusCodes.Status500InternalServerError, postureError!));
 
         var tier = TierPolicy.Evaluate(facts!, clock.GetUtcNow());

@@ -63,9 +63,9 @@ public sealed class RoleForumFixture : ForumFixture
     /// <summary>The table-level grant of <c>db/0001</c>: the shape errata G69 closes, which a restore from an older backup or a harness that heals at table level re-opens.</summary>
     internal Task GrantInsertOnEventsTableLevelAsync(CancellationToken ct) => AdminAsync($"GRANT INSERT ON events TO \"{RoleName}\";", ct);
 
-    /// <summary>The grant of <c>db/0006</c>: the six columns the Forum supplies, never <c>seq</c> (R11.6 (add.)).</summary>
+    /// <summary>The grants of <c>db/0006</c> and <c>db/0007</c>: the six columns the Forum supplies and the leaf and the signal target it writes beside them, never <c>seq</c> (R11.6 (add.), R6.69).</summary>
     internal Task GrantInsertOnEventsColumnsAsync(CancellationToken ct) => AdminAsync(
-        $"GRANT INSERT (event_id, event_type, aggregate_id, actor_id, payload, server_ts) ON events TO \"{RoleName}\";", ct);
+        $"GRANT INSERT (event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash, signal_target) ON events TO \"{RoleName}\";", ct);
 
     /// <summary>Whether the role holds <c>INSERT</c> on the whole of <c>events</c>, so a fact can put the grant back as it found it.</summary>
     internal async Task<bool> HoldsTableLevelInsertOnEventsAsync(CancellationToken ct)

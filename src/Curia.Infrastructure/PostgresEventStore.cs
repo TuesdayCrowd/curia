@@ -1,10 +1,16 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Curia.Application.Ports;
+using Curia.Application.Projections;
+using Curia.Application.Reads;
+using Curia.Application.Retrieval;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Domain;
+using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
+using Curia.Domain.Search;
+using Curia.Infrastructure.Search;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -36,15 +42,16 @@ public sealed class PostgresEventStore : IEventStore
     /// A statement that decides or returns an aggregate's events says so here, so that a version, a read by aggregate and a forward read are of one set of rows (errata G68, R6.65).
     /// A row at <c>seq</c> 0 or below is not in the log; it is not counted, read or honoured (G69 non-property (b) and (c): it is inert, not detected).
     /// </summary>
-    private const string InTheLog = "seq > 0";
+    internal const string InTheLog = "seq > 0";
 
-    private const string SelectColumns = "seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts";
+    internal const string SelectColumns = "seq, event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash, signal_target";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly TimeProvider _clock;
     private readonly ILifecycleAppendGate _gate;
     private readonly string _schema;
     private readonly string _qualifiedTable;
+    private readonly SearchIndexRules _searchRules;
 
     /// <summary>
     /// <paramref name="schema"/> defaults to Postgres's own default, "public" -- where
@@ -73,7 +80,11 @@ public sealed class PostgresEventStore : IEventStore
     /// composition builds a store that forgot it. Every append is classified against it before anything
     /// is written (spec section 4.13).
     /// </summary>
-    public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock, ILifecycleAppendGate gate, string schema = "public")
+    /// <param name="searchRules">
+    /// Errata G88: the rules the keyword channel's index rows are written under, which the append writes in its own transaction (R9.75, R11.115). <see cref="ShippedSearchIndexRules.Shipped"/> where omitted;
+    /// a test passes its own to see the append write what the rules say.
+    /// </param>
+    public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock, ILifecycleAppendGate gate, string schema = "public", SearchIndexRules? searchRules = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(clock);
@@ -84,6 +95,7 @@ public sealed class PostgresEventStore : IEventStore
         _gate = gate;
         _schema = schema;
         _qualifiedTable = SqlIdentifier.Quote(schema) + ".events";
+        _searchRules = searchRules ?? ShippedSearchIndexRules.Shipped;
     }
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
@@ -257,14 +269,46 @@ public sealed class PostgresEventStore : IEventStore
             }
         }
 
-        var serverTimestamp = ServerTimestamp.At(_clock.GetUtcNow());
+        // R6.69: the column holds microseconds, so the instant is cut to them here and the leaf below is of the value the column will hold; a leaf of a seventh digit the row cannot keep
+        // would be a leaf no recomputation from the row reproduces.
+        var serverTimestamp = ServerTimestamp.At(TruncatedToMicroseconds(_clock.GetUtcNow()));
+
+        // R6.69: the leaf of each row, from the six things the row is made of (seq is no member, R6.46), computed before the INSERT and written in it. The payload is the one MapRow
+        // will read back (the stored text, parsed and put in canonical member order), so the leaf is of the row as a reader sees it and not of the caller's tree.
+        var leaves = new byte[events.Count][];
+        for (var i = 0; i < events.Count; i++)
+        {
+            var asRead = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(payloads[i])).Bind(CanonicalJson.InCanonicalMemberOrder);
+            if (!asRead.TryGetValue(out var payloadAsRead, out var readError))
+                return Result<IReadOnlyList<AppendedEvent>>.Fail(readError!);
+            if (!LogLeaf.Hash(aggregateId, serverTimestamp, events[i] with { Payload = payloadAsRead }).TryGetValue(out var leaf, out var leafError))
+                return Result<IReadOnlyList<AppendedEvent>>.Fail(leafError!);
+            leaves[i] = [.. leaf];
+        }
 
         var appended = new List<AppendedEvent>(events.Count);
-        await using (var insertCommand = BuildInsertCommand(_qualifiedTable, connection, transaction, aggregateId, serverTimestamp, events, payloads))
+        await using (var insertCommand = BuildInsertCommand(_qualifiedTable, connection, transaction, aggregateId, serverTimestamp, events, payloads, leaves))
         await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 appended.Add(MapRow(reader));
+        }
+
+        // R6.69: what was written is checked against what a reader recomputes from the row as read back, before the commit. A row whose stored leaf is not its row's leaf is never committed
+        // by this store: the transaction is disposed, which rolls it back, and the append throws (a bug in the one function both sides call, not a modeled outcome).
+        foreach (var row in appended)
+        {
+            var expected = LogLeaf.Hash(row).Match(h => LogEntries.Prefixed(h), e => throw new InvalidOperationException($"The appended row has no leaf: {e.Type}"));
+            if (!string.Equals(row.StoredLeafHash, expected, StringComparison.Ordinal))
+                throw new InvalidOperationException("The leaf this append computed is not the leaf of the row it wrote; nothing was committed (R6.69).");
+        }
+
+        // Errata G88, R9.75, R11.115: the keyword channel's rows of each discussion post, written on this connection and in this transaction, so a post is searchable at the instant it is served and a post that
+        // cannot be indexed is not stored. No try: a fault here is the append's, the transaction is disposed and rolled back, and the caller sees what it sees for any other store fault.
+        foreach (var row in appended)
+        {
+            if (_searchRules.Index(row) is { } indexed)
+                await SearchIndexWriter.WriteAsync(connection, transaction, SqlIdentifier.Quote(_schema), _searchRules.Version, indexed, skipExisting: false, cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -324,6 +368,13 @@ public sealed class PostgresEventStore : IEventStore
             refuse: error => error,
             redecide: DomainErrors.AppendRedecide);
     }
+
+    /// <summary>
+    /// Errata G87, R11.113: a <see cref="ReadPlan"/> answered in one <c>REPEATABLE READ, READ ONLY</c> snapshot, each clause by the index it names, each row with its R6.47 index. The default
+    /// of <see cref="IPositionedEventReader"/> reads the whole log; this does not.
+    /// </summary>
+    public Task<LogSlice> ReadAsync(ReadPlan plan, CancellationToken cancellationToken = default) =>
+        PostgresPlanReader.ReadAsync(_dataSource, _qualifiedTable, plan, cancellationToken);
 
     [SuppressMessage(
         "Reliability",
@@ -441,18 +492,19 @@ public sealed class PostgresEventStore : IEventStore
         AggregateId aggregateId,
         ServerTimestamp serverTimestamp,
         IReadOnlyList<DomainEvent> events,
-        string[] payloads)
+        string[] payloads,
+        byte[][] leaves)
     {
         var command = new NpgsqlCommand { Connection = connection, Transaction = transaction };
         var sql = new StringBuilder(
-            $"WITH ins AS (INSERT INTO {qualifiedTable} (event_id, event_type, aggregate_id, actor_id, payload, server_ts) VALUES ");
+            $"WITH ins AS (INSERT INTO {qualifiedTable} (event_id, event_type, aggregate_id, actor_id, payload, server_ts, leaf_hash, signal_target) VALUES ");
 
         for (var i = 0; i < events.Count; i++)
         {
             if (i > 0)
                 sql.Append(", ");
             sql.Append("(@id").Append(i).Append(", @type").Append(i).Append(", @agg, @actor").Append(i)
-                .Append(", @payload").Append(i).Append(", @ts)");
+                .Append(", @payload").Append(i).Append(", @ts, @leaf").Append(i).Append(", @target").Append(i).Append(')');
 
             var domainEvent = events[i];
             command.Parameters.Add(new NpgsqlParameter($"id{i}", NpgsqlDbType.Text) { Value = domainEvent.Id.Value });
@@ -465,6 +517,9 @@ public sealed class PostgresEventStore : IEventStore
             {
                 Value = payloads[i],
             });
+            command.Parameters.Add(new NpgsqlParameter($"leaf{i}", NpgsqlDbType.Bytea) { Value = leaves[i] });
+            // R11.6 (add.): the signal target of a vote or verification, read from its signed envelope by the reader the verification fold uses; NULL for any other row. Never SQL over the canonical text.
+            command.Parameters.Add(new NpgsqlParameter($"target{i}", NpgsqlDbType.Text) { Value = (object?)SignalTargetColumn.Of(domainEvent) ?? DBNull.Value });
         }
 
         command.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
@@ -474,6 +529,9 @@ public sealed class PostgresEventStore : IEventStore
         command.CommandText = sql.ToString();
         return command;
     }
+
+    private static DateTimeOffset TruncatedToMicroseconds(DateTimeOffset instant) =>
+        new(instant.Ticks - (instant.Ticks % 10), instant.Offset);
 
     /// <summary>
     /// Payload -&gt; JSON text for the jsonb parameter, in two steps that answer two different
@@ -543,7 +601,7 @@ public sealed class PostgresEventStore : IEventStore
     /// duplicates last-wins, so the value in the column never has any) and which
     /// <see cref="SerializePayload"/> refuses before the INSERT in any case.
     /// </summary>
-    private static AppendedEvent MapRow(NpgsqlDataReader reader)
+    internal static AppendedEvent MapRow(NpgsqlDataReader reader)
     {
         var seq = EventSequence.From(reader.GetInt64(0))
             .Match(v => v, e => throw new InvalidOperationException($"Corrupt events.seq: {e.Title}"));
@@ -576,6 +634,10 @@ public sealed class PostgresEventStore : IEventStore
 
         var serverTimestamp = ServerTimestamp.At(reader.GetFieldValue<DateTimeOffset>(6));
 
-        return new AppendedEvent(seq, aggregateId, serverTimestamp, new DomainEvent(eventId, eventType, actorId, payload));
+        // R6.69: what the column says, in the wire form; null for a row with none. A value that is not 32 bytes cannot be here (the column's CHECK) and is not guessed at.
+        var storedLeaf = reader.IsDBNull(7) ? null : LogEntries.Prefixed([.. reader.GetFieldValue<byte[]>(7)]);
+        var storedTarget = reader.IsDBNull(8) ? null : reader.GetString(8);
+
+        return new AppendedEvent(seq, aggregateId, serverTimestamp, new DomainEvent(eventId, eventType, actorId, payload), storedLeaf, storedTarget);
     }
 }

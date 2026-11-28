@@ -41,6 +41,14 @@ public sealed class NothingSurvivesARequestFenceTests
         ("Curia.Application.Credentials.VerifiedLog", "the verdict over one read's rows, made by LifecycleVerifier.OfLog per call"),
         ("Curia.Application.Credentials.VerifiedLifecycle", "the lifecycle fold of one read, made per call"),
         ("Curia.Application.Credentials.LogBoundKeys+StreamRead", "one stream read's verified lifecycle, returned to its caller"),
+        ("Curia.Application.Credentials.AgentKeySet", "the key set one request reads, with the identity's verified lifecycle, returned to the route that publishes it"),
+        ("Curia.Application.Credentials.KeyActs+WholeLifecycleRead", "the operator's whole lifecycle read, made per call"),
+        ("Curia.Application.Reads.AgentRead", "one request's read for one agent and the view over it (errata G87): made by AgentRead.ReadAsync per call and dropped with the request"),
+        ("Curia.Application.Reads.LogSlice", "the rows one read plan returned, made per call"),
+        ("Curia.Application.Reads.PositionedEvent", "one row of a read with its log index, made per call"),
+        ("Curia.Application.Reads.PositionedLog", "a whole list seen as positioned rows, a view over the list it is given for the length of a fold"),
+        ("Curia.Application.Reads.PostStreamRead", "one post's stream read, with the view over it, made per call"),
+        ("Curia.Application.Reads.ReadPlan", "a plan's stage functions take the events the earlier stages returned; a plan is made per call and holds none"),
         ("Curia.Application.Credentials.KeyActs+LifecycleRead", "one lifecycle read's result, returned to its caller"),
         ("Curia.Application.Credentials.LifecycleFold", "the fold of one agent's stream, made by Decide per call"),
         ("Curia.Application.Credentials.LifecycleFold+Decided", "the fold's result, returned to its caller"),
@@ -52,7 +60,7 @@ public sealed class NothingSurvivesARequestFenceTests
         ("Curia.Api.ForumEndpoints+FlagListContext", "one flag-list request's decision and read, local to the handler"),
     ];
 
-    private static readonly string[] MustExist = ["AppendedEvent", "VerifiedLog", "VerifiedLifecycle", "ActDecision", "AuthorizationDecision", "MerkleSubtreeCache"];
+    private static readonly string[] MustExist = ["AppendedEvent", "PositionedEvent", "LogSlice", "VerifiedLog", "VerifiedLifecycle", "ActDecision", "AuthorizationDecision", "MerkleSubtreeCache"];
 
     private static bool Holds(Type type, HashSet<Type> seen)
     {

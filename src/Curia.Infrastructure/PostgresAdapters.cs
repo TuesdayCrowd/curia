@@ -88,6 +88,9 @@ public sealed class PostgresAdapters : IAsyncDisposable
     /// </summary>
     public PostgresAgentKeyStore AgentKeys => new(_dataSource);
 
+    /// <summary>Errata G88: the keyword channel's index, insert-only, for the start-up check, the reconcile and the audit. The append writes its rows through the event store.</summary>
+    public ISearchIndex SearchIndex => new PostgresSearchIndex(_dataSource);
+
     public IVectorIndex VectorIndex => new PostgresVectorIndex(_dataSource, _clock);
 
     /// <summary>The private half of every flag (R10.62, R11.32): append-only, like the event log it is bound to.</summary>

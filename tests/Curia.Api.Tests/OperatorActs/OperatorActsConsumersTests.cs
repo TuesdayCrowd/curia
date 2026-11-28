@@ -246,7 +246,7 @@ public sealed class OperatorActsConsumersTests(ForumFixture forum) : IClassFixtu
 /// OAS41 (PR N2, errata G70, Amendment 6, ruling 76 (c)): one <c>VerifiedLog</c> per request. A counting <see cref="IContentVerifier"/> is registered on a second host over the fixture's database
 /// (<c>WithWebHostBuilder</c>), in place of the verifier dictionary every route's <c>LifecycleVerifier</c> is composed from. For each of five routes the verifications the request makes are counted over the log
 /// as it stands, then again after three more genuine operator acts have been recorded (each reaches R6.67's step 7, where the signature is verified); the difference is exactly three, never a multiple. The request's
-/// own verifications (the DPoP proof, the client assertion, the post's signature) are the same both times and cancel: the comparison is of two counts over logs that differ by the three rows, so the baseline
+/// own verifications (the DPoP proof, the client assertion, the post's signature) are the same both times and cancel: the comparison is of two counts over logs that differ by the three rows (which a class A request, reading only its caller's own rows, does not verify: errata G87), so the baseline
 /// needs no log with no act rows, which a database shared by the class's other legs cannot give.
 /// </summary>
 [Collection("forum")]
@@ -343,7 +343,11 @@ public sealed class OperatorActsRequestCostTests(ForumFixture forum) : IClassFix
 
         var (grown, grownSaid) = await MeasureAsync();
         Assert.Equal(baselineSaid, grownSaid);
-        WholeText.Same("3 more verifications", $"{grown - baseline} more verifications");
+
+        // Errata G87 (R11.113, RC11): a class A request (the token, an enrolment) decides from the caller's own rows, so the operator acts of other agents are not rows it reads and it verifies none of
+        // them: the three more genuine acts cost it nothing. The routes that fold the corpus still verify each act row once.
+        var expected = route is "POST /oauth/token" or "POST /v1/agents (re-announcement)" ? 0 : 3;
+        WholeText.Same($"{expected} more verifications", $"{grown - baseline} more verifications");
     }
 }
 

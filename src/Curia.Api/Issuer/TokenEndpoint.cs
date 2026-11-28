@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Curia.Api.Adapters;
 using Curia.Application.Credentials;
+using Curia.Application.Reads;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.AuthN;
@@ -58,7 +59,7 @@ public static class TokenEndpoint
         LogBoundKeys keys,
         IReplayCache replayCache,
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
-        IEventReader events,
+        IPositionedEventReader events,
         LifecycleVerifier lifecycle,
         TimeProvider clock,
         CancellationToken cancellationToken)
@@ -164,23 +165,26 @@ public static class TokenEndpoint
         if (claims.Key is null)
             return new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, null);
 
-        var bound = await keys.RequireBoundAsync(subject!, kid!, claims.Key, cancellationToken).ConfigureAwait(false);
+        // One read set, in one snapshot, for a request whose assertion verified (R5.28, errata G87, R11.113): the identity's stream, the published keys, its posts and what bears on them. The key's
+        // binding, the credential's status and the agent's standing are all decided from it, so the two cannot straddle an append and decide on two states (register item 314: two whole reads before).
+        // A fault of the log is thrown (R11.71) and answered temporarily_unavailable by the middleware, the answer a failed read had.
+        AgentRead read;
+        try
+        {
+            read = await AgentRead.ReadAsync(events, lifecycle, subject!, AgentReadOptions.PostureOnly, cancellationToken).ConfigureAwait(false);
+        }
+        catch (LogUnreadableException e) when (e.Refusal is { } refused)
+        {
+            // A reader that answers with a refusal and not a fault: answered as a failed read always was, and logged under the reader's own error.
+            return new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, refused);
+        }
+
+        var bound = LogBoundKeys.RequireBound(read, kid!, claims.Key);
         if (!bound.TryGetValue(out _, out var bindError))
             return RefuseAssertion(bindError!);
 
-        // Who is enrolled is a projection of the event log (R4.21), not something this process
-        // remembers -- so a host that has just come up knows exactly as much as one that has been
-        // running for a week. It used to know nothing: the in-memory directory this replaced
-        // reported every agent unenrolled after a restart, and refused every token request until
-        // each agent re-announced itself.
-        var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-        if (!read.TryGetValue(out var log, out var readError))
-            return new OAuthRefusal("temporarily_unavailable", OAuthRefusal.StoreUnavailable, readError);
-
-        // The owner and the flags that stand are those of the operator acts the Forum honours (errata G70, R4.43, R6.67), from one verified log.
-        // This is the request's second whole-log read, after the binding read above, and both follow the two jti consumptions (R5.23 (rev.)).
-        var standings = lifecycle.OfLog(log!).Standings();
-        if (!standings.ContainsKey(claims.Sub))
+        // The owner and the flags that stand are those of the operator acts the Forum honours (errata G70, R4.43, R6.67), from the one read.
+        if (read.Verified.PostureStandingOf(subject!) is null)
             return new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, null);
 
         // The tier is stamped for observability only; R7.7 forbids relying on a token claim, and
@@ -190,8 +194,9 @@ public static class TokenEndpoint
         // It is computed from the same fold rather than from a stub posture, which is a change from
         // the directory this replaced: that one passed cleanQuestions: 0 because it had no view of
         // the post log, so the stamped tier was wrong for every agent above T0. An observability
-        // field that is reliably wrong is worse than one that is absent.
-        var posture = AgentStandingProjector.PostureOf(standings, subject!);
+        // field that is reliably wrong is worse than one that is absent. The verified-findings arm
+        // is not read (the claim is for observability, and the signals on a finding are not the caller's rows).
+        var posture = read.Posture;
         if (!posture.TryGetValue(out var facts, out var postureError))
             return new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, postureError);
 

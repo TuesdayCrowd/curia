@@ -125,21 +125,35 @@ public sealed class ServedSkippedMembersTests(ForumFixture forum) : IClassFixtur
         WholeText.Same("curia_skipped_total 23; listed 20; [log_index,type,predicate]", Words(keySet));
     }
 
-    /// <summary>A stream the Forum could not decide has neither member (a malformed <c>log.head</c> row stops the Acta's fold, so the key set is served without positions): a control on the seam.</summary>
+    /// <summary>
+    /// Errata G87 (R11.113, non-property (h); R4.41 (rev.)): the key set is published from the identity's own read, whose rows carry their log indices, and not from a fold of the whole log into a tree. A
+    /// malformed <c>log.head</c> row stops the Acta's fold, and used to leave this key set without positions and without its lifecycle members; it moves nothing here. The control compares the identity's key
+    /// set byte for byte before and after the row is inserted (equal, and carrying its lifecycle and skipped members), and holds the seam beside it: the Acta's own route, which does fold the log, still
+    /// fails closed on the same row, so the pair shows the seam moved and did not vanish.
+    /// </summary>
     [Fact]
-    public async Task LRV25_AStreamTheForumCouldNotDecideHasNeitherMember_Control()
+    public async Task LRV25_AMalformedLogHeadRowChangesNoByteOfTheKeySetAndTheActasRouteStillFailsClosed_Control()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var own = await VerifiedStopSupport.NewAsync();
         var victim = await VerifiedStopSupport.EnrolAsync(own, "lrv25u", ct);
+        var jwks = new Uri($"/v1/jwks?agent={Uri.EscapeDataString(victim.AgentId)}", UriKind.Relative);
+
+        using var beforeResponse = await own.Client.GetAsync(jwks, ct);
+        var before = await beforeResponse.Content.ReadAsStringAsync(ct);
+        using var actaBefore = await own.Client.GetAsync(new Uri("/v1/log/head", UriKind.Relative), ct);
+
         await VerifiedStopSupport.InsertRowAsync(own, "log.head", "log:heads", "{}", ct);
 
-        using var response = await own.Client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(victim.AgentId)}", UriKind.Relative), ct);
-        var keySet = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement;
+        using var afterResponse = await own.Client.GetAsync(jwks, ct);
+        var after = await afterResponse.Content.ReadAsStringAsync(ct);
+        using var actaAfter = await own.Client.GetAsync(new Uri("/v1/log/head", UriKind.Relative), ct);
+        var keySet = JsonDocument.Parse(after).RootElement;
 
         WholeText.Same(
-            "200; curia_lifecycle absent; curia_skipped absent; curia_skipped_total absent",
-            $"{(int)response.StatusCode}; curia_lifecycle {(keySet.TryGetProperty("curia_lifecycle", out _) ? "present" : "absent")}; curia_skipped {(keySet.TryGetProperty("curia_skipped", out _) ? "present" : "absent")}; "
-            + $"curia_skipped_total {(keySet.TryGetProperty("curia_skipped_total", out _) ? "present" : "absent")}");
+            $"200 200; byte for byte equal; curia_lifecycle present; curia_skipped present; curia_skipped_total present; the Acta before the row not 5xx, after it 5xx",
+            $"{(int)beforeResponse.StatusCode} {(int)afterResponse.StatusCode}; {(before == after ? "byte for byte equal" : "the key set changed")}; curia_lifecycle {(keySet.TryGetProperty("curia_lifecycle", out _) ? "present" : "absent")}; "
+            + $"curia_skipped {(keySet.TryGetProperty("curia_skipped", out _) ? "present" : "absent")}; curia_skipped_total {(keySet.TryGetProperty("curia_skipped_total", out _) ? "present" : "absent")}; "
+            + $"the Acta before the row {((int)actaBefore.StatusCode >= 500 ? "5xx" : "not 5xx")}, after it {((int)actaAfter.StatusCode >= 500 ? "5xx" : "not 5xx")}");
     }
 }

@@ -161,6 +161,9 @@ public sealed class Program
         // review convention. Registering it is what lets them ask for the narrower type.
         builder.Services.AddSingleton<IEventReader>(sp => sp.GetRequiredService<IEventStore>());
 
+        // Errata G87, R11.113: the read a request decides from, the same reader seen through its bounded read (a test that replaces the reader replaces this). A route is handed this, and not a whole-log read.
+        builder.Services.AddSingleton<IPositionedEventReader>(sp => sp.GetRequiredService<IEventReader>());
+
         // R11.71 (errata G52): the one predicate for a fault of a store the Forum owns, behind its port, so the outermost middleware names no driver type.
         builder.Services.AddSingleton<IStoreFaultClassifier, PostgresStoreFaults>();
 
@@ -209,6 +212,12 @@ public sealed class Program
             sp.GetRequiredService<TimeProvider>()));
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventsPositionGrant);
         builder.Services.AddHostedService<EventsSeqWritableCheck>();
+
+        // Errata G88, R11.114, R11.116: the keyword channel's index (db/0008) is written by the append and rebuilt by an insert-only reconcile; the Forum does not start without its tables, with the build's
+        // tokenizer or with a post missing from it. Nothing reads the index in this release.
+        builder.Services.AddSingleton(_ => Curia.Infrastructure.Search.ShippedSearchIndexRules.Shipped);
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().SearchIndex);
+        builder.Services.AddHostedService<SearchIndexStartService>();
         builder.Services.AddHostedService<EmbeddingReconcileService>();
         builder.Services.AddHostedService<EmbeddingCatchUpService>();
         builder.Services.AddHostedService<LifecycleEntryScan>();

@@ -54,9 +54,11 @@ public sealed class DeclareCompromise
         ArgumentNullException.ThrowIfNull(signer);
 
         // The stream's version, the log and the identity's honoured lifecycle, from one read.
-        if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
+        if (!(await KeyActs.ReadWholeLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var whole, out var lifecycleError))
             return Result<CompromiseRecorded>.Fail(lifecycleError!);
-        if (read!.LatestIndex is not { } latest)
+        var read = whole!.Read;
+        var wholeLog = whole.Log;
+        if (read.LatestIndex is not { } latest)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.UnknownKey());
 
         // The key is bound to this identity, and from_index is no lower than that binding. A key's binding is the honoured pair's or rotation's index (R6.64), both of type
@@ -64,13 +66,13 @@ public sealed class DeclareCompromise
         var binding = read.Lifecycle.Entries.FirstOrDefault(e =>
             string.Equals(e.Type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
             && string.Equals(e.Kid, kid.Value, StringComparison.Ordinal));
-        if (binding is null || read.Log.IndexOf(binding.EventId) is not { } boundAt)
+        if (binding is null || wholeLog.IndexOf(binding.EventId) is not { } boundAt)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.UnknownKey());
         if (fromIndex < boundAt)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.BeforeBinding());
 
         // The declaration takes the next index, and from_index is strictly below it (R6.57).
-        var declarationIndex = read.Log.TreeSize;
+        var declarationIndex = wholeLog.TreeSize;
         if (fromIndex >= declarationIndex)
             return Result<CompromiseRecorded>.Fail(KeyActErrors.FromIndexBeyondLog());
 
@@ -81,20 +83,20 @@ public sealed class DeclareCompromise
         foreach (var entry in read.Lifecycle.Entries)
         {
             if (!entry.IsRotation || entry.Kid is null || entry.AuthorizedBy is null) continue;
-            if (read.Log.IndexOf(entry.EventId) is not { } at || at < fromIndex) continue;
+            if (wholeLog.IndexOf(entry.EventId) is not { } at || at < fromIndex) continue;
             if (kids.Contains(entry.AuthorizedBy, StringComparer.Ordinal) && !kids.Contains(entry.Kid, StringComparer.Ordinal))
                 kids.Add(entry.Kid);
         }
 
         // R6.62: the signing key's log.declaration-key entry is in the log already, it is the first declaration key published, and the key is no log key by kid or by public key,
         // as the fold decides it (ruling 81). After the gate and the key read, before anything is signed.
-        if (!Published(read.Log, signer))
+        if (!Published(wholeLog, signer))
             return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyNotPublished());
-        var named = read.Log.DeclarationKeys.First(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal));
-        if (read.Log.DeclarationKeys.Any(k => k.LogIndex <= named.LogIndex && !string.Equals(k.Kid, named.Kid, StringComparison.Ordinal)))
+        var named = wholeLog.DeclarationKeys.First(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal));
+        if (wholeLog.DeclarationKeys.Any(k => k.LogIndex <= named.LogIndex && !string.Equals(k.Kid, named.Kid, StringComparison.Ordinal)))
             return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyNotFirst());
         var signingKey = ClosedJwk.Read(signer.PublicJwk(), signer.Kid);
-        if (read.Log.Keys.Any(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal)
+        if (wholeLog.Keys.Any(k => string.Equals(k.Kid, signer.Kid, StringComparison.Ordinal)
             || (signingKey is not null && ClosedJwk.Read(k.Jwk, k.Kid) is { } logKey && logKey.SamePublicKey(signingKey))))
             return Result<CompromiseRecorded>.Fail(KeyActErrors.DeclarationKeyIsLogKey());
 

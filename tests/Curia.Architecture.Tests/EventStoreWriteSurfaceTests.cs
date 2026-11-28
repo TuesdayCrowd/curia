@@ -46,7 +46,7 @@ namespace Curia.Architecture.Tests;
 ///    field/parameter/return type of B," and every legitimate reader of the event store
 ///    (IEventReader implementations, projections, tests asserting on a returned
 ///    AppendedEvent) necessarily has the latter. Only a direct IL instruction scan --
-///    specifically, an newobj opcode whose operand is AppendedEvent's four-argument
+///    specifically, an newobj opcode whose operand is AppendedEvent's six-argument
 ///    constructor -- can express "constructs," so that is what this file does by hand.
 ///
 /// <b>What this cannot close:</b> reflection. <c>Activator.CreateInstance</c> or
@@ -86,6 +86,10 @@ public sealed class EventStoreWriteSurfaceTests
         // producer; listed here so the widening is a recorded decision rather than a quiet one.
         "Curia.Domain.Tests.Acta.LogLeafTests",
         "Curia.Application.Tests.InMemory.InMemoryEventStore",
+
+        // R6.69 (errata G87): the fifth argument is the leaf the store holds for the row (and the sixth, R11.6 (add.), the signal target). The probes of the stored leaf have to build a row whose stored leaf is wrong, or missing, which the
+        // append never does and which is exactly what the audit exists to find. A test, not a producer; listed here so the widening is a recorded decision rather than a quiet one.
+        "Curia.Application.Tests.Acta.StoredLeafTests",
 
         // Errata G54's probes (CPF9 to CPF14, CPF21, CPF30): a reader that serves a log of tens of thousands of posts generated page by page, so a probe about the paging
         // of the check and about its cadence over a long log costs no append. It is a reader and writes nothing; it constructs the events it serves because there is no
@@ -136,12 +140,12 @@ public sealed class EventStoreWriteSurfaceTests
     {
         var ctors = typeof(Curia.Domain.AppendedEvent).GetConstructors(
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        var persistingCtor = Assert.Single(ctors, c => c.GetParameters().Length == 4);
+        var persistingCtor = Assert.Single(ctors, c => c.GetParameters().Length == 6);
 
         Assert.False(persistingCtor.IsPublic,
-            "AppendedEvent's four-argument constructor must not be public (CS-15).");
+            "AppendedEvent's six-argument constructor must not be public (CS-15).");
         Assert.True(persistingCtor.IsAssembly,
-            "AppendedEvent's four-argument constructor must be internal, not private/protected (CS-15) -- " +
+            "AppendedEvent's six-argument constructor must be internal, not private/protected (CS-15) -- " +
             "Curia.Domain.Tests and Curia.Application.Tests need assembly-level access to it.");
     }
 
@@ -149,7 +153,7 @@ public sealed class EventStoreWriteSurfaceTests
     /// Layer 2: among the assemblies InternalsVisibleTo bounds (Curia.Domain.Tests,
     /// Curia.Application.Tests) plus the declaring assembly itself (Curia.Domain, whose own
     /// code can call its own internal members without any grant), walks every method body
-    /// for a newobj instruction targeting AppendedEvent's four-argument constructor and
+    /// for a newobj instruction targeting AppendedEvent's six-argument constructor and
     /// asserts the set of types containing one is exactly <see cref="IntendedWriteSurface"/>
     /// -- no more (a new caller anywhere fails the build), no less (if the intended adapter
     /// stopped constructing one, that is also worth knowing).
@@ -163,7 +167,7 @@ public sealed class EventStoreWriteSurfaceTests
     /// Deliberately excludes the record's own compiler-generated copy constructor (the
     /// single-parameter `AppendedEvent(AppendedEvent original)` `with { }` calls, which
     /// Roslyn emits as a private member of AppendedEvent itself) by matching on parameter
-    /// count: only the four-argument constructor is "the write surface" per this file's
+    /// count: only the six-argument constructor is "the write surface" per this file's
     /// class-level definition, because the copy constructor cannot fabricate new content
     /// (see the class remarks).
     /// </summary>
@@ -205,7 +209,7 @@ public sealed class EventStoreWriteSurfaceTests
 
                         if (ctorRef.Name != ".ctor" ||
                             ctorRef.DeclaringType.FullName != "Curia.Domain.AppendedEvent" ||
-                            ctorRef.Parameters.Count != 4)
+                            ctorRef.Parameters.Count != 6)
                             continue;
 
                         var caller = RootType(type).FullName;

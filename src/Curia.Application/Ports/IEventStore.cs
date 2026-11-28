@@ -45,7 +45,7 @@ namespace Curia.Application.Ports;
 /// <see cref="LogUnreadableException"/>, the driver's exception inside; it never returns a failed <see cref="Result{T}"/>, which a caller can read as an
 /// empty log and so as a denial. A failed result from a read is a domain refusal and nothing else.</para>
 /// </summary>
-public interface IEventReader
+public interface IEventReader : IPositionedEventReader
 {
     /// <summary>Every event recorded for one aggregate, in append (ascending <c>seq</c>) order.
     /// An aggregate nothing has been appended to yields an empty list, not a failure.

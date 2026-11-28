@@ -36,8 +36,6 @@ public sealed partial class StoreFaultEdgeTests(FaultableForumFixture forum) : I
     private static readonly (int Line, string Route, string Variant)[] Sites =
     [
         (883, "POST /v1/posts", "question"),
-        (1175, "POST /v1/posts/{postId}/flags", "plain"),
-        (1482, "GET /v1/flags", "plain"),
         (1554, "GET /v1/posts/{postId}", "plain"),
         (1664, "POST /v1/posts/batch", "plain"),
         (1700, "GET /v1/threads/{rootPostId}", "plain"),
@@ -46,7 +44,17 @@ public sealed partial class StoreFaultEdgeTests(FaultableForumFixture forum) : I
         (1939, "POST /v1/posts/{postId}/accept", "plain"),
         (2280, "GET /v1/search", "plain"),
         (2427, "GET /v1/inbox", "plain"),
-        (3243, "POST /v1/agents/{id}/keys", "plain"),
+    ];
+
+    /// <summary>
+    /// The routes that no longer call <c>ReadEventsAsync</c> (errata G87): a flag, the flag list and a key act decide from a read plan of the caller's own rows. They are swept all the same, with the same
+    /// answer, so that a reader that reports at a read plan is a <c>503</c> and never a tier the missing rows produced.
+    /// </summary>
+    private static readonly (string Route, string Variant)[] ReadPlanRoutes =
+    [
+        ("POST /v1/posts/{postId}/flags", "plain"),
+        ("GET /v1/flags", "plain"),
+        ("POST /v1/agents/{id}/keys", "plain"),
     ];
 
     /// <summary>
@@ -58,7 +66,8 @@ public sealed partial class StoreFaultEdgeTests(FaultableForumFixture forum) : I
     {
         using var context = await FuzzContext.SeedAsync(forum, Ct);
         var swept = await FaultSweep.RunAsync(
-            forum, context, row => Sites.Any(s => s.Route == row.Route && (s.Variant == "plain" || s.Variant == row.Variant)),
+            forum, context, row => Sites.Any(s => s.Route == row.Route && (s.Variant == "plain" || s.Variant == row.Variant))
+                || ReadPlanRoutes.Any(s => s.Route == row.Route && (s.Variant == "plain" || s.Variant == row.Variant)),
             () => forum.Store.Arm(EventStoreFault.ReportForward), forum.Store.Disarm, Ct);
 
         var problems = new List<string>();
@@ -75,7 +84,15 @@ public sealed partial class StoreFaultEdgeTests(FaultableForumFixture forum) : I
                 problems.Add($":{site.Line} expected 503 {PublishedStoreFaults.LogUnreadableType}, actual {reply.Says}");
         }
 
-        Assert.True(problems.Count == 0, $"{problems.Count} of {Sites.Length} call sites:\n" + string.Join('\n', problems));
+        foreach (var route in ReadPlanRoutes)
+        {
+            var reply = swept.SingleOrDefault(s => s.Route == route.Route && (route.Variant == "plain" || s.Variant == route.Variant));
+            if (reply is null) problems.Add($"{route.Route}: no exemplar was swept");
+            else if (!FaultSweep.IsProblem(reply.Reply, PublishedStoreFaults.UnavailableStatus, PublishedStoreFaults.LogUnreadableType))
+                problems.Add($"{route.Route} expected 503 {PublishedStoreFaults.LogUnreadableType}, actual {reply.Says}");
+        }
+
+        Assert.True(problems.Count == 0, $"{problems.Count} of {Sites.Length + ReadPlanRoutes.Length} call sites:\n" + string.Join('\n', problems));
     }
 
     /// <summary>ULG5's scan: the table above has one row for every call of <c>ReadEventsAsync</c> in <c>ForumEndpoints.cs</c>, and no more.</summary>

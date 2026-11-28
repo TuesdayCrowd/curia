@@ -10,15 +10,17 @@ namespace Curia.Application.Projections;
 /// </summary>
 public sealed class HonouredEvents
 {
-    internal HonouredEvents(ImmutableArray<AppendedEvent> events, IReadOnlyList<AppendedEvent> log)
+    internal HonouredEvents(ImmutableArray<AppendedEvent> events, IReadOnlyList<AppendedEvent>? log)
     {
         Events = events;
-        Log = log;
+        _log = log;
     }
 
     /// <summary>The log less the skipped act rows, each event unchanged, in log order. For the raw folds only.</summary>
     public ImmutableArray<AppendedEvent> Events { get; }
 
     /// <summary>The whole log these events were taken from (R6.47), skipped rows included: what a log index is a position in.</summary>
-    public IReadOnlyList<AppendedEvent> Log { get; }
+    public IReadOnlyList<AppendedEvent> Log => _log ?? throw new Reads.OutOfScopeException("the whole log");
+
+    private readonly IReadOnlyList<AppendedEvent>? _log;
 }

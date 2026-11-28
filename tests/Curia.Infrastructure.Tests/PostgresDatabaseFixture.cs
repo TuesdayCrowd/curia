@@ -225,6 +225,8 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
             GRANT SELECT ON {quotedSchema}.events TO {quotedRole};
             SET search_path TO {quotedSchema};
             {SchemaMigrations.Render(SchemaMigrations.EventInsertColumnsFile, _roleName)}
+            {SchemaMigrations.Render(SchemaMigrations.StoredLeafHashFile, _roleName)}
+            {SchemaMigrations.Render(SchemaMigrations.SearchIndexFile, _roleName)}
             RESET search_path;
             REVOKE UPDATE, DELETE ON {quotedSchema}.events FROM {quotedRole};
             """;

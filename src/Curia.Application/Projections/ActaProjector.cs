@@ -58,6 +58,10 @@ public sealed record ConsistencyProof(
 /// <summary>
 /// The Acta (<see cref="ActaLog"/>): the whole event log as a Merkle tree, folded per request like every other projection.
 ///
+/// <para><b>Stored leaves (R6.69).</b> <see cref="Fold"/> takes each leaf hash from the row's <c>leaf_hash</c> when it has one, so the per-request cost is the read of 32 bytes and N interior-node
+/// hashes, and not the canonicalization and hashing of every post's bytes; a row without one is hashed and counted (<see cref="LeavesRecomputed"/>). <see cref="FoldRecomputed"/> hashes every
+/// leaf and is what the operator signs from. The two roots agree on an honest log, and <see cref="StoredLeafAudit"/> says where they do not.</para>
+///
 /// <para><b>Cost, stated (Stage 4's success criterion).</b> Append costs nothing here -- there is
 /// no separate log to write, because the event append <i>is</i> the log append (R6.46) -- and so
 /// it does not grow with log length. What grows is this fold: O(n) hashes per request that needs
@@ -81,8 +85,10 @@ public sealed class ActaLog
         ImmutableArray<LogKey> keys,
         ImmutableArray<DeclarationKey> declarationKeys,
         ImmutableArray<OperatorKey> operatorKeys,
-        ImmutableDictionary<string, long> indexByEventId)
+        ImmutableDictionary<string, long> indexByEventId,
+        int leavesRecomputed)
     {
+        LeavesRecomputed = leavesRecomputed;
         Events = events;
         Leaves = leaves;
         Heads = heads;
@@ -96,6 +102,12 @@ public sealed class ActaLog
 
     // Register item 403: the subtree hashes of this log's leaves, made once and dropped with the log (one request's fold); never static.
     private readonly MerkleSubtreeCache _subtrees;
+
+    /// <summary>
+    /// R6.69: how many of this fold's leaves were hashed from their rows and not read from the column: every leaf of <see cref="FoldRecomputed"/>, and under <see cref="Fold"/> the rows that carry
+    /// no stored leaf (a row from before db/0007) or one that is not the wire form. Zero is the cost the stored leaf buys; a positive count under <see cref="Fold"/> is the backfill's work to do.
+    /// </summary>
+    public int LeavesRecomputed { get; }
 
     /// <summary>Node hashes this log's cache has computed so far: the cost the complexity probes read.</summary>
     internal int SubtreeHashesComputed => _subtrees.NodeHashes;
@@ -223,9 +235,18 @@ public sealed class ActaLog
     /// head or key entry the operator tool wrote malformed: an Acta with a hole in it would serve
     /// proofs that verify against a tree nobody else can rebuild.
     /// </summary>
-    public static Result<ActaLog> Fold(IReadOnlyList<AppendedEvent> log)
+    public static Result<ActaLog> Fold(IReadOnlyList<AppendedEvent> log) => FoldWith(log, trustStoredLeaves: true);
+
+    /// <summary>
+    /// <see cref="Fold"/> with every leaf hashed from its row and the stored leaf ignored (R6.69). This is the oracle: the operator's signer builds the root it signs from it, and
+    /// <see cref="StoredLeafAudit"/> compares the column with it. A fold that took the column and called itself the check would be the column checking itself.
+    /// </summary>
+    public static Result<ActaLog> FoldRecomputed(IReadOnlyList<AppendedEvent> log) => FoldWith(log, trustStoredLeaves: false);
+
+    private static Result<ActaLog> FoldWith(IReadOnlyList<AppendedEvent> log, bool trustStoredLeaves)
     {
         ArgumentNullException.ThrowIfNull(log);
+        var recomputed = 0;
 
         var leaves = ImmutableArray.CreateBuilder<ImmutableArray<byte>>(log.Count);
         var heads = ImmutableArray.CreateBuilder<SignedHead>();
@@ -236,10 +257,19 @@ public sealed class ActaLog
         for (var i = 0; i < log.Count; i++)
         {
             var appended = log[i];
-            if (!LogLeaf.Hash(appended).TryGetValue(out var leaf, out var leafError))
-                return Result<ActaLog>.Fail(ActaErrors.LeafUncomputable(i, leafError!));
+            if (trustStoredLeaves && LogEntries.Unprefixed(appended.StoredLeafHash) is { } stored)
+            {
+                leaves.Add(stored);
+            }
+            else
+            {
+                if (!LogLeaf.Hash(appended).TryGetValue(out var leaf, out var leafError))
+                    return Result<ActaLog>.Fail(ActaErrors.LeafUncomputable(i, leafError!));
 
-            leaves.Add(leaf);
+                leaves.Add(leaf);
+                recomputed++;
+            }
+
             index[appended.Event.Id.Value] = i;
 
             switch (appended.Event.Type.Value)
@@ -283,7 +313,8 @@ public sealed class ActaLog
             [.. keys.Where(k => !ofOperatorClass.Contains(k.LogIndex))],
             [.. declarationKeys.Where(k => !ofOperatorClass.Contains(k.LogIndex))],
             PublishedKeys.From(decided).OperatorKeys,
-            index.ToImmutable()));
+            index.ToImmutable(),
+            recomputed));
     }
 
     private static Result<SignedHead> ReadHead(long logIndex, JsonValue payload)
@@ -341,6 +372,40 @@ public sealed class ActaLog
             if (string.Equals(m.Key, name, StringComparison.Ordinal))
                 return m.Value;
         return null;
+    }
+}
+
+/// <summary>R6.69: what <see cref="StoredLeafAudit.Check"/> found. Both lists are leaf indexes, in log order.</summary>
+/// <param name="Mismatched">Rows whose stored leaf is present and is not the leaf recomputed from the row (or is not the wire form). A finding, never repaired.</param>
+/// <param name="Missing">Rows with no stored leaf: appended before db/0007 and not yet backfilled. Served by recomputation; not an integrity finding.</param>
+public sealed record StoredLeafFindings(IReadOnlyList<long> Mismatched, IReadOnlyList<long> Missing);
+
+/// <summary>
+/// R6.69: the control that does not read the column to decide. Every leaf is hashed from its row and compared with the one the row stores. A stored leaf the Forum trusts for a proof is
+/// new trust in the database; this is how the trust is checked, by <c>curia-operator sign-head</c> (which refuses on a mismatch) and <c>lifecycle-audit</c> (which reports).
+/// A mismatch is reported and never healed: a repair that rewrote the column from the rows would be the Forum deciding what the log's leaf is, and it holds no UPDATE.
+/// </summary>
+public static class StoredLeafAudit
+{
+    public static Result<StoredLeafFindings> Check(IReadOnlyList<AppendedEvent> log)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+
+        var mismatched = new List<long>();
+        var missing = new List<long>();
+        for (var i = 0; i < log.Count; i++)
+        {
+            var row = log[i];
+            if (!LogLeaf.Hash(row).TryGetValue(out var recomputed, out var error))
+                return Result<StoredLeafFindings>.Fail(ActaErrors.LeafUncomputable(i, error!));
+
+            if (row.StoredLeafHash is null)
+                missing.Add(i);
+            else if (!string.Equals(row.StoredLeafHash, LogEntries.Prefixed(recomputed), StringComparison.Ordinal))
+                mismatched.Add(i);
+        }
+
+        return Result<StoredLeafFindings>.Ok(new StoredLeafFindings(mismatched, missing));
     }
 }
 

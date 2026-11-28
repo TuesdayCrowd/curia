@@ -4,6 +4,7 @@ using Curia.Application.Credentials;
 using Curia.Application.Moderation;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
+using Curia.Application.Retrieval;
 using Curia.Canon.Envelope;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
@@ -58,6 +59,18 @@ public static class ExitCode
     /// the Forum then skips (R11.97). Nothing was written by the audit; it only reads. Errata G68 (ruling 13), G70.
     /// </summary>
     public const int LifecycleRowsSkipped = 7;
+
+    /// <summary>
+    /// R6.69: a stored leaf hash is not the leaf of its row. <c>sign-head</c> signed nothing and appended nothing; <c>lifecycle-audit</c> names the rows. The same number as
+    /// <see cref="LifecycleRowsSkipped"/>: both are a finding in the log that a person reads before anything signs over it.
+    /// </summary>
+    public const int StoredLeafMismatch = 7;
+
+    /// <summary>
+    /// Errata G88: <c>search-audit</c> found a post with no rows in the keyword channel's index, a row that is not the one the post's content makes, or a row for no post. The audit only reads. The same number
+    /// as the other audits: a finding in the database that a person reads before anything relies on it.
+    /// </summary>
+    public const int SearchIndexFindings = 7;
 }
 
 /// <summary>
@@ -167,7 +180,34 @@ public static class OperatorCommands
               and then "and <n> more", never a payload member, and exits 7. Run it before a
               plain sign-head covers a row, and after a restore. It cannot see a row planted at a
               position the application role's grant refuses (R11.6 (add.)): that is the start-up
-              check's.
+              check's. It also holds events.signal_target (R11.6 (add.)) to each vote's and
+              verification's own signed envelope: a column that is NULL or is not that target is
+              named ("signal-targets", then "mismatched" and "missing" rows) and exits 7; run
+              backfill-leaves for a NULL.
+
+          curia-operator backfill-leaves
+
+              Fills events.leaf_hash and events.signal_target (db/0007, R6.69, R11.6 (add.)) for rows appended before those columns existed,
+              each from its own row by the leaf computation of R6.46. Run it with the DATABASE
+              OWNER's connection string in CURIA_EVENTS_POSTGRES: the Forum's role holds no UPDATE
+              (R11.6) and is refused, exit 2, before a row is read. It fills a row only where the
+              column is empty and never replaces a leaf that is there (a wrong one is the audit's
+              finding, not this verb's to repair). Idempotent; safe beside a running Forum. Prints
+              "filled <n>  already_held <m>  signal_targets_filled <k>". sign-head refuses, exit 7, a log in which a stored
+              leaf is not the leaf of its row; lifecycle-audit reports it (and the rows with none).
+
+          curia-operator reindex-search
+
+              Writes the keyword channel's index (db/0008, errata G88) for every discussion post the log holds and the index does not, each from its own post by the rule of the current index version.
+              INSERT only, so run it with the Forum's own connection string in CURIA_EVENTS_POSTGRES: it needs no owner role, replaces no row (a row that exists is left as it is: a wrong one is
+              search-audit's finding, and the database's owner removes it), and is safe beside a running Forum, whose append writes its own. The Forum does this at every start; this verb is the same
+              work on demand, after a restore or with the Forum down. Prints "posts <n>  already_indexed <m>  inserted <k>  still_missing <j>"; exit 7 when still_missing is above 0.
+
+          curia-operator search-audit
+
+              Recomputes every discussion post's search-index rows from the LOG (never from the index) and compares them with the stored ones. Read-only. Prints "posts <n>  findings <m>", and with
+              m above 0 one line per finding, "missing|different|extra  seq=<n>", the first 100 and then "and <n> more", and exits 7. A missing row is a post search cannot find; a different or extra
+              row is one that makes a post match what it does not contain: the application role cannot remove it, the database's owner does. Run it after a restore and before relying on the index.
 
           curia-operator compromise --agent <agent-id> --kid <kid> --from-index <n>
                                     --reason owner-reported|operator-observed --operator <role>
@@ -271,7 +311,9 @@ public static class OperatorCommands
           6  sign-head --if-grown withheld the head: a lifecycle or operator-act row the Forum does not honour follows the
              latest head this tool signed -- nothing was written; stderr names the log indices, types
              and predicates
-          7  lifecycle-audit found a lifecycle or operator-act row the Forum does not honour --
+          7  sign-head found a stored leaf hash that is not the leaf of its row (R6.69) -- nothing was
+             written; stderr names the log indices. Or lifecycle-audit found a lifecycle or operator-act
+             row the Forum does not honour, or such a stored leaf --
              nothing was written; stdout names the rows; compromise appended a declaration, and
              attest-owner or moderate appended an act, that the Forum then skips -- the row is in
              the log, stderr names its index and the predicate, nothing is marked or changed
@@ -398,6 +440,18 @@ public static class OperatorCommands
 
         if (args[0] == "lifecycle-audit")
             return await LifecycleAuditAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "backfill-leaves")
+            return await BackfillLeavesAsync(args.Skip(1).ToArray(), connectionString, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "reindex-search")
+            return await ReindexSearchAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "search-audit")
+            return await SearchAuditAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "flags")
@@ -540,6 +594,11 @@ public static class OperatorCommands
                 if (!folded.TryGetValue(out var acta, out var foldError))
                     return await RefuseAsync(stderr, foldError!).ConfigureAwait(false);
 
+                // R6.69: before anything is published or signed. A stored leaf that is not its row's means the Forum is serving proofs a client cannot verify; a head signed now would be over the
+                // rows' own leaves and would be right, and that is the reason to stop and read, not to sign past it.
+                if (await StoredLeavesMismatchAsync(acta!, stderr).ConfigureAwait(false))
+                    return ExitCode.StoredLeafMismatch;
+
                 // R11.97: a log key is never an operator key, by kid or by public key. Before the log.key append and the head: a key that signs heads and acts is one key to whatever holds it.
                 if (string.Equals(PublishedKeys.OfLog(acta!.Events).FirstPublishedClass(key.Kid, key.PublicJwk()), LogEntries.OperatorKeyType, StringComparison.Ordinal))
                     return await RefuseAsync(stderr, KeyActErrors.LogKeyIsOperatorKey()).ConfigureAwait(false);
@@ -585,6 +644,8 @@ public static class OperatorCommands
                     folded = await FoldAsync(store, cancellationToken).ConfigureAwait(false);
                     if (!folded.TryGetValue(out acta, out foldError))
                         return await RefuseAsync(stderr, foldError!).ConfigureAwait(false);
+                    if (await StoredLeavesMismatchAsync(acta!, stderr).ConfigureAwait(false))
+                        return ExitCode.StoredLeafMismatch;
 
                     // The race (Amendment 3 ruling 40): a row may have been appended between the two folds, and the head is built from this one, so the stop is applied to what this one
                     // holds. No head was signed; the one log.key just published stays (it is not a head and not growth, and the next run finds it published).
@@ -738,7 +799,124 @@ public static class OperatorCommands
             if (skipped.Length > AuditListed)
                 await stdout.WriteLineAsync($"and {(skipped.Length - AuditListed).ToString(CultureInfo.InvariantCulture)} more").ConfigureAwait(false);
 
-            return skipped.IsEmpty ? ExitCode.Ok : ExitCode.LifecycleRowsSkipped;
+            // R6.69: the stored leaves, held to the rows. Said only when there is something to say, so a log that has them all and right reads as it always did.
+            if (!StoredLeafAudit.Check(log!).TryGetValue(out var leaves, out var leafError))
+                return await RefuseAsync(stderr, leafError!).ConfigureAwait(false);
+
+            if (leaves!.Mismatched.Count > 0 || leaves.Missing.Count > 0)
+            {
+                await stdout.WriteLineAsync(
+                    $"stored-leaves  mismatched {leaves.Mismatched.Count.ToString(CultureInfo.InvariantCulture)}  missing {leaves.Missing.Count.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+                foreach (var index in leaves.Mismatched.Take(AuditListed))
+                    await stdout.WriteLineAsync($"mismatched  log_index={index.ToString(CultureInfo.InvariantCulture)}  stored leaf is not the leaf of its row").ConfigureAwait(false);
+                if (leaves.Mismatched.Count > AuditListed)
+                    await stdout.WriteLineAsync($"and {(leaves.Mismatched.Count - AuditListed).ToString(CultureInfo.InvariantCulture)} more mismatched").ConfigureAwait(false);
+                if (leaves.Missing.Count > 0)
+                    await stdout.WriteLineAsync("missing  rows with no stored leaf are served by recomputation; run curia-operator backfill-leaves with the database owner's connection").ConfigureAwait(false);
+            }
+
+            // R11.6 (add.): the signal target column, held to each vote's and verification's own canonical. A NULL is a vote the indexed read does not find, so it is a finding.
+            var targets = SignalTargetAudit.Check(log!);
+            if (targets.Mismatched.Count > 0 || targets.Missing.Count > 0)
+            {
+                await stdout.WriteLineAsync(
+                    $"signal-targets  mismatched {targets.Mismatched.Count.ToString(CultureInfo.InvariantCulture)}  missing {targets.Missing.Count.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+                foreach (var index in targets.Mismatched.Take(AuditListed))
+                    await stdout.WriteLineAsync($"mismatched  log_index={index.ToString(CultureInfo.InvariantCulture)}  signal_target is not the target of its row's envelope").ConfigureAwait(false);
+                if (targets.Mismatched.Count > AuditListed)
+                    await stdout.WriteLineAsync($"and {(targets.Mismatched.Count - AuditListed).ToString(CultureInfo.InvariantCulture)} more mismatched").ConfigureAwait(false);
+                foreach (var index in targets.Missing.Take(AuditListed))
+                    await stdout.WriteLineAsync($"missing  log_index={index.ToString(CultureInfo.InvariantCulture)}  a vote or verification with no signal_target does not count toward a finding; run curia-operator backfill-leaves with the database owner's connection").ConfigureAwait(false);
+                if (targets.Missing.Count > AuditListed)
+                    await stdout.WriteLineAsync($"and {(targets.Missing.Count - AuditListed).ToString(CultureInfo.InvariantCulture)} more missing").ConfigureAwait(false);
+            }
+
+            return skipped.IsEmpty && leaves.Mismatched.Count == 0 && targets.Mismatched.Count == 0 && targets.Missing.Count == 0 ? ExitCode.Ok : ExitCode.LifecycleRowsSkipped;
+        }
+    }
+
+    /// <summary>Errata G88: <c>reindex-search</c>. The reconcile the Forum runs at start, on demand: insert-only, with the Forum's own role.</summary>
+    private static async Task<int> ReindexSearchAsync(
+        string[] argv, string connectionString, TimeProvider clock, ILifecycleAppendGate lifecycleGate, TextWriter stdout, TextWriter stderr, CancellationToken cancellationToken)
+    {
+        if (argv.Length != 0)
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[0]}'. reindex-search takes no argument.").ConfigureAwait(false);
+
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+        await using (adapters.ConfigureAwait(false))
+        {
+            var reconciled = await SearchIndexReconcile.RunAsync(adapters.EventStore, adapters.SearchIndex, Curia.Infrastructure.Search.ShippedSearchIndexRules.Shipped, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (!reconciled.TryGetValue(out var report, out var error))
+                return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+            await stdout.WriteLineAsync(
+                $"posts {report!.Posts.ToString(CultureInfo.InvariantCulture)}  already_indexed {report.AlreadyIndexed.ToString(CultureInfo.InvariantCulture)}  " +
+                $"inserted {report.Inserted.ToString(CultureInfo.InvariantCulture)}  still_missing {report.StillMissing.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            return report.StillMissing == 0 ? ExitCode.Ok : ExitCode.SearchIndexFindings;
+        }
+    }
+
+    /// <summary>Errata G88: <c>search-audit</c>. Reads the log and the index and says where they differ. Writes nothing.</summary>
+    private static async Task<int> SearchAuditAsync(
+        string[] argv, string connectionString, TimeProvider clock, ILifecycleAppendGate lifecycleGate, TextWriter stdout, TextWriter stderr, CancellationToken cancellationToken)
+    {
+        if (argv.Length != 0)
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[0]}'. search-audit takes no argument.").ConfigureAwait(false);
+
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+        await using (adapters.ConfigureAwait(false))
+        {
+            var audited = await SearchIndexAudit.RunAsync(adapters.EventStore, adapters.SearchIndex, Curia.Infrastructure.Search.ShippedSearchIndexRules.Shipped, cancellationToken).ConfigureAwait(false);
+            if (!audited.TryGetValue(out var report, out var error))
+                return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+            await stdout.WriteLineAsync(
+                $"posts {report!.Posts.ToString(CultureInfo.InvariantCulture)}  findings {report.FindingCount.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            foreach (var finding in report.Findings)
+                await stdout.WriteLineAsync($"{finding.Kind}  seq={finding.Seq.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            if (report.FindingCount > report.Findings.Length)
+                await stdout.WriteLineAsync($"and {(report.FindingCount - report.Findings.Length).ToString(CultureInfo.InvariantCulture)} more").ConfigureAwait(false);
+
+            return report.FindingCount == 0 ? ExitCode.Ok : ExitCode.SearchIndexFindings;
+        }
+    }
+
+    /// <summary>
+    /// R6.69: whether any row's stored leaf is not its row's leaf. Says so on stderr (the first <see cref="AuditListed"/> indices, never a payload member) and writes nothing. A row with no
+    /// stored leaf is not a mismatch: the fold hashed it, so the root is right.
+    /// </summary>
+    private static async Task<bool> StoredLeavesMismatchAsync(ActaLog acta, TextWriter stderr)
+    {
+        if (!StoredLeafAudit.Check(acta.Events).TryGetValue(out var findings, out _) || findings!.Mismatched.Count == 0)
+            return false;
+
+        await stderr.WriteLineAsync(
+            $"error: {findings.Mismatched.Count.ToString(CultureInfo.InvariantCulture)} stored leaf hash(es) are not the leaf of their row (R6.69); nothing was signed or written. " +
+            "The Forum serves proofs from the stored leaves, so a client cannot verify them. Read the rows (lifecycle-audit lists them); the stored leaf is never repaired by this tool.")
+            .ConfigureAwait(false);
+        foreach (var index in findings.Mismatched.Take(AuditListed))
+            await stderr.WriteLineAsync($"mismatched  log_index={index.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// R6.69, db/0007: <c>backfill-leaves</c> fills <c>events.leaf_hash</c> for rows appended before the column. It must be run with the database owner's connection string in
+    /// <c>CURIA_EVENTS_POSTGRES</c>, because the application role holds no <c>UPDATE</c> (R11.6); as that role it is refused, exit 2, before a row is read.
+    /// </summary>
+    private static async Task<int> BackfillLeavesAsync(string[] argv, string connectionString, TextWriter stdout, TextWriter stderr, CancellationToken cancellationToken)
+    {
+        if (argv.Length != 0)
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[0]}'. backfill-leaves takes no argument.").ConfigureAwait(false);
+
+        var backfill = PostgresLeafBackfill.ForConnection(connectionString);
+        await using (backfill.ConfigureAwait(false))
+        {
+            var report = await backfill.RunAsync(cancellationToken).ConfigureAwait(false);
+            if (!report.TryGetValue(out var done, out var error))
+                return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+            await stdout.WriteLineAsync($"filled {done!.Filled.ToString(CultureInfo.InvariantCulture)}  already_held {done.AlreadyHeld.ToString(CultureInfo.InvariantCulture)}  signal_targets_filled {done.SignalTargetsFilled.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            return ExitCode.Ok;
         }
     }
 
@@ -1266,7 +1444,8 @@ public static class OperatorCommands
     private static async Task<Result<ActaLog>> FoldAsync(IEventStore store, CancellationToken cancellationToken)
     {
         var read = await store.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-        return read.Bind(ActaLog.Fold);
+        // R6.69: the operator's fold hashes every leaf from its row. The root a head signs is never built from the column it is meant to check.
+        return read.Bind(ActaLog.FoldRecomputed);
     }
 
     private static async Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(

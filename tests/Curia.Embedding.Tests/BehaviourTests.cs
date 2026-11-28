@@ -266,7 +266,7 @@ public sealed class BehaviourTests(RealModelFixture model) : IClassFixture<RealM
                 new("kind", new JsonValue.String("question")),
             ]);
             var domainEvent = new DomainEvent(Req(EventId.Create(postId)), Req(EventType.Create("post.accepted")), Req(ActorId.Create("https://agents.example/asker")), data);
-            events.Add((AppendedEvent)appendedType.Invoke([Req(EventSequence.From(i + 1)), Req(AggregateId.Create(postId)), ServerTimestamp.At(new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero)), domainEvent]));
+            events.Add((AppendedEvent)appendedType.Invoke([Req(EventSequence.From(i + 1)), Req(AggregateId.Create(postId)), ServerTimestamp.At(new DateTimeOffset(2026, 9, 5, 12, 0, 0, TimeSpan.Zero)), domainEvent, null, null]));
 
             var passage = await model.Embedder.EmbedAsync(texts[i], EmbeddingRole.Passage, Ct);
             var embedding = Req(passage);

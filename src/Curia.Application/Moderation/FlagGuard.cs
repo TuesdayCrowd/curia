@@ -27,6 +27,14 @@ public static class FlagGuard
             delta => delta.Any(e => IsFlagOfKind(e, kind)) ? GuardVerdict.Redecide : GuardVerdict.Proceed);
     }
 
+    /// <summary>The guard for a flag of <paramref name="kind"/>, decided on a read whose end was <paramref name="after"/> (errata G87): the sequence of a snapshot, since the read holds only the rows it was made for.</summary>
+    public static AppendGuard After(EventSequence after, string kind)
+    {
+        ArgumentNullException.ThrowIfNull(kind);
+
+        return new AppendGuard(after, delta => delta.Any(e => IsFlagOfKind(e, kind)) ? GuardVerdict.Redecide : GuardVerdict.Proceed);
+    }
+
     private static bool IsFlagOfKind(AppendedEvent appended, string kind) =>
         string.Equals(appended.Event.Type.Value, FlagProjector.FlagCommittedType, StringComparison.Ordinal)
         && appended.Event.Payload is JsonValue.Object payload

@@ -35,6 +35,8 @@ public sealed class OperatorActsFenceTests
     [
         ("Curia.Application.Credentials.VerifiedLog", ".ctor", "HonouredEvents: the two lazy views (standings, moderation) fold only the rows the act procedure honoured (R6.67)"),
         ("Curia.Application.Credentials.VerifiedLog", "StandingOf", "folds one agent's own honoured events"),
+        ("Curia.Application.Credentials.VerifiedLog", "PostureStandingOf", "folds the honoured events of one agent's read (its stream, posts, their moderation and the acceptances of its threads): the whole-log fold's entry for the agent, over the rows that bear on it (errata G87)"),
+        ("Curia.Application.Credentials.VerifiedLog", "ModerationOf", "folds one post's own honoured events (a record is honoured only in the stream of the post it names, R10.60; errata G87)"),
         ("Curia.Application.Projections.AgentStandingProjector", "Fold", "the standing fold reads a demoting moderation record through FlagProjector.Fold over the events it is handed; its production callers hand it honoured events, and the unfiltered call is banned by the AgentStandingProjector.Fold callee row"),
         ("Curia.Application.Projections.FlagProjector", "Fold", "the projector's own overloads call each other: Fold is Extend over an empty map"),
         ("Curia.Application.Projections.SearchProjector", "Fold", "the unfiltered Fold's own body folds the raw moderation and standings; its production callers are banned by the SearchProjector.Fold callee row, and FoldHonoured feeds the same private body from a VerifiedLog"),

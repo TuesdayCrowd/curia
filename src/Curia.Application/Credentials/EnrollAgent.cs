@@ -1,5 +1,6 @@
 using System.Globalization;
 using Curia.Application.Ports;
+using Curia.Application.Reads;
 using Curia.Application.Projections;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
@@ -128,13 +129,19 @@ public sealed class EnrollAgent
 
         for (var attempt = 0; attempt < Attempts; attempt++)
         {
-            // The whole log, because the verifier decides a row by positions in it (R6.47, R6.64); this stream's slice of it is what the standing is folded from.
-            var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
-            if (!read.TryGetValue(out var log, out var readError))
-                return Result<AgentEnrollment>.Fail(readError!);
+            // The identity's stream and the published keys, in one snapshot (errata G87, R11.113): the verifier decides a row by the indices the rows carry (R6.47, R6.64).
+            AgentRead read;
+            try
+            {
+                read = await AgentRead.ReadAsync(_events, _verifier, agentId, AgentReadOptions.Stream, cancellationToken).ConfigureAwait(false);
+            }
+            catch (LogUnreadableException e) when (e.Refusal is { } refused)
+            {
+                return Result<AgentEnrollment>.Fail(refused);
+            }
 
             // One verified log per attempt (errata G70, ruling 76), shared by the standing and the binding below.
-            var verified = _verifier.OfLog(log!);
+            var verified = read.Verified;
 
             // This aggregate's slice carries credential events only -- posts live in their own
             // streams -- so the standing folded here has no question count and no reached-T1

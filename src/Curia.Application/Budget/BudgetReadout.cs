@@ -61,6 +61,15 @@ public static class BudgetReadout
     public static int FlagsUsed(ImmutableArray<RaisedFlag> flags, AgentId agentId, DateTimeOffset now) =>
         CountIn(FlagInstants(flags, agentId), now);
 
+    /// <summary>The standing of every budget at <paramref name="now"/>, from the instants a read already holds (errata G87): the same entries, in the same order, over the same counting function.</summary>
+    public static IReadOnlyList<BudgetEntry> Read(
+        IReadOnlyList<DateTimeOffset> postInstants, IReadOnlyList<DateTimeOffset> acceptInstants, ImmutableArray<RaisedFlag> flags, AgentId agentId, int postLimit, int acceptLimit, int flagLimit, DateTimeOffset now) =>
+    [
+        Entry(BudgetKinds.Posting, postLimit, postInstants, now),
+        Entry(BudgetKinds.Acceptance, acceptLimit, acceptInstants, now),
+        Entry(BudgetKinds.Flag, flagLimit, [.. FlagInstants(flags, agentId)], now),
+    ];
+
     /// <summary>
     /// One budget's entry from the instants its events hold (R7.28): the count is <see cref="CountIn"/>'s, <c>remaining</c> the larger of 0 and
     /// <paramref name="limit"/> less used, and <c>next_slot_at</c> <see cref="NextSlotAt"/>'s over the entries counted. <see cref="int.MaxValue"/> is the

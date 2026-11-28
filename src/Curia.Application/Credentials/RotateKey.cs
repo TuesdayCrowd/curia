@@ -94,7 +94,7 @@ public sealed class RotateKey
             return Result<KeyActRecorded>.Fail(authorizedByError!);
 
         // 4 and 5. The stream's version and the latest honoured lifecycle index, from one read of the log; prev must equal the index.
-        if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
+        if (!(await KeyActs.ReadLifecycleAsync(_events, _verifier, agent, ct, rotation.Kid).ConfigureAwait(false)).TryGetValue(out var read, out var lifecycleError))
             return Result<KeyActRecorded>.Fail(lifecycleError!);
         if (read!.LatestIndex is not { } latest)
             return Result<KeyActRecorded>.Fail(KeyActErrors.AuthorizingKeyNotLive());
@@ -116,11 +116,10 @@ public sealed class RotateKey
             return Result<KeyActRecorded>.Fail(possessionError);
 
         // 8. The kid is not taken; then R7.23's cap, budget and ceiling.
-        var all = read.Log.Events;
         var held = (await _registry.KeysForAsync(agent, ct).ConfigureAwait(false))
             .FirstOrDefault(k => string.Equals(k.Key.Kid, rotation.Kid, StringComparison.Ordinal));
         var orphan = held is not null && KeyEnrollment.SameMaterial(held.Key, newKey!);
-        if (KeyActs.AnyEntryNames(all, rotation.Kid) || (held is not null && !orphan))
+        if (read.AnyEntryNamesKid(rotation.Kid) || (held is not null && !orphan))
             return Result<KeyActRecorded>.Fail(AuthorKeyErrors.KidTaken(rotation.Kid));
         if (BoundBefore(read.Binding, newKey!))
             return Result<KeyActRecorded>.Fail(KeyActErrors.KeyAlreadyBound());

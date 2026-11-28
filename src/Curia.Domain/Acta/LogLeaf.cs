@@ -49,15 +49,25 @@ public static class LogLeaf
     public static JsonValue.Object Entry(AppendedEvent appended)
     {
         ArgumentNullException.ThrowIfNull(appended);
+        return Entry(appended.AggregateId, appended.ServerTimestamp, appended.Event);
+    }
+
+    /// <summary>
+    /// The same entry from the six things a row is made of, which an append holds before the database assigns <c>seq</c> (R6.46: <c>seq</c> is no member). The append writes
+    /// the leaf of this entry in the same INSERT as the row (R6.69), and the one function both call is this one, so what is written and what is recomputed are not two spellings.
+    /// </summary>
+    public static JsonValue.Object Entry(AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
 
         return new JsonValue.Object(
         [
-            new(ActorIdMember, appended.Event.Actor is { } actor ? new JsonValue.String(actor.Value) : JsonValue.Null.Instance),
-            new(AggregateIdMember, new JsonValue.String(appended.AggregateId.Value)),
-            new(EventIdMember, new JsonValue.String(appended.Event.Id.Value)),
-            new(EventTypeMember, new JsonValue.String(appended.Event.Type.Value)),
-            new(PayloadMember, appended.Event.Payload),
-            new(ServerTimestampMember, new JsonValue.String(RenderServerTimestamp(appended.ServerTimestamp))),
+            new(ActorIdMember, @event.Actor is { } actor ? new JsonValue.String(actor.Value) : JsonValue.Null.Instance),
+            new(AggregateIdMember, new JsonValue.String(aggregateId.Value)),
+            new(EventIdMember, new JsonValue.String(@event.Id.Value)),
+            new(EventTypeMember, new JsonValue.String(@event.Type.Value)),
+            new(PayloadMember, @event.Payload),
+            new(ServerTimestampMember, new JsonValue.String(RenderServerTimestamp(serverTimestamp))),
         ]);
     }
 
@@ -77,6 +87,10 @@ public static class LogLeaf
     /// <summary><c>SHA-256(0x00 ‖ input)</c>: the leaf hash the tree is built from.</summary>
     public static Result<ImmutableArray<byte>> Hash(AppendedEvent appended) =>
         Input(appended).Map(input => MerkleTree.LeafHash(input.Span));
+
+    /// <summary>The leaf hash of a row not yet appended (R6.69): <see cref="Hash(AppendedEvent)"/>'s computation over <see cref="Entry(AggregateId, ServerTimestamp, DomainEvent)"/>.</summary>
+    public static Result<ImmutableArray<byte>> Hash(AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event) =>
+        CanonicalJson.Canonicalize(Entry(aggregateId, serverTimestamp, @event)).Map(input => MerkleTree.LeafHash(input.Span));
 }
 
 /// <summary>

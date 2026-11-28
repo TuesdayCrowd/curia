@@ -41,30 +41,35 @@ public static class Jwks
     /// empty set, not a 404, which still means that the store holds no row.</para>
     /// </summary>
     /// <param name="keys">The keys, each with the binding the log holds for it.</param>
-    /// <param name="logIndexOf">The leaf index of an event, by its id; <see langword="null"/> when the log could not say.</param>
+    /// <param name="logIndexOf">
+    /// The leaf index of an event, by its id, from the read that decided the identity's lifecycle (R4.41 (rev.)). An event the read does not hold has no index to give and the function throws: that is a fault
+    /// of the Forum and never an omitted member.
+    /// </param>
     /// <param name="lifecycle">
-    /// The identity's lifecycle indices, ascending (R4.35 rev.); <see langword="null"/> when the log would not
-    /// fold, when <c>curia_lifecycle</c> is left out rather than published empty.
+    /// The identity's lifecycle indices, ascending (R4.35 rev.). Always published, empty included: since R4.41 (rev.) a key set the Forum cannot decide is a 503 and never a document without this member
+    /// (a client that meets one, from an older Forum, keeps reporting that the Forum did not say).
     /// </param>
     /// <param name="lifecycleKinds">
     /// The guard's state (R4.38 (add.)): <c>{"approved":[...],"enabled":[...]}</c>, the kinds the build approves
     /// and the Forum enables, both empty until the lift.
     /// </param>
     /// <param name="skipped">
-    /// The rows of the identity's stream the verifier does not honour (errata G68, R4.41), in log order; <see langword="null"/> when the log would not fold, when both <c>curia_skipped</c> and
-    /// <c>curia_skipped_total</c> are left out, so that "none skipped" (both present and empty) and "the Forum does not say" (neither) are different documents. At most
+    /// The rows of the identity's stream the verifier does not honour (errata G68, R4.41), in log order; both <c>curia_skipped</c> and <c>curia_skipped_total</c> are always published, so that "none
+    /// skipped" (both present and empty) and "the Forum does not say" (neither, an older Forum) are different documents. At most
     /// <see cref="MaxSkippedListed"/> are listed, each as exactly <c>{log_index, type, predicate}</c> and never a payload member, and the total counts them all.
     /// </param>
     public static JsonObject ForAgent(
         IReadOnlyList<BoundKey> keys,
-        Func<string, long?> logIndexOf,
-        IReadOnlyList<long>? lifecycle,
+        Func<string, long> logIndexOf,
+        IReadOnlyList<long> lifecycle,
         JsonObject lifecycleKinds,
-        IReadOnlyList<SkippedRow>? skipped = null)
+        IReadOnlyList<SkippedRow> skipped)
     {
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(logIndexOf);
+        ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(lifecycleKinds);
+        ArgumentNullException.ThrowIfNull(skipped);
 
         var array = new JsonArray();
         foreach (var bound in keys)
@@ -78,23 +83,19 @@ public static class Jwks
             if (!PublicJwk.Of(registered.Key).TryGetValue(out var jwk, out _)) continue;
 
             var node = Annotate(ActaEndpoints.ToObject(jwk!), registered);
-            if (logIndexOf(bound.Binding.EventId) is { } index) node["curia_log_index"] = index;
+            node["curia_log_index"] = logIndexOf(bound.Binding.EventId);
 
             // R4.35 (rev.): what the log says of the key now, and where it says so.
             node["curia_status"] = StatusName(bound.Status);
-            if (bound.Status is KeyStatus.Retired
-                && bound.EndedByEventId is { } endedBy
-                && logIndexOf(endedBy) is { } retiredAt)
-                node["curia_retired_log_index"] = retiredAt;
+            if (bound.Status is KeyStatus.Retired && bound.EndedByEventId is { } endedBy)
+                node["curia_retired_log_index"] = logIndexOf(endedBy);
 
             // R6.57: where the declaration that names the key sits, and the index it states the compromise from. The key set
             // names it for every kid the declaration lists, a cascaded key as well as the first, so a reader can fetch it
             // for a post under either. The Forum's word; a reader recomputes the declaration from the lifecycle.
-            if (bound.Status is KeyStatus.Compromised
-                && bound.CompromisedByEventId is { } declaredBy
-                && logIndexOf(declaredBy) is { } declaredAt)
+            if (bound.Status is KeyStatus.Compromised && bound.CompromisedByEventId is { } declaredBy)
             {
-                node["curia_compromised_log_index"] = declaredAt;
+                node["curia_compromised_log_index"] = logIndexOf(declaredBy);
                 if (bound.DisputedFrom is { } disputedFrom) node["curia_disputed_from"] = disputedFrom;
             }
 
@@ -102,26 +103,29 @@ public static class Jwks
         }
 
         var document = new JsonObject { ["keys"] = array };
-        if (lifecycle is not null)
-        {
-            var indices = new JsonArray();
-            foreach (var index in lifecycle.Order()) indices.Add((JsonNode)index);
-            document["curia_lifecycle"] = indices;
-        }
-
+        var indices = new JsonArray();
+        foreach (var index in lifecycle.Order()) indices.Add((JsonNode)index);
+        document["curia_lifecycle"] = indices;
         document["curia_lifecycle_kinds"] = lifecycleKinds;
 
-        if (skipped is not null)
-        {
-            var listed = new JsonArray();
-            foreach (var row in skipped.OrderBy(r => r.LogIndex).Take(MaxSkippedListed))
-                listed.Add(new JsonObject { ["log_index"] = row.LogIndex, ["type"] = row.Type, ["predicate"] = row.Predicate });
+        var listed = new JsonArray();
+        foreach (var row in skipped.OrderBy(r => r.LogIndex).Take(MaxSkippedListed))
+            listed.Add(new JsonObject { ["log_index"] = row.LogIndex, ["type"] = row.Type, ["predicate"] = row.Predicate });
 
-            document["curia_skipped"] = listed;
-            document["curia_skipped_total"] = skipped.Count;
-        }
-
+        document["curia_skipped"] = listed;
+        document["curia_skipped_total"] = skipped.Count;
         return document;
+    }
+
+    /// <summary>
+    /// R4.41 (rev.): the index function a key set is published with, over what the deciding read holds. An event the read does not hold is a fault of the Forum, thrown, and is never a member
+    /// left out of the document (the read's own view throws for a row it was not read for; this is the same rule at the seam where a position is turned into a member).
+    /// </summary>
+    public static Func<string, long> Strictly(Func<string, long?> held)
+    {
+        ArgumentNullException.ThrowIfNull(held);
+        return eventId => held(eventId)
+            ?? throw new InvalidOperationException("The read that decided this key set holds no log index for one of its own rows (R4.41 (rev.)).");
     }
 
     /// <summary>The most skipped rows a key set lists (R4.41): the first twenty in log order, then the total.</summary>

@@ -17,6 +17,8 @@ NOT CHECKED and exiting 8 when pg_dump is absent or its major is older than the 
   D3  the restored events table holds as many rows as the source
   D4  the restore post-check's grants block reads got = want on every row, and db/0002's tables exist
   D5  lifecycle-audit exits 0 over the restored database (needs --operator-cmd and --npgsql-base)
+  D6  the restored search index (db/0008: search_docs and search_terms, errata G88) holds as many rows as the source
+  D7  search-audit exits 0 over the restored database (needs --operator-cmd and --npgsql-base)
 """
 import argparse
 import importlib.util
@@ -99,7 +101,7 @@ def main(argv):
         code, role = psql(args.admin_url, "postgres", f"SELECT 1 FROM pg_roles WHERE rolname = '{args.app_role}';")
         if code != 0 or role != "1":
             add("D2", FAIL, f"the role {args.app_role} does not exist in the cluster: roles are cluster-level, and a restore into a cluster that lacks it fails its grants; create it first")
-            for check in ("D3", "D4", "D5"):
+            for check in ("D3", "D4", "D5", "D6", "D7"):
                 add(check, NOT_CHECKED, "the restore did not happen")
             return finish()
         dump = os.path.join(workdir, "events.dump")
@@ -111,7 +113,7 @@ def main(argv):
         ) if created == 0 else None
         if restore is None or restore.returncode != 0:
             add("D2", FAIL, "pg_dump or pg_restore failed" + (f" (restore exit {restore.returncode})" if restore else ""))
-            for check in ("D3", "D4", "D5"):
+            for check in ("D3", "D4", "D5", "D6", "D7"):
                 add(check, NOT_CHECKED, "the restore did not complete")
             return finish()
         add("D2", PASS, f"{args.source_db} dumped and restored into a fresh database")
@@ -119,6 +121,15 @@ def main(argv):
         _, before = psql(args.admin_url, args.source_db, "SELECT count(*) FROM events;")
         _, after = psql(args.admin_url, restored, "SELECT count(*) FROM events;")
         add("D3", PASS if before == after and before != "" else FAIL, f"events: {before} in the source, {after} restored")
+
+        # Errata G88: the keyword channel's index is part of the database and must come back with it. A restore that lost its rows would leave the Forum to rebuild them at start (insert-only, minutes
+        # at the target), and a count that differs here says so before anyone starts it.
+        counts = {}
+        for table in ("search_docs", "search_terms"):
+            _, before_rows = psql(args.admin_url, args.source_db, f"SELECT count(*) FROM {table};")
+            _, after_rows = psql(args.admin_url, restored, f"SELECT count(*) FROM {table};")
+            counts[table] = (before_rows, after_rows)
+        add("D6", PASS if all(b == a and b != "" for b, a in counts.values()) else FAIL, "; ".join(f"{t}: {b} in the source, {a} restored" for t, (b, a) in counts.items()))
 
         readiness = load_readiness()
         code, grants = psql(args.admin_url, restored, readiness.GRANTS_SQL.replace("curia_app", args.app_role))
@@ -133,8 +144,12 @@ def main(argv):
             audit = subprocess.run(shlex.split(args.operator_cmd) + ["lifecycle-audit"], capture_output=True, text=True, env=env, timeout=300, check=False)
             first = (audit.stdout.strip().splitlines() or [""])[0]
             add("D5", PASS if audit.returncode == 0 else FAIL, f"lifecycle-audit exit {audit.returncode}: {first}")
+            search = subprocess.run(shlex.split(args.operator_cmd) + ["search-audit"], capture_output=True, text=True, env=env, timeout=1800, check=False)
+            first_search = (search.stdout.strip().splitlines() or [""])[0]
+            add("D7", PASS if search.returncode == 0 else FAIL, f"search-audit exit {search.returncode}: {first_search}")
         else:
             add("D5", NOT_CHECKED, "--operator-cmd and --npgsql-base were not both given")
+            add("D7", NOT_CHECKED, "--operator-cmd and --npgsql-base were not both given")
     finally:
         psql(args.admin_url, "postgres", f'DROP DATABASE IF EXISTS "{restored}" WITH (FORCE);')
         shutil.rmtree(workdir, ignore_errors=True)

@@ -449,9 +449,12 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
         var suffix = Guid.NewGuid().ToString("N")[..10];
         var withoutSix = $"curia_rdy_a_{suffix}";
         var withoutTwo = $"curia_rdy_b_{suffix}";
+        var withoutSeven = $"curia_rdy_c_{suffix}";
+        var withoutEight = $"curia_rdy_d_{suffix}";
+        var withoutTarget = $"curia_rdy_e_{suffix}";
         var admin = new NpgsqlConnectionStringBuilder(f.ConnectionString) { Database = "postgres" }.ConnectionString;
         await using var source = new NpgsqlDataSourceBuilder(admin).Build();
-        async Task BuildAsync(string name, IEnumerable<string> files)
+        async Task BuildAsync(string name, IEnumerable<string> files, string? afterwards = null)
         {
             await using (var create = source.CreateCommand($"CREATE DATABASE \"{name}\"")) await create.ExecuteNonQueryAsync(Ct);
             await using var target = new NpgsqlDataSourceBuilder(new NpgsqlConnectionStringBuilder(admin) { Database = name }.ConnectionString).Build();
@@ -460,25 +463,46 @@ public sealed partial class ReadinessScriptTests(ReadinessForumFixture started) 
                 await using var apply = target.CreateCommand(SchemaMigrations.Render(file, name, "pw-" + suffix));
                 await apply.ExecuteNonQueryAsync(Ct);
             }
+
+            if (afterwards is not null)
+            {
+                await using var more = target.CreateCommand(afterwards);
+                await more.ExecuteNonQueryAsync(Ct);
+            }
         }
 
         try
         {
             await BuildAsync(withoutSix, SchemaMigrations.FileNames.Where(n => n != SchemaMigrations.EventInsertColumnsFile));
             await BuildAsync(withoutTwo, [SchemaMigrations.FileNames[0], SchemaMigrations.EventInsertColumnsFile]);
+            await BuildAsync(withoutSeven, SchemaMigrations.FileNames.Where(n => n != SchemaMigrations.StoredLeafHashFile));
+            await BuildAsync(withoutEight, SchemaMigrations.FileNames.Where(n => n != SchemaMigrations.SearchIndexFile));
+            await BuildAsync(withoutTarget, SchemaMigrations.FileNames, $"REVOKE INSERT (signal_target) ON events FROM \"{withoutTarget}\";");
             string[] common = ["--origin", "http://127.0.0.1:1", "--only", "R11"];
             var good = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, new NpgsqlConnectionStringBuilder(f.ConnectionString).Database!), "--app-role", f.RoleName]);
             var noSix = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, withoutSix), "--app-role", withoutSix]);
             var noTwo = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, withoutTwo), "--app-role", withoutTwo]);
+            var noSeven = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, withoutSeven), "--app-role", withoutSeven]);
+            var noEight = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, withoutEight), "--app-role", withoutEight]);
+            var noTarget = await ReadinessAsync([.. common, "--db-admin-url", AdminUrl(f.ConnectionString, withoutTarget), "--app-role", withoutTarget]);
             var unset = await ReadinessAsync(common);
             Assert.True(
                 good.Status("R11") == "PASS" && noSix.Status("R11") == "FAIL" && noSix.Checks["R11"].Reason.Contains("events.seq", StringComparison.Ordinal)
                 && noTwo.Status("R11") == "FAIL" && noTwo.Checks["R11"].Reason.Contains("authn_replay", StringComparison.Ordinal) && unset.Status("R11") == "NOT CHECKED",
                 $"full / without 0006 / without 0002 / no url: R11 was {good.Status("R11")} / {noSix.Status("R11")} / {noTwo.Status("R11")} / {unset.Status("R11")}; {good.Raw} {noSix.Raw} {noTwo.Raw}");
+            Assert.True(
+                noEight.Status("R11") == "FAIL" && noEight.Checks["R11"].Reason.Contains("search_docs", StringComparison.Ordinal),
+                $"without 0008: R11 was {noEight.Status("R11")}: {noEight.Raw}");
+            Assert.True(
+                noTarget.Status("R11") == "FAIL" && noTarget.Checks["R11"].Reason.Contains("events.signal_target", StringComparison.Ordinal),
+                $"without the signal_target grant: R11 was {noTarget.Status("R11")}: {noTarget.Raw}");
+            Assert.True(
+                noSeven.Status("R11") == "FAIL" && noSeven.Checks["R11"].Reason.Contains("events.leaf_hash", StringComparison.Ordinal),
+                $"without 0007: R11 was {noSeven.Status("R11")}: {noSeven.Raw}");
         }
         finally
         {
-            foreach (var name in new[] { withoutSix, withoutTwo })
+            foreach (var name in new[] { withoutSix, withoutTwo, withoutSeven, withoutEight, withoutTarget })
             {
                 await using (var drop = source.CreateCommand($"DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)")) await drop.ExecuteNonQueryAsync(CancellationToken.None);
                 await using (var dropRole = source.CreateCommand($"DROP ROLE IF EXISTS \"{name}\"")) await dropRole.ExecuteNonQueryAsync(CancellationToken.None);

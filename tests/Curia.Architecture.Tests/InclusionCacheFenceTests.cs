@@ -29,6 +29,7 @@ public sealed class InclusionCacheFenceTests
     /// <summary>The reasoned exceptions to ICF3: each is a value made per call and returned, never a service the container builds.</summary>
     private static readonly (string Type, string Reason)[] PerCallValues =
     [
+        ("Curia.Application.Credentials.KeyActs+WholeLifecycleRead", "an internal record that carries the operator's whole lifecycle read (the Acta it folded) back to the declaration, made per call; no route reads it (errata G87)"),
         ("Curia.Application.Credentials.KeyActs+LifecycleRead", "an internal record that carries one lifecycle read's result (the log it folded, the lifecycle, the skipped rows) back to its caller; made by ReadLifecycleAsync per call"),
     ];
 

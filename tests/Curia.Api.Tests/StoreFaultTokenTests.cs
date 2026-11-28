@@ -71,13 +71,13 @@ public sealed class StoreFaultTokenTests(FaultableForumFixture forum) : IClassFi
     }
 
     /// <summary>
-    /// ULG18 (c) (errata G68, R5.23 (rev.), ruling 64). A fault at the second whole-log read of the request, the read of the agent's standing, follows the consumption of the
-    /// assertion's and the proof's <c>jti</c> and the binding read (the first whole-log read, which binds the key after the assertion verified and both <c>jti</c>s were consumed, precedes it) and so spends both. The first call is <c>503</c>
-    /// <c>temporarily_unavailable</c> and mints nothing; the same assertion and proof sent again with the fault gone is not <c>200</c> (a replay, which the run names below);
-    /// a fresh pair is <c>200</c>. Falsified by moving the standings read above the validator (Task 7, item 286's order; item 282's order puts the binding read there too): this goes red and (a) of the role host's ULG18 stays green.
+    /// ULG18 (c) (errata G87, R5.28; register item 314). A token request makes one read set, so a reader that serves the first whole-log read and reports every one from the second (the old
+    /// shape: a binding read, then a standings read) is never asked for a second, and the request is <c>200</c>. Before errata G87 the second read, the agent's standing, was where this fault
+    /// fell, after both <c>jti</c> consumptions, and spent both; the one read set is now the read that does, and ULG18 (d) holds that. Falsified by a second read set in the endpoint (FRC10):
+    /// the fault is then reached and this answers <c>503</c>.
     /// </summary>
     [Fact]
-    public async Task R5_23_ULG18c_AFaultAtTheStandingsReadFollowsTheConsumptionAndSpendsTheJti()
+    public async Task R5_28_ULG18c_ATokenRequestMakesOneReadSetSoAFaultFromTheSecondReadIsNeverMet()
     {
         var actor = await AcceptedAnswerScene.EnrolAsync(forum, "token-standing", Ct);
         var assertion = actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now);
@@ -94,19 +94,7 @@ public sealed class StoreFaultTokenTests(FaultableForumFixture forum) : IClassFi
             forum.Store.Disarm();
         }
 
-        var again = await DpopClient.RequestTokenReplyAsync(forum.Client, actor.Agent.AgentId, assertion, proof, Ct);
-        var fresh = await DpopClient.RequestTokenReplyAsync(
-            forum.Client, actor.Agent.AgentId, actor.Dpop.ClientAssertion(Probe.TokenEndpoint, forum.Now), actor.Dpop.Proof("POST", Probe.TokenEndpoint, forum.Now), Ct);
-
-        var problems = new List<string>();
-        if (!FaultSweep.IsOAuthError(first, PublishedStoreFaults.TokenStatus, PublishedStoreFaults.TokenCode))
-            problems.Add($"the first call: expected {PublishedStoreFaults.TokenStatus} {PublishedStoreFaults.TokenCode}, actual {first.Says}");
-        if (first.Body.Contains("access_token", StringComparison.Ordinal)) problems.Add("the first call minted a token");
-        if (again.Status != 401 || again.Error != "invalid_client")
-            problems.Add($"the same assertion and proof with the fault gone: expected 401 invalid_client (a replay: the assertion's jti was spent), actual {again.Says}");
-        if (fresh.Status != 200) problems.Add($"a fresh assertion and proof: expected 200, actual {fresh.Says}");
-
-        Assert.True(problems.Count == 0, string.Join("; ", problems));
+        Assert.True(first.Status == 200, $"expected 200 (one read set; the second read the fault waits for is never made), actual {first.Says}");
     }
 
     private async Task<Reply> TokenAsync(SceneActor actor, string assertion, string proof) =>

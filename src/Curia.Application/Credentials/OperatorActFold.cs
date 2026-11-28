@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Collections.Immutable;
 using System.Text;
 using Curia.Application.Projections;
+using Curia.Application.Reads;
 using Curia.Canon.Canonical;
 using Curia.Canon.Envelope;
 using Curia.Canon.Json;
@@ -110,7 +111,16 @@ internal static class OperatorActFold
     /// keys the same log publishes; <paramref name="verifiers"/> the primitives, by algorithm.
     /// </summary>
     internal static ImmutableArray<ActDecision> Decide(IReadOnlyList<AppendedEvent> log, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers) =>
-        DecideFrom(log, 0, [], published, verifiers);
+        DecideFrom(new PositionedLog(log), 0, [], published, verifiers);
+
+    /// <summary>
+    /// <see cref="Decide(IReadOnlyList{AppendedEvent}, PublishedKeys, IReadOnlyDictionary{string, IContentVerifier})"/> over rows that carry their own log index (errata G87, R11.113): the rows of the
+    /// streams the caller read whole, in log order. A row's decision reads its own stream's earlier rows (its first event and the last act it honoured of each kind) and the operator keys published
+    /// before it, so a read that holds each stream it names whole and the key types whole decides every one of its act rows as the whole log does, and a decision's <c>prev</c> and key comparisons
+    /// are over the row's index and not its position in the list.
+    /// </summary>
+    internal static ImmutableArray<ActDecision> Decide(IReadOnlyList<PositionedEvent> rows, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers) =>
+        DecideFrom(rows, 0, [], published, verifiers);
 
     /// <summary>
     /// The continuation of <see cref="Decide"/> (register item 286, errata G71): <paramref name="prior"/> is what <see cref="Decide"/> returned over the first <paramref name="start"/> rows of
@@ -119,9 +129,9 @@ internal static class OperatorActFold
     /// <paramref name="published"/> is the keys <paramref name="log"/> publishes: a key published at or after <paramref name="start"/> is at a log index above every prior row, and step 6 excludes it for them.
     /// </summary>
     internal static ImmutableArray<ActDecision> Extend(ImmutableArray<ActDecision> prior, long start, IReadOnlyList<AppendedEvent> log, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers) =>
-        DecideFrom(log, start, prior, published, verifiers);
+        DecideFrom(new PositionedLog(log), start, prior, published, verifiers);
 
-    private static ImmutableArray<ActDecision> DecideFrom(IReadOnlyList<AppendedEvent> log, long start, ImmutableArray<ActDecision> prior, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers)
+    private static ImmutableArray<ActDecision> DecideFrom(IReadOnlyList<PositionedEvent> log, long start, ImmutableArray<ActDecision> prior, PublishedKeys published, IReadOnlyDictionary<string, IContentVerifier> verifiers)
     {
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(published);
@@ -132,9 +142,10 @@ internal static class OperatorActFold
         var streams = new Dictionary<string, Stream>(StringComparer.Ordinal);
         var carried = 0;
 
-        for (var i = 0; i < log.Count; i++)
+        for (var n = 0; n < log.Count; n++)
         {
-            var appended = log[i];
+            long i = log[n].LogIndex;
+            var appended = log[n].Event;
             var type = appended.Event.Type.Value;
             var aggregate = appended.AggregateId.Value;
             if (!streams.TryGetValue(aggregate, out var stream)) streams[aggregate] = stream = new Stream(i, type);
@@ -157,6 +168,9 @@ internal static class OperatorActFold
 
         return decisions.ToImmutable();
     }
+
+    /// <summary>Whether <paramref name="type"/> is an operator act's row type (R6.67): the one place outside the projectors that names them, so a view that must know whether a row is an act asks here.</summary>
+    internal static bool IsActType(string type) => KindOf(type) is not null;
 
     private static Kind? KindOf(string type) =>
         string.Equals(type, Attestation.RowType, StringComparison.Ordinal) ? Attestation

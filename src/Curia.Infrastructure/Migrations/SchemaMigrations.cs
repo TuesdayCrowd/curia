@@ -45,6 +45,12 @@ public static class SchemaMigrations
     /// <see cref="EventStoreSchema.FileName"/> wherever that table is built on its own.</summary>
     public const string EventInsertColumnsFile = "0006_events_insert_columns.sql";
 
+    /// <summary>db/0007: the stored leaf hash (<c>events.leaf_hash</c>, its column grant and covering index) and the payload indexes the serving routes read by (errata G87, R6.69).</summary>
+    public const string StoredLeafHashFile = "0007_store_leaf_hashes.sql";
+
+    /// <summary>db/0008: the keyword channel's index (<c>search_docs</c>, <c>search_terms</c>, <c>search_index_versions</c>), append-only by grant (errata G88, R11.114).</summary>
+    public const string SearchIndexFile = "0008_create_search_index.sql";
+
     /// <summary>
     /// Every migration file in <c>db/</c>, in the order it must be applied. The names are the
     /// checked-in file names, so a reader comparing this list against a directory listing can
@@ -58,6 +64,8 @@ public static class SchemaMigrations
         FlagDetailsFile,
         AgentKeyMaterialFile,
         EventInsertColumnsFile,
+        StoredLeafHashFile,
+        SearchIndexFile,
     ];
 
     /// <summary>

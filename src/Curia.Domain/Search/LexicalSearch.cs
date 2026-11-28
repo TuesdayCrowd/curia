@@ -317,6 +317,28 @@ public static class LexicalSearch
     /// <summary>The default page size when a caller expresses no preference.</summary>
     public const int DefaultLimit = 25;
 
+    /// <summary>
+    /// Errata G88, R9.79: the most distinct terms (R9.72's, after the list) a search query may name. The statement over an index costs the postings of its terms, so a request line of two thousand distinct words
+    /// (an 8 KB line holds them) cost 263 ms at 12,000 posts and 1.2 s at 30,000 where twenty cost 9 and 39 (Task 0c, item iii); a natural-language question is fifteen to twenty-five tokens and the list removes
+    /// a third of them. 32 is the first power of two above that, and the cost at it is the measured twenty terms' and a little more: a search for the words that matter most, not for a paragraph.
+    /// </summary>
+    public const int MaximumQueryTerms = 32;
+
+    /// <summary>
+    /// R9.79: the refusal of a query that names more than <see cref="MaximumQueryTerms"/> distinct terms, or <see langword="null"/>. A refusal and not a truncation: dropping the tail would answer another
+    /// question than the one asked and the page would not say so. It states the count and the limit and echoes nothing of the text, which is a caller's string.
+    /// </summary>
+    public static Error? RefuseLongQuery(string? text)
+    {
+        var distinct = SearchTerms(text).Terms.Distinct(StringComparer.Ordinal).Count();
+        return distinct <= MaximumQueryTerms
+            ? null
+            : new Error(
+                "curia/search/query-too-many-terms",
+                "A search query names too many distinct words",
+                $"terms={distinct.ToString(CultureInfo.InvariantCulture)}; limit={MaximumQueryTerms.ToString(CultureInfo.InvariantCulture)}; search for the words that matter most, or run several searches");
+    }
+
     private static int PageSize(int requested) => Math.Clamp(requested, 1, MaximumLimit);
 
     /// <summary>

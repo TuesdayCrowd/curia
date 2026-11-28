@@ -49,11 +49,27 @@ public sealed record AppendedEvent
     public ServerTimestamp ServerTimestamp { get; }
     public DomainEvent Event { get; }
 
-    internal AppendedEvent(EventSequence seq, AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event)
+    /// <summary>
+    /// R6.69: the leaf hash the store holds for this row (<c>events.leaf_hash</c>), in the wire form <c>sha256:</c> and 64 lowercase hex digits, or <see langword="null"/> for a row appended
+    /// before db/0007 (or by a store that holds none). It is what the store <i>says</i> the leaf is, never what the leaf <i>is</i>: <c>LogLeaf.Hash</c> recomputes it from the row, and
+    /// <c>curia-operator sign-head</c> and <c>lifecycle-audit</c> compare the two. A string, not an array, so that two reads of one row are equal records.
+    /// </summary>
+    public string? StoredLeafHash { get; }
+
+    /// <summary>
+    /// R11.6 (add.), db/0007: the signal target the store holds for this row (<c>events.signal_target</c>), the wire form of a prefixed digest, or <see langword="null"/> for a row that is not a
+    /// vote or verification, or was appended before db/0007. It is what the store <i>says</i> the target is; the canonical envelope says what it <i>is</i>, and <c>lifecycle-audit</c> compares them.
+    /// </summary>
+    public string? StoredSignalTarget { get; }
+
+    internal AppendedEvent(
+        EventSequence seq, AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event, string? storedLeafHash = null, string? storedSignalTarget = null)
     {
+        StoredSignalTarget = storedSignalTarget;
         Seq = seq;
         AggregateId = aggregateId;
         ServerTimestamp = serverTimestamp;
         Event = @event;
+        StoredLeafHash = storedLeafHash;
     }
 }
