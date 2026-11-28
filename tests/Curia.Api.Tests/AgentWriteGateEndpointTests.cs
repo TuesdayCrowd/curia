@@ -70,10 +70,23 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
     /// </summary>
     private const int KeyRead = 1;
 
+    /// <summary>
+    /// How long B is given while A is parked. With the gate, B must still be waiting at the end of it, so the time is a fixed 700 ms (a slow machine only makes that observation
+    /// weaker, never wrong). With the gate removed nothing holds B, and the control needs B's append to have landed while A is parked: a fixed time cannot promise that, and CI
+    /// showed it (BRB20, PR 184: the table held 3, not 4, when B decided after A was released and was told the budget), so the control waits for B's answer, bounded.
+    /// </summary>
+    private static async Task LetBActAsync(Task b, bool passThrough)
+    {
+        if (passThrough)
+            await Task.WhenAny(b, Task.Delay(TimeSpan.FromSeconds(60), Ct));
+        else
+            await Task.Delay(700, Ct);
+    }
+
     /// <summary>A parked at its append, B sent: what B read and stored while A was parked, and the table after A is released.</summary>
     private sealed record Interleave(string Report, long StoredAfter, string AKind, string BKind);
 
-    private async Task<Interleave> PostInterleaveAsync(bool passThrough)
+    private async Task<Interleave> PostInterleaveAsync(bool passThrough, TimeSpan bArrivesAfter = default)
     {
         forum.ResetSeams();
         forum.Gate.UsePassThrough = passThrough;
@@ -93,8 +106,8 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
             var a = Task.Run(() => Probe.SendAsync(forum, actor, wireA, token, Ct), Ct);
             var parked = await forum.Store.WaitForParkedAsync(1, TimeSpan.FromSeconds(15));
             var requestsBefore = forum.Store.RequestsStarted;
-            var b = Task.Run(() => Probe.SendAsync(forum, actor, wireB, token, Ct), Ct);
-            await Task.Delay(700, Ct);
+            var b = Task.Run(async () => { await Task.Delay(bArrivesAfter, Ct); return await Probe.SendAsync(forum, actor, wireB, token, Ct); }, Ct);
+            await LetBActAsync(b, passThrough);
             var readsWhileParked = forum.Store.ForwardReadsOfRequestsAfter(requestsBefore);
             var storedWhileParked = await BudgetOracle.PostsInWindowAsync(forum, actor.Agent.AgentId);
             var bDoneWhileParked = b.IsCompleted;
@@ -149,7 +162,7 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
             var parked = await forum.Store.WaitForParkedAsync(1, TimeSpan.FromSeconds(15));
             var requestsBefore = forum.Store.RequestsStarted;
             var b = Task.Run(() => BudgetBursts.AcceptAsync(forum, asker, threadB, token, null, Ct), Ct);
-            await Task.Delay(700, Ct);
+            await LetBActAsync(b, passThrough);
             var readsWhileParked = forum.Store.ForwardReadsOfRequestsAfter(requestsBefore);
             var storedWhileParked = await BudgetOracle.AcceptsInWindowAsync(forum, asker.Agent.AgentId);
             var bDone = b.IsCompleted;
@@ -364,6 +377,20 @@ public sealed class AgentWriteGateEndpointTests(AgentWriteGateForumFixture forum
         Said(
             $"posts interleave stores {postLimit + 1}; acceptances interleave stores {acceptLimit + 1}; the T0 width-16 cell overshoots in at least one of 20 repetitions",
             actual);
+    }
+
+    /// <summary>
+    /// BRB20b. The control does not depend on how fast B is: with the gate removed and B reaching its decision a full second after A parked (past BRB16's 700 ms), the interleave still
+    /// stores one more than the limit. Red when the control gives B a fixed time and releases A (B then decides on a table that holds the limit and is told the budget: stored 3, not 4).
+    /// </summary>
+    [Fact]
+    public async Task R7_27_BRB20b_WithTheGateRemovedASlowSecondRequestStillOvershoots()
+    {
+        var postLimit = BudgetBursts.PostLimit("T0");
+
+        var posts = await PostInterleaveAsync(passThrough: true, bArrivesAfter: TimeSpan.FromSeconds(1.5));
+
+        Said($"posts interleave stores {postLimit + 1}; A 201, B 201", $"posts interleave stores {posts.StoredAfter}; A {posts.AKind}, B {posts.BKind}");
     }
 
     /// <summary>
